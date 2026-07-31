@@ -242,18 +242,14 @@ class MenuGridButton(QPushButton):
                     "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #EA580C, stop:1 #C2410C); "
                     "border: 2px solid #F97316; border-radius: 10px; }"
                     "QPushButton:hover { background: #EA580C; }"
+                    "QLabel { color: #FFFFFF; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
                 )
-                self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #FFFFFF; border: none; background: transparent;")
-                if self.lbl_sub:
-                    self.lbl_sub.setStyleSheet("font-size: 12px; color: #FFEDD5; border: none; background: transparent;")
             else:
                 self.setStyleSheet(
                     "QPushButton { background: #FFF7ED; border: 2px solid #FDBA74; border-radius: 10px; }"
                     "QPushButton:hover { background: #FFEDD5; }"
+                    "QLabel { color: #9A3412; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
                 )
-                self.lbl_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #C2410C; border: none; background: transparent;")
-                if self.lbl_sub:
-                    self.lbl_sub.setStyleSheet("font-size: 12px; color: #9A3412; border: none; background: transparent;")
         else:
             # ── 普通加价/饮料卡片 (深浅自适应) ──
             if self.is_dark_mode:
@@ -261,27 +257,27 @@ class MenuGridButton(QPushButton):
                     self.setStyleSheet(
                         "QPushButton { background: #1E293B; border: 2px solid #EA580C; border-radius: 10px; }"
                         "QPushButton:hover { background: #263352; }"
+                        "QLabel { color: #F97316; font-size: 15px; font-weight: 900; background: transparent; border: none; }"
                     )
-                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F97316; border: none; background: transparent;")
                 else:
                     self.setStyleSheet(
                         "QPushButton { background: #172136; border: 1px solid #374151; border-radius: 10px; }"
                         "QPushButton:hover { background: #1E293B; }"
+                        "QLabel { color: #F9FAFB; font-size: 15px; font-weight: bold; background: transparent; border: none; }"
                     )
-                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
             else:
                 if self.count > 0:
                     self.setStyleSheet(
                         "QPushButton { background: #FFF7ED; border: 2px solid #EA580C; border-radius: 10px; }"
                         "QPushButton:hover { background: #FFEDD5; }"
+                        "QLabel { color: #EA580C; font-size: 15px; font-weight: 900; background: transparent; border: none; }"
                     )
-                    self.lbl_title.setStyleSheet("font-size: 15px; font-weight: 900; color: #EA580C; border: none; background: transparent;")
                 else:
                     self.setStyleSheet(
-                        "QPushButton { background: #FFFFFF; border: 2px solid #CBD5E1; border-radius: 10px; }"
+                        "QPushButton { background: #FFFFFF; border: 2px solid #94A3B8; border-radius: 10px; }"
                         "QPushButton:hover { background: #F1F5F9; }"
+                        "QLabel { color: #000000; font-size: 15px; font-weight: 900; background: transparent; border: none; }"
                     )
-                    self.lbl_title.setStyleSheet("font-size: 15px; font-weight: 900; color: #0F172A; border: none; background: transparent;")
 
 
 class SaleWidget(QWidget):
