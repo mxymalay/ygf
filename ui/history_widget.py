@@ -429,16 +429,59 @@ class HistoryWidget(QWidget):
 
         # 解析项目
         proj_match = re.search(r"项目:(.*)", remark)
-        proj_str = proj_match.group(1) if proj_match else ""
+        proj_str = proj_match.group(1).strip() if proj_match else ""
 
         w_kg = record.get("weight_kg", 0.0)
 
-        if w_kg > 0:
+        if proj_str:
+            items_list = [p.strip() for p in proj_str.split(",") if p.strip()]
+            for idx, p in enumerate(items_list):
+                tag_match = re.search(r"^([^(]+)(?:\(([^)]+)\))?", p)
+                if tag_match:
+                    name_part = tag_match.group(1).strip()
+                    tag_part = tag_match.group(2)
+                else:
+                    name_part = p
+                    tag_part = None
+
+                item_row = QVBoxLayout()
+                item_row.setSpacing(2)
+
+                row_main = QHBoxLayout()
+                lbl_name = QLabel(name_part)
+                lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+
+                if idx == 0 and w_kg > 0:
+                    lbl_qty = QLabel("x%.3f kg" % w_kg)
+                    item_price_str = "¥ %.2f" % tot
+                else:
+                    lbl_qty = QLabel("x1")
+                    item_price_str = "¥ 1.00" if (idx > 0 and w_kg > 0) else ("¥ %.2f" % tot)
+
+                lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
+                lbl_price = QLabel(item_price_str)
+                lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+
+                row_main.addWidget(lbl_name)
+                row_main.addStretch()
+                row_main.addWidget(lbl_qty)
+                row_main.addSpacing(30)
+                row_main.addWidget(lbl_price)
+                item_row.addLayout(row_main)
+
+                if tag_part and tag_part != "无":
+                    lbl_tag = QLabel(tag_part)
+                    lbl_tag.setStyleSheet("font-size: 12px; color: #EA580C; border: none; font-weight: bold;")
+                    item_row.addWidget(lbl_tag)
+
+                self.items_layout.addLayout(item_row)
+
+        elif w_kg > 0:
             item_row = QVBoxLayout()
             row_main = QHBoxLayout()
-            lbl_name = QLabel(u"经典草本骨汤 ( KG )")
+            lbl_name = QLabel(u"称重菜品")
             lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
-            lbl_qty = QLabel("x%.3f" % w_kg)
+            lbl_qty = QLabel("x%.3f kg" % w_kg)
             lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
             lbl_price = QLabel("¥ %.2f" % tot)
             lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
@@ -449,32 +492,7 @@ class HistoryWidget(QWidget):
             row_main.addSpacing(30)
             row_main.addWidget(lbl_price)
             item_row.addLayout(row_main)
-
-            # 叫号或口味
-            lbl_tag = QLabel(u"微辣/")
-            lbl_tag.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
-            item_row.addWidget(lbl_tag)
             self.items_layout.addLayout(item_row)
-
-        elif proj_str:
-            for p in proj_str.split(", "):
-                p = p.strip()
-                if not p:
-                    continue
-                item_row = QHBoxLayout()
-                lbl_name = QLabel(p)
-                lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
-                lbl_qty = QLabel("x1")
-                lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
-                lbl_price = QLabel("¥ 1.00")
-                lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
-
-                item_row.addWidget(lbl_name)
-                item_row.addStretch()
-                item_row.addWidget(lbl_qty)
-                item_row.addSpacing(30)
-                item_row.addWidget(lbl_price)
-                self.items_layout.addLayout(item_row)
 
         self.items_layout.addStretch()
 

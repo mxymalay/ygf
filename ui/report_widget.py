@@ -127,13 +127,10 @@ class ReportWidget(QWidget):
         self.lbl_start_time.setStyleSheet("color: #374151; font-size: 13px;")
         self.lbl_pending_count = QLabel(u"挂单数量：0")
         self.lbl_pending_count.setStyleSheet("color: #374151; font-size: 13px;")
-        self.lbl_pos_cashier = QLabel(u"POS机号：1  收银员：杨国福门店经理")
-        self.lbl_pos_cashier.setStyleSheet("color: #374151; font-size: 13px;")
 
         mid_layout.addWidget(self.lbl_shop_name)
         mid_layout.addWidget(self.lbl_start_time)
         mid_layout.addWidget(self.lbl_pending_count)
-        mid_layout.addWidget(self.lbl_pos_cashier)
 
         lbl_sep2 = QLabel("------------------------------------------")
         lbl_sep2.setAlignment(Qt.AlignCenter)
