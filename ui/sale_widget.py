@@ -187,7 +187,7 @@ class TasteSelectionDialog(QDialog):
 
     def get_tag_string(self):
         tags = [self.selected_spice] + sorted(list(self.selected_prefs))
-        return " / ".join(tags) + " /"
+        return " / ".join(tags)
 
 
 class OrderItemCard(QFrame):
@@ -479,9 +479,9 @@ class SaleWidget(QWidget):
         left_layout.addWidget(led_banner)
 
         # 2. 订单消费卡片列表 (ScrollArea)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.cart_scroll = QScrollArea()
+        self.cart_scroll.setWidgetResizable(True)
+        self.cart_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         self.cart_container = QWidget()
         self.cart_layout = QVBoxLayout(self.cart_container)
@@ -489,8 +489,8 @@ class SaleWidget(QWidget):
         self.cart_layout.setSpacing(6)
         self.cart_layout.setAlignment(Qt.AlignTop)
 
-        scroll.setWidget(self.cart_container)
-        left_layout.addWidget(scroll, stretch=1)
+        self.cart_scroll.setWidget(self.cart_container)
+        left_layout.addWidget(self.cart_scroll, stretch=1)
 
         # 3. 结算金额栏
         footer_line = QHBoxLayout()
@@ -692,6 +692,8 @@ class SaleWidget(QWidget):
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
         self.lbl_price.setText(u"￥%.2f" % total_price)
         QCoreApplication.processEvents()
+        if hasattr(self, 'cart_scroll'):
+            self.cart_scroll.verticalScrollBar().setValue(self.cart_scroll.verticalScrollBar().maximum())
 
     def refresh_call_number_display(self):
         next_num = self.call_mgr.peek_next_number()
