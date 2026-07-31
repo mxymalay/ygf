@@ -315,6 +315,18 @@ class SaleWidget(QWidget):
         self.is_dark_mode = is_dark_mode
         for btn in self.menu_buttons.values():
             btn.update_theme(is_dark_mode)
+
+        if hasattr(self, 'lbl_call_title'):
+            c_text = "#9CA3AF" if is_dark_mode else "#111827"
+            self.lbl_call_title.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {c_text}; border: none; background: transparent;")
+            self.lbl_item_count.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {c_text}; border: none; background: transparent;")
+            self.lbl_mode_tip.setStyleSheet(f"color: {c_text}; font-size: 13px; border: none; background: transparent;")
+
+            if is_dark_mode:
+                self.btn_toggle_detail.setStyleSheet("background: #1E293B; color: #38BDF8; font-size: 13px; font-weight: bold; border-radius: 6px; padding: 4px 10px;")
+            else:
+                self.btn_toggle_detail.setStyleSheet("background: #E0F2FE; color: #0284C7; font-size: 13px; font-weight: bold; border-radius: 6px; padding: 4px 10px;")
+
         self._update_price_display()
 
     def _gen_temp_order_no(self):
@@ -335,9 +347,9 @@ class SaleWidget(QWidget):
         # 1. 顶栏：本次打印叫号模块
         call_header = QHBoxLayout()
         
-        lbl_call_title = QLabel(u"本次打印叫号：")
-        lbl_call_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
-        call_header.addWidget(lbl_call_title)
+        self.lbl_call_title = QLabel(u"本次打印叫号：")
+        self.lbl_call_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
+        call_header.addWidget(self.lbl_call_title)
 
         self.lbl_next_call_no = QLabel("# 50")
         self.lbl_next_call_no.setStyleSheet("font-size: 26px; font-weight: 900; color: #F97316; border: none;")

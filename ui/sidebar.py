@@ -90,25 +90,25 @@ class SideNavBar(QWidget):
 
         # 2. 核心导航项目按钮组
         # 0: 收银台
-        item_cashier = SideNavItem(u"🖥️", u"收银台", 0)
+        item_cashier = SideNavItem(u"⚖", u"收银台", 0)
         item_cashier.clicked.connect(lambda: self._select_page(0))
         layout.addWidget(item_cashier)
         self._items.append(item_cashier)
 
         # 1: 订单查询
-        item_history = SideNavItem(u"📋", u"订单查询", 1)
+        item_history = SideNavItem(u"≡", u"订单查询", 1)
         item_history.clicked.connect(lambda: self._select_page(1))
         layout.addWidget(item_history)
         self._items.append(item_history)
 
         # 2: 叫号设置
-        item_queue = SideNavItem(u"🏷️", u"叫号设置", 2)
+        item_queue = SideNavItem(u"⚡", u"叫号设置", 2)
         item_queue.clicked.connect(lambda: self._select_page(2))
         layout.addWidget(item_queue)
         self._items.append(item_queue)
 
         # 3: 系统设置
-        item_settings = SideNavItem(u"⚙️", u"系统设置", 3)
+        item_settings = SideNavItem(u"⚙", u"系统设置", 3)
         item_settings.clicked.connect(lambda: self._select_page(3))
         layout.addWidget(item_settings)
         self._items.append(item_settings)
@@ -117,12 +117,12 @@ class SideNavBar(QWidget):
 
         # 3. 底部快捷控制按钮组
         # 一键更新
-        item_update = SideNavItem(u"🔄", u"一键更新", -1)
+        item_update = SideNavItem(u"↻", u"一键更新", -1)
         item_update.clicked.connect(lambda: self.update_requested.emit())
         layout.addWidget(item_update)
 
         # 最小化
-        item_min = SideNavItem(u"🗕", u"最小化", -1)
+        item_min = SideNavItem(u"—", u"最小化", -1)
         item_min.clicked.connect(lambda: self.minimized_requested.emit())
         layout.addWidget(item_min)
 
@@ -132,7 +132,7 @@ class SideNavBar(QWidget):
         layout.addWidget(self.item_theme)
 
         # 退出程序
-        item_exit = SideNavItem(u"🚪", u"退出程序", -1)
+        item_exit = SideNavItem(u"✕", u"退出程序", -1)
         item_exit.clicked.connect(lambda: self.exit_requested.emit())
         layout.addWidget(item_exit)
 
@@ -148,4 +148,4 @@ class SideNavBar(QWidget):
         if is_dark:
             self.item_theme.lbl_icon.setText(u"🌙")
         else:
-            self.item_theme.lbl_icon.setText(u"☀️")
+            self.item_theme.lbl_icon.setText(u"☀")
