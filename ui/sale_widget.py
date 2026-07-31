@@ -365,14 +365,11 @@ class SaleWidget(QWidget):
             QMessageBox.warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
 
     def _on_clear(self):
-        self.current_weight = 0.0
-        self._is_stable = False
-        self._stable_weight = 0.0
+        """清空附加加价项目与提示（始终保持物理电子秤真实读数）"""
         self.extra_fee = 0.0
-        self.lbl_weight.setText("0.000")
-        self.lbl_price.setText(u"￥0.00")
         self.lbl_extra_info.setText("")
         self.lbl_stable.setText("")
+        self._update_price_display()
 
     def cleanup(self):
         if hasattr(self, 'scale'):
