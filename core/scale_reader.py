@@ -1,6 +1,6 @@
 """
 称重秤读取模块 — 官方日志无缝同步 + 串口自适应混合引擎
-1. 官方系统打开时：实时无缝同步 C:\\YANGGUOFU-POS\\serial\\log_serial_ports_weight (免串口冲突/免VSPE)
+1. 官方系统打开时：实时无缝同步 C:\\YANGGUOFU-POS\\serial\\ 目录下的日志 (免串口冲突/免VSPE)
 2. 官方系统未打开时：直接打开 COM 串口进行 RTS/DTR 硬件探针读取
 PyQt5 + Python 3.8 兼容
 """
@@ -34,9 +34,7 @@ class ScaleReader(QObject):
         self._stable_threshold = config.get("stable_threshold", 0.01)
         self._stable_count = config.get("stable_count", 5)
 
-        # 官方 POS 系统串口日志路径
-        self._ygf_weight_log = r"C:\YANGGUOFU-POS\serial\log_serial_ports_weight"
-        self._ygf_info_log = r"C:\YANGGUOFU-POS\serial\log_serial_ports_info"
+        self._ygf_serial_dir = r"C:\YANGGUOFU-POS\serial"
 
     def start(self):
         """启动称重读取"""
@@ -65,80 +63,118 @@ class ScaleReader(QObject):
     def _run_loop(self):
         """主循环 — 优先检查官方日志共享模式，其次退回物理串口"""
         while self._running:
-            # 检查官方 POS 日志文件是否存在且在 5 秒内有更新
-            if self._is_ygf_log_active():
-                self._read_from_ygf_log()
+            active_log = self._find_active_ygf_log()
+            if active_log:
+                self._read_from_ygf_log(active_log)
             else:
                 self._read_from_serial()
 
-    def _is_ygf_log_active(self) -> bool:
-        """检查官方系统的称重日志是否处于活跃更新状态"""
-        for log_path in [self._ygf_weight_log, self._ygf_info_log]:
-            if os.path.exists(log_path):
-                try:
-                    mtime = os.path.getmtime(log_path)
-                    if time.time() - mtime < 5.0:  # 5秒内有写入数据
-                        return True
-                except Exception:
-                    pass
-        return False
-
-    def _read_from_ygf_log(self):
-        """模式 1：从官方系统实时日志中拉取重量（零串口冲突、零配置）"""
-        self.status_changed.emit(True, "● 已同步官方收银系统称重服务 (免串口占用/免VSPE)")
-        last_pos = 0
-        last_weight = None
-
-        target_file = self._ygf_weight_log if os.path.exists(self._ygf_weight_log) else self._ygf_info_log
+    def _find_active_ygf_log(self) -> str:
+        """扫描 C:\\YANGGUOFU-POS\\serial 目录下最新更新的日志文件"""
+        if not os.path.exists(self._ygf_serial_dir):
+            return None
 
         try:
+            candidates = []
+            for fname in os.listdir(self._ygf_serial_dir):
+                if fname.startswith("log_serial_ports"):
+                    full_path = os.path.join(self._ygf_serial_dir, fname)
+                    if os.path.isfile(full_path):
+                        mtime = os.path.getmtime(full_path)
+                        # 只要 10 秒内有文件修改或新建，即判定为活跃
+                        if time.time() - mtime < 10.0:
+                            candidates.append((mtime, full_path))
+
+            if candidates:
+                candidates.sort(key=lambda x: x[0], reverse=True)
+                return candidates[0][1]
+        except Exception:
+            pass
+
+        return None
+
+    def _parse_ygf_log_line(self, line: str):
+        """从日志行中提取重量: 例如 '[Sat Aug 01...] DI_BAO read - 000.350'"""
+        if not line:
+            return None
+
+        # 模式 1: DI_BAO read - 000.350
+        m = re.search(r'read\s*-\s*([+-]?\d{1,5}\.\d{1,4})', line, re.IGNORECASE)
+        if not m:
+            # 模式 2: ["00.350", "00.350"...]
+            m = re.search(r'"([+-]?\d{1,5}\.\d{1,4})"', line)
+        if not m:
+            # 模式 3: - 000.350
+            m = re.search(r'-\s*([+-]?\d{1,5}\.\d{1,4})', line)
+        if not m:
+            # 模式 4: 浮点数提取
+            m = re.search(r'([+-]?\d{1,5}\.\d{1,4})', line)
+
+        if m:
+            try:
+                val = float(m.group(1))
+                if val > 50:
+                    val = val / 1000.0
+                return round(abs(val), 3)
+            except Exception:
+                pass
+        return None
+
+    def _read_from_ygf_log(self, target_file: str):
+        """模式 1：从官方系统实时日志中拉取重量（零串口冲突、零配置）"""
+        self.status_changed.emit(True, "● 已连接官方称重服务 (%s)" % os.path.basename(target_file))
+        last_weight = None
+
+        try:
+            # 启动时首先读取文件末尾最后 50 行，立刻显示当前读数！
+            with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                for line in reversed(lines[-50:]):
+                    w = self._parse_ygf_log_line(line)
+                    if w is not None:
+                        last_weight = w
+                        self.weight_updated.emit(w)
+                        self._check_stability(w)
+                        self.status_changed.emit(
+                            True, "● 已同步官方收银称重 | 读数: %.3f kg" % w
+                        )
+                        break
+
+            # 然后进入持续轮询监听新写入行
             with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
                 f.seek(0, os.SEEK_END)
                 last_pos = f.tell()
 
                 while self._running:
-                    # 如果日志停更超过 6 秒，退出此模式切回物理串口
-                    if not self._is_ygf_log_active():
-                        break
+                    # 每秒检测一次活跃日志文件
+                    current_log = self._find_active_ygf_log()
+                    if not current_log:
+                        break  # 官方服务停止，切回物理串口
 
-                    current_pos = f.tell()
-                    if current_pos < last_pos:  # 文件可能被切割重写
+                    if current_log != target_file:
+                        target_file = current_log
+                        f = open(target_file, "r", encoding="utf-8", errors="ignore")
+                        f.seek(0, os.SEEK_END)
+                        last_pos = f.tell()
+
+                    curr_pos = f.tell()
+                    if curr_pos < last_pos:
                         f.seek(0, os.SEEK_SET)
 
                     lines = f.readlines()
                     last_pos = f.tell()
 
                     for line in reversed(lines):
-                        line = line.strip()
-                        if not line:
-                            continue
-
-                        # 格式1: [中国标准时间)] DI_BAO read - 000.350
-                        # 格式2: ["00.350", "00.350", ...]
-                        m = re.search(r'read\s*-\s*([+-]?\d{1,5}\.\d{1,4})', line)
-                        if not m:
-                            m = re.search(r'"([+-]?\d{1,5}\.\d{1,4})"', line)
-                        if not m:
-                            m = re.search(r'([+-]?\d{1,5}\.\d{1,4})', line)
-
-                        if m:
-                            try:
-                                weight_val = float(m.group(1))
-                                # 兼容克与公斤
-                                if weight_val > 50:
-                                    weight_val = weight_val / 1000.0
-                                weight = round(abs(weight_val), 3)
-
-                                if weight != last_weight:
-                                    last_weight = weight
-                                    self.weight_updated.emit(weight)
-                                    self._check_stability(weight)
-                                    self.status_changed.emit(
-                                        True, "● 已同步官方收银称重 | 读数: %.3f kg" % weight
-                                    )
-                                break
-                            except Exception:
-                                pass
+                        w = self._parse_ygf_log_line(line)
+                        if w is not None:
+                            if w != last_weight:
+                                last_weight = w
+                                self.weight_updated.emit(w)
+                                self._check_stability(w)
+                                self.status_changed.emit(
+                                    True, "● 已同步官方收银称重 | 读数: %.3f kg" % w
+                                )
+                            break
 
                     time.sleep(0.1)
 
@@ -180,8 +216,7 @@ class ScaleReader(QObject):
         current_port, current_baud = candidates[0]
 
         while self._running:
-            # 随时检测官方日志是否开启，如果开启立刻退出串口模式进入日志同步模式
-            if self._is_ygf_log_active():
+            if self._find_active_ygf_log():
                 return
 
             try:
@@ -224,7 +259,7 @@ class ScaleReader(QObject):
                 got_valid_data = False
 
                 while self._running and (time.time() - start_listen_t < 2.5):
-                    if self._is_ygf_log_active():
+                    if self._find_active_ygf_log():
                         return
 
                     now = time.time()
@@ -307,7 +342,7 @@ class ScaleReader(QObject):
         query_idx = 0
 
         while self._running:
-            if self._is_ygf_log_active():
+            if self._find_active_ygf_log():
                 return
 
             now = time.time()
