@@ -737,39 +737,8 @@ class SaleWidget(QWidget):
 
             dlg.flavor_changed.connect(update_flavor)
 
-            # 3. 智能精准定位气泡弹窗
-            dlg.adjustSize()
-            dlg_w = dlg.width()
-            dlg_h = dlg.height()
-
-            btn_rect = btn.rect()
-            top_left = btn.mapToGlobal(btn_rect.topLeft())
-            bottom_right = btn.mapToGlobal(btn_rect.bottomRight())
-            btn_center_x = top_left.x() + btn_rect.width() / 2
-
-            win = self.window()
-            win_rect = win.geometry()
-            win_right = win_rect.x() + win_rect.width()
-            win_bottom = win_rect.y() + win_rect.height()
-
-            target_x = top_left.x()
-            if target_x + dlg_w > win_right - 12:
-                target_x = bottom_right.x() - dlg_w
-            if target_x < win_rect.x() + 12:
-                target_x = win_rect.x() + 12
-
-            if bottom_right.y() + 6 + dlg_h <= win_bottom - 12:
-                target_y = bottom_right.y() + 4
-                dlg.arrow_direction = "up"
-            else:
-                target_y = top_left.y() - dlg_h - 4
-                dlg.arrow_direction = "down"
-
-            dlg.arrow_x_offset = int(btn_center_x - target_x)
-            dlg.update_layout_margins()
-            dlg.adjustSize()
-            dlg.move(target_x, target_y)
-
+            # 3. 智能精准定位气泡弹窗在当前按键旁边/下方，且严格防越界
+            self._position_popup_at_widget(dlg, btn)
             dlg.exec_()
         else:
             item_entry = {
@@ -793,8 +762,56 @@ class SaleWidget(QWidget):
             self.selected_item_index = index
             self._update_price_display()
 
+    def _position_popup_at_widget(self, dlg, target_widget):
+        """将 气泡弹窗 精准安放在 target_widget 旁边/上方/下方，并严格防止超出屏幕边界"""
+        dlg.adjustSize()
+        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import QPoint
+        
+        # 获取当前显示屏的可用地理几何尺寸 (排除任务栏)
+        screen_geo = QApplication.primaryScreen().availableGeometry()
+        if self.window() and self.window().windowHandle() and self.window().windowHandle().screen():
+            screen_geo = self.window().windowHandle().screen().availableGeometry()
+
+        widget_global = target_widget.mapToGlobal(QPoint(0, 0))
+        widget_w = target_widget.width()
+        widget_h = target_widget.height()
+        
+        dlg_w = dlg.width()
+        dlg_h = dlg.height()
+        
+        # 默认在 target_widget 下方 (气泡尖尖向上)
+        target_x = widget_global.x() + (widget_w - dlg_w) // 2
+        target_y = widget_global.y() + widget_h + 6
+        arrow_dir = "up"
+
+        # 若下方会超出屏幕底部，反向置于目标上方 (气泡尖尖向下)
+        if target_y + dlg_h > screen_geo.bottom() - 10:
+            target_y = widget_global.y() - dlg_h - 6
+            arrow_dir = "down"
+            
+        # 若上方又超出了屏幕顶部，强行贴齐顶部视口
+        if target_y < screen_geo.top() + 10:
+            target_y = screen_geo.top() + 10
+
+        # 严控 X 轴不超过屏幕左右边界
+        min_x = screen_geo.left() + 10
+        max_x = screen_geo.right() - dlg_w - 10
+        clamped_x = max(min_x, min(max_x, target_x))
+
+        # 动态计算指针尖尖 Arrow 的相对 X 偏移量，使其精准指向目标组件的中心
+        widget_center_x = widget_global.x() + widget_w // 2
+        arrow_offset = widget_center_x - clamped_x
+        arrow_offset = max(24, min(dlg_w - 24, arrow_offset))
+
+        dlg.arrow_direction = arrow_dir
+        dlg.arrow_x_offset = int(arrow_offset)
+        dlg.update_layout_margins()
+        dlg.adjustSize()
+        dlg.move(int(clamped_x), int(target_y))
+
     def _change_selected_flavor(self):
-        """快捷按键：重新弹出口味选择弹窗修改选中的麻辣烫汤底口味"""
+        """快捷按键：在选中的已点卡片旁边重新弹开口味选择框"""
         if 0 <= self.selected_item_index < len(self.cart_items):
             item = self.cart_items[self.selected_item_index]
             if item.get("type") != "soup":
@@ -814,15 +831,17 @@ class SaleWidget(QWidget):
 
             dlg.flavor_changed.connect(update_flavor)
 
-            dlg.adjustSize()
-            win = self.window()
-            win_rect = win.geometry()
-            target_x = win_rect.x() + (win_rect.width() - dlg.width()) // 2
-            target_y = win_rect.y() + (win_rect.height() - dlg.height()) // 2
-            dlg.arrow_direction = "up"
-            dlg.arrow_x_offset = dlg.width() // 2
-            dlg.update_layout_margins()
-            dlg.move(target_x, target_y)
+            # 获取左侧正在被修改的卡片组件对象
+            target_card = None
+            if 0 <= self.selected_item_index < self.cart_layout.count():
+                item_layout = self.cart_layout.itemAt(self.selected_item_index)
+                if item_layout and item_layout.widget():
+                    target_card = item_layout.widget()
+
+            if target_card:
+                self._position_popup_at_widget(dlg, target_card)
+            else:
+                self._position_popup_at_widget(dlg, getattr(self, 'btn_flavor', self))
 
             dlg.exec_()
         else:
