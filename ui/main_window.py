@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.sale_page)
 
         # 页面 1: 订单查询
-        self.history_page = HistoryWidget(self.db)
+        self.history_page = HistoryWidget(self.db, printer=self.sale_page.printer, config=self.config)
         self.stack.addWidget(self.history_page)
 
         # 页面 2: 叫号设置 (独立叫号避重菜单)
