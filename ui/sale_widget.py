@@ -1,11 +1,11 @@
 """
-销售/称重界面 — 旗舰级现代 POS 主收银操作页面
+销售/称重界面 — 包含叫号牌管理与 1-10元 快捷加价功能
 PyQt5 + Python 3.8 兼容
 """
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QMessageBox
+    QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox
 )
 from PyQt5.QtCore import Qt, pyqtSlot
 
@@ -23,9 +23,11 @@ class SaleWidget(QWidget):
         self.config = config
         self.db = db
         self.printer = ReceiptPrinter(config)
+
         self.current_weight = 0.0
         self._stable_weight = 0.0
         self._is_stable = False
+        self.extra_fee = 0.0  # 附加快捷加价
 
         self._build_ui()
         self._setup_scale()
@@ -35,7 +37,7 @@ class SaleWidget(QWidget):
         layout.setSpacing(20)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # ── 左侧：称重与金额核心展示区 ──
+        # ── 左侧：重量与金额核心展示区 ──
         left = QVBoxLayout()
         left.setSpacing(16)
 
@@ -51,7 +53,7 @@ class SaleWidget(QWidget):
         )
         status_bar.addWidget(self.lbl_conn, stretch=1)
 
-        # 静态单价胶囊标签
+        # 静态单价胶囊
         unit_price = self.config.get("unit_price", 32.00)
         pu_label = price_unit_label(self.config.get("price_unit", "per_jin"))
         self.lbl_unit_info = QLabel(u"麻辣烫单价：%.2f %s" % (unit_price, pu_label))
@@ -64,7 +66,7 @@ class SaleWidget(QWidget):
 
         left.addLayout(status_bar)
 
-        # 核心重量 display 卡片
+        # 核心重量卡片
         weight_card = QFrame()
         weight_card.setStyleSheet(
             "QFrame { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
@@ -73,45 +75,41 @@ class SaleWidget(QWidget):
         )
         wc_layout = QVBoxLayout(weight_card)
         wc_layout.setAlignment(Qt.AlignCenter)
-        wc_layout.setContentsMargins(24, 24, 24, 24)
+        wc_layout.setContentsMargins(20, 20, 20, 20)
 
         lbl_title = QLabel(u"实测重量")
         lbl_title.setAlignment(Qt.AlignCenter)
-        lbl_title.setStyleSheet("color: #9CA3AF; font-size: 20px; font-weight: bold; letter-spacing: 1px;")
+        lbl_title.setStyleSheet("color: #9CA3AF; font-size: 20px; font-weight: bold;")
         wc_layout.addWidget(lbl_title)
 
-        # 大号高亮数值
         self.lbl_weight = QLabel("0.000")
         self.lbl_weight.setObjectName("lbl_weight")
         self.lbl_weight.setAlignment(Qt.AlignCenter)
         self.lbl_weight.setStyleSheet(
-            "font-size: 96px; font-weight: 900; color: #F9FAFB;"
+            "font-size: 88px; font-weight: 900; color: #F9FAFB;"
             "letter-spacing: -2px; font-family: 'Segoe UI', 'Consolas', sans-serif;"
         )
         wc_layout.addWidget(self.lbl_weight)
 
-        # 单位提示
         self.lbl_weight_unit = QLabel("kg")
         self.lbl_weight_unit.setObjectName("lbl_unit")
         self.lbl_weight_unit.setAlignment(Qt.AlignCenter)
         self.lbl_weight_unit.setStyleSheet(
-            "font-size: 22px; font-weight: bold; color: #06B6D4;"
+            "font-size: 20px; font-weight: bold; color: #06B6D4;"
             "padding: 2px 16px; background: #1E293B; border-radius: 12px;"
         )
         wc_layout.addWidget(self.lbl_weight_unit)
 
-        # 稳定状态徽章
         self.lbl_stable = QLabel("")
         self.lbl_stable.setAlignment(Qt.AlignCenter)
         self.lbl_stable.setStyleSheet(
-            "font-size: 15px; font-weight: bold; color: #10B981;"
-            "margin-top: 6px;"
+            "font-size: 15px; font-weight: bold; color: #10B981; margin-top: 4px;"
         )
         wc_layout.addWidget(self.lbl_stable)
 
         left.addWidget(weight_card, stretch=4)
 
-        # 金额卡片
+        # 核心金额卡片 (含加价显示)
         price_card = QFrame()
         price_card.setStyleSheet(
             "QFrame { background: #172136; border: 1px solid #263352;"
@@ -119,18 +117,26 @@ class SaleWidget(QWidget):
         )
         pc_layout = QVBoxLayout(price_card)
         pc_layout.setAlignment(Qt.AlignCenter)
-        pc_layout.setContentsMargins(16, 16, 16, 16)
+        pc_layout.setContentsMargins(16, 12, 16, 12)
+
+        p_top_layout = QHBoxLayout()
+        p_top_layout.setAlignment(Qt.AlignCenter)
 
         lbl_ptitle = QLabel(u"应收总金额")
-        lbl_ptitle.setAlignment(Qt.AlignCenter)
         lbl_ptitle.setStyleSheet("color: #9CA3AF; font-size: 18px; font-weight: bold;")
-        pc_layout.addWidget(lbl_ptitle)
+        p_top_layout.addWidget(lbl_ptitle)
+
+        self.lbl_extra_info = QLabel("")
+        self.lbl_extra_info.setStyleSheet("color: #F97316; font-size: 15px; font-weight: bold;")
+        p_top_layout.addWidget(self.lbl_extra_info)
+
+        pc_layout.addLayout(p_top_layout)
 
         self.lbl_price = QLabel(u"￥0.00")
         self.lbl_price.setObjectName("lbl_price")
         self.lbl_price.setAlignment(Qt.AlignCenter)
         self.lbl_price.setStyleSheet(
-            "font-size: 64px; font-weight: 900; color: #F59E0B;"
+            "font-size: 58px; font-weight: 900; color: #F59E0B;"
             "letter-spacing: -1px; font-family: 'Segoe UI', sans-serif;"
         )
         pc_layout.addWidget(self.lbl_price)
@@ -139,13 +145,72 @@ class SaleWidget(QWidget):
 
         layout.addLayout(left, stretch=4)
 
-        # ── 右侧：触控大按键操作区 ──
+        # ── 右侧：叫号牌 + 1-10元快捷加价 + 打印操作 ──
         right = QVBoxLayout()
-        right.setSpacing(20)
+        right.setSpacing(14)
 
-        right.addStretch()
+        # 1. 取餐叫号牌卡片
+        call_group = QGroupBox(u"取餐叫号牌设置")
+        cg_layout = QVBoxLayout(call_group)
+        cg_layout.setSpacing(8)
 
-        # 核心按钮
+        cg_top = QHBoxLayout()
+        cg_top.addWidget(QLabel(u"叫号牌："))
+
+        self.spin_call_no = QSpinBox()
+        self.spin_call_no.setRange(1, 999)
+        self.spin_call_no.setValue(1)
+        self.spin_call_no.setStyleSheet("font-size: 22px; font-weight: bold; color: #F97316;")
+        cg_top.addWidget(self.spin_call_no, stretch=1)
+
+        btn_minus = QPushButton(u"-1")
+        btn_minus.clicked.connect(lambda: self.spin_call_no.setValue(max(1, self.spin_call_no.value() - 1)))
+        cg_top.addWidget(btn_minus)
+
+        btn_plus = QPushButton(u"+1")
+        btn_plus.clicked.connect(lambda: self.spin_call_no.setValue(self.spin_call_no.value() + 1))
+        cg_top.addWidget(btn_plus)
+
+        cg_layout.addLayout(cg_top)
+
+        self.chk_auto_inc = QCheckBox(u"打印后自动跳下一号 (+1号)")
+        self.chk_auto_inc.setChecked(True)
+        self.chk_auto_inc.setStyleSheet("color: #9CA3AF; font-size: 14px;")
+        cg_layout.addWidget(self.chk_auto_inc)
+
+        right.addWidget(call_group)
+
+        # 2. 快捷加价网格 (1元 ~ 10元)
+        add_group = QGroupBox(u"快捷加价 (打包/餐盒/饮料)")
+        ag_grid = QGridLayout(add_group)
+        ag_grid.setSpacing(8)
+
+        for i in range(1, 11):
+            btn_add = QPushButton(u"+%d元" % i)
+            btn_add.setStyleSheet(
+                "background: #1E293B; color: #F9FAFB; border: 1px solid #374151;"
+                "border-radius: 8px; font-weight: bold; font-size: 14px; min-height: 38px;"
+            )
+            # 点击添加费用
+            fee_val = float(i)
+            btn_add.clicked.connect(lambda checked, v=fee_val: self._add_extra_fee(v))
+
+            row = (i - 1) // 5
+            col = (i - 1) % 5
+            ag_grid.addWidget(btn_add, row, col)
+
+        # 清空加价按钮
+        btn_reset_fee = QPushButton(u"清空加价")
+        btn_reset_fee.setStyleSheet(
+            "background: #78350F; color: #FBBF24; border: 1px solid #F59E0B;"
+            "border-radius: 8px; font-weight: bold; font-size: 14px; min-height: 38px;"
+        )
+        btn_reset_fee.clicked.connect(self._clear_extra_fee)
+        ag_grid.addWidget(btn_reset_fee, 2, 0, 1, 5)
+
+        right.addWidget(add_group)
+
+        # 3. 称重打印与清零
         self.btn_print = QPushButton(u"称重并打印小票")
         self.btn_print.setObjectName("btn_print")
         self.btn_print.setCursor(Qt.PointingHandCursor)
@@ -158,19 +223,40 @@ class SaleWidget(QWidget):
         self.btn_clear.clicked.connect(self._on_clear)
         right.addWidget(self.btn_clear)
 
-        right.addStretch()
-
         layout.addLayout(right, stretch=3)
+
+    def _add_extra_fee(self, fee):
+        """累加快捷费用"""
+        self.extra_fee += fee
+        self._update_price_display()
+
+    def _clear_extra_fee(self):
+        """清空附加费用"""
+        self.extra_fee = 0.0
+        self._update_price_display()
+
+    def _update_price_display(self):
+        """重新计算并更新总金额显示"""
+        unit_price = self.config.get("unit_price", 32.00)
+        price_unit = self.config.get("price_unit", "per_jin")
+        base_price = calculate_price(self.current_weight, unit_price, price_unit)
+        total = base_price + self.extra_fee
+
+        if self.extra_fee > 0:
+            self.lbl_extra_info.setText(u"(含附加 +￥%.2f)" % self.extra_fee)
+        else:
+            self.lbl_extra_info.setText("")
+
+        self.lbl_price.setText(u"￥%.2f" % total)
 
     # ─── 刷新单价显示及服务 ───────────────────────
     def refresh_unit_price_info(self):
-        """从配置更新单价提示标签"""
         unit_price = self.config.get("unit_price", 32.00)
         pu_label = price_unit_label(self.config.get("price_unit", "per_jin"))
         self.lbl_unit_info.setText(u"麻辣烫单价：%.2f %s" % (unit_price, pu_label))
+        self._update_price_display()
 
     def restart_scale(self):
-        """刷新配置并重新开启服务监听"""
         self.refresh_unit_price_info()
         if hasattr(self, 'scale'):
             self.scale.restart()
@@ -188,11 +274,7 @@ class SaleWidget(QWidget):
     def _on_weight_update(self, weight_kg):
         self.current_weight = weight_kg
         self.lbl_weight.setText("%.3f" % weight_kg)
-
-        unit_price = self.config.get("unit_price", 32.00)
-        price_unit = self.config.get("price_unit", "per_jin")
-        total = calculate_price(weight_kg, unit_price, price_unit)
-        self.lbl_price.setText(u"￥%.2f" % total)
+        self._update_price_display()
 
         if self._is_stable and abs(weight_kg - self._stable_weight) > 0.05:
             self._is_stable = False
@@ -245,28 +327,38 @@ class SaleWidget(QWidget):
 
         unit_price = self.config.get("unit_price", 32.00)
         price_unit = self.config.get("price_unit", "per_jin")
-        total_price = calculate_price(weight, unit_price, price_unit)
+        base_price = calculate_price(weight, unit_price, price_unit)
+        total_price = base_price + self.extra_fee
+
+        call_no_str = "%02d" % self.spin_call_no.value()
 
         record = self.db.insert_sale(
             weight_kg=weight,
             unit_price=unit_price,
             price_unit=price_unit,
-            total_price=total_price
+            total_price=total_price,
+            remark=u"叫号:#%s 加价:￥%.2f" % (call_no_str, self.extra_fee)
         )
 
         sale_data = dict(record)
         sale_data["shop_name"] = self.config.get("shop_name", u"杨国福麻辣烫")
         sale_data["shop_subtitle"] = self.config.get("shop_subtitle", "")
         sale_data["receipt_footer"] = self.config.get("receipt_footer", u"谢谢惠顾！")
+        sale_data["call_no"] = call_no_str
+        sale_data["extra_fee"] = self.extra_fee
 
         success = self.printer.print_receipt(sale_data)
 
         if success:
-            self.lbl_stable.setText(u"● [已打印] 单号 %s" % record["sale_no"])
+            self.lbl_stable.setText(u"● [已打印小票] 叫号牌 #%s | 单号 %s" % (call_no_str, record["sale_no"]))
             self.lbl_stable.setStyleSheet(
                 "font-size: 15px; font-weight: bold; color: #38BDF8;"
                 "padding: 4px 12px; background: #0369A1; border-radius: 6px;"
             )
+
+            # 如果开启了自动跳号
+            if self.chk_auto_inc.isChecked():
+                self.spin_call_no.setValue(self.spin_call_no.value() + 1)
         else:
             self.lbl_stable.setText(u"[X] 打印失败")
             self.lbl_stable.setStyleSheet("font-size: 15px; color: #EF4444;")
@@ -276,11 +368,12 @@ class SaleWidget(QWidget):
         self.current_weight = 0.0
         self._is_stable = False
         self._stable_weight = 0.0
+        self.extra_fee = 0.0
         self.lbl_weight.setText("0.000")
         self.lbl_price.setText(u"￥0.00")
+        self.lbl_extra_info.setText("")
         self.lbl_stable.setText("")
 
     def cleanup(self):
-        """关闭时清理资源"""
         if hasattr(self, 'scale'):
             self.scale.stop()

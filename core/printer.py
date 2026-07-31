@@ -1,5 +1,6 @@
 """
 小票打印模块 — 支持 Windows驱动/网络/串口 打印方式
+已增强：特大字号取餐叫号牌与附加加价明细打小票
 兼容 Python 3.8+
 """
 import os
@@ -40,6 +41,8 @@ class ReceiptPrinter:
         """构建 ESC/POS 小票数据"""
         d = bytearray()
         d += self.INIT
+
+        # 店名
         d += self.ALIGN_CENTER + self.DOUBLE_SIZE + self.BOLD_ON
         d += sale.get("shop_name", "杨国福麻辣烫").encode("gbk", errors="ignore") + b'\n'
         d += self.NORMAL_SIZE + self.BOLD_OFF
@@ -49,6 +52,14 @@ class ReceiptPrinter:
             d += self.FONT_SMALL
             d += sub.encode("gbk", errors="ignore") + b'\n'
             d += self.FONT_NORMAL
+
+        # 特大显眼叫号牌 (如果有)
+        call_no = sale.get("call_no", "")
+        if call_no:
+            d += b'=' * 32 + b'\n'
+            d += self.ALIGN_CENTER + self.DOUBLE_SIZE + self.BOLD_ON
+            d += ("取餐叫号: # %s #\n" % call_no).encode("gbk", errors="ignore")
+            d += self.NORMAL_SIZE + self.BOLD_OFF
 
         d += b'-' * 32 + b'\n'
         d += self.ALIGN_LEFT
@@ -60,12 +71,26 @@ class ReceiptPrinter:
         d += self.DOUBLE_HEIGHT
         d += ("重量：%s\n" % wd).encode("gbk", errors="ignore")
         d += ("单价：%.2f %s\n" % (sale['unit_price'], ul)).encode("gbk", errors="ignore")
+
+        extra_fee = sale.get("extra_fee", 0.0)
+        if extra_fee > 0:
+            d += ("附加加价：+￥%.2f\n" % extra_fee).encode("gbk", errors="ignore")
+
         d += self.NORMAL_SIZE + b'-' * 32 + b'\n'
 
+        # 应收总金额
         d += self.ALIGN_CENTER + self.DOUBLE_SIZE + self.BOLD_ON
         d += ("￥%.2f\n" % sale['total_price']).encode("gbk", errors="ignore")
-        d += self.NORMAL_SIZE + self.BOLD_OFF + b'-' * 32 + b'\n'
+        d += self.NORMAL_SIZE + self.BOLD_OFF
 
+        # 底部再印一次叫号牌方便撕单
+        if call_no:
+            d += b'-' * 32 + b'\n'
+            d += self.ALIGN_CENTER + self.DOUBLE_SIZE + self.BOLD_ON
+            d += ("请凭此号 [# %s #] 取餐\n" % call_no).encode("gbk", errors="ignore")
+            d += self.NORMAL_SIZE + self.BOLD_OFF
+
+        d += b'-' * 32 + b'\n'
         d += self.ALIGN_CENTER + self.FONT_SMALL
         d += sale.get("receipt_footer", "谢谢惠顾！").encode("gbk", errors="ignore") + b'\n'
         d += self.FONT_NORMAL + self.FEED_LINES + self.CUT_PARTIAL
