@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
     QScrollArea, QDialog
 )
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
 
 from core.calculator import calculate_price, weight_display, price_unit_label
 from core.database import Database
