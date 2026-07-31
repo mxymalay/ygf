@@ -20,39 +20,40 @@ from core.call_number_manager import CallNumberManager
 
 class TasteSelectionDialog(QDialog):
     """
-    点击汤底时弹出的口味偏好对话框 (支持深浅视觉主题自适应)
+    点击汤底时弹出的口味偏好对话框 (漫画对话框气泡尖尖箭头样式)
     """
 
     def __init__(self, soup_name, is_dark_mode=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"选择口味 - {soup_name}")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Popup)
-        
-        bg_col = "#111827" if is_dark_mode else "#FFFFFF"
-        border_col = "#EA580C"
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        self.is_dark_mode = is_dark_mode
+        self.arrow_direction = "up"
+        self.arrow_x_offset = 60
+
         btn_bg = "#1F2937" if is_dark_mode else "#F3F4F6"
         btn_fg = "#D1D5DB" if is_dark_mode else "#374151"
         btn_border = "#374151" if is_dark_mode else "#D1D5DB"
 
-        self.setStyleSheet(
-            f"QDialog {{ background: {bg_col}; border: 2px solid {border_col}; border-radius: 12px; }}"
-        )
+        self.setStyleSheet("QDialog { background: transparent; }")
 
         self.selected_spice = "微辣"
         self.selected_prefs = set()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(18, 26, 18, 18)
+        self.main_layout.setSpacing(12)
 
         lbl_title = QLabel(f"🍲 请选择 【{soup_name}】 口味")
         lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F97316; border: none; background: transparent;")
-        layout.addWidget(lbl_title)
+        self.main_layout.addWidget(lbl_title)
 
         # 辣度选择 (单选)
         lbl_spicy = QLabel(u"辣度偏好：")
         lbl_spicy.setStyleSheet(f"font-size: 13px; color: {'#9CA3AF' if is_dark_mode else '#4B5563'}; border: none; background: transparent;")
-        layout.addWidget(lbl_spicy)
+        self.main_layout.addWidget(lbl_spicy)
 
         spicy_box = QHBoxLayout()
         spicy_box.setSpacing(8)
@@ -69,12 +70,12 @@ class TasteSelectionDialog(QDialog):
             btn.clicked.connect(lambda checked, val=s: self._select_spice(val))
             spicy_box.addWidget(btn)
             self.spicy_btns[s] = btn
-        layout.addLayout(spicy_box)
+        self.main_layout.addLayout(spicy_box)
 
         # 忌口偏好 (多选)
         lbl_pref = QLabel(u"附加避忌：")
         lbl_pref.setStyleSheet(f"font-size: 13px; color: {'#9CA3AF' if is_dark_mode else '#4B5563'}; border: none; background: transparent;")
-        layout.addWidget(lbl_pref)
+        self.main_layout.addWidget(lbl_pref)
 
         pref_box = QHBoxLayout()
         pref_box.setSpacing(8)
@@ -88,7 +89,7 @@ class TasteSelectionDialog(QDialog):
             )
             btn.clicked.connect(lambda checked, val=p: self._toggle_pref(val))
             pref_box.addWidget(btn)
-        layout.addLayout(pref_box)
+        self.main_layout.addLayout(pref_box)
 
         # 确定按钮
         btn_confirm = QPushButton(u"确定加入订单")
@@ -99,7 +100,74 @@ class TasteSelectionDialog(QDialog):
             "QPushButton:hover { background: #EA580C; }"
         )
         btn_confirm.clicked.connect(self.accept)
-        layout.addWidget(btn_confirm)
+        self.main_layout.addWidget(btn_confirm)
+
+    def update_layout_margins(self):
+        if self.arrow_direction == "up":
+            self.main_layout.setContentsMargins(18, 28, 18, 18)
+        else:
+            self.main_layout.setContentsMargins(18, 18, 18, 28)
+
+    def paintEvent(self, event):
+        from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        bg_col = QColor("#111827" if self.is_dark_mode else "#FFFFFF")
+        border_col = QColor("#EA580C")
+
+        w = float(self.width())
+        h = float(self.height())
+        arrow_h = 12.0
+        arrow_w = 16.0
+        radius = 12.0
+        arrow_x = max(radius + arrow_w, min(w - radius - arrow_w, float(self.arrow_x_offset)))
+
+        path = QPainterPath()
+
+        if self.arrow_direction == "up":
+            top = arrow_h + 2.0
+            bottom = h - 2.0
+            left = 2.0
+            right = w - 2.0
+
+            path.moveTo(left + radius, top)
+            path.lineTo(arrow_x - arrow_w / 2.0, top)
+            path.lineTo(arrow_x, 2.0)
+            path.lineTo(arrow_x + arrow_w / 2.0, top)
+            path.lineTo(right - radius, top)
+            path.arcTo(right - radius * 2.0, top, radius * 2.0, radius * 2.0, 90, -90)
+            path.lineTo(right, bottom - radius)
+            path.arcTo(right - radius * 2.0, bottom - radius * 2.0, radius * 2.0, radius * 2.0, 0, -90)
+            path.lineTo(left + radius, bottom)
+            path.arcTo(left, bottom - radius * 2.0, radius * 2.0, radius * 2.0, 270, -90)
+            path.lineTo(left, top + radius)
+            path.arcTo(left, top, radius * 2.0, radius * 2.0, 180, -90)
+            path.closeSubpath()
+        else:
+            top = 2.0
+            bottom = h - arrow_h - 2.0
+            left = 2.0
+            right = w - 2.0
+
+            path.moveTo(left + radius, top)
+            path.lineTo(right - radius, top)
+            path.arcTo(right - radius * 2.0, top, radius * 2.0, radius * 2.0, 90, -90)
+            path.lineTo(right, bottom - radius)
+            path.arcTo(right - radius * 2.0, bottom - radius * 2.0, radius * 2.0, radius * 2.0, 0, -90)
+            path.lineTo(arrow_x + arrow_w / 2.0, bottom)
+            path.lineTo(arrow_x, h - 2.0)
+            path.lineTo(arrow_x - arrow_w / 2.0, bottom)
+            path.lineTo(left + radius, bottom)
+            path.arcTo(left, bottom - radius * 2.0, radius * 2.0, radius * 2.0, 270, -90)
+            path.lineTo(left, top + radius)
+            path.arcTo(left, top, radius * 2.0, radius * 2.0, 180, -90)
+            path.closeSubpath()
+
+        painter.setBrush(QBrush(bg_col))
+        painter.setPen(QPen(border_col, 2))
+        painter.drawPath(path)
 
     def _select_spice(self, val):
         self.selected_spice = val
@@ -515,6 +583,8 @@ class SaleWidget(QWidget):
             top_left = btn.mapToGlobal(btn_rect.topLeft())
             bottom_right = btn.mapToGlobal(btn_rect.bottomRight())
 
+            btn_center_x = top_left.x() + btn_rect.width() / 2
+
             win = self.window()
             win_rect = win.geometry()
             win_right = win_rect.x() + win_rect.width()
@@ -528,12 +598,16 @@ class SaleWidget(QWidget):
                 target_x = win_rect.x() + 12
 
             # 垂直定位：默认下方，若下边界超出窗口，则向上出弹窗
-            target_y = bottom_right.y() + 4
-            if target_y + dlg_h > win_bottom - 12:
+            if bottom_right.y() + 6 + dlg_h <= win_bottom - 12:
+                target_y = bottom_right.y() + 4
+                dlg.arrow_direction = "up"
+            else:
                 target_y = top_left.y() - dlg_h - 4
-            if target_y < win_rect.y() + 12:
-                target_y = win_rect.y() + 12
+                dlg.arrow_direction = "down"
 
+            dlg.arrow_x_offset = int(btn_center_x - target_x)
+            dlg.update_layout_margins()
+            dlg.adjustSize()
             dlg.move(target_x, target_y)
 
             if dlg.exec_() == QDialog.Accepted:
