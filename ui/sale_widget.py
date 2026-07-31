@@ -455,7 +455,7 @@ class SaleWidget(QWidget):
         # 状态指示图标: ⏳ vs ✅
         self.lbl_scale_status_icon = QLabel(u"⏳")
         self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
-        self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; border: none; background: transparent;")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
         self.lbl_weight = QLabel("00.000 kg")
@@ -727,30 +727,35 @@ class SaleWidget(QWidget):
 
         if abs(weight_kg - self._stable_weight) <= 0.005:
             self._is_stable = True
-            self.lbl_scale_status_icon.setText(u"✅")
+            self.lbl_scale_status_icon.setText(u"✔")
+            self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"读数稳定，可随时打印！")
         else:
             self._is_stable = False
             self._stable_weight = weight_kg
             self.lbl_scale_status_icon.setText(u"⏳")
+            self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"读数计算/变动中...")
 
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
         if not connected:
-            self.lbl_scale_status_icon.setText(u"❌")
+            self.lbl_scale_status_icon.setText(u"✕")
+            self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"官方秤未连接: %s" % msg)
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
         self._is_stable = True
         self._stable_weight = weight_kg
-        self.lbl_scale_status_icon.setText(u"✅")
+        self.lbl_scale_status_icon.setText(u"✔")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
 
     @pyqtSlot(str)
     def _on_error(self, msg):
-        self.lbl_scale_status_icon.setText(u"❌")
+        self.lbl_scale_status_icon.setText(u"✕")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_print(self):
