@@ -80,8 +80,8 @@ class ScaleReader(QObject):
                     full_path = os.path.join(self._ygf_serial_dir, fname)
                     if os.path.isfile(full_path):
                         mtime = os.path.getmtime(full_path)
-                        # 30 秒内有写入即判定为活跃
-                        if time.time() - mtime < 30.0:
+                        # 官方收银开着时每秒写入，5 秒内有写入判定为活跃
+                        if time.time() - mtime < 5.0:
                             candidates.append((mtime, full_path))
 
             if candidates:
