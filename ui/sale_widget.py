@@ -775,8 +775,8 @@ class SaleWidget(QWidget):
             (1, 0, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
 
             # 第 2 行：油面筋类 (另起一行，独占该行，典雅紫罗兰色)
-            (2, 0, "item_gluten_05", u"油面筋 (0.5元)", "¥ 0.50", 0.5, False, False, True),
-            (2, 1, "item_gluten_10", u"油面筋 (1元)", "¥ 1.00", 1.0, False, False, True),
+            (2, 0, "item_gluten_05", u"油面筋 0.5元", "¥ 0.50", 0.5, False, False, True),
+            (2, 1, "item_gluten_10", u"油面筋 1元", "¥ 1.00", 1.0, False, False, True),
 
             # 第 3 行：1-4元饮料
             (3, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
