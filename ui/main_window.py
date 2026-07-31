@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
 
 
     def _on_auto_update(self):
-        """一键自动 Git 更新并无缝重启 POS 程序"""
+        """一键自动 Git 更新并无缝重启 POS 程序（静默无黑框）"""
         from PyQt5.QtWidgets import QMessageBox
         import subprocess
         import sys
@@ -101,27 +101,21 @@ class MainWindow(QMainWindow):
         )
         if reply == QMessageBox.Yes:
             try:
-                # 释放硬件资源
+                # 1. 释放称重串口与硬件资源
                 if hasattr(self, 'sale_page'):
                     self.sale_page.cleanup()
 
-                bat_path = os.path.join(os.getcwd(), "auto_update.bat")
-                with open(bat_path, "w", encoding="gbk") as f:
-                    f.write("@echo off\n")
-                    f.write("chcp 936 >nul\n")
-                    f.write("title 杨国福 POS 系统 - 自动更新中...\n")
-                    f.write("echo ============================================\n")
-                    f.write("echo           正在在线拉取最新程序代码...\n")
-                    f.write("echo ============================================\n")
-                    f.write("git pull\n")
-                    f.write("echo.\n")
-                    f.write("echo ============================================\n")
-                    f.write("echo           更新完毕！正在重启 POS 系统...\n")
-                    f.write("echo ============================================\n")
-                    f.write(f'start "" "{sys.executable}" main.py\n')
-                    f.write("exit\n")
+                # 2. 静默后台执行 git pull，不弹出任何黑框终端
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 0 # SW_HIDE
 
-                subprocess.Popen(["cmd.exe", "/c", bat_path], shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                subprocess.run(["git", "pull"], capture_output=True, text=True, startupinfo=startupinfo)
+
+                # 3. 直接启动新的 Python 实例并无缝退出旧进程
+                subprocess.Popen([sys.executable, "main.py"])
                 sys.exit(0)
             except Exception as e:
                 QMessageBox.critical(self, u"更新错误", f"启动更新逻辑失败: {str(e)}")
