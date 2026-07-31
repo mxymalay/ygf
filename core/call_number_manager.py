@@ -23,6 +23,7 @@ class CallNumberManager:
         self._last_time_slot = self._get_current_time_slot()
         self._current_manual_no = 1
         self._current_seq_no = None
+        self._cached_next_number = None
 
     def _get_current_time_slot(self) -> str:
         """获取当前时间段：morning (5-12), afternoon (12-18), evening (18-5)"""
@@ -46,61 +47,94 @@ class CallNumberManager:
         """重置已使用号码池"""
         self._used_numbers.clear()
         self._current_seq_no = None
+        self._cached_next_number = None
 
     def get_next_number(self) -> int:
-        """根据当前模式产生下一个叫号"""
+        """根据当前模式产生下一个叫号 (正式消耗并标记为已用)"""
         mode = self.get_mode()
 
         if mode == self.MODE_SMART:
+            if self._cached_next_number is not None and self._cached_next_number not in self._used_numbers:
+                chosen = self._cached_next_number
+                self._used_numbers.add(chosen)
+                self._cached_next_number = None
+                return chosen
             return self._gen_smart_number()
         elif mode == self.MODE_CUSTOM:
-            return self._gen_custom_number()
+            if self.config.get("custom_is_seq", False):
+                return self._gen_custom_number()
+            else:
+                if self._cached_next_number is not None and self._cached_next_number not in self._used_numbers:
+                    chosen = self._cached_next_number
+                    self._used_numbers.add(chosen)
+                    self._cached_next_number = None
+                    return chosen
+                return self._gen_custom_number()
         else:
             # 手动模式
             num = self._current_manual_no
             self._current_manual_no += 1
+            self._cached_next_number = None
             return num
 
     def peek_next_number(self) -> int:
-        """预览下一个叫号（不消耗号码）"""
+        """预览下一个叫号（随机从池中挑选候选，不消耗号码，保持预览与打票一致）"""
         mode = self.get_mode()
         if mode == self.MODE_MANUAL:
             return self._current_manual_no
 
-        # 对于智能和自定义模式，预览当前可用池中的一个候选值
         if mode == self.MODE_SMART:
-            slot = self._get_current_time_slot()
-            if slot == "morning":
+            curr_slot = self._get_current_time_slot()
+            if curr_slot != self._last_time_slot:
+                self._used_numbers.clear()
+                self._last_time_slot = curr_slot
+                self._cached_next_number = None
+
+            if self._cached_next_number is not None and self._cached_next_number not in self._used_numbers:
+                return self._cached_next_number
+
+            if curr_slot == "morning":
                 low, high = 50, 100
-            elif slot == "afternoon":
+            elif curr_slot == "afternoon":
                 low, high = 100, 200
             else:
                 low, high = 200, 300
 
             pool = [n for n in range(low, high + 1) if n not in self._used_numbers]
             if not pool:
-                return low
-            return pool[0]
+                self._used_numbers.clear()
+                pool = list(range(low, high + 1))
+
+            self._cached_next_number = random.choice(pool)
+            return self._cached_next_number
 
         elif mode == self.MODE_CUSTOM:
             low = self.config.get("custom_start_no", 50)
             high = self.config.get("custom_end_no", 500)
+            if low > high:
+                low, high = high, low
+
             is_seq = self.config.get("custom_is_seq", False)
 
             if is_seq:
-                if self._current_seq_no is None:
+                if self._current_seq_no is None or self._current_seq_no < low or self._current_seq_no > high:
                     return low
                 return self._current_seq_no
             else:
+                if self._cached_next_number is not None and self._cached_next_number not in self._used_numbers:
+                    return self._cached_next_number
                 pool = [n for n in range(low, high + 1) if n not in self._used_numbers]
                 if not pool:
-                    return low
-                return pool[0]
+                    self._used_numbers.clear()
+                    pool = list(range(low, high + 1))
+                self._cached_next_number = random.choice(pool)
+                return self._cached_next_number
 
         return 1
 
     def set_manual_number(self, val: int):
         self._current_manual_no = val
+        self._cached_next_number = None
 
     def _gen_smart_number(self) -> int:
         """智能避重模式生成"""
@@ -109,6 +143,7 @@ class CallNumberManager:
         if curr_slot != self._last_time_slot:
             self._used_numbers.clear()
             self._last_time_slot = curr_slot
+            self._cached_next_number = None
 
         if curr_slot == "morning":
             low, high = 50, 100
@@ -125,6 +160,7 @@ class CallNumberManager:
 
         chosen = random.choice(pool)
         self._used_numbers.add(chosen)
+        self._cached_next_number = None
         return chosen
 
     def _gen_custom_number(self) -> int:
@@ -151,4 +187,5 @@ class CallNumberManager:
                 pool = list(range(low, high + 1))
             chosen = random.choice(pool)
             self._used_numbers.add(chosen)
+            self._cached_next_number = None
             return chosen
