@@ -2,6 +2,7 @@
 称重秤串口读取模块
 
 通过串口（RS-232 / USB转串口）实时读取真实称重秤数据
+支持主动发送查询指令 (ENQ / W\\r) 与 连续主动上报 两种模式
 兼容：Python 3.8+ / Windows 7+
 """
 import re
@@ -84,43 +85,63 @@ class ScaleReader(QObject):
                 bytesize=bytesize,
                 parity=parity,
                 stopbits=stopbits,
-                timeout=1
+                timeout=0.5
             )
-            self.status_changed.emit(True, "已连接电子秤 %s (%d bps)" % (port, baudrate))
+            self.status_changed.emit(True, "已打开 %s (%d bps) | 正在监听电子秤..." % (port, baudrate))
 
             buffer = b""
+            last_query_time = 0
+            query_cmds = [b"\x05", b"W\r\n", b"Q\r\n", b"S\r\n"]  # 常见电子秤查询指令
+            cmd_idx = 0
+
             while self._running:
+                now = time.time()
+                # 每 0.5 秒如果没收到新数据，主动向秤发送一次查询请求指令 (应对问答式电子秤)
+                if now - last_query_time > 0.5:
+                    try:
+                        self._serial.write(query_cmds[cmd_idx])
+                        cmd_idx = (cmd_idx + 1) % len(query_cmds)
+                    except Exception:
+                        pass
+                    last_query_time = now
+
                 if self._serial.in_waiting > 0:
                     data = self._serial.read(self._serial.in_waiting)
                     buffer += data
 
-                    # 支持 STX(0x02)/ETX(0x03)、\r\n、\n、\r 分帧
+                    # 尝试按多种方式切帧
                     while len(buffer) > 0:
                         packet = None
-                        # 优先查找 STX ... ETX 完整报文
+                        # 1. 优先查找 STX(0x02) ... ETX(0x03) 完整帧
                         if b"\x02" in buffer and b"\x03" in buffer:
                             start_idx = buffer.find(b"\x02")
                             end_idx = buffer.find(b"\x03", start_idx)
                             if end_idx != -1:
                                 packet = buffer[start_idx:end_idx + 1]
                                 buffer = buffer[end_idx + 1:]
-                        
-                        # 换行符分帧
+
+                        # 2. 换行符切帧
                         if packet is None:
                             for sep in [b"\r\n", b"\n", b"\r"]:
                                 if sep in buffer:
                                     packet, buffer = buffer.split(sep, 1)
                                     break
 
+                        # 3. 如果收到固定长度报文（如 8~16 字节）
+                        if packet is None and len(buffer) >= 12:
+                            packet = buffer[:12]
+                            buffer = buffer[12:]
+
                         if packet is not None:
                             weight, raw_info = self._parse_weight(packet)
                             if weight is not None:
                                 self.weight_updated.emit(weight)
                                 self._check_stability(weight)
-                                if raw_info:
-                                    self.status_changed.emit(True, "已连接 %s | 原始报文: %s" % (port, raw_info))
+                                self.status_changed.emit(True, "已连接 %s | 读数: %.3fkg | 报文: %s" % (port, weight, raw_info))
+                            elif raw_info:
+                                self.status_changed.emit(True, "已连接 %s | 收到数据但未解析: %s" % (port, raw_info))
                         else:
-                            # 缓冲区过长且无法切帧时，清空早期字节防死锁
+                            # 缓冲区防止死锁溢出
                             if len(buffer) > 256:
                                 buffer = buffer[-64:]
                             break
@@ -145,10 +166,10 @@ class ScaleReader(QObject):
 
     def _parse_weight(self, raw):
         """
-        解析 DIBAL ACS-G315 电子计价秤及通用电子秤的串口数据。
-        返回 tuple: (weight_kg: float, raw_str: str)
+        解析电子秤数据。
+        返回 tuple: (weight_kg: float or None, raw_display_str: str)
         """
-        # 记录调试日志
+        # 记录本地调试日志
         try:
             log_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -163,7 +184,7 @@ class ScaleReader(QObject):
             ascii_str = ""
 
         try:
-            # 过滤打印可见 ASCII 字符
+            # 清理控制字符
             cleaned = bytearray()
             for b in raw:
                 if 0x20 <= b <= 0x7E:
@@ -171,45 +192,38 @@ class ScaleReader(QObject):
 
             text = cleaned.decode("ascii", errors="ignore").strip()
             if not text:
-                return None, ascii_str
+                return None, raw.hex(' ')
 
-            # 协议 1: DIBAL 标准 STX 帧 (如: 02 30 30 30 33 35 30 ... -> STX 000350 ...)
-            # 格式: 状态(1字节) + 5位/6位重量克数
-            if len(text) >= 5 and text.isdigit():
-                # 纯数字，代表克数，如 000350 -> 350g -> 0.35kg
-                g_val = float(text[:6]) if len(text) >= 6 else float(text)
-                kg_val = round(g_val / 1000.0, 3)
-                return kg_val, text
-
-            # 协议 2: 标准逗号分隔 / 带单位报文 (如 "ST,GS,+00.350kg", "WN0.350kg", "+ 0.350")
+            # 匹配 1: 标准带单位或正负号数 ("ST,GS,+ 00.350kg", "00.700", "wn000.350kg")
             match = re.search(r'([+-]?\s*\d{1,5}\.\d{1,4})\s*(kg|g|jin|斤)?', text, re.IGNORECASE)
             if match:
                 val_str = match.group(1).replace(" ", "")
                 unit_str = (match.group(2) or "").lower()
                 val = float(val_str)
 
-                # 单位换算
                 if unit_str in ("g", "克"):
                     kg_val = val / 1000.0
                 elif unit_str in ("jin", "斤"):
                     kg_val = val / 2.0
-                elif abs(val) > 20:  # 默认无单位且大于20认为是克数
+                elif abs(val) > 30:  # 默认无单位且数值较大概率为克数
                     kg_val = val / 1000.0
                 else:
                     kg_val = val
 
                 return round(abs(kg_val), 3), text
 
-            # 协议 3: 提取第一个正浮点数
-            m2 = re.search(r'\d+\.\d+', text)
-            if m2:
-                val = float(m2.group(0))
-                return round(val, 3), text
+            # 匹配 2: 纯数字格式 (如 DIBAL STX 报文 "000350" -> 350g)
+            digits = re.sub(r'\D', '', text)
+            if len(digits) >= 4:
+                g_val = float(digits[:6]) if len(digits) >= 6 else float(digits)
+                kg_val = round(g_val / 1000.0, 3)
+                if kg_val < 50:  # 过滤异常大数
+                    return kg_val, text
 
         except Exception:
             pass
 
-        return None, ascii_str
+        return None, raw.hex(' ')
 
     # ─── 稳定检测 ──────────────────────────────────────
     def _check_stability(self, weight):
