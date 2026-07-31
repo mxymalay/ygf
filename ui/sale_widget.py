@@ -348,11 +348,11 @@ class SaleWidget(QWidget):
         self.lbl_weight.setText("%06.3f kg" % weight_kg)
         self._update_price_display()
 
-        # 读数变化中/未稳定 -> ⏳ 图标
-        if self._is_stable and abs(weight_kg - self._stable_weight) > 0.05:
+        # 重量发生明显变动 (>0.01kg) 时标记为未稳定 ⏳
+        if self._is_stable and abs(weight_kg - self._stable_weight) > 0.01:
             self._is_stable = False
             self.lbl_scale_status_icon.setText(u"⏳")
-            self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
+            self.lbl_scale_status_icon.setToolTip(u"读数变动中...")
 
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
@@ -362,7 +362,7 @@ class SaleWidget(QWidget):
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
-        if weight_kg > 0.02:
+        if weight_kg > 0.005:
             self._is_stable = True
             self._stable_weight = weight_kg
             # 读数已稳定 -> ✅ 绿色对号

@@ -161,13 +161,9 @@ class ScaleReader(QObject):
                     for line in reversed(lines):
                         w = self._parse_ygf_log_line(line)
                         if w is not None:
-                            if w != last_weight:
-                                last_weight = w
-                                self.weight_updated.emit(w)
-                                self._check_stability(w)
-                                self.status_changed.emit(
-                                    True, "● 已同步官方收银称重 | 读数: %.3f kg" % w
-                                )
+                            self.weight_updated.emit(w)
+                            self._check_stability(w)
+                            last_weight = w
                             break
 
                     time.sleep(0.1)
