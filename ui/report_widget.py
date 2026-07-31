@@ -15,7 +15,7 @@ from core.database import Database
 
 
 class ReportWidget(QWidget):
-    """交班小结 & 营业报表"""
+    """营业报表"""
 
     def __init__(self, db: Database, printer=None, config=None, parent=None):
         super().__init__(parent)
@@ -23,7 +23,6 @@ class ReportWidget(QWidget):
         self.printer = printer
         self.config = config or {}
         self.selected_date_str = date.today().strftime("%Y-%m-%d")
-        self.current_sub_tab = u"交班小结"
 
         self._build_ui()
         self.reload_report()
@@ -33,8 +32,8 @@ class ReportWidget(QWidget):
 
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(12)
 
         # ── 1. 顶部 Header 栏 ──
         header_bar = QHBoxLayout()
@@ -57,11 +56,11 @@ class ReportWidget(QWidget):
         line.setStyleSheet("color: #374151; border: none;")
         main_layout.addWidget(line)
 
-        # ── 2. 主体三栏布局 (左:日历+菜单, 中:交班小结票据, 右:小结状态+历史) ──
+        # ── 2. 主体布局 (左:日历, 右:营业报表票据) ──
         body_layout = QHBoxLayout()
-        body_layout.setSpacing(12)
+        body_layout.setSpacing(16)
 
-        # ──────────────── Left Column (日历 + 报表子导航) ────────────────
+        # ──────────────── Left Column (日历选择器) ────────────────
         left_col = QVBoxLayout()
         left_col.setSpacing(10)
 
@@ -76,38 +75,18 @@ class ReportWidget(QWidget):
         )
         self.calendar.selectionChanged.connect(self._on_date_changed)
         left_col.addWidget(self.calendar)
-
-        # 子导航菜单列表
-        self.sub_tabs_container = QVBoxLayout()
-        self.sub_tabs_container.setSpacing(4)
-
-        self.sub_tab_btns = {}
-        sub_tab_names = [
-            u"交班小结", u"数据日结", u"营业数据汇总",
-            u"商品售卖量", u"时段营业额", u"操作日志"
-        ]
-
-        for name in sub_tab_names:
-            btn = QPushButton(name)
-            btn.setCheckable(True)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked, n=name: self._switch_sub_tab(n))
-            self.sub_tabs_container.addWidget(btn)
-            self.sub_tab_btns[name] = btn
-
-        left_col.addLayout(self.sub_tabs_container)
         left_col.addStretch()
 
         body_layout.addLayout(left_col, stretch=3)
 
-        # ──────────────── Middle Column (交班小结白板票据) ────────────────
+        # ──────────────── Right Column (营业汇总票据) ────────────────
         mid_card = QFrame()
         mid_card.setStyleSheet(
             "QFrame { background: #FFFFFF; border-radius: 10px; border: none; }"
         )
         mid_layout = QVBoxLayout(mid_card)
-        mid_layout.setContentsMargins(20, 20, 20, 20)
-        mid_layout.setSpacing(8)
+        mid_layout.setContentsMargins(24, 20, 24, 20)
+        mid_layout.setSpacing(10)
 
         # 票据标题
         lbl_ticket_title = QLabel(u"交班小结")
@@ -169,84 +148,17 @@ class ReportWidget(QWidget):
 
         mid_layout.addStretch()
 
-        # 票据内翻页 & 打印按钮
-        ticket_page_row = QHBoxLayout()
-        btn_t_prev = QPushButton(u"上一页")
-        btn_t_prev.setStyleSheet("background: #E5E7EB; color: #374151; padding: 4px 12px; border-radius: 4px; border: none;")
-        btn_t_next = QPushButton(u"下一页")
-        btn_t_next.setStyleSheet("background: #E5E7EB; color: #374151; padding: 4px 12px; border-radius: 4px; border: none;")
-        ticket_page_row.addWidget(btn_t_prev)
-        ticket_page_row.addWidget(btn_t_next)
-        mid_layout.addLayout(ticket_page_row)
-
         btn_print = QPushButton(u"打印")
         btn_print.setStyleSheet(
             "background: #EA580C; color: white; font-weight: 900; font-size: 16px; "
-            "padding: 10px; border-radius: 6px; border: none;"
+            "padding: 12px; border-radius: 6px; border: none;"
         )
         btn_print.clicked.connect(self._on_print_click)
         mid_layout.addWidget(btn_print)
 
-        body_layout.addWidget(mid_card, stretch=4)
-
-        # ──────────────── Right Column (小结状态卡片 + 历史操作) ────────────────
-        right_col = QVBoxLayout()
-        right_col.setSpacing(12)
-
-        # 顶部收银员小结卡片
-        summary_card = QFrame()
-        summary_card.setStyleSheet(
-            "QFrame { background: #1E293B; border: none; border-radius: 10px; padding: 14px; }"
-        )
-        sc_layout = QVBoxLayout(summary_card)
-        sc_layout.setSpacing(10)
-
-        user_row = QHBoxLayout()
-        lbl_avatar = QLabel(u"👤")
-        lbl_avatar.setStyleSheet("font-size: 32px; background: #374151; border-radius: 20px; padding: 4px; border: none;")
-        user_info = QVBoxLayout()
-        lbl_cashier_name = QLabel(u"杨国福(肥西水晶城店)")
-        lbl_cashier_name.setStyleSheet("color: #F9FAFB; font-weight: bold; font-size: 14px; border: none;")
-        self.lbl_shift_time = QLabel("%s 06:44:13" % self.selected_date_str)
-        self.lbl_shift_time.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none;")
-        self.lbl_shift_total = QLabel(u"¥ 0.00")
-        self.lbl_shift_total.setStyleSheet("color: #F9FAFB; font-size: 18px; font-weight: 900; border: none;")
-
-        user_info.addWidget(lbl_cashier_name)
-        user_info.addWidget(self.lbl_shift_time)
-        user_info.addWidget(self.lbl_shift_total)
-
-        user_row.addWidget(lbl_avatar)
-        user_row.addLayout(user_info)
-        sc_layout.addLayout(user_row)
-
-        btn_settle_now = QPushButton(u"现在小结")
-        btn_settle_now.setStyleSheet(
-            "background: #EA580C; color: white; font-weight: bold; font-size: 15px; "
-            "padding: 10px; border-radius: 6px; border: none;"
-        )
-        btn_settle_now.clicked.connect(self._on_settle_now)
-        sc_layout.addWidget(btn_settle_now)
-
-        right_col.addWidget(summary_card)
-        right_col.addStretch()
-
-        # 右侧底部翻页控制
-        right_page_row = QHBoxLayout()
-        btn_r_prev = QPushButton(u"上一页")
-        btn_r_prev.setStyleSheet("background: #EA580C; color: white; font-weight: bold; padding: 8px 16px; border-radius: 6px; border: none;")
-        btn_r_next = QPushButton(u"下一页")
-        btn_r_next.setStyleSheet("background: #EA580C; color: white; font-weight: bold; padding: 8px 16px; border-radius: 6px; border: none;")
-
-        right_page_row.addWidget(btn_r_prev)
-        right_page_row.addWidget(btn_r_next)
-        right_col.addLayout(right_page_row)
-
-        body_layout.addLayout(right_col, stretch=3)
+        body_layout.addWidget(mid_card, stretch=5)
 
         main_layout.addLayout(body_layout, stretch=1)
-
-        self._switch_sub_tab(u"交班小结")
 
     def _add_receipt_row(self, layout, key_text, val_text, is_bold=False):
         row = QHBoxLayout()
@@ -263,28 +175,11 @@ class ReportWidget(QWidget):
         layout.addLayout(row)
         return lbl_v
 
-    def _switch_sub_tab(self, name):
-        self.current_sub_tab = name
-        self.lbl_header_title.setText(name)
-        for tab_name, btn in self.sub_tab_btns.items():
-            if tab_name == name:
-                btn.setStyleSheet(
-                    "background: #EA580C; color: white; font-weight: bold; "
-                    "border-radius: 6px; padding: 10px; border: none;"
-                )
-            else:
-                btn.setStyleSheet(
-                    "background: #1E293B; color: #9CA3AF; font-weight: bold; "
-                    "border-radius: 6px; padding: 10px; border: none;"
-                )
-        self._load_data()
-
     def _on_date_changed(self):
         qd = self.calendar.selectedDate()
         self.selected_date_str = qd.toString("yyyy-MM-dd")
         self.lbl_header_date.setText(self.selected_date_str)
         self.lbl_start_time.setText(u"开始时间：%s" % self.selected_date_str)
-        self.lbl_shift_time.setText("%s %s" % (self.selected_date_str, datetime.now().strftime("%H:%M:%S")))
         self._load_data()
 
     def _load_data(self):
@@ -297,25 +192,21 @@ class ReportWidget(QWidget):
         self.lbl_cnt.setText("%d" % count)
         self.lbl_avg.setText("¥ %.2f" % avg)
         self.lbl_pay_wx.setText("¥ %.2f" % a_sum)
-        self.lbl_shift_total.setText("¥ %.2f" % a_sum)
 
     def _on_print_click(self):
+        rev_amt = float(self.lbl_rev.text().replace("¥", "").strip())
         if self.printer:
             ticket_data = {
                 "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
                 "call_no": "SHIFT",
                 "weight_kg": 0.0,
                 "unit_price": 0.0,
-                "total_price": float(self.lbl_shift_total.text().replace("¥", "").strip()),
+                "total_price": rev_amt,
                 "temp_order_no": "SHIFT-" + datetime.now().strftime("%Y%m%d%H%M"),
-                "cart_items": [{"name": u"交班小结报表", "price": float(self.lbl_shift_total.text().replace("¥", "").strip())}],
+                "cart_items": [{"name": u"交班小结报表", "price": rev_amt}],
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             self.printer.print_receipt(ticket_data)
 
         from ui.custom_dialog import show_info
-        show_info(self, u"打印成功", u"交班小结报表已发送至打印机！")
-
-    def _on_settle_now(self):
-        from ui.custom_dialog import show_info
-        show_info(self, u"交班成功", u"当前班次小结完成！营业额累计：￥%.2f" % float(self.lbl_shift_total.text().replace("¥", "").strip()))
+        show_info(self, u"打印成功", u"营业小结报表已发送至打印机！")
