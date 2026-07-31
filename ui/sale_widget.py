@@ -417,7 +417,7 @@ class SaleWidget(QWidget):
             if item["type"] == "soup":
                 w_str = f"{item['weight']:.3f}"
                 sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   堂食   x{w_str}   ¥{item['price']:.2f}"
-                card = OrderItemCard(item["name"], sub_str, tag=u"微辣/", is_active=is_last)
+                card = OrderItemCard(item["name"], sub_str, is_active=is_last)
                 total_price += item["price"]
             else:
                 sub_str = f"1   ¥{item['price']:.2f}   堂食   x1   ¥{item['price']:.2f}"
