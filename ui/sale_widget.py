@@ -965,15 +965,15 @@ class SaleWidget(QWidget):
         QTimer.singleShot(20, self._update_price_display)
 
     def _get_page_size(self):
-        """根据开单面板视口 real pixel 高度精准计算单页能完整放下的卡片数 (排除上一页/下一页控件，绝对不被遮挡)"""
+        """根据开单面板视口 real pixel 高度精准计算单页能完整放下的卡片数 (单卡真实占用约 64px，绝对不遮挡)"""
         if hasattr(self, 'cart_scroll') and self.cart_scroll.viewport():
             vh = self.cart_scroll.viewport().height()
-            usable_h = max(0, vh - 10)
+            usable_h = max(0, vh - 6)
             if usable_h > 50:
-                # 每一项卡片实际占用高度 (含内边距、字高与布局间距) 约为 52px
-                fit_count = usable_h // 52
+                # 包含标题、副标题、辣度标签、边距与卡片间距，实际占用高度约 64px
+                fit_count = usable_h // 64
                 return max(1, fit_count)
-        return 3
+        return 4
 
     def showEvent(self, event):
         super().showEvent(event)
