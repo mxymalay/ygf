@@ -307,10 +307,10 @@ class OrderItemCard(QFrame):
 
 class MenuGridButton(QPushButton):
     """
-    右侧菜单卡片按钮 — 深浅主题自适应 (分类支持汤底、打包盒与饮料)
+    右侧菜单卡片按钮 — 深浅主题自适应 (分类支持汤底、打包盒、油面筋与饮料)
     """
 
-    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_dark_mode=True, parent=None):
+    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_gluten=False, is_dark_mode=True, parent=None):
         super().__init__(parent)
         self.key_id = key_id
         self.title_str = title
@@ -318,6 +318,7 @@ class MenuGridButton(QPushButton):
         self.price_val = price
         self.is_soup = is_soup
         self.is_box = is_box
+        self.is_gluten = is_gluten
         self.is_dark_mode = is_dark_mode
         self.count = 0
 
@@ -420,8 +421,36 @@ class MenuGridButton(QPushButton):
                         "QPushButton:hover { background: #D1FAE5; }"
                         "QLabel { color: #065F46; font-size: 14px; font-weight: bold; background: transparent; border: none; }"
                     )
+        elif self.is_gluten:
+            # ── 3. 油面筋专属紫罗兰样式 ──
+            if self.is_dark_mode:
+                if self.count > 0:
+                    self.setStyleSheet(
+                        "QPushButton { background: #6D28D9; border: 2px solid #A78BFA; border-radius: 10px; }"
+                        "QPushButton:hover { background: #5B21B6; }"
+                        "QLabel { color: #FFFFFF; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
+                    )
+                else:
+                    self.setStyleSheet(
+                        "QPushButton { background: #2E1065; border: 1.5px solid #8B5CF6; border-radius: 10px; }"
+                        "QPushButton:hover { background: #3B0764; }"
+                        "QLabel { color: #DDD6FE; font-size: 14px; font-weight: bold; background: transparent; border: none; }"
+                    )
+            else:
+                if self.count > 0:
+                    self.setStyleSheet(
+                        "QPushButton { background: #DDD6FE; border: 2px solid #7C3AED; border-radius: 10px; }"
+                        "QPushButton:hover { background: #C4B5FD; }"
+                        "QLabel { color: #4C1D95; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
+                    )
+                else:
+                    self.setStyleSheet(
+                        "QPushButton { background: #F5F3FF; border: 1.5px solid #8B5CF6; border-radius: 10px; }"
+                        "QPushButton:hover { background: #EDE9FE; }"
+                        "QLabel { color: #5B21B6; font-size: 14px; font-weight: bold; background: transparent; border: none; }"
+                    )
         else:
-            # ── 3. 普通饮料卡片 (深浅自适应) ──
+            # ── 4. 普通饮料卡片 (深浅自适应) ──
             if self.is_dark_mode:
                 if self.count > 0:
                     self.setStyleSheet(
@@ -735,36 +764,39 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
         pu_lbl = price_unit_label(price_unit)
 
-        # 菜单配置：三款汤底 (第0行) + 打包盒 (第1行独占) + 1-10元饮料 (第2-4行)
+        # 菜单配置：三款汤底 (第0行) + 打包盒 (第1行独占) + 油面筋 (第2行独占) + 1-10元饮料 (第3-5行)
         menu_items_config = [
             # 第 0 行：汤底类 (橙暖色)
-            (0, 0, "soup_1", u"经典草本骨汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False),
-            (0, 1, "soup_2", u"酸甜番茄汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False),
-            (0, 2, "soup_3", u"石磨醇香麻辣拌", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False),
+            (0, 0, "soup_1", u"经典草本骨汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
+            (0, 1, "soup_2", u"酸甜番茄汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
+            (0, 2, "soup_3", u"石磨醇香麻辣拌", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
 
             # 第 1 行：打包盒类 (另起一行，独占该行，翡翠青绿色)
-            (1, 0, "item_box_s", u"打包盒 (小)", "¥ 1.00", 1.0, False, True),
-            (1, 1, "item_box_l", u"打包盒 (大)", "¥ 2.00", 2.0, False, True),
+            (1, 0, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
 
-            # 第 2 行：1-4元饮料
-            (2, 0, "item_1", u"1元饮料", "", 1.0, False, False),
-            (2, 1, "item_2", u"2元饮料", "", 2.0, False, False),
-            (2, 2, "item_3", u"3元饮料", "", 3.0, False, False),
-            (2, 3, "item_4", u"4元饮料", "", 4.0, False, False),
+            # 第 2 行：油面筋类 (另起一行，独占该行，典雅紫罗兰色)
+            (2, 0, "item_gluten_05", u"油面筋 (0.5元)", "¥ 0.50", 0.5, False, False, True),
+            (2, 1, "item_gluten_10", u"油面筋 (1元)", "¥ 1.00", 1.0, False, False, True),
 
-            # 第 3 行：5-8元饮料
-            (3, 0, "item_5", u"5元饮料", "", 5.0, False, False),
-            (3, 1, "item_6", u"6元饮料", "", 6.0, False, False),
-            (3, 2, "item_7", u"7元饮料", "", 7.0, False, False),
-            (3, 3, "item_8", u"8元饮料", "", 8.0, False, False),
+            # 第 3 行：1-4元饮料
+            (3, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
+            (3, 1, "item_2", u"2元饮料", "", 2.0, False, False, False),
+            (3, 2, "item_3", u"3元饮料", "", 3.0, False, False, False),
+            (3, 3, "item_4", u"4元饮料", "", 4.0, False, False, False),
 
-            # 第 4 行：9-10元饮料
-            (4, 0, "item_9", u"9元饮料", "", 9.0, False, False),
-            (4, 1, "item_10", u"10元饮料", "", 10.0, False, False),
+            # 第 4 行：5-8元饮料
+            (4, 0, "item_5", u"5元饮料", "", 5.0, False, False, False),
+            (4, 1, "item_6", u"6元饮料", "", 6.0, False, False, False),
+            (4, 2, "item_7", u"7元饮料", "", 7.0, False, False, False),
+            (4, 3, "item_8", u"8元饮料", "", 8.0, False, False, False),
+
+            # 第 5 行：9-10元饮料
+            (5, 0, "item_9", u"9元饮料", "", 9.0, False, False, False),
+            (5, 1, "item_10", u"10元饮料", "", 10.0, False, False, False),
         ]
 
-        for r, c, key_id, title, sub, price, is_soup, is_box in menu_items_config:
-            btn = MenuGridButton(key_id, title, sub, price, is_soup, is_box, self.is_dark_mode)
+        for r, c, key_id, title, sub, price, is_soup, is_box, is_gluten in menu_items_config:
+            btn = MenuGridButton(key_id, title, sub, price, is_soup, is_box, is_gluten, self.is_dark_mode)
             btn.clicked.connect(lambda checked, b=btn: self._on_menu_click(b))
             mg_grid.addWidget(btn, r, c)
             self.menu_buttons[key_id] = btn
