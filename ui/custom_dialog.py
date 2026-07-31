@@ -221,12 +221,13 @@ def get_int_input(parent, title, message, value=1, min_val=1, max_val=9999):
 
 
 class ReceiptPreviewDialog(QDialog):
-    """小票模拟预览与确认打票对话框 (含 10 秒倒计时自动打票)"""
+    """小票模拟预览与确认打票对话框 (含闪烁收款提醒 & 10 秒倒计时)"""
 
     def __init__(self, sale_data, countdown_sec=10, parent=None):
         super().__init__(parent)
         self.sale_data = sale_data
         self.countdown = countdown_sec
+        self._flash_flag = False
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
@@ -243,8 +244,17 @@ class ReceiptPreviewDialog(QDialog):
         layout.addWidget(card)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(24, 24, 24, 24)
+        card_layout.setContentsMargins(20, 20, 20, 20)
         card_layout.setSpacing(10)
+
+        # 0. 闪烁收款提醒 Banner
+        self.notice_banner = QLabel(u"⚠️ 请确认已通过其他工具完成收款！")
+        self.notice_banner.setAlignment(Qt.AlignCenter)
+        self.notice_banner.setStyleSheet(
+            "background: #DC2626; color: #FFFFFF; font-size: 15px; font-weight: 900; "
+            "padding: 10px; border-radius: 8px; border: none;"
+        )
+        card_layout.addWidget(self.notice_banner)
 
         # 1. 模拟小票 Header
         lbl_shop = QLabel(sale_data.get("shop_name", u"杨国福麻辣烫"))
@@ -339,29 +349,51 @@ class ReceiptPreviewDialog(QDialog):
         btn_box.addWidget(self.btn_print, stretch=2)
 
         card_layout.addLayout(btn_box)
-        self.resize(400, 480)
+        self.resize(420, 520)
 
-        # 3. 倒计时 Timer
+        # 3. 定时器: 倒计时 Timer & 高亮闪烁 Timer
         from PyQt5.QtCore import QTimer
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self._tick)
         self.timer.start()
 
+        self.flash_timer = QTimer(self)
+        self.flash_timer.setInterval(500)
+        self.flash_timer.timeout.connect(self._flash_tick)
+        self.flash_timer.start()
+
+    def _flash_tick(self):
+        self._flash_flag = not self._flash_flag
+        if self._flash_flag:
+            self.notice_banner.setStyleSheet(
+                "background: #EF4444; color: #FFFFFF; font-size: 15px; font-weight: 900; "
+                "padding: 10px; border-radius: 8px; border: none;"
+            )
+        else:
+            self.notice_banner.setStyleSheet(
+                "background: #7F1D1D; color: #FEF08A; font-size: 15px; font-weight: 900; "
+                "padding: 10px; border-radius: 8px; border: none;"
+            )
+
+    def _stop_all_timers(self):
+        if hasattr(self, 'timer') and self.timer.isActive():
+            self.timer.stop()
+        if hasattr(self, 'flash_timer') and self.flash_timer.isActive():
+            self.flash_timer.stop()
+
     def _tick(self):
         self.countdown -= 1
         if self.countdown > 0:
             self.btn_print.setText(f"立即打票 ({self.countdown}s)")
         else:
-            self.timer.stop()
+            self._stop_all_timers()
             self._on_print_now()
 
     def _on_print_now(self):
-        if hasattr(self, 'timer') and self.timer.isActive():
-            self.timer.stop()
+        self._stop_all_timers()
         self.accept()
 
     def _on_cancel(self):
-        if hasattr(self, 'timer') and self.timer.isActive():
-            self.timer.stop()
+        self._stop_all_timers()
         self.reject()
