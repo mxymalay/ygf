@@ -1,19 +1,49 @@
 """
 杨国福麻辣烫 · 独立称重打印系统
-主入口
+主入口 (含官方系统运行强制校验)
 """
 import sys
 import os
+import time
+import subprocess
 
 # 确保项目根目录在 path 中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from config import load_config, save_config
 from ui.main_window import MainWindow
+
+
+def check_ygf_official_running() -> bool:
+    """检测官方收银系统是否正在运行"""
+    # 检查 1: 观察官方串口日志文件在 30 秒内是否有更新
+    serial_dir = r"C:\YANGGUOFU-POS\serial"
+    if os.path.exists(serial_dir):
+        try:
+            for fname in os.listdir(serial_dir):
+                if fname.startswith("log_serial_ports"):
+                    fp = os.path.join(serial_dir, fname)
+                    if os.path.isfile(fp) and (time.time() - os.path.getmtime(fp) < 30.0):
+                        return True
+        except Exception:
+            pass
+
+    # 检查 2: 检查进程列表中是否有官方收银进程
+    try:
+        cmd = 'tasklist /NH /FO CSV'
+        output = subprocess.check_output(cmd, shell=True).decode('gbk', errors='ignore')
+        for line in output.splitlines():
+            line_lower = line.lower()
+            if 'yangguofu' in line_lower or 'ygf' in line_lower:
+                return True
+    except Exception:
+        pass
+
+    return False
 
 
 def main():
@@ -23,6 +53,18 @@ def main():
     font = QFont("Microsoft YaHei", 10)
     app.setFont(font)
 
+    # 校验官方软件是否运行
+    if not check_ygf_official_running():
+        QMessageBox.warning(
+            None,
+            u"提示 - 请先打开官方收银系统",
+            u"检测到【杨国福官方收银系统】未打开！\n\n"
+            u"本称重打印系统需依赖官方电子秤服务，\n"
+            u"请先打开【杨国福官方收银软件】，然后再启动本系统。",
+            QMessageBox.Ok
+        )
+        sys.exit(0)
+
     # 加载配置
     config = load_config()
 
@@ -30,7 +72,7 @@ def main():
     if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "settings.json")):
         save_config(config)
 
-    # 创建主窗口（默认最大化适合收银屏）
+    # 创建主窗口
     window = MainWindow(config)
     window.showMaximized()
 
