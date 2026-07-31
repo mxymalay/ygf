@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QFrame, QDoubleSpinBox, QMessageBox
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSlot
 
 from core.calculator import calculate_price, weight_display, price_unit_label
 from core.database import Database
@@ -29,12 +29,6 @@ class SaleWidget(QWidget):
 
         self._build_ui()
         self._setup_scale()
-        self._refresh_summary()
-
-        # 每 30 秒刷新一次汇总
-        self._summary_timer = QTimer(self)
-        self._summary_timer.timeout.connect(self._refresh_summary)
-        self._summary_timer.start(30000)
 
     def _build_ui(self):
         layout = QHBoxLayout(self)
@@ -121,7 +115,7 @@ class SaleWidget(QWidget):
 
         # ── 右侧：操作区 ──
         right = QVBoxLayout()
-        right.setSpacing(12)
+        right.setSpacing(16)
 
         # 单价设置
         price_group = QGroupBox(u"单价设置")
@@ -141,6 +135,8 @@ class SaleWidget(QWidget):
 
         right.addWidget(price_group)
 
+        right.addSpacing(10)
+
         # 操作按钮
         self.btn_print = QPushButton(u"称重并打印小票")
         self.btn_print.setObjectName("btn_print")
@@ -152,44 +148,9 @@ class SaleWidget(QWidget):
         self.btn_clear.clicked.connect(self._on_clear)
         right.addWidget(self.btn_clear)
 
-        right.addSpacing(8)
-
-        # 今日汇总
-        summary_group = QGroupBox(u"今日汇总")
-        sg_layout = QGridLayout(summary_group)
-
-        sg_layout.addWidget(self._dim_label(u"笔数"), 0, 0)
-        self.lbl_count = QLabel("0")
-        self.lbl_count.setStyleSheet("color: #00b4d8; font-size: 24px; font-weight: bold;")
-        sg_layout.addWidget(self.lbl_count, 0, 1)
-        sg_layout.addWidget(self._dim_label(u"笔"), 0, 2)
-
-        sg_layout.addWidget(self._dim_label(u"总重"), 1, 0)
-        self.lbl_total_weight = QLabel("0.00")
-        self.lbl_total_weight.setStyleSheet("color: #00b4d8; font-size: 24px; font-weight: bold;")
-        sg_layout.addWidget(self.lbl_total_weight, 1, 1)
-        sg_layout.addWidget(self._dim_label("kg"), 1, 2)
-
-        sg_layout.addWidget(self._dim_label(u"营收"), 2, 0)
-        self.lbl_total_amount = QLabel(u"￥0.00")
-        self.lbl_total_amount.setStyleSheet("color: #e94560; font-size: 28px; font-weight: bold;")
-        sg_layout.addWidget(self.lbl_total_amount, 2, 1, 1, 2)
-
-        right.addWidget(summary_group)
-
-        # 最近记录
-        recent_group = QGroupBox(u"最近记录")
-        self.recent_layout = QVBoxLayout(recent_group)
-        self.recent_layout.setSpacing(4)
-        self._refresh_recent()
-        right.addWidget(recent_group, stretch=1)
+        right.addStretch()
 
         layout.addLayout(right, stretch=2)
-
-    def _dim_label(self, text):
-        lbl = QLabel(text)
-        lbl.setStyleSheet("color: #6c6c80; font-size: 14px;")
-        return lbl
 
     # ─── 称重秤连接 ──────────────────────────────────
     def _setup_scale(self):
@@ -276,9 +237,6 @@ class SaleWidget(QWidget):
             self.lbl_stable.setStyleSheet("font-size: 14px; color: #e74c3c;")
             QMessageBox.warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
 
-        self._refresh_summary()
-        self._refresh_recent()
-
     def _on_clear(self):
         self.current_weight = 0.0
         self._is_stable = False
@@ -287,46 +245,7 @@ class SaleWidget(QWidget):
         self.lbl_price.setText(u"￥0.00")
         self.lbl_stable.setText("")
 
-    # ─── 数据刷新 ─────────────────────────────────
-    def _refresh_summary(self):
-        summary = self.db.get_today_summary()
-        self.lbl_count.setText(str(summary["count"]))
-        self.lbl_total_weight.setText("%.2f" % summary["total_weight"])
-        self.lbl_total_amount.setText(u"￥%.2f" % summary["total_amount"])
-
-    def _refresh_recent(self):
-        while self.recent_layout.count():
-            item = self.recent_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        records = self.db.get_recent_sales(limit=5)
-        if not records:
-            lbl = QLabel(u"暂无记录")
-            lbl.setStyleSheet("color: #6c6c80; font-size: 13px; padding: 8px;")
-            self.recent_layout.addWidget(lbl)
-            return
-
-        for r in records:
-            pu = r.get("price_unit", "per_jin")
-            if pu == "per_jin":
-                w_str = "%.2f斤" % (r["weight_kg"] * 2)
-            else:
-                w_str = "%.3fkg" % r["weight_kg"]
-            t = r["created_at"].split(" ")[1][:5] if " " in r["created_at"] else ""
-            text = "%s  %s  ￥%.2f" % (t, w_str, r["total_price"])
-            lbl = QLabel(text)
-            lbl.setStyleSheet(
-                "color: #a0a0b8; font-size: 13px; padding: 4px 8px;"
-                "background: #0f0f1a; border-radius: 4px;"
-            )
-            self.recent_layout.addWidget(lbl)
-
-        self.recent_layout.addStretch()
-
     def cleanup(self):
         """关闭时清理资源"""
         if hasattr(self, 'scale'):
             self.scale.stop()
-        if hasattr(self, '_summary_timer'):
-            self._summary_timer.stop()
