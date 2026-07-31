@@ -2,7 +2,7 @@
 称重秤串口读取模块
 
 通过串口（RS-232 / USB转串口）实时读取真实称重秤数据
-支持主动发送查询指令 (ENQ / W\\r) 与 连续主动上报 两种模式
+支持 RTS/DTR 供电脚激活、主动发送查询指令 (ENQ / W\\r) 与 连续主动上报 两种模式
 兼容：Python 3.8+ / Windows 7+
 """
 import re
@@ -87,17 +87,34 @@ class ScaleReader(QObject):
                 stopbits=stopbits,
                 timeout=0.5
             )
-            self.status_changed.emit(True, "已打开 %s (%d bps) | 正在监听电子秤..." % (port, baudrate))
+
+            # 关键：激活 DTR / RTS 控制线电平 (为串口光耦芯片供电)
+            try:
+                self._serial.dtr = True
+                self._serial.rts = True
+            except Exception:
+                pass
+
+            self.status_changed.emit(True, "已打开 %s (%d bps) | 正在建立硬件握手..." % (port, baudrate))
+
+            # 发送 DIBAL 握手激活指令
+            init_cmds = [b"\x05", b"\x0201\x03", b"W\r\n", b"\x0200\x03"]
+            for cmd in init_cmds:
+                try:
+                    self._serial.write(cmd)
+                    time.sleep(0.1)
+                except Exception:
+                    pass
 
             buffer = b""
             last_query_time = 0
-            query_cmds = [b"\x05", b"W\r\n", b"Q\r\n", b"S\r\n"]  # 常见电子秤查询指令
+            query_cmds = [b"\x05", b"W\r\n", b"\x0201\x03", b"Q\r\n", b"S\r\n"]
             cmd_idx = 0
 
             while self._running:
                 now = time.time()
-                # 每 0.5 秒如果没收到新数据，主动向秤发送一次查询请求指令 (应对问答式电子秤)
-                if now - last_query_time > 0.5:
+                # 每 0.3 秒如果没收到新数据，轮询发送指令拉取读数
+                if now - last_query_time > 0.3:
                     try:
                         self._serial.write(query_cmds[cmd_idx])
                         cmd_idx = (cmd_idx + 1) % len(query_cmds)
@@ -109,7 +126,7 @@ class ScaleReader(QObject):
                     data = self._serial.read(self._serial.in_waiting)
                     buffer += data
 
-                    # 尝试按多种方式切帧
+                    # 尝试切帧
                     while len(buffer) > 0:
                         packet = None
                         # 1. 优先查找 STX(0x02) ... ETX(0x03) 完整帧
@@ -127,7 +144,7 @@ class ScaleReader(QObject):
                                     packet, buffer = buffer.split(sep, 1)
                                     break
 
-                        # 3. 如果收到固定长度报文（如 8~16 字节）
+                        # 3. 固定长度报文
                         if packet is None and len(buffer) >= 12:
                             packet = buffer[:12]
                             buffer = buffer[12:]
@@ -141,7 +158,6 @@ class ScaleReader(QObject):
                             elif raw_info:
                                 self.status_changed.emit(True, "已连接 %s | 收到数据但未解析: %s" % (port, raw_info))
                         else:
-                            # 缓冲区防止死锁溢出
                             if len(buffer) > 256:
                                 buffer = buffer[-64:]
                             break
@@ -157,7 +173,7 @@ class ScaleReader(QObject):
             if "FileNotFoundError" in err_str or "could not open port" in err_str:
                 msg = "串口 %s 未找到/不可用，请在【系统设置】中切换为可用端口 (如 COM1)" % port
             elif "PermissionError" in err_str or "Access is denied" in err_str:
-                msg = "串口 %s 被其他程序占用 (如公司原有POS系统)，请使用 VSPE 进行端口分流" % port
+                msg = "串口 %s 被公司原POS软件占用！请关闭原软件，或使用 VSPE 分流端口" % port
             else:
                 msg = "串口 %s 连接失败: %s" % (port, err_str)
 
@@ -169,7 +185,6 @@ class ScaleReader(QObject):
         解析电子秤数据。
         返回 tuple: (weight_kg: float or None, raw_display_str: str)
         """
-        # 记录本地调试日志
         try:
             log_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -184,7 +199,6 @@ class ScaleReader(QObject):
             ascii_str = ""
 
         try:
-            # 清理控制字符
             cleaned = bytearray()
             for b in raw:
                 if 0x20 <= b <= 0x7E:
@@ -205,19 +219,19 @@ class ScaleReader(QObject):
                     kg_val = val / 1000.0
                 elif unit_str in ("jin", "斤"):
                     kg_val = val / 2.0
-                elif abs(val) > 30:  # 默认无单位且数值较大概率为克数
+                elif abs(val) > 30:
                     kg_val = val / 1000.0
                 else:
                     kg_val = val
 
                 return round(abs(kg_val), 3), text
 
-            # 匹配 2: 纯数字格式 (如 DIBAL STX 报文 "000350" -> 350g)
+            # 匹配 2: 纯数字格式
             digits = re.sub(r'\D', '', text)
             if len(digits) >= 4:
                 g_val = float(digits[:6]) if len(digits) >= 6 else float(digits)
                 kg_val = round(g_val / 1000.0, 3)
-                if kg_val < 50:  # 过滤异常大数
+                if kg_val < 50:
                     return kg_val, text
 
         except Exception:
