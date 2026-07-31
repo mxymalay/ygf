@@ -20,8 +20,9 @@ from core.call_number_manager import CallNumberManager
 
 class TasteSelectionDialog(QDialog):
     """
-    点击汤底时弹出的口味偏好对话框 (漫画对话框气泡尖尖箭头样式)
+    点击汤底时弹出的口味偏好对话框 (漫画对话框气泡尖尖箭头样式，即选即显无缝加购)
     """
+    flavor_changed = pyqtSignal(str)
 
     def __init__(self, soup_name, is_dark_mode=True, parent=None):
         super().__init__(parent)
@@ -39,11 +40,19 @@ class TasteSelectionDialog(QDialog):
 
         self.setStyleSheet("QDialog { background: transparent; }")
 
-        self.selected_spice = "微辣"
+        # 草本骨汤不提供“不辣”
+        if "草本骨汤" in soup_name:
+            self.spicy_options = [u"微辣", u"中辣", u"重辣"]
+            self.selected_spice = "微辣"
+        else:
+            self.spicy_options = [u"不辣", u"微辣", u"中辣", u"重辣"]
+            self.selected_spice = "微辣"
+
         self.selected_prefs = set()
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(18, 26, 18, 18)
+
         # 辣度选择 (单选)
         lbl_spicy = QLabel(u"辣度偏好：")
         lbl_spicy.setStyleSheet(f"font-size: 13px; color: {'#9CA3AF' if is_dark_mode else '#4B5563'}; border: none; background: transparent;")
@@ -52,7 +61,7 @@ class TasteSelectionDialog(QDialog):
         spicy_box = QHBoxLayout()
         spicy_box.setSpacing(8)
         self.spicy_btns = {}
-        for s in [u"不辣", u"微辣", u"中辣", u"重辣"]:
+        for s in self.spicy_options:
             btn = QPushButton(s)
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
@@ -85,16 +94,18 @@ class TasteSelectionDialog(QDialog):
             pref_box.addWidget(btn)
         self.main_layout.addLayout(pref_box)
 
-        # 确定按钮
-        btn_confirm = QPushButton(u"确定加入订单")
-        btn_confirm.setCursor(Qt.PointingHandCursor)
-        btn_confirm.setStyleSheet(
-            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #EA580C, stop:1 #C2410C); "
-            "color: white; font-weight: bold; font-size: 15px; border-radius: 8px; min-height: 40px; margin-top: 6px; border: none; }"
-            "QPushButton:hover { background: #EA580C; }"
-        )
-        btn_confirm.clicked.connect(self.accept)
-        self.main_layout.addWidget(btn_confirm)
+    def _select_spice(self, val):
+        self.selected_spice = val
+        for s, btn in self.spicy_btns.items():
+            btn.setChecked(s == val)
+        self.flavor_changed.emit(self.get_tag_string())
+
+    def _toggle_pref(self, val):
+        if val in self.selected_prefs:
+            self.selected_prefs.remove(val)
+        else:
+            self.selected_prefs.add(val)
+        self.flavor_changed.emit(self.get_tag_string())
 
     def update_layout_margins(self):
         if self.arrow_direction == "up":
@@ -565,11 +576,35 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
 
         if btn.is_soup:
-            # 弹出快捷口味选择框
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
-            # 智能精准定位弹窗，确保不超出主窗口与屏幕边界
+            w = self.current_weight
+            b_price = calculate_price(w, unit_price, price_unit)
+            
+            # 1. 点击汤底卡片，无需二次确认，即刻加入订单列表
+            item_entry = {
+                "type": "soup",
+                "key_id": btn.key_id,
+                "name": soup_clean_name,
+                "tag": dlg.get_tag_string(),
+                "weight": w,
+                "price": b_price,
+                "unit_price": unit_price,
+                "price_unit": price_unit
+            }
+            self.cart_items.append(item_entry)
+            btn.set_count(btn.count + 1)
+            self._update_price_display()
+
+            # 2. 实时响应辣度/避忌按钮，点击即刻刷新卡片标签
+            def update_flavor(new_tag):
+                item_entry["tag"] = new_tag
+                self._update_price_display()
+
+            dlg.flavor_changed.connect(update_flavor)
+
+            # 3. 智能精准定位气泡弹窗
             dlg.adjustSize()
             dlg_w = dlg.width()
             dlg_h = dlg.height()
@@ -577,7 +612,6 @@ class SaleWidget(QWidget):
             btn_rect = btn.rect()
             top_left = btn.mapToGlobal(btn_rect.topLeft())
             bottom_right = btn.mapToGlobal(btn_rect.bottomRight())
-
             btn_center_x = top_left.x() + btn_rect.width() / 2
 
             win = self.window()
@@ -585,14 +619,12 @@ class SaleWidget(QWidget):
             win_right = win_rect.x() + win_rect.width()
             win_bottom = win_rect.y() + win_rect.height()
 
-            # 水平定位：默认靠按钮左侧，若靠右超出窗口，则向左偏移
             target_x = top_left.x()
             if target_x + dlg_w > win_right - 12:
                 target_x = bottom_right.x() - dlg_w
             if target_x < win_rect.x() + 12:
                 target_x = win_rect.x() + 12
 
-            # 垂直定位：默认下方，若下边界超出窗口，则向上出弹窗
             if bottom_right.y() + 6 + dlg_h <= win_bottom - 12:
                 target_y = bottom_right.y() + 4
                 dlg.arrow_direction = "up"
@@ -605,22 +637,7 @@ class SaleWidget(QWidget):
             dlg.adjustSize()
             dlg.move(target_x, target_y)
 
-            if dlg.exec_() == QDialog.Accepted:
-                tag_str = dlg.get_tag_string()
-                w = self.current_weight
-                b_price = calculate_price(w, unit_price, price_unit)
-                
-                self.cart_items.append({
-                    "type": "soup",
-                    "key_id": btn.key_id,
-                    "name": soup_clean_name,
-                    "tag": tag_str,
-                    "weight": w,
-                    "price": b_price,
-                    "unit_price": unit_price,
-                    "price_unit": price_unit
-                })
-                btn.set_count(btn.count + 1)
+            dlg.exec_()
         else:
             self.cart_items.append({
                 "type": "item",
