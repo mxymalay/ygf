@@ -1,6 +1,7 @@
 """
 Windows 独立 EXE 软件打包脚本
-一键生成免安装绿色可执行程序 (支持 Win7 / Win10 / Win11)
+一键生成免安装绿色独立可执行程序 (内置完整 Python 解释器与所有依赖库)
+支持 Windows 7 / Windows 10 / Windows 11 纯净无 Python 环境运行
 """
 import os
 import sys
@@ -9,32 +10,35 @@ import shutil
 
 def main():
     print("=" * 60)
-    print("      杨国福麻辣烫 · 独立称重与打印系统 — EXE 打包工具")
+    print("      杨国福麻辣烫 · 独立称重与打印系统 — 免安装 EXE 打包工具")
     print("=" * 60)
 
     # 1. 检查并安装 PyInstaller
     try:
         import PyInstaller
-        print("[✓] PyInstaller 已安装")
+        print("[✓] PyInstaller 已就绪")
     except ImportError:
-        print("[!] 正在安装 PyInstaller 打包依赖...")
+        print("[!] 正在安装 PyInstaller 独立编译组件...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"])
 
     # 2. 清理旧的构建文件
-    print("[*] 清理历史构建缓存...")
+    print("[*] 正在清理历史构建缓存...")
     for folder in ["build", "dist"]:
         if os.path.exists(folder):
-            shutil.rmtree(folder)
+            try:
+                shutil.rmtree(folder)
+            except Exception:
+                pass
 
-    # 3. 构造 PyInstaller 参数
+    # 3. 构造 PyInstaller 独立打包参数
     app_name = "杨国福称重打印系统"
     
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name=%s" % app_name,
-        "--noconsole",          # 隐藏黑色命令行控制台
-        "--onedir",             # 生成绿色独立文件夹 (启动更快)
-        "--clean",              # 清理临时文件
+        "--noconsole",          # 纯图形界面，不弹出黑色终端窗口
+        "--onedir",             # 生成绿色免安装软件包 (内置所有 Python 运行组件)
+        "--clean",
         "--hidden-import=win32print",
         "--hidden-import=win32api",
         "--hidden-import=win32gui",
@@ -46,9 +50,7 @@ def main():
         "main.py"
     ]
 
-    print("[*] 正在执行 PyInstaller 编译...")
-    print("    命令:", " ".join(cmd))
-    
+    print("[*] 正在打包独立软件程序（包含完整 Python 运行时与二进制动态库）...")
     res = subprocess.call(cmd)
 
     if res == 0:
@@ -57,11 +59,15 @@ def main():
         os.makedirs(data_dir, exist_ok=True)
         
         print("\n" + "=" * 60)
-        print(" [🎉] 软件打包成功！")
-        print(" [📁] 可执行程序存放位置:")
+        print(" [🎉] 软件独立打包成功！")
+        print(" [📁] 绿色版软件位置:")
         print("      %s\\%s.exe" % (os.path.abspath(dist_dir), app_name))
         print("=" * 60)
-        print("提示：可以将 dist\\%s 整个文件夹复制或压缩，直接发送到收银机双击运行！" % app_name)
+        print("💡 重要提示：")
+        print("   把 'dist\\%s' 整个文件夹打包压缩发送到任何新电脑或收银机上，" % app_name)
+        print("   直接双击 '%s.exe' 即可直接启动运行！" % app_name)
+        print("   💥 目标收银机电脑【完全不需要安装 Python】或任何环境！")
+        print("=" * 60)
     else:
         print("\n[X] 打包失败，请检查编译日志！")
 
