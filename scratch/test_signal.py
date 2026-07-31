@@ -11,5 +11,6 @@ def on_change(t):
 
 dlg.flavor_changed.connect(on_change)
 print("Initial tag:", dlg.get_tag_string())
-dlg._select_spice("中辣")
-print("After spice tag:", dlg.get_tag_string())
+dlg._select_spice("重辣")
+dlg._toggle_pref("免蒜")
+dlg._toggle_pref("免醋")

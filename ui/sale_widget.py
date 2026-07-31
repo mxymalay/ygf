@@ -178,12 +178,14 @@ class TasteSelectionDialog(QDialog):
         self.selected_spice = val
         for s, btn in self.spicy_btns.items():
             btn.setChecked(s == val)
+        self.flavor_changed.emit(self.get_tag_string())
 
     def _toggle_pref(self, val):
         if val in self.selected_prefs:
             self.selected_prefs.remove(val)
         else:
             self.selected_prefs.add(val)
+        self.flavor_changed.emit(self.get_tag_string())
 
     def get_tag_string(self):
         tags = [self.selected_spice] + sorted(list(self.selected_prefs))
