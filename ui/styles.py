@@ -1,9 +1,8 @@
 """
 全局 QSS 样式 — 支持现代深色 (Dark) / 浅色 (Light) 双主题
-针对 Windows 7 触控屏及左侧竖向导航排版深度优化
+针对 Windows 7 触控屏及左侧紧凑竖向导航排版深度优化
 """
 
-# ─── 深色主题配色 ──────────────────────────────────
 DARK_COLORS = {
     "bg_primary": "#0B0F19",       # 极深曜石黑背景
     "bg_secondary": "#111827",     # 容器黑灰
@@ -25,7 +24,6 @@ DARK_COLORS = {
     "border_light": "#374151",
 }
 
-# ─── 浅色主题配色 ──────────────────────────────────
 LIGHT_COLORS = {
     "bg_primary": "#F3F4F6",       # 极简柔灰背景
     "bg_secondary": "#FFFFFF",     # 容器纯白
@@ -58,7 +56,7 @@ QMainWindow, QWidget {{
     font-size: 14px;
 }}
 
-/* ─── 左侧竖向导航标签页 (West 布局) ───────────── */
+/* ─── 左侧紧凑竖向导航标签页 (West 布局) ───────── */
 QTabWidget::pane {{
     border: 1px solid {c['border']};
     border-radius: 12px;
@@ -69,14 +67,15 @@ QTabWidget::pane {{
 QTabBar::tab {{
     background: {c['bg_card']};
     color: {c['text_secondary']};
-    padding: 20px 16px;
-    margin-bottom: 8px;
-    border-top-left-radius: 12px;
-    border-bottom-left-radius: 12px;
-    font-size: 16px;
+    padding: 16px 4px;
+    margin-bottom: 6px;
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+    font-size: 14px;
     font-weight: bold;
-    min-width: 130px;
-    min-height: 48px;
+    min-width: 92px;
+    max-width: 100px;
+    min-height: 46px;
     text-align: center;
 }}
 
@@ -97,9 +96,9 @@ QGroupBox {{
     background-color: {c['bg_card']};
     border: 1px solid {c['border']};
     border-radius: 14px;
-    margin-top: 12px;
-    padding-top: 18px;
-    font-size: 16px;
+    margin-top: 10px;
+    padding-top: 16px;
+    font-size: 15px;
     font-weight: bold;
     color: {c['text_primary']};
 }}
@@ -107,8 +106,8 @@ QGroupBox {{
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    left: 16px;
-    padding: 2px 10px;
+    left: 14px;
+    padding: 2px 8px;
     background-color: {c['bg_card']};
     border-radius: 6px;
     color: {c['accent_orange']};
@@ -120,10 +119,10 @@ QPushButton {{
     color: {c['text_primary']};
     border: 1px solid {c['border']};
     border-radius: 10px;
-    padding: 10px 18px;
-    font-size: 15px;
+    padding: 8px 14px;
+    font-size: 14px;
     font-weight: bold;
-    min-height: 42px;
+    min-height: 38px;
 }}
 
 QPushButton:hover {{
@@ -141,12 +140,12 @@ QPushButton#btn_print {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
         stop:0 #EF4444, stop:0.5 #F97316, stop:1 #DC2626);
     color: #FFFFFF;
-    font-size: 24px;
+    font-size: 22px;
     font-weight: 900;
-    min-height: 72px;
+    min-height: 64px;
     border: none;
-    border-radius: 16px;
-    letter-spacing: 2px;
+    border-radius: 14px;
+    letter-spacing: 1px;
 }}
 
 QPushButton#btn_print:hover {{
@@ -159,8 +158,8 @@ QPushButton#btn_clear {{
     background: {c['bg_card']};
     color: {c['warning']};
     border: 1px solid {c['warning']};
-    font-size: 16px;
-    min-height: 46px;
+    font-size: 15px;
+    min-height: 42px;
     border-radius: 10px;
 }}
 
@@ -170,9 +169,9 @@ QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {{
     color: {c['text_primary']};
     border: 1px solid {c['border']};
     border-radius: 8px;
-    padding: 6px 12px;
-    font-size: 15px;
-    min-height: 40px;
+    padding: 4px 10px;
+    font-size: 14px;
+    min-height: 38px;
 }}
 
 QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {{
@@ -194,11 +193,11 @@ QTableWidget {{
 QHeaderView::section {{
     background-color: {c['bg_secondary']};
     color: {c['text_secondary']};
-    padding: 10px;
+    padding: 8px;
     border: none;
     border-bottom: 2px solid {c['border']};
     font-weight: bold;
-    font-size: 15px;
+    font-size: 14px;
 }}
 
 QStatusBar {{
