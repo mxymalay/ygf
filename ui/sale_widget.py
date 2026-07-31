@@ -1,5 +1,5 @@
 """
-销售/称重界面 — 点击汤底弹出【不辣/微辣/中辣/重辣/免蒜/免醋】口味选择
+销售/称重界面 — 全面支持【曜石黑 / 极简光亮】双主题动态自适应
 PyQt5 + Python 3.8 兼容
 """
 import random
@@ -20,15 +20,22 @@ from core.call_number_manager import CallNumberManager
 
 class TasteSelectionDialog(QDialog):
     """
-    点击汤底时弹出的口味偏好对话框 (不辣 / 微辣 / 中辣 / 重辣 / 免蒜 / 免醋)
+    点击汤底时弹出的口味偏好对话框 (支持深浅视觉主题自适应)
     """
 
-    def __init__(self, soup_name, parent=None):
+    def __init__(self, soup_name, is_dark_mode=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"选择口味 - {soup_name}")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Popup)
+        
+        bg_col = "#111827" if is_dark_mode else "#FFFFFF"
+        border_col = "#EA580C"
+        btn_bg = "#1F2937" if is_dark_mode else "#F3F4F6"
+        btn_fg = "#D1D5DB" if is_dark_mode else "#374151"
+        btn_border = "#374151" if is_dark_mode else "#D1D5DB"
+
         self.setStyleSheet(
-            "QDialog { background: #111827; border: 2px solid #EA580C; border-radius: 12px; }"
+            f"QDialog {{ background: {bg_col}; border: 2px solid {border_col}; border-radius: 12px; }}"
         )
 
         self.selected_spice = "微辣"
@@ -39,12 +46,12 @@ class TasteSelectionDialog(QDialog):
         layout.setSpacing(12)
 
         lbl_title = QLabel(f"🍲 请选择 【{soup_name}】 口味")
-        lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F97316; border: none;")
+        lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F97316; border: none; background: transparent;")
         layout.addWidget(lbl_title)
 
         # 辣度选择 (单选)
         lbl_spicy = QLabel(u"辣度偏好：")
-        lbl_spicy.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+        lbl_spicy.setStyleSheet(f"font-size: 13px; color: {'#9CA3AF' if is_dark_mode else '#4B5563'}; border: none; background: transparent;")
         layout.addWidget(lbl_spicy)
 
         spicy_box = QHBoxLayout()
@@ -56,7 +63,7 @@ class TasteSelectionDialog(QDialog):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setChecked(s == self.selected_spice)
             btn.setStyleSheet(
-                "QPushButton { background: #1F2937; color: #D1D5DB; border: 1px solid #374151; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }"
+                f"QPushButton {{ background: {btn_bg}; color: {btn_fg}; border: 1px solid {btn_border}; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }}"
                 "QPushButton:checked { background: #EA580C; color: white; border: 1px solid #F97316; }"
             )
             btn.clicked.connect(lambda checked, val=s: self._select_spice(val))
@@ -66,7 +73,7 @@ class TasteSelectionDialog(QDialog):
 
         # 忌口偏好 (多选)
         lbl_pref = QLabel(u"附加避忌：")
-        lbl_pref.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+        lbl_pref.setStyleSheet(f"font-size: 13px; color: {'#9CA3AF' if is_dark_mode else '#4B5563'}; border: none; background: transparent;")
         layout.addWidget(lbl_pref)
 
         pref_box = QHBoxLayout()
@@ -76,7 +83,7 @@ class TasteSelectionDialog(QDialog):
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(
-                "QPushButton { background: #1F2937; color: #D1D5DB; border: 1px solid #374151; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }"
+                f"QPushButton {{ background: {btn_bg}; color: {btn_fg}; border: 1px solid {btn_border}; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }}"
                 "QPushButton:checked { background: #059669; color: white; border: 1px solid #10B981; }"
             )
             btn.clicked.connect(lambda checked, val=p: self._toggle_pref(val))
@@ -111,9 +118,9 @@ class TasteSelectionDialog(QDialog):
 
 
 class OrderItemCard(QFrame):
-    """无边框极简 POS 风格订单细项卡片 (右侧右对齐金额)"""
+    """无边框极简 POS 风格订单细项卡片 (深浅主题自适应)"""
 
-    def __init__(self, title, subline, price_val, tag="", is_active=False, parent=None):
+    def __init__(self, title, subline, price_val, tag="", is_dark=True, is_active=False, parent=None):
         super().__init__(parent)
         self.setObjectName("OrderItemCard")
 
@@ -127,18 +134,20 @@ class OrderItemCard(QFrame):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(8)
 
-        # 左侧：商品名称 + 明细 + 口味偏好
         left_vbox = QVBoxLayout()
         left_vbox.setContentsMargins(0, 0, 0, 0)
         left_vbox.setSpacing(3)
 
+        title_col = "#F9FAFB" if is_dark else "#111827"
+        sub_col = "#9CA3AF" if is_dark else "#4B5563"
+
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
+        lbl_title.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {title_col}; border: none; background: transparent;")
         left_vbox.addWidget(lbl_title)
 
         if subline:
             lbl_sub = QLabel(subline)
-            lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            lbl_sub.setStyleSheet(f"font-size: 13px; color: {sub_col}; font-family: 'Consolas', monospace; border: none; background: transparent;")
             left_vbox.addWidget(lbl_sub)
 
         if tag:
@@ -148,25 +157,26 @@ class OrderItemCard(QFrame):
 
         layout.addLayout(left_vbox, stretch=1)
 
-        # 右侧：右对齐高亮价格 (如: ￥11.20)
+        # 右侧：右对齐高亮价格
         lbl_price = QLabel(f"￥{price_val:.2f}")
         lbl_price.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lbl_price.setStyleSheet("font-size: 18px; font-weight: 900; color: #F97316; border: none; background: transparent;")
+        lbl_price.setStyleSheet("font-size: 18px; font-weight: 900; color: #EA580C; border: none; background: transparent;")
         layout.addWidget(lbl_price)
 
 
 class MenuGridButton(QPushButton):
     """
-    右侧菜单卡片按钮 — 明显区分【汤底类】与【普通加价类】样式
+    右侧菜单卡片按钮 — 深浅主题自适应
     """
 
-    def __init__(self, key_id, title, subtitle, price, is_soup=False, parent=None):
+    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_dark_mode=True, parent=None):
         super().__init__(parent)
         self.key_id = key_id
         self.title_str = title
         self.subtitle_str = subtitle
         self.price_val = price
         self.is_soup = is_soup
+        self.is_dark_mode = is_dark_mode
         self.count = 0
 
         self.setMinimumHeight(68)
@@ -177,13 +187,11 @@ class MenuGridButton(QPushButton):
         layout.setSpacing(2)
         layout.setAlignment(Qt.AlignCenter)
 
-        # 标题 (例如: 经典草本骨汤 / 4元饮料)
         self.lbl_title = QLabel(title)
         self.lbl_title.setAlignment(Qt.AlignCenter)
         self.lbl_title.setWordWrap(True)
         layout.addWidget(self.lbl_title)
 
-        # 只有【汤底】才显示副标题价格，普通加价项目去除下面的小字
         if self.is_soup and subtitle:
             self.lbl_sub = QLabel(subtitle)
             self.lbl_sub.setAlignment(Qt.AlignCenter)
@@ -191,7 +199,6 @@ class MenuGridButton(QPushButton):
         else:
             self.lbl_sub = None
 
-        # 右上角数字角标 (Badge)
         self.lbl_badge = QLabel("", self)
         self.lbl_badge.setStyleSheet(
             "background: #DC2626; color: white; font-weight: bold; font-size: 11px; "
@@ -200,6 +207,10 @@ class MenuGridButton(QPushButton):
         self.lbl_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.lbl_badge.hide()
 
+        self._update_style()
+
+    def update_theme(self, is_dark_mode: bool):
+        self.is_dark_mode = is_dark_mode
         self._update_style()
 
     def update_subtitle(self, new_subtitle: str):
@@ -244,23 +255,37 @@ class MenuGridButton(QPushButton):
                 if self.lbl_sub:
                     self.lbl_sub.setStyleSheet("font-size: 12px; color: #9A3412; border: none; background: transparent;")
         else:
-            # ── 普通加价/饮料项目极简纯白卡片样式 ──
-            if self.count > 0:
-                self.setStyleSheet(
-                    "QPushButton { background: #1E293B; border: 2px solid #EA580C; border-radius: 10px; }"
-                    "QPushButton:hover { background: #263352; }"
-                )
-                self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F97316; border: none; background: transparent;")
+            # ── 普通加价/饮料卡片 (深浅自适应) ──
+            if self.is_dark_mode:
+                if self.count > 0:
+                    self.setStyleSheet(
+                        "QPushButton { background: #1E293B; border: 2px solid #EA580C; border-radius: 10px; }"
+                        "QPushButton:hover { background: #263352; }"
+                    )
+                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F97316; border: none; background: transparent;")
+                else:
+                    self.setStyleSheet(
+                        "QPushButton { background: #172136; border: 1px solid #374151; border-radius: 10px; }"
+                        "QPushButton:hover { background: #1E293B; }"
+                    )
+                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
             else:
-                self.setStyleSheet(
-                    "QPushButton { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; }"
-                    "QPushButton:hover { background: #F3F4F6; }"
-                )
-                self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #1F2937; border: none; background: transparent;")
+                if self.count > 0:
+                    self.setStyleSheet(
+                        "QPushButton { background: #FFF7ED; border: 2px solid #EA580C; border-radius: 10px; }"
+                        "QPushButton:hover { background: #FFEDD5; }"
+                    )
+                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #EA580C; border: none; background: transparent;")
+                else:
+                    self.setStyleSheet(
+                        "QPushButton { background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 10px; }"
+                        "QPushButton:hover { background: #F9FAFB; }"
+                    )
+                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #111827; border: none; background: transparent;")
 
 
 class SaleWidget(QWidget):
-    """主销售界面"""
+    """主销售界面 (双主题无缝适配)"""
 
     def __init__(self, config, db, call_mgr: CallNumberManager, parent=None):
         super().__init__(parent)
@@ -269,6 +294,7 @@ class SaleWidget(QWidget):
         self.call_mgr = call_mgr
         self.printer = ReceiptPrinter(config)
 
+        self.is_dark_mode = True
         self.current_weight = 0.0
         self._stable_weight = 0.0
         self._is_stable = False
@@ -284,6 +310,13 @@ class SaleWidget(QWidget):
         self._setup_scale()
         self.refresh_call_number_display()
 
+    def update_theme(self, is_dark_mode: bool):
+        """响应主题切换事件"""
+        self.is_dark_mode = is_dark_mode
+        for btn in self.menu_buttons.values():
+            btn.update_theme(is_dark_mode)
+        self._update_price_display()
+
     def _gen_temp_order_no(self):
         return "%05d" % random.randint(10000, 99999)
 
@@ -294,12 +327,12 @@ class SaleWidget(QWidget):
 
         # ── 左侧：开单面板 ──
         left_card = QFrame()
-        left_card.setStyleSheet("QFrame { background: #111827; border: none; border-radius: 14px; }")
+        left_card.setObjectName("left_card_frame")
         left_layout = QVBoxLayout(left_card)
         left_layout.setContentsMargins(12, 12, 12, 12)
         left_layout.setSpacing(10)
 
-        # 1. 顶栏：本次打印叫号模块 (带展开/折叠详细信息)
+        # 1. 顶栏：本次打印叫号模块
         call_header = QHBoxLayout()
         
         lbl_call_title = QLabel(u"本次打印叫号：")
@@ -323,8 +356,8 @@ class SaleWidget(QWidget):
 
         # 展开可折叠的叫号避重详细面板
         self.call_detail_box = QFrame()
+        self.call_detail_box.setObjectName("call_detail_box")
         self.call_detail_box.setVisible(False)
-        self.call_detail_box.setStyleSheet("QFrame { background: #172136; border-radius: 8px; padding: 8px; }")
         cd_layout = QHBoxLayout(self.call_detail_box)
         cd_layout.setContentsMargins(8, 6, 8, 6)
 
@@ -348,15 +381,15 @@ class SaleWidget(QWidget):
         led_layout = QHBoxLayout(led_banner)
         led_layout.setContentsMargins(12, 4, 12, 4)
 
-        # 状态指示图标: ⏳ (读取/未稳定) vs ✅ (稳定就绪对号)
+        # 状态指示图标: ⏳ vs ✅
         self.lbl_scale_status_icon = QLabel(u"⏳")
         self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
-        self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; border: none;")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
         self.lbl_weight = QLabel("00.000 kg")
         self.lbl_weight.setStyleSheet(
-            "font-size: 36px; font-weight: 900; color: #FFFFFF; border: none; "
+            "font-size: 36px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
             "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
         )
         led_layout.addWidget(self.lbl_weight, stretch=1, alignment=Qt.AlignRight)
@@ -427,7 +460,7 @@ class SaleWidget(QWidget):
         ]
 
         for r, c, key_id, title, sub, price, is_soup in menu_items_config:
-            btn = MenuGridButton(key_id, title, sub, price, is_soup)
+            btn = MenuGridButton(key_id, title, sub, price, is_soup, self.is_dark_mode)
             btn.clicked.connect(lambda checked, b=btn: self._on_menu_click(b))
             mg_grid.addWidget(btn, r, c)
             self.menu_buttons[key_id] = btn
@@ -461,11 +494,10 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
 
         if btn.is_soup:
-            # 弹出快捷口味选择框 (不辣/微辣/中辣/重辣/免蒜/免醋)
+            # 弹出快捷口味选择框
             soup_clean_name = btn.title_str.replace("\n", " ")
-            dlg = TasteSelectionDialog(soup_clean_name, self)
+            dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
-            # 定位到当前点击按钮旁
             pos = btn.mapToGlobal(btn.rect().bottomLeft())
             dlg.move(pos.x(), pos.y() - dlg.height() - 10 if pos.y() + 200 > self.height() else pos.y())
 
@@ -486,7 +518,6 @@ class SaleWidget(QWidget):
                 })
                 btn.set_count(btn.count + 1)
         else:
-            # 点击普通加价项目
             self.cart_items.append({
                 "type": "item",
                 "key_id": btn.key_id,
@@ -517,11 +548,6 @@ class SaleWidget(QWidget):
         total_price = 0.0
         total_items = len(self.cart_items)
 
-        if not self.cart_items:
-            lbl_tip = QLabel(u"👈 请点选右侧汤底以加入称重食材")
-            lbl_tip.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold; padding: 12px; border: none;")
-            self.cart_layout.addWidget(lbl_tip)
-
         # 遍历渲染所有项目卡片
         for idx, item in enumerate(self.cart_items):
             is_last = (idx == len(self.cart_items) - 1)
@@ -529,16 +555,15 @@ class SaleWidget(QWidget):
             if item["type"] == "soup":
                 w_str = f"{item['weight']:.3f}"
                 sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   x{w_str}"
-                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], tag=item.get("tag", ""), is_active=is_last)
+                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], tag=item.get("tag", ""), is_dark=self.is_dark_mode, is_active=is_last)
                 total_price += item["price"]
             else:
                 sub_str = f"1   ¥{item['price']:.2f}   x1"
-                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], is_active=is_last)
+                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], is_dark=self.is_dark_mode, is_active=is_last)
                 total_price += item["price"]
 
             self.cart_layout.addWidget(card)
 
-        # 刷新底部统计
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
         self.lbl_price.setText(u"￥%.2f" % total_price)
 
@@ -596,13 +621,11 @@ class SaleWidget(QWidget):
         self.current_weight = weight_kg
         self.lbl_weight.setText("%06.3f kg" % weight_kg)
 
-        # 连续两次读数之差 <= 0.005kg 即视为完全稳定，瞬间变为 ✅
         if abs(weight_kg - self._stable_weight) <= 0.005:
             self._is_stable = True
             self.lbl_scale_status_icon.setText(u"✅")
             self.lbl_scale_status_icon.setToolTip(u"读数稳定，可随时打印！")
         else:
-            # 读数剧烈变动中 -> ⏳
             self._is_stable = False
             self._stable_weight = weight_kg
             self.lbl_scale_status_icon.setText(u"⏳")

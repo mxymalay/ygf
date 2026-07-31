@@ -79,6 +79,28 @@ SideNavItem:checked {{
     border: none;
 }}
 
+/* ─── 开单面板自适应容器 ─────────────────────── */
+QFrame#left_card_frame {{
+    background-color: {c['bg_secondary']};
+    border-radius: 14px;
+    border: none;
+}}
+
+QFrame#call_detail_box {{
+    background-color: {c['bg_card']};
+    border-radius: 8px;
+    border: none;
+}}
+
+QScrollArea {{
+    border: none;
+    background: transparent;
+}}
+
+QScrollArea > QWidget > QWidget {{
+    background: transparent;
+}}
+
 /* ─── 卡片面板 (全面去除外框线) ─────────────────── */
 QGroupBox {{
     background-color: {c['bg_card']};

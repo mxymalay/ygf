@@ -95,6 +95,9 @@ class MainWindow(QMainWindow):
             self.setStyleSheet(LIGHT_STYLE)
         self.sidebar.update_theme_icon(self.is_dark_mode)
 
+        if hasattr(self, 'sale_page'):
+            self.sale_page.update_theme(self.is_dark_mode)
+
     def _setup_clock(self):
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_clock)
