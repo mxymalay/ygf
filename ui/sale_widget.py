@@ -961,14 +961,23 @@ class SaleWidget(QWidget):
             self.btn_toggle_detail.setText(u"详细信息 ∧")
         else:
             self.btn_toggle_detail.setText(u"详细信息 ∨")
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(20, self._update_price_display)
 
     def _get_page_size(self):
-        """根据当前开单面板实际高度自适应计算每页容纳的卡片数量 (精算防溢出)"""
-        if hasattr(self, 'cart_scroll') and self.cart_scroll.height() > 80:
-            # 单张卡片约 46px，防溢出计算
-            calc_size = max(3, self.cart_scroll.height() // 48)
-            return min(6, calc_size)
-        return 4
+        """根据开单面板视口 real pixel 高度精准计算单页能完整放下的卡片数 (绝对不被遮挡)"""
+        if hasattr(self, 'cart_scroll') and self.cart_scroll.viewport():
+            vh = self.cart_scroll.viewport().height()
+            if vh > 60:
+                # 每一项卡片实际占用高度 (含内边距、外边距、字高与布局间距) 约为 54px
+                fit_count = vh // 54
+                return max(1, fit_count)
+        return 3
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(50, self._update_price_display)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
