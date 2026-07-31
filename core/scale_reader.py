@@ -158,15 +158,22 @@ class ScaleReader(QObject):
                     lines = f.readlines()
                     last_pos = f.tell()
 
+                    found_new = False
                     for line in reversed(lines):
                         w = self._parse_ygf_log_line(line)
                         if w is not None:
                             self.weight_updated.emit(w)
                             self._check_stability(w)
                             last_weight = w
+                            found_new = True
                             break
 
-                    time.sleep(0.1)
+                    # 若日志没有新行（说明读数静止未变），持续推送当前静止重量给 UI 判定稳定！
+                    if not found_new and last_weight is not None:
+                        self.weight_updated.emit(last_weight)
+                        self._check_stability(last_weight)
+
+                    time.sleep(0.2)
 
         except Exception:
             time.sleep(0.5)
