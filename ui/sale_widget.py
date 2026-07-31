@@ -550,8 +550,9 @@ class SaleWidget(QWidget):
         lbl_ops_title.setStyleSheet("font-size: 12px; font-weight: bold; color: #9CA3AF; border: none; background: transparent; margin-bottom: 4px;")
         mid_layout.addWidget(lbl_ops_title)
 
-        # 折扣按钮: 9.5折, 8.8折, 8折, 原价
-        discounts = [(0.95, "9.5折"), (0.88, "8.8折"), (0.80, "8折"), (1.0, "原价")]
+        # 折扣按钮: 9.5折, 8.8折, 8折 (点击二次可反选恢复原价)
+        self.discount_btns = {}
+        discounts = [(0.95, "9.5折"), (0.88, "8.8折"), (0.80, "8折")]
         for rate, label_text in discounts:
             btn_d = QPushButton(label_text)
             btn_d.setCursor(Qt.PointingHandCursor)
@@ -561,6 +562,7 @@ class SaleWidget(QWidget):
             )
             btn_d.clicked.connect(lambda checked, r=rate: self._apply_discount_to_selected(r))
             mid_layout.addWidget(btn_d)
+            self.discount_btns[rate] = btn_d
 
         mid_layout.addSpacing(6)
 
@@ -587,11 +589,11 @@ class SaleWidget(QWidget):
 
         mid_layout.addSpacing(6)
 
-        btn_delete = QPushButton("🗑 删")
+        btn_delete = QPushButton("删")
         btn_delete.setCursor(Qt.PointingHandCursor)
         btn_delete.setToolTip(u"删除选中项目")
         btn_delete.setStyleSheet(
-            "QPushButton { background: #7F1D1D; color: #F87171; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 10px 4px; min-width: 50px; border: 1px solid #DC2626; }"
+            "QPushButton { background: #7F1D1D; color: #F87171; font-weight: bold; font-size: 14px; border-radius: 6px; padding: 10px 4px; min-width: 50px; border: 1px solid #DC2626; }"
             "QPushButton:hover { background: #DC2626; color: #FFFFFF; }"
         )
         btn_delete.clicked.connect(self._delete_selected_item)
@@ -759,25 +761,37 @@ class SaleWidget(QWidget):
             self._update_price_display()
 
     def _apply_discount_to_selected(self, rate):
-        """对选中的订单项应用折扣 (如9.5折, 8.8折, 8折, 原价)"""
+        """对选中的订单项应用或反选折扣 (如再点一次同折扣则恢复原价 1.0)"""
         if 0 <= self.selected_item_index < len(self.cart_items):
             item = self.cart_items[self.selected_item_index]
-            item["discount_rate"] = rate
-            item["price"] = item["base_price"] * item.get("qty", 1) * rate
+            cur_rate = item.get("discount_rate", 1.0)
+            
+            # 如果当前已经应用了该折扣，再次点击则反选恢复原价 (1.0)
+            if abs(cur_rate - rate) < 0.001:
+                new_rate = 1.0
+            else:
+                new_rate = rate
+
+            item["discount_rate"] = new_rate
+            item["price"] = item["base_price"] * item.get("qty", 1) * new_rate
             self._update_price_display()
 
     def _increase_selected_qty(self):
-        """增加选中项数量 (+1)"""
+        """增加选中项数量 (+1，汤底不可加减量)"""
         if 0 <= self.selected_item_index < len(self.cart_items):
             item = self.cart_items[self.selected_item_index]
+            if item.get("type") == "soup":
+                return
             item["qty"] = item.get("qty", 1) + 1
             item["price"] = item["base_price"] * item["qty"] * item.get("discount_rate", 1.0)
             self._update_price_display()
 
     def _decrease_selected_qty(self):
-        """减少选中项数量 (-1)"""
+        """减少选中项数量 (-1，汤底不可加减量)"""
         if 0 <= self.selected_item_index < len(self.cart_items):
             item = self.cart_items[self.selected_item_index]
+            if item.get("type") == "soup":
+                return
             cur_qty = item.get("qty", 1)
             if cur_qty > 1:
                 item["qty"] = cur_qty - 1
@@ -788,8 +802,11 @@ class SaleWidget(QWidget):
             self._update_price_display()
 
     def _delete_selected_item(self):
-        """删除选中的订单项"""
+        """删除选中的订单项 (汤底不可单独删除)"""
         if 0 <= self.selected_item_index < len(self.cart_items):
+            item = self.cart_items[self.selected_item_index]
+            if item.get("type") == "soup":
+                return
             removed = self.cart_items.pop(self.selected_item_index)
             
             # 更新右侧菜单按钮角标计数
@@ -827,6 +844,22 @@ class SaleWidget(QWidget):
         pu_lbl = price_unit_label(self.config.get("price_unit", "per_jin"))
         total_price = 0.0
         total_items = 0
+
+        # 获取当前选中项的折扣状态，更新折扣按钮高亮
+        cur_selected_rate = 1.0
+        if 0 <= self.selected_item_index < len(self.cart_items):
+            cur_selected_rate = self.cart_items[self.selected_item_index].get("discount_rate", 1.0)
+
+        for rate, btn in getattr(self, 'discount_btns', {}).items():
+            if abs(cur_selected_rate - rate) < 0.001:
+                btn.setStyleSheet(
+                    "QPushButton { background: #EA580C; color: #FFFFFF; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 8px 4px; min-width: 50px; border: 1px solid #F97316; }"
+                )
+            else:
+                btn.setStyleSheet(
+                    "QPushButton { background: #334155; color: #F59E0B; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 8px 4px; min-width: 50px; border: 1px solid #475569; }"
+                    "QPushButton:hover { background: #F59E0B; color: #1E293B; border: 1px solid #F59E0B; }"
+                )
 
         # 遍历渲染所有项目卡片
         for idx, item in enumerate(self.cart_items):
