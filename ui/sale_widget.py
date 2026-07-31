@@ -231,8 +231,18 @@ class OrderItemCard(QFrame):
         )
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(6, 4, 6, 4)
         layout.setSpacing(8)
+
+        # 1. 最左侧：清晰不易混淆的第几项序号徽章 (如 #1, #2, #3...)
+        lbl_badge = QLabel(f"#{index + 1}")
+        lbl_badge.setAlignment(Qt.AlignCenter)
+        badge_bg = "#EA580C" if is_active else "#334155"
+        lbl_badge.setStyleSheet(
+            f"font-size: 13px; font-weight: 900; color: #FFFFFF; "
+            f"background: {badge_bg}; border-radius: 6px; padding: 3px 6px; min-width: 24px;"
+        )
+        layout.addWidget(lbl_badge, alignment=Qt.AlignVCenter)
 
         left_vbox = QVBoxLayout()
         left_vbox.setContentsMargins(0, 0, 0, 0)
@@ -411,9 +421,10 @@ class SaleWidget(QWidget):
         self._stable_weight = 0.0
         self._is_stable = False
         
-        # 购物车项目列表与选中项目索引
+        # 购物车项目列表与选中项目索引与分页状态
         self.cart_items = []
         self.selected_item_index = -1
+        self.cart_page = 0
         self.menu_buttons = {}
 
         self.temp_order_no = self._gen_temp_order_no()
@@ -522,9 +533,11 @@ class SaleWidget(QWidget):
 
         left_layout.addWidget(led_banner)
 
-        # 2. 订单消费卡片列表 (ScrollArea)
+        # 2. 订单消费卡片列表 (ScrollArea 禁用下滑条，采用精准分页)
         self.cart_scroll = QScrollArea()
         self.cart_scroll.setWidgetResizable(True)
+        self.cart_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.cart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.cart_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         self.cart_container = QWidget()
@@ -535,6 +548,39 @@ class SaleWidget(QWidget):
 
         self.cart_scroll.setWidget(self.cart_container)
         left_layout.addWidget(self.cart_scroll, stretch=1)
+
+        # 3. 分页控制栏 (◀ 上一页 | 第 X / Y 页 | 下一页 ▶)
+        self.page_bar = QHBoxLayout()
+        self.page_bar.setContentsMargins(0, 4, 0, 4)
+
+        self.btn_prev_page = QPushButton(u"◀ 上一页")
+        self.btn_prev_page.setCursor(Qt.PointingHandCursor)
+        self.btn_prev_page.setStyleSheet(
+            "QPushButton { background: #334155; color: #E2E8F0; font-weight: bold; font-size: 13px; "
+            "border-radius: 6px; padding: 6px 12px; border: 1px solid #475569; }"
+            "QPushButton:hover { background: #475569; color: #FFFFFF; }"
+            "QPushButton:disabled { background: #1E293B; color: #475569; border: 1px solid #334155; }"
+        )
+        self.btn_prev_page.clicked.connect(self._prev_cart_page)
+        self.page_bar.addWidget(self.btn_prev_page)
+
+        self.lbl_cart_page = QLabel(u"第 1 / 1 页")
+        self.lbl_cart_page.setAlignment(Qt.AlignCenter)
+        self.lbl_cart_page.setStyleSheet("font-size: 13px; font-weight: bold; color: #F59E0B; border: none; background: transparent;")
+        self.page_bar.addWidget(self.lbl_cart_page, stretch=1)
+
+        self.btn_next_page = QPushButton(u"下一页 ▶")
+        self.btn_next_page.setCursor(Qt.PointingHandCursor)
+        self.btn_next_page.setStyleSheet(
+            "QPushButton { background: #334155; color: #E2E8F0; font-weight: bold; font-size: 13px; "
+            "border-radius: 6px; padding: 6px 12px; border: 1px solid #475569; }"
+            "QPushButton:hover { background: #475569; color: #FFFFFF; }"
+            "QPushButton:disabled { background: #1E293B; color: #475569; border: 1px solid #334155; }"
+        )
+        self.btn_next_page.clicked.connect(self._next_cart_page)
+        self.page_bar.addWidget(self.btn_next_page)
+
+        left_layout.addLayout(self.page_bar)
 
         # 3. 结算金额栏
         footer_line = QHBoxLayout()
@@ -727,6 +773,7 @@ class SaleWidget(QWidget):
             }
             self.cart_items.append(item_entry)
             self.selected_item_index = len(self.cart_items) - 1
+            self.cart_page = (len(self.cart_items) - 1) // 5
             btn.set_count(btn.count + 1)
             self._update_price_display()
 
@@ -753,6 +800,7 @@ class SaleWidget(QWidget):
             }
             self.cart_items.append(item_entry)
             self.selected_item_index = len(self.cart_items) - 1
+            self.cart_page = (len(self.cart_items) - 1) // 5
             btn.set_count(btn.count + 1)
             self._update_price_display()
 
@@ -914,8 +962,21 @@ class SaleWidget(QWidget):
         else:
             self.btn_toggle_detail.setText(u"详细信息 ∨")
 
+    def _prev_cart_page(self):
+        if self.cart_page > 0:
+            self.cart_page -= 1
+            self._update_price_display()
+
+    def _next_cart_page(self):
+        total_items_count = len(self.cart_items)
+        PAGE_SIZE = 5
+        total_pages = max(1, (total_items_count + PAGE_SIZE - 1) // PAGE_SIZE)
+        if self.cart_page < total_pages - 1:
+            self.cart_page += 1
+            self._update_price_display()
+
     def _update_price_display(self):
-        """刷新购物明细卡片列表与金额 (即刻清理旧组件并强刷新UI)"""
+        """刷新购物明细卡片列表与金额 (支持分页与无混淆序号徽章)"""
         from PyQt5.QtCore import QCoreApplication
 
         while self.cart_layout.count() > 0:
@@ -945,12 +1006,31 @@ class SaleWidget(QWidget):
                     "QPushButton:hover { background: #F59E0B; color: #1E293B; border: 1px solid #F59E0B; }"
                 )
 
-        # 遍历渲染所有项目卡片
-        for idx, item in enumerate(self.cart_items):
+        # 1. 汇总所有商品的总件数与总金额
+        for item in self.cart_items:
+            total_price += item["price"]
+            total_items += item.get("qty", 1)
+
+        # 2. 分页处理 (每页固死 5 项，防出现垂直滑动条)
+        total_items_count = len(self.cart_items)
+        PAGE_SIZE = 5
+        total_pages = max(1, (total_items_count + PAGE_SIZE - 1) // PAGE_SIZE)
+        self.cart_page = min(max(0, self.cart_page), total_pages - 1)
+
+        if hasattr(self, 'lbl_cart_page'):
+            self.lbl_cart_page.setText(u"第 %d / %d 页 (共 %d 项)" % (self.cart_page + 1, total_pages, total_items_count))
+            self.btn_prev_page.setEnabled(self.cart_page > 0)
+            self.btn_next_page.setEnabled(self.cart_page < total_pages - 1)
+
+        start_idx = self.cart_page * PAGE_SIZE
+        end_idx = min(total_items_count, start_idx + PAGE_SIZE)
+
+        # 3. 渲染当前页的商品卡片 (带有 #1, #2, #3 高亮序号徽章)
+        for idx in range(start_idx, end_idx):
+            item = self.cart_items[idx]
             is_selected = (idx == self.selected_item_index)
             qty = item.get("qty", 1)
             disc_rate = item.get("discount_rate", 1.0)
-            total_items += qty
 
             if item["type"] == "soup":
                 w_str = f"{item['weight']:.3f}"
@@ -969,14 +1049,11 @@ class SaleWidget(QWidget):
                 is_active=is_selected
             )
             card.clicked.connect(self._select_cart_item)
-            total_price += item["price"]
             self.cart_layout.addWidget(card)
 
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
         self.lbl_price.setText(u"￥%.2f" % total_price)
         QCoreApplication.processEvents()
-        if hasattr(self, 'cart_scroll'):
-            self.cart_scroll.verticalScrollBar().setValue(self.cart_scroll.verticalScrollBar().maximum())
 
     def refresh_call_number_display(self):
         next_num = self.call_mgr.peek_next_number()
