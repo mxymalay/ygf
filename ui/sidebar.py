@@ -87,7 +87,7 @@ class SideNavBar(QWidget):
         line1.setStyleSheet("color: rgba(255, 255, 255, 0.2); margin: 0 8px;")
         layout.addWidget(line1)
 
-        # 2. 核心导航项目按钮组
+        # 2. 核心导航项目按钮组 (日常收银业务)
         # 0: 收银台
         item_cashier = SideNavItem(u"⚖", u"收银台", 0)
         item_cashier.clicked.connect(lambda: self._select_page(0))
@@ -106,6 +106,15 @@ class SideNavBar(QWidget):
         layout.addWidget(item_report)
         self._items.append(item_report)
 
+        # 间隔分割线 — 将“叫号设置”与“系统设置”独立成组
+        layout.addSpacing(10)
+        line_sep = QFrame()
+        line_sep.setFrameShape(QFrame.HLine)
+        line_sep.setStyleSheet("color: rgba(255, 255, 255, 0.25); margin: 0 10px;")
+        layout.addWidget(line_sep)
+        layout.addSpacing(10)
+
+        # 3. 设置管理模块组
         # 3: 叫号设置
         item_queue = SideNavItem(u"⚡", u"叫号设置", 3)
         item_queue.clicked.connect(lambda: self._select_page(3))
