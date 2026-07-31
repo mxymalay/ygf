@@ -41,19 +41,11 @@ class SaleWidget(QWidget):
 
         # 称重状态
         status_bar = QHBoxLayout()
-        self.lbl_conn = QLabel(u"● 未连接")
+        self.lbl_conn = QLabel(u"● 正在连接称重秤...")
         self.lbl_conn.setObjectName("lbl_status")
-        self.lbl_conn.setStyleSheet("color: #e74c3c;")
-        self.lbl_sim_badge = QLabel(u"[模拟模式]")
-        self.lbl_sim_badge.setStyleSheet(
-            "background: #f39c12; color: #1a1a2e; padding: 4px 12px;"
-            "border-radius: 10px; font-size: 12px; font-weight: bold;"
-        )
-        if not self.config.get("simulation_mode", True):
-            self.lbl_sim_badge.hide()
+        self.lbl_conn.setStyleSheet("color: #f39c12; font-size: 14px; font-weight: bold;")
         status_bar.addWidget(self.lbl_conn)
         status_bar.addStretch()
-        status_bar.addWidget(self.lbl_sim_badge)
         left.addLayout(status_bar)
 
         # 重量显示卡片
@@ -65,7 +57,7 @@ class SaleWidget(QWidget):
         )
         wc_layout = QVBoxLayout(weight_card)
         wc_layout.setAlignment(Qt.AlignCenter)
-        wc_layout.setContentsMargins(20, 30, 20, 30)
+        wc_layout.setContentsMargins(20, 20, 20, 20)
 
         lbl_title = QLabel(u"当前重量")
         lbl_title.setAlignment(Qt.AlignCenter)
@@ -179,10 +171,10 @@ class SaleWidget(QWidget):
     def _on_status_change(self, connected, msg):
         if connected:
             self.lbl_conn.setText(u"● %s" % msg)
-            self.lbl_conn.setStyleSheet("color: #2ecc71; font-size: 13px;")
+            self.lbl_conn.setStyleSheet("color: #2ecc71; font-size: 13px; font-weight: bold;")
         else:
             self.lbl_conn.setText(u"● %s" % msg)
-            self.lbl_conn.setStyleSheet("color: #e74c3c; font-size: 13px;")
+            self.lbl_conn.setStyleSheet("color: #e74c3c; font-size: 13px; font-weight: bold;")
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
@@ -195,7 +187,7 @@ class SaleWidget(QWidget):
     @pyqtSlot(str)
     def _on_error(self, msg):
         self.lbl_conn.setText(u"[!] %s" % msg)
-        self.lbl_conn.setStyleSheet("color: #e74c3c; font-size: 13px;")
+        self.lbl_conn.setStyleSheet("color: #e74c3c; font-size: 13px; font-weight: bold;")
 
     # ─── 操作 ──────────────────────────────────────
     def _on_price_changed(self, value):

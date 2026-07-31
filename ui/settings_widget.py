@@ -5,7 +5,7 @@ PyQt5 + Python 3.8 兼容
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QLineEdit, QComboBox, QSpinBox,
-    QDoubleSpinBox, QCheckBox, QMessageBox
+    QDoubleSpinBox, QMessageBox
 )
 
 from config import save_config
@@ -46,15 +46,10 @@ class SettingsWidget(QWidget):
         self.cmb_baudrate.setCurrentText(str(self.config.get("scale_baudrate", 9600)))
         sg.addWidget(self.cmb_baudrate, 1, 1)
 
-        self.chk_sim = QCheckBox(u"启用模拟模式（无硬件时使用）")
-        self.chk_sim.setChecked(self.config.get("simulation_mode", True))
-        self.chk_sim.setStyleSheet("color: #f39c12; font-size: 14px;")
-        sg.addWidget(self.chk_sim, 2, 0, 1, 3)
-
         layout.addWidget(scale_group)
 
         # ── 打印机设置 ──
-        printer_group = QGroupBox(u"打印机设置 (Xprinter XP-A160M)")
+        printer_group = QGroupBox(u"打印机设置 (Xprinter XP-A160M / XP-80C)")
         pg = QGridLayout(printer_group)
         pg.setSpacing(10)
 
@@ -158,7 +153,7 @@ class SettingsWidget(QWidget):
                 "%s - %s" % (p["device"], p["description"]),
                 p["device"]
             )
-        cur = self.config.get("scale_port", "COM3")
+        cur = self.config.get("scale_port", "COM1")
         for i in range(self.cmb_scale_port.count()):
             if self.cmb_scale_port.itemData(i) == cur:
                 self.cmb_scale_port.setCurrentIndex(i)
@@ -169,15 +164,14 @@ class SettingsWidget(QWidget):
         printers = scan_printers()
         for name in printers:
             self.cmb_printer_name.addItem(name)
-        cur = self.config.get("printer_name", "")
+        cur = self.config.get("printer_name", "shouyin")
         if cur:
             self.cmb_printer_name.setCurrentText(cur)
 
     # ─── 保存 ──────────────────────────────────────
     def _on_save(self):
-        self.config["scale_port"] = self.cmb_scale_port.currentData() or "COM3"
+        self.config["scale_port"] = self.cmb_scale_port.currentData() or "COM1"
         self.config["scale_baudrate"] = int(self.cmb_baudrate.currentText())
-        self.config["simulation_mode"] = self.chk_sim.isChecked()
 
         pt_text = self.cmb_printer_type.currentText()
         self.config["printer_type"] = pt_text.split(" - ")[0].strip()

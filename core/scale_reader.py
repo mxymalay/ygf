@@ -1,15 +1,11 @@
 """
 称重秤串口读取模块
 
-支持两种模式：
-  1. 真实模式 — 通过串口读取真实称重秤数据
-  2. 模拟模式 — 生成模拟数据用于开发测试
-
+通过串口（RS-232 / USB转串口）实时读取真实称重秤数据
 兼容：Python 3.8+ / Windows 7+
 """
 import re
 import os
-import random
 import time
 import threading
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -61,69 +57,15 @@ class ScaleReader(QObject):
             self._serial = None
 
     def _run_loop(self):
-        """主循环"""
-        if self.config.get("simulation_mode", True):
-            self._run_simulation()
-        else:
-            self._run_real()
+        """主循环 — 直接从真实串口读取数据"""
+        self._run_real()
 
-    # ─── 模拟模式 ──────────────────────────────────────
-    def _run_simulation(self):
-        """模拟称重数据，用于开发测试"""
-        self.status_changed.emit(True, "模拟模式已启动")
-        sim_weight = 0.0
-        phase = "idle"  # idle -> rising -> stable -> falling -> idle
-        phase_timer = 0
-
-        while self._running:
-            time.sleep(0.2)  # 5Hz 更新频率
-
-            if phase == "idle":
-                sim_weight = random.gauss(0.0, 0.002)
-                sim_weight = max(0.0, sim_weight)
-                phase_timer += 1
-                if phase_timer > 30 and random.random() < 0.05:
-                    phase = "rising"
-                    phase_timer = 0
-                    sim_weight = 0.0
-
-            elif phase == "rising":
-                target = random.uniform(0.3, 1.5)
-                step = target / 10
-                sim_weight += step + random.gauss(0, 0.005)
-                sim_weight = max(0, sim_weight)
-                phase_timer += 1
-                if phase_timer > 10:
-                    phase = "stable"
-                    phase_timer = 0
-                    sim_weight = round(random.uniform(0.3, 1.5), 3)
-
-            elif phase == "stable":
-                base = sim_weight
-                sim_weight = base + random.gauss(0, 0.002)
-                sim_weight = max(0, sim_weight)
-                phase_timer += 1
-                if phase_timer > 50:
-                    phase = "falling"
-                    phase_timer = 0
-
-            elif phase == "falling":
-                sim_weight *= 0.5
-                phase_timer += 1
-                if phase_timer > 5 or sim_weight < 0.01:
-                    phase = "idle"
-                    phase_timer = 0
-                    sim_weight = 0.0
-
-            self.weight_updated.emit(round(max(0, sim_weight), 3))
-            self._check_stability(round(max(0, sim_weight), 3))
-
-    # ─── 真实模式 ──────────────────────────────────────
+    # ─── 真实串口模式 ──────────────────────────────────────
     def _run_real(self):
         """从真实串口读取称重数据"""
         try:
             import serial
-            port = self.config.get("scale_port", "COM3")
+            port = self.config.get("scale_port", "COM1")
             baudrate = self.config.get("scale_baudrate", 9600)
             bytesize = self.config.get("scale_bytesize", 8)
             parity = self.config.get("scale_parity", "N")
@@ -137,7 +79,7 @@ class ScaleReader(QObject):
                 stopbits=stopbits,
                 timeout=1
             )
-            self.status_changed.emit(True, "已连接 %s (波特率 %d)" % (port, baudrate))
+            self.status_changed.emit(True, "已连接电子秤 %s (%d bps)" % (port, baudrate))
 
             buffer = b""
             while self._running:
@@ -162,7 +104,7 @@ class ScaleReader(QObject):
             self.error_occurred.emit("未安装 pyserial 库，请运行: pip install pyserial")
             self.status_changed.emit(False, "缺少 pyserial 库")
         except Exception as e:
-            self.error_occurred.emit("串口连接失败: %s" % str(e))
+            self.error_occurred.emit("串口 %s 打开失败: %s" % (self.config.get("scale_port", "COM1"), str(e)))
             self.status_changed.emit(False, "连接失败: %s" % str(e))
 
     def _parse_weight(self, raw):

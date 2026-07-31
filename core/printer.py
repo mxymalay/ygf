@@ -1,5 +1,5 @@
 """
-小票打印模块 — 支持 Windows驱动/网络/串口/模拟 四种打印方式
+小票打印模块 — 支持 Windows驱动/网络/串口 打印方式
 兼容 Python 3.8+
 """
 import os
@@ -73,8 +73,6 @@ class ReceiptPrinter:
 
     def print_receipt(self, sale):
         """打印小票入口"""
-        if self.config.get("simulation_mode", True):
-            return self._print_simulation(sale)
         pt = self.config.get("printer_type", "windows")
         try:
             if pt == "windows":
@@ -85,11 +83,12 @@ class ReceiptPrinter:
                 return self._print_serial(sale)
         except Exception as e:
             print("[打印错误] %s" % str(e))
-        return self._print_simulation(sale)
+            raise e
+        return False
 
     def _print_windows(self, sale):
         import win32print
-        name = self.config.get("printer_name", "") or win32print.GetDefaultPrinter()
+        name = self.config.get("printer_name", "shouyin") or win32print.GetDefaultPrinter()
         data = self._build_receipt_data(sale)
         h = win32print.OpenPrinter(name)
         try:
@@ -122,28 +121,4 @@ class ReceiptPrinter:
         ser.flush()
         time.sleep(0.5)
         ser.close()
-        return True
-
-    def _print_simulation(self, sale):
-        wd, ul = self._fmt(sale)
-        txt = (
-            "\n%s\n" % ('=' * 32) +
-            "    %s\n" % sale.get('shop_name', '杨国福麻辣烫') +
-            "    %s\n" % sale.get('shop_subtitle', '') +
-            "%s\n" % ('=' * 32) +
-            "日期：%s\n" % sale['created_at'] +
-            "单号：%s\n" % sale['sale_no'] +
-            "%s\n" % ('-' * 32) +
-            "重量：%s\n" % wd +
-            "单价：%.2f %s\n" % (sale['unit_price'], ul) +
-            "%s\n" % ('-' * 32) +
-            "      ￥%.2f\n" % sale['total_price'] +
-            "%s\n" % ('-' * 32) +
-            "    %s\n" % sale.get('receipt_footer', '谢谢惠顾！') +
-            "%s\n" % ('=' * 32)
-        )
-        print(txt)
-        log = os.path.join(DATA_DIR, "print_log.txt")
-        with open(log, "a", encoding="utf-8") as f:
-            f.write(txt + "\n")
         return True

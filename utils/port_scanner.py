@@ -1,5 +1,5 @@
 """
-串口扫描工具 — 用于远程探测店内电脑的硬件端口
+串口与打印机扫描工具 — 用于探测店内电脑硬件
 兼容 Python 3.8+
 """
 
@@ -20,23 +20,7 @@ def scan_ports():
                 "serial_number": p.serial_number or "",
             })
     except ImportError:
-        # pyserial 未安装时模拟
-        results.append({
-            "device": "COM3",
-            "description": "USB-SERIAL CH340 (COM3) [模拟]",
-            "hwid": "USB VID:PID=1A86:7523",
-            "manufacturer": "wch.cn",
-            "product": "",
-            "serial_number": "",
-        })
-        results.append({
-            "device": "COM4",
-            "description": "USB Printing Support (COM4) [模拟]",
-            "hwid": "USB VID:PID=0483:5740",
-            "manufacturer": "",
-            "product": "",
-            "serial_number": "",
-        })
+        pass
     return results
 
 
@@ -50,7 +34,7 @@ def scan_printers():
         for _, _, name, _ in printer_list:
             printers.append(name)
     except ImportError:
-        printers = ["POS-58 [模拟]", "GP-L80160 [模拟]"]
+        pass
     return printers
 
 
@@ -58,9 +42,6 @@ if __name__ == "__main__":
     print("=== 串口扫描结果 ===")
     for port in scan_ports():
         print("  %s: %s" % (port['device'], port['description']))
-        print("    HWID: %s" % port['hwid'])
-        if port['manufacturer']:
-            print("    厂商: %s" % port['manufacturer'])
     print()
     print("=== 打印机扫描结果 ===")
     for name in scan_printers():

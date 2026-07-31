@@ -27,9 +27,9 @@ class MainWindow(QMainWindow):
         self._setup_clock()
 
     def _init_window(self):
-        self.setWindowTitle(u"\U0001f35c 杨国福麻辣烫 · 称重打印系统")
-        self.setMinimumSize(1024, 680)
-        self.resize(1280, 800)
+        self.setWindowTitle(u"杨国福麻辣烫 · 称重打印系统")
+        self.setMinimumSize(800, 500)
+        self.resize(1024, 720)
         self.setStyleSheet(GLOBAL_STYLE)
 
     def _build_ui(self):
@@ -39,15 +39,15 @@ class MainWindow(QMainWindow):
 
         # 销售页
         self.sale_page = SaleWidget(self.config, self.db)
-        self.tabs.addTab(self.sale_page, u"\u2696\ufe0f 称重收银")
+        self.tabs.addTab(self.sale_page, u"称重收银")
 
         # 历史页
         self.history_page = HistoryWidget(self.db)
-        self.tabs.addTab(self.history_page, u"\U0001f4ca 历史记录")
+        self.tabs.addTab(self.history_page, u"历史记录")
 
         # 设置页
         self.settings_page = SettingsWidget(self.config)
-        self.tabs.addTab(self.settings_page, u"\u2699\ufe0f 系统设置")
+        self.tabs.addTab(self.settings_page, u"系统设置")
 
         self.setCentralWidget(self.tabs)
 
@@ -62,8 +62,7 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setStyleSheet("color: #a0a0b8; padding-right: 16px;")
         self.status.addPermanentWidget(self.lbl_clock)
 
-        mode = u"[模拟模式]" if self.config.get("simulation_mode") else u"[硬件模式]"
-        self.status.showMessage(u"  %s  |  数据存储于本地 SQLite  |  Win7 兼容" % mode)
+        self.status.showMessage(u" 已就绪  |  硬件直连模式  |  数据存储于本地 SQLite")
 
     def _setup_clock(self):
         self._clock_timer = QTimer(self)

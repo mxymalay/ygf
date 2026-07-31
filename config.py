@@ -37,7 +37,6 @@ DEFAULT_CONFIG = {
     "receipt_footer": "谢谢惠顾！欢迎下次光临",
 
     # 系统设置
-    "simulation_mode": True,            # 模拟模式（无硬件时使用）
     "auto_print": False,                # 称重稳定后自动打印
     "stable_threshold": 0.01,           # 重量稳定判断阈值(kg)
     "stable_count": 5,                  # 连续稳定次数才认为稳定
@@ -50,8 +49,8 @@ def load_config() -> dict:
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-            # 合并：以 DEFAULT 为底，saved 覆盖
             merged = {**DEFAULT_CONFIG, **saved}
+            merged.pop("simulation_mode", None)  # 移除旧的模拟模式字段
             return merged
         except Exception:
             pass
@@ -60,5 +59,6 @@ def load_config() -> dict:
 
 def save_config(cfg: dict):
     """保存配置到 JSON 文件"""
+    cfg.pop("simulation_mode", None)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)

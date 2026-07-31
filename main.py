@@ -17,14 +17,10 @@ from ui.main_window import MainWindow
 
 
 def main():
-    # 高 DPI 支持 (Win7 兼容)
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-
     app = QApplication(sys.argv)
 
     # 设置默认字体
-    font = QFont("Microsoft YaHei", 11)
+    font = QFont("Microsoft YaHei", 10)
     app.setFont(font)
 
     # 加载配置
@@ -34,9 +30,9 @@ def main():
     if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "settings.json")):
         save_config(config)
 
-    # 创建主窗口
+    # 创建主窗口（默认最大化适合收银屏）
     window = MainWindow(config)
-    window.show()
+    window.showMaximized()
 
     sys.exit(app.exec_())
 
