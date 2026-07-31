@@ -1,5 +1,5 @@
 """
-销售/称重界面 — 极简无框现代化设计 + 顶部叫号牌展开组件
+销售/称重界面 — 称重状态左侧图标融合设计 (⏳ 加载中 / ✅ 绿色对号)
 PyQt5 + Python 3.8 兼容
 """
 import random
@@ -82,14 +82,14 @@ class SaleWidget(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(14, 14, 14, 14)
 
-        # ── 左侧：开单面板 (无边框极简结构) ──
+        # ── 左侧：开单面板 ──
         left_card = QFrame()
         left_card.setStyleSheet("QFrame { background: #111827; border: none; border-radius: 14px; }")
         left_layout = QVBoxLayout(left_card)
         left_layout.setContentsMargins(14, 14, 14, 14)
         left_layout.setSpacing(10)
 
-        # 1. 顶栏：本次打印叫号模块 (代称原来的单号位置，支持点击展开/折叠详细信息)
+        # 1. 顶栏：本次打印叫号模块 (带展开/折叠详细信息)
         call_header = QHBoxLayout()
         
         lbl_call_title = QLabel(u"本次打印叫号：")
@@ -108,10 +108,6 @@ class SaleWidget(QWidget):
         call_header.addWidget(self.btn_toggle_detail)
 
         call_header.addStretch()
-
-        self.lbl_conn = QLabel(u"● 官方秤已连接")
-        self.lbl_conn.setStyleSheet("font-size: 13px; color: #10B981; border: none;")
-        call_header.addWidget(self.lbl_conn)
 
         left_layout.addLayout(call_header)
 
@@ -133,7 +129,7 @@ class SaleWidget(QWidget):
 
         left_layout.addWidget(self.call_detail_box)
 
-        # 原版橙色重量 LED 横幅卡片
+        # 原版橙色重量 LED 横幅卡片（状态融合到左侧图标）
         led_banner = QFrame()
         led_banner.setStyleSheet(
             "QFrame { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
@@ -142,9 +138,15 @@ class SaleWidget(QWidget):
         led_layout = QHBoxLayout(led_banner)
         led_layout.setContentsMargins(12, 4, 12, 4)
 
-        lbl_icon = QLabel(u"⚖️ 实时称重：")
-        lbl_icon.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; border: none;")
-        led_layout.addWidget(lbl_icon)
+        # 状态指示图标: ⏳ (读取/未稳定) vs ✅ (稳定就绪对号)
+        self.lbl_scale_status_icon = QLabel(u"⏳")
+        self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; border: none;")
+        led_layout.addWidget(self.lbl_scale_status_icon)
+
+        lbl_text_label = QLabel(u"实时称重：")
+        lbl_text_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; border: none;")
+        led_layout.addWidget(lbl_text_label)
 
         self.lbl_weight = QLabel("00.000 kg")
         self.lbl_weight.setStyleSheet(
@@ -200,7 +202,7 @@ class SaleWidget(QWidget):
 
         layout.addWidget(left_card, stretch=5)
 
-        # ── 右侧：1-10元快捷加价 + 打印操作 (全无外框) ──
+        # ── 右侧：1-10元快捷加价 + 打印操作 ──
         right = QVBoxLayout()
         right.setSpacing(14)
 
@@ -359,32 +361,31 @@ class SaleWidget(QWidget):
         self.lbl_weight.setText("%06.3f kg" % weight_kg)
         self._update_price_display()
 
+        # 读数变化中/未稳定 -> ⏳ 图标
         if self._is_stable and abs(weight_kg - self._stable_weight) > 0.05:
             self._is_stable = False
-            self.lbl_conn.setText(u"● 官方秤已连接")
-            self.lbl_conn.setStyleSheet("color: #10B981; font-size: 13px; border: none;")
+            self.lbl_scale_status_icon.setText(u"⏳")
+            self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
 
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
-        if connected:
-            self.lbl_conn.setText(u"● %s" % msg)
-            self.lbl_conn.setStyleSheet("color: #10B981; font-size: 13px; border: none;")
-        else:
-            self.lbl_conn.setText(u"● %s" % msg)
-            self.lbl_conn.setStyleSheet("color: #EF4444; font-size: 13px; border: none;")
+        if not connected:
+            self.lbl_scale_status_icon.setText(u"❌")
+            self.lbl_scale_status_icon.setToolTip(u"官方秤未连接: %s" % msg)
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
         if weight_kg > 0.02:
             self._is_stable = True
             self._stable_weight = weight_kg
-            self.lbl_conn.setText(u"● [稳定就绪]")
-            self.lbl_conn.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold; border: none;")
+            # 读数已稳定 -> ✅ 绿色对号
+            self.lbl_scale_status_icon.setText(u"✅")
+            self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
 
     @pyqtSlot(str)
     def _on_error(self, msg):
-        self.lbl_conn.setText(u"[!] %s" % msg)
-        self.lbl_conn.setStyleSheet("color: #EF4444; font-size: 13px; border: none;")
+        self.lbl_scale_status_icon.setText(u"❌")
+        self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_print(self):
         """称重并打印小票"""
@@ -420,9 +421,6 @@ class SaleWidget(QWidget):
         success = self.printer.print_receipt(sale_data)
 
         if success:
-            self.lbl_conn.setText(u"● [已打印小票] #%s" % call_no_str)
-            self.lbl_conn.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold; border: none;")
-            
             self.temp_order_no = self._gen_temp_order_no()
             self._clear_extra_items()
             self.refresh_call_number_display()
