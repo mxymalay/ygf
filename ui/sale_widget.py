@@ -672,6 +672,10 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
 
         if btn.is_soup:
+            if self.current_weight <= 0.0005:
+                show_warning(self, u"请先称重", u"当前电子秤读数为 0.000 kg，请先将麻辣烫放置在电子秤上！")
+                return
+
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
