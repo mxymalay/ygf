@@ -111,37 +111,48 @@ class TasteSelectionDialog(QDialog):
 
 
 class OrderItemCard(QFrame):
-    """无边框极简 POS 风格订单细项卡片 (无框无矩形包围)"""
+    """无边框极简 POS 风格订单细项卡片 (右侧右对齐金额)"""
 
-    def __init__(self, title, subline, tag="", is_active=False, parent=None):
+    def __init__(self, title, subline, price_val, tag="", is_active=False, parent=None):
         super().__init__(parent)
         self.setObjectName("OrderItemCard")
 
-        # 纯净无框无色块，文字自然流淌
+        # 纯净无框，左右结构
         self.setStyleSheet(
             "QFrame#OrderItemCard { background: transparent; border: none; "
             "padding: 6px 2px; margin-bottom: 4px; }"
         )
 
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(3)
+        layout.setSpacing(8)
 
-        # 商品名称
+        # 左侧：商品名称 + 明细 + 口味偏好
+        left_vbox = QVBoxLayout()
+        left_vbox.setContentsMargins(0, 0, 0, 0)
+        left_vbox.setSpacing(3)
+
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
-        layout.addWidget(lbl_title)
+        left_vbox.addWidget(lbl_title)
 
-        # 数量、单价与小计行
-        lbl_sub = QLabel(subline)
-        lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; font-family: 'Consolas', monospace; border: none; background: transparent;")
-        layout.addWidget(lbl_sub)
+        if subline:
+            lbl_sub = QLabel(subline)
+            lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            left_vbox.addWidget(lbl_sub)
 
-        # 口味偏好标签 (如: 微辣 / 免蒜 /)
         if tag:
             lbl_tag = QLabel(tag)
             lbl_tag.setStyleSheet("font-size: 13px; font-weight: bold; color: #F59E0B; border: none; background: transparent;")
-            layout.addWidget(lbl_tag)
+            left_vbox.addWidget(lbl_tag)
+
+        layout.addLayout(left_vbox, stretch=1)
+
+        # 右侧：右对齐高亮价格 (如: ￥11.20)
+        lbl_price = QLabel(f"￥{price_val:.2f}")
+        lbl_price.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_price.setStyleSheet("font-size: 18px; font-weight: 900; color: #F97316; border: none; background: transparent;")
+        layout.addWidget(lbl_price)
 
 
 class MenuGridButton(QPushButton):
@@ -517,12 +528,12 @@ class SaleWidget(QWidget):
             
             if item["type"] == "soup":
                 w_str = f"{item['weight']:.3f}"
-                sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   堂食   x{w_str}   ¥{item['price']:.2f}"
-                card = OrderItemCard(item["name"], sub_str, tag=item.get("tag", ""), is_active=is_last)
+                sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   x{w_str}"
+                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], tag=item.get("tag", ""), is_active=is_last)
                 total_price += item["price"]
             else:
-                sub_str = f"1   ¥{item['price']:.2f}   堂食   x1   ¥{item['price']:.2f}"
-                card = OrderItemCard(item["name"], sub_str, is_active=is_last)
+                sub_str = f"1   ¥{item['price']:.2f}   x1"
+                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], is_active=is_last)
                 total_price += item["price"]
 
             self.cart_layout.addWidget(card)
