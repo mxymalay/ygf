@@ -1,5 +1,5 @@
 """
-全局 QSS 样式 — 旗舰级现代双主题与杨国福原生红色侧边栏风格
+全局 QSS 样式 — 无框无死角极简现代 POS 视觉
 兼容 Python 3.8+
 """
 
@@ -10,7 +10,7 @@ DARK_COLORS = {
     "bg_card_active": "#1E293B",   # 激活卡片背景
     "bg_input": "#1E293B",         # 输入框深灰
     "accent": "#EF4444",           # 品牌麻辣红
-    "accent_orange": "#F97316",    # 琥珀燃橙
+    "accent_orange": "#EA580C",    # 琥珀燃橙
     "accent_hover": "#F87171",
     "accent2": "#06B6D4",          # 霓虹青
     "accent2_hover": "#22D3EE",
@@ -20,8 +20,8 @@ DARK_COLORS = {
     "danger": "#EF4444",
     "text_primary": "#F9FAFB",     # 高亮纯白文字
     "text_secondary": "#9CA3AF",   # 次要灰字
-    "border": "#263352",           # 质感蓝灰边框
-    "border_light": "#374151",
+    "border": "transparent",       # 去掉大部分硬质边框
+    "border_light": "transparent",
 }
 
 LIGHT_COLORS = {
@@ -41,14 +41,14 @@ LIGHT_COLORS = {
     "danger": "#DC2626",
     "text_primary": "#111827",     # 深灰黑文字
     "text_secondary": "#4B5563",   # 次要文字
-    "border": "#E5E7EB",           # 浅灰边框
-    "border_light": "#D1D5DB",
+    "border": "transparent",
+    "border_light": "transparent",
 }
 
 
 def build_qss(c):
     return f"""
-/* ─── 全局基础 ──────────────────────────────────── */
+/* ─── 全局无框极简风格 ────────────────────────────── */
 QMainWindow, QWidget {{
     background-color: {c['bg_primary']};
     color: {c['text_primary']};
@@ -56,11 +56,11 @@ QMainWindow, QWidget {{
     font-size: 14px;
 }}
 
-/* ─── 杨国福原生热烈火焰红侧边导航栏 ─────────────── */
+/* ─── 杨国福原生火焰红侧边导航栏 ─────────────── */
 SideNavBar {{
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
         stop:0 #DC2626, stop:0.4 #EA580C, stop:1 #B91C1C);
-    border-right: 1px solid #991B1B;
+    border: none;
 }}
 
 SideNavItem {{
@@ -76,14 +76,14 @@ SideNavItem:hover {{
 
 SideNavItem:checked {{
     background: #7F1D1D;
-    border: 1px solid #FDE047;
+    border: none;
 }}
 
-/* ─── 卡片面板 ──────────────────────────────────── */
+/* ─── 卡片面板 (全面去除外框线) ─────────────────── */
 QGroupBox {{
     background-color: {c['bg_card']};
-    border: 1px solid {c['border']};
-    border-radius: 14px;
+    border: none;
+    border-radius: 12px;
     margin-top: 10px;
     padding-top: 16px;
     font-size: 15px;
@@ -94,10 +94,9 @@ QGroupBox {{
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    left: 14px;
-    padding: 2px 8px;
-    background-color: {c['bg_card']};
-    border-radius: 6px;
+    left: 12px;
+    padding: 2px 6px;
+    background-color: transparent;
     color: {c['accent_orange']};
 }}
 
@@ -105,8 +104,8 @@ QGroupBox::title {{
 QPushButton {{
     background-color: {c['bg_card']};
     color: {c['text_primary']};
-    border: 1px solid {c['border']};
-    border-radius: 10px;
+    border: none;
+    border-radius: 8px;
     padding: 8px 14px;
     font-size: 14px;
     font-weight: bold;
@@ -115,7 +114,7 @@ QPushButton {{
 
 QPushButton:hover {{
     background-color: {c['bg_card_active']};
-    border-color: {c['accent_orange']};
+    color: {c['accent_orange']};
 }}
 
 QPushButton:pressed {{
@@ -130,9 +129,9 @@ QPushButton#btn_print {{
     color: #FFFFFF;
     font-size: 22px;
     font-weight: 900;
-    min-height: 64px;
+    min-height: 60px;
     border: none;
-    border-radius: 14px;
+    border-radius: 12px;
     letter-spacing: 1px;
 }}
 
@@ -145,17 +144,17 @@ QPushButton#btn_print:hover {{
 QPushButton#btn_clear {{
     background: {c['bg_card']};
     color: {c['warning']};
-    border: 1px solid {c['warning']};
+    border: none;
     font-size: 15px;
     min-height: 42px;
-    border-radius: 10px;
+    border-radius: 8px;
 }}
 
 /* ─── 输入框 ──────────────────────────────────── */
 QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {{
     background-color: {c['bg_input']};
     color: {c['text_primary']};
-    border: 1px solid {c['border']};
+    border: 1px solid #374151;
     border-radius: 8px;
     padding: 4px 10px;
     font-size: 14px;
@@ -169,8 +168,8 @@ QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {{
 /* ─── 表格 ──────────────────────────────────── */
 QTableWidget {{
     background-color: {c['bg_card']};
-    gridline-color: {c['border']};
-    border: 1px solid {c['border']};
+    gridline-color: transparent;
+    border: none;
     border-radius: 12px;
     color: {c['text_primary']};
     font-size: 14px;
@@ -183,7 +182,6 @@ QHeaderView::section {{
     color: {c['text_secondary']};
     padding: 8px;
     border: none;
-    border-bottom: 2px solid {c['border']};
     font-weight: bold;
     font-size: 14px;
 }}
@@ -191,7 +189,7 @@ QHeaderView::section {{
 QStatusBar {{
     background-color: {c['bg_primary']};
     color: {c['text_secondary']};
-    border-top: 1px solid {c['border']};
+    border: none;
     font-size: 13px;
 }}
 """

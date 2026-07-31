@@ -1,5 +1,5 @@
 """
-销售/称重界面 — 杨国福原生精美小票开单卡片式布局
+销售/称重界面 — 极简无框现代化设计 + 顶部叫号牌展开组件
 PyQt5 + Python 3.8 兼容
 """
 import random
@@ -19,37 +19,36 @@ from core.call_number_manager import CallNumberManager
 
 
 class OrderItemCard(QFrame):
-    """原生 POS 风格订单细项卡片"""
+    """无边框极简 POS 风格订单细项卡片"""
 
     def __init__(self, title, subline, tag="", is_active=False, parent=None):
         super().__init__(parent)
         self.setObjectName("OrderItemCard")
-        border_color = "#EA580C" if is_active else "#374151"
-        bg_color = "#1F2937" if is_active else "#172136"
+        bg_color = "#1E293B" if is_active else "#172136"
 
         self.setStyleSheet(
-            f"QFrame#OrderItemCard {{ background: {bg_color}; border: 1px solid {border_color}; "
-            f"border-radius: 8px; margin-bottom: 6px; padding: 6px 10px; }}"
+            f"QFrame#OrderItemCard {{ background: {bg_color}; border: none; "
+            f"border-radius: 8px; margin-bottom: 6px; padding: 10px 12px; }}"
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
         # 商品名称
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
         layout.addWidget(lbl_title)
 
         # 数量、单价与小计行
         lbl_sub = QLabel(subline)
-        lbl_sub.setStyleSheet("font-size: 13px; color: #D1D5DB; font-family: 'Consolas', monospace;")
+        lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; font-family: 'Consolas', monospace; border: none;")
         layout.addWidget(lbl_sub)
 
         # 标签 (如: 微辣/)
         if tag:
             lbl_tag = QLabel(tag)
-            lbl_tag.setStyleSheet("font-size: 12px; color: #9CA3AF;")
+            lbl_tag.setStyleSheet("font-size: 12px; color: #F59E0B; border: none;")
             layout.addWidget(lbl_tag)
 
 
@@ -67,9 +66,9 @@ class SaleWidget(QWidget):
         self._stable_weight = 0.0
         self._is_stable = False
         
-        # 附加项目购物车: list of {"name": str, "price": float, "qty": int}
         self.extra_items = []
         self.temp_order_no = self._gen_temp_order_no()
+        self._detail_expanded = False
 
         self._build_ui()
         self._setup_scale()
@@ -83,64 +82,78 @@ class SaleWidget(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(14, 14, 14, 14)
 
-        # ── 左侧：完全参照杨国福原版设计的开单卡片面板 ──
+        # ── 左侧：开单面板 (无边框极简结构) ──
         left_card = QFrame()
-        left_card.setStyleSheet(
-            "QFrame { background: #111827; border: 1px solid #263352; border-radius: 14px; }"
-        )
+        left_card.setStyleSheet("QFrame { background: #111827; border: none; border-radius: 14px; }")
         left_layout = QVBoxLayout(left_card)
-        left_layout.setContentsMargins(12, 12, 12, 12)
-        left_layout.setSpacing(8)
+        left_layout.setContentsMargins(14, 14, 14, 14)
+        left_layout.setSpacing(10)
 
-        # 1. 顶栏：单号与电子秤橙色 LED 读数横幅
-        top_bar = QHBoxLayout()
-        self.lbl_order_no = QLabel(u"单号：%s 📋" % self.temp_order_no)
-        self.lbl_order_no.setStyleSheet("font-size: 14px; font-weight: bold; color: #9CA3AF;")
-        top_bar.addWidget(self.lbl_order_no)
+        # 1. 顶栏：本次打印叫号模块 (代称原来的单号位置，支持点击展开/折叠详细信息)
+        call_header = QHBoxLayout()
+        
+        lbl_call_title = QLabel(u"本次打印叫号：")
+        lbl_call_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
+        call_header.addWidget(lbl_call_title)
 
-        top_bar.addStretch()
+        self.lbl_next_call_no = QLabel("# 50")
+        self.lbl_next_call_no.setStyleSheet("font-size: 26px; font-weight: 900; color: #F97316; border: none;")
+        call_header.addWidget(self.lbl_next_call_no)
 
-        self.lbl_conn = QLabel(u"● 官方秤同步中")
-        self.lbl_conn.setStyleSheet("font-size: 13px; color: #10B981;")
-        top_bar.addWidget(self.lbl_conn)
+        self.btn_toggle_detail = QPushButton(u"详细信息 ∨")
+        self.btn_toggle_detail.setStyleSheet(
+            "background: #1E293B; color: #38BDF8; font-size: 13px; font-weight: bold; border-radius: 6px; padding: 4px 10px;"
+        )
+        self.btn_toggle_detail.clicked.connect(self._toggle_call_detail)
+        call_header.addWidget(self.btn_toggle_detail)
 
-        left_layout.addLayout(top_bar)
+        call_header.addStretch()
+
+        self.lbl_conn = QLabel(u"● 官方秤已连接")
+        self.lbl_conn.setStyleSheet("font-size: 13px; color: #10B981; border: none;")
+        call_header.addWidget(self.lbl_conn)
+
+        left_layout.addLayout(call_header)
+
+        # 展开可折叠的叫号避重详细面板
+        self.call_detail_box = QFrame()
+        self.call_detail_box.setVisible(False)
+        self.call_detail_box.setStyleSheet("QFrame { background: #172136; border-radius: 8px; padding: 8px; }")
+        cd_layout = QHBoxLayout(self.call_detail_box)
+        cd_layout.setContentsMargins(8, 6, 8, 6)
+
+        self.lbl_mode_tip = QLabel(u"模式：智能避重模式")
+        self.lbl_mode_tip.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
+        cd_layout.addWidget(self.lbl_mode_tip, stretch=1)
+
+        btn_override = QPushButton(u"手动修改叫号")
+        btn_override.setStyleSheet("font-size: 12px; min-height: 28px;")
+        btn_override.clicked.connect(self._manual_adjust_call_no)
+        cd_layout.addWidget(btn_override)
+
+        left_layout.addWidget(self.call_detail_box)
 
         # 原版橙色重量 LED 横幅卡片
         led_banner = QFrame()
         led_banner.setStyleSheet(
             "QFrame { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "stop:0 #EA580C, stop:1 #C2410C); border-radius: 8px; padding: 6px 12px; }"
+            "stop:0 #EA580C, stop:1 #C2410C); border-radius: 8px; padding: 8px 14px; border: none; }"
         )
         led_layout = QHBoxLayout(led_banner)
         led_layout.setContentsMargins(12, 4, 12, 4)
 
-        lbl_icon = QLabel(u"⚖️")
-        lbl_icon.setStyleSheet("font-size: 24px; color: #FFFFFF;")
+        lbl_icon = QLabel(u"⚖️ 实时称重：")
+        lbl_icon.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; border: none;")
         led_layout.addWidget(lbl_icon)
 
-        self.lbl_weight = QLabel("00.000")
+        self.lbl_weight = QLabel("00.000 kg")
         self.lbl_weight.setStyleSheet(
-            "font-size: 38px; font-weight: 900; color: #FFFFFF; "
-            "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 2px;"
+            "font-size: 36px; font-weight: 900; color: #FFFFFF; border: none; "
+            "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
         )
         led_layout.addWidget(self.lbl_weight, stretch=1, alignment=Qt.AlignRight)
 
         left_layout.addWidget(led_banner)
-
-        # 子标题选项条 (堂食 / 会员信息)
-        sub_header = QHBoxLayout()
-        lbl_dine = QLabel(u"堂食 ∨")
-        lbl_dine.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB;")
-        sub_header.addWidget(lbl_dine)
-
-        sub_header.addStretch()
-
-        lbl_vip = QLabel(u"会员信息")
-        lbl_vip.setStyleSheet("font-size: 14px; color: #9CA3AF;")
-        sub_header.addWidget(lbl_vip)
-
-        left_layout.addLayout(sub_header)
 
         # 2. 订单消费卡片列表 (ScrollArea)
         scroll = QScrollArea()
@@ -156,77 +169,45 @@ class SaleWidget(QWidget):
         scroll.setWidget(self.cart_container)
         left_layout.addWidget(scroll, stretch=1)
 
-        # 3. 翻页与结算底栏
+        # 3. 翻页与无框结算底栏
         page_bar = QHBoxLayout()
         btn_prev = QPushButton(u"上一页")
         btn_prev.setStyleSheet(
-            "background: #EA580C; color: white; font-weight: bold; border-radius: 6px; min-height: 36px;"
+            "background: #1E293B; color: #D1D5DB; font-weight: bold; border-radius: 6px; min-height: 36px;"
         )
         page_bar.addWidget(btn_prev)
 
         btn_next = QPushButton(u"下一页")
         btn_next.setStyleSheet(
-            "background: #EA580C; color: white; font-weight: bold; border-radius: 6px; min-height: 36px;"
+            "background: #1E293B; color: #D1D5DB; font-weight: bold; border-radius: 6px; min-height: 36px;"
         )
         page_bar.addWidget(btn_next)
         left_layout.addLayout(page_bar)
 
-        # 结算金额栏
-        footer_line1 = QHBoxLayout()
-        footer_line1.addWidget(QLabel(u"商品金额："))
-        footer_line1.addStretch()
-        self.lbl_subtotal = QLabel(u"￥0.00")
-        self.lbl_subtotal.setStyleSheet("font-size: 15px; font-weight: bold; color: #D1D5DB;")
-        footer_line1.addWidget(self.lbl_subtotal)
-        left_layout.addLayout(footer_line1)
-
-        footer_line2 = QHBoxLayout()
+        # 结算金额栏 (去框无痕)
+        footer_line = QHBoxLayout()
         self.lbl_item_count = QLabel(u"共 1 件，需付款：")
-        self.lbl_item_count.setStyleSheet("font-size: 16px; font-weight: bold; color: #F9FAFB;")
-        footer_line2.addWidget(self.lbl_item_count)
+        self.lbl_item_count.setStyleSheet("font-size: 16px; font-weight: bold; color: #9CA3AF; border: none;")
+        footer_line.addWidget(self.lbl_item_count)
 
-        footer_line2.addStretch()
+        footer_line.addStretch()
 
         self.lbl_price = QLabel(u"￥0.00")
-        self.lbl_price.setStyleSheet("font-size: 28px; font-weight: 900; color: #F97316;")
-        footer_line2.addWidget(self.lbl_price)
+        self.lbl_price.setStyleSheet("font-size: 32px; font-weight: 900; color: #F97316; border: none;")
+        footer_line.addWidget(self.lbl_price)
 
-        left_layout.addLayout(footer_line2)
+        left_layout.addLayout(footer_line)
 
         layout.addWidget(left_card, stretch=5)
 
-        # ── 右侧：叫号牌 + 1-10元快捷加价 + 打印操作 ──
+        # ── 右侧：1-10元快捷加价 + 打印操作 (全无外框) ──
         right = QVBoxLayout()
-        right.setSpacing(12)
+        right.setSpacing(14)
 
-        # 1. 叫号牌预显面板
-        call_group = QGroupBox(u"取餐叫号牌 (避重引擎预分配)")
-        cg_layout = QVBoxLayout(call_group)
-        cg_layout.setSpacing(8)
-
-        cg_top = QHBoxLayout()
-        cg_top.addWidget(QLabel(u"本次打印叫号："))
-
-        self.lbl_next_call_no = QLabel("# 50")
-        self.lbl_next_call_no.setStyleSheet("font-size: 28px; font-weight: 900; color: #F97316;")
-        cg_top.addWidget(self.lbl_next_call_no, stretch=1)
-
-        btn_override = QPushButton(u"手动微调")
-        btn_override.clicked.connect(self._manual_adjust_call_no)
-        cg_top.addWidget(btn_override)
-
-        cg_layout.addLayout(cg_top)
-
-        self.lbl_mode_tip = QLabel(u"当前模式：智能避重模式")
-        self.lbl_mode_tip.setStyleSheet("color: #9CA3AF; font-size: 13px;")
-        cg_layout.addWidget(self.lbl_mode_tip)
-
-        right.addWidget(call_group)
-
-        # 2. 快捷加价网格 (1元 ~ 10元)
+        # 快捷加价网格 (1元 ~ 10元)
         add_group = QGroupBox(u"快捷添加商品/打包 (1元~10元)")
         ag_grid = QGridLayout(add_group)
-        ag_grid.setSpacing(6)
+        ag_grid.setSpacing(8)
 
         item_names = {
             1: u"打包盒 (小) (个)",
@@ -246,8 +227,8 @@ class SaleWidget(QWidget):
             btn_add = QPushButton(u"+%d元" % i)
             btn_add.setToolTip(name)
             btn_add.setStyleSheet(
-                "background: #1E293B; color: #F9FAFB; border: 1px solid #374151;"
-                "border-radius: 8px; font-weight: bold; font-size: 14px; min-height: 36px;"
+                "background: #172136; color: #F9FAFB; border: none;"
+                "border-radius: 8px; font-weight: bold; font-size: 15px; min-height: 42px;"
             )
             price_val = float(i)
             btn_add.clicked.connect(lambda checked, p=price_val, n=name: self._add_item_to_cart(n, p))
@@ -258,15 +239,15 @@ class SaleWidget(QWidget):
 
         btn_reset_fee = QPushButton(u"清空附加项目")
         btn_reset_fee.setStyleSheet(
-            "background: #78350F; color: #FBBF24; border: 1px solid #F59E0B;"
-            "border-radius: 8px; font-weight: bold; font-size: 14px; min-height: 36px;"
+            "background: #78350F; color: #FBBF24; border: none;"
+            "border-radius: 8px; font-weight: bold; font-size: 14px; min-height: 40px;"
         )
         btn_reset_fee.clicked.connect(self._clear_extra_items)
         ag_grid.addWidget(btn_reset_fee, 2, 0, 1, 5)
 
         right.addWidget(add_group)
 
-        # 3. 核心按键
+        # 核心按键
         self.btn_print = QPushButton(u"称重并打印小票")
         self.btn_print.setObjectName("btn_print")
         self.btn_print.setCursor(Qt.PointingHandCursor)
@@ -283,19 +264,25 @@ class SaleWidget(QWidget):
 
         self._update_price_display()
 
+    def _toggle_call_detail(self):
+        """展开/收起叫号避重详细信息"""
+        self._detail_expanded = not self._detail_expanded
+        self.call_detail_box.setVisible(self._detail_expanded)
+        if self._detail_expanded:
+            self.btn_toggle_detail.setText(u"详细信息 ∧")
+        else:
+            self.btn_toggle_detail.setText(u"详细信息 ∨")
+
     def _add_item_to_cart(self, name, price):
-        """向购物车添加一个附加项目"""
         self.extra_items.append({"name": name, "price": price, "qty": 1})
         self._update_price_display()
 
     def _clear_extra_items(self):
-        """清空所有附加项目"""
         self.extra_items.clear()
         self._update_price_display()
 
     def _update_price_display(self):
         """刷新购物明细卡片列表与金额"""
-        # 清空容器中旧卡片
         while self.cart_layout.count() > 0:
             child = self.cart_layout.takeAt(0)
             if child.widget():
@@ -309,7 +296,7 @@ class SaleWidget(QWidget):
         extra_total = sum(item["price"] for item in self.extra_items)
         total_price = base_price + extra_total
 
-        # 1. 经典草本骨汤 (麻辣烫主项卡片)
+        # 1. 麻辣烫食材称重主卡片
         w_str = f"{self.current_weight:.3f}"
         sub_str = f"{w_str} kg   ¥{unit_price:.2f}/{pu_lbl}   堂食   x{w_str}   ¥{base_price:.2f}"
         card_main = OrderItemCard(u"经典草本骨汤 ( KG ) (KG)", sub_str, tag=u"微辣/", is_active=False)
@@ -324,7 +311,6 @@ class SaleWidget(QWidget):
 
         # 3. 刷新底部统计
         item_count = 1 + len(self.extra_items)
-        self.lbl_subtotal.setText(u"￥%.2f" % total_price)
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % item_count)
         self.lbl_price.setText(u"￥%.2f" % total_price)
 
@@ -336,11 +322,11 @@ class SaleWidget(QWidget):
         if mode == CallNumberManager.MODE_SMART:
             slot = self.call_mgr._get_current_time_slot()
             slot_name = u"上午 (50-100)" if slot == "morning" else (u"下午 (100-200)" if slot == "afternoon" else u"晚上 (200-300)")
-            self.lbl_mode_tip.setText(u"当前：智能避重模式 [%s]" % slot_name)
+            self.lbl_mode_tip.setText(u"模式：智能避重 [%s]" % slot_name)
         elif mode == CallNumberManager.MODE_CUSTOM:
-            self.lbl_mode_tip.setText(u"当前：自定义范围避重模式")
+            self.lbl_mode_tip.setText(u"模式：自定义范围避重")
         else:
-            self.lbl_mode_tip.setText(u"当前：手动模式")
+            self.lbl_mode_tip.setText(u"模式：手动指定")
 
     def _manual_adjust_call_no(self):
         from PyQt5.QtWidgets import QInputDialog
@@ -370,22 +356,22 @@ class SaleWidget(QWidget):
     @pyqtSlot(float)
     def _on_weight_update(self, weight_kg):
         self.current_weight = weight_kg
-        self.lbl_weight.setText("%06.3f" % weight_kg)
+        self.lbl_weight.setText("%06.3f kg" % weight_kg)
         self._update_price_display()
 
         if self._is_stable and abs(weight_kg - self._stable_weight) > 0.05:
             self._is_stable = False
-            self.lbl_conn.setText(u"● 官方秤同步中")
-            self.lbl_conn.setStyleSheet("color: #10B981; font-size: 13px;")
+            self.lbl_conn.setText(u"● 官方秤已连接")
+            self.lbl_conn.setStyleSheet("color: #10B981; font-size: 13px; border: none;")
 
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
         if connected:
             self.lbl_conn.setText(u"● %s" % msg)
-            self.lbl_conn.setStyleSheet("color: #10B981; font-size: 13px;")
+            self.lbl_conn.setStyleSheet("color: #10B981; font-size: 13px; border: none;")
         else:
             self.lbl_conn.setText(u"● %s" % msg)
-            self.lbl_conn.setStyleSheet("color: #EF4444; font-size: 13px;")
+            self.lbl_conn.setStyleSheet("color: #EF4444; font-size: 13px; border: none;")
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
@@ -393,12 +379,12 @@ class SaleWidget(QWidget):
             self._is_stable = True
             self._stable_weight = weight_kg
             self.lbl_conn.setText(u"● [稳定就绪]")
-            self.lbl_conn.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold;")
+            self.lbl_conn.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold; border: none;")
 
     @pyqtSlot(str)
     def _on_error(self, msg):
         self.lbl_conn.setText(u"[!] %s" % msg)
-        self.lbl_conn.setStyleSheet("color: #EF4444; font-size: 13px;")
+        self.lbl_conn.setStyleSheet("color: #EF4444; font-size: 13px; border: none;")
 
     def _on_print(self):
         """称重并打印小票"""
@@ -435,21 +421,17 @@ class SaleWidget(QWidget):
 
         if success:
             self.lbl_conn.setText(u"● [已打印小票] #%s" % call_no_str)
-            self.lbl_conn.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold;")
+            self.lbl_conn.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold; border: none;")
             
-            # 生成新单号并刷新
             self.temp_order_no = self._gen_temp_order_no()
-            self.lbl_order_no.setText(u"单号：%s 📋" % self.temp_order_no)
             self._clear_extra_items()
             self.refresh_call_number_display()
         else:
             QMessageBox.warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
 
     def _on_clear(self):
-        """清空附加项目与重新生成临时单号（不影响物理电子秤重量）"""
         self._clear_extra_items()
         self.temp_order_no = self._gen_temp_order_no()
-        self.lbl_order_no.setText(u"单号：%s 📋" % self.temp_order_no)
 
     def cleanup(self):
         if hasattr(self, 'scale'):
