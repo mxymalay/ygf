@@ -191,6 +191,11 @@ class MenuGridButton(QPushButton):
 
         self._update_style()
 
+    def update_subtitle(self, new_subtitle: str):
+        self.subtitle_str = new_subtitle
+        if self.lbl_sub:
+            self.lbl_sub.setText(new_subtitle)
+
     def set_count(self, val: int):
         self.count = val
         if val > 0:
@@ -391,9 +396,9 @@ class SaleWidget(QWidget):
 
         # 菜单配置：三款汤底 + 打包盒 + 1-10元饮料
         menu_items_config = [
-            (0, 0, "soup_1", u"经典草本骨汤\n( KG )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
-            (0, 1, "soup_2", u"酸甜番茄汤\n( KG )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
-            (0, 2, "soup_3", u"石磨醇香麻辣拌\n( 干拌无汤 )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
+            (0, 0, "soup_1", u"经典草本骨汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
+            (0, 1, "soup_2", u"酸甜番茄汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
+            (0, 2, "soup_3", u"石磨醇香麻辣拌", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
             (0, 3, "item_box", u"打包盒 (小)", "", 1.0, False),
 
             (1, 0, "item_1", u"1元饮料", "", 1.0, False),
@@ -549,6 +554,16 @@ class SaleWidget(QWidget):
             self.lbl_next_call_no.setText("# %d" % val)
 
     def refresh_unit_price_info(self):
+        unit_price = self.config.get("unit_price", 47.60)
+        price_unit = self.config.get("price_unit", "per_jin")
+        pu_lbl = price_unit_label(price_unit)
+        sub_text = f"¥ {unit_price:.2f}/{pu_lbl}"
+
+        for key_id in ["soup_1", "soup_2", "soup_3"]:
+            btn = self.menu_buttons.get(key_id)
+            if btn:
+                btn.update_subtitle(sub_text)
+
         self._update_price_display()
         self.refresh_call_number_display()
 

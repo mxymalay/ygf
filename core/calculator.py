@@ -40,8 +40,8 @@ def weight_display(weight_kg, price_unit):
 
 
 def price_unit_label(price_unit):
-    """返回单价的中文标签"""
+    """返回单价的单位标签 (如: 斤 / kg)"""
     if price_unit == "per_jin":
-        return "元/斤"
+        return "斤"
     else:
-        return "元/公斤"
+        return "kg"
