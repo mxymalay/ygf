@@ -218,3 +218,150 @@ def get_int_input(parent, title, message, value=1, min_val=1, max_val=9999):
     dlg = ModernInputDialog(title, message, value, min_val, max_val, parent)
     res = dlg.exec_()
     return dlg.input_value, (res == QDialog.Accepted)
+
+
+class ReceiptPreviewDialog(QDialog):
+    """小票模拟预览与确认打票对话框 (含 10 秒倒计时自动打票)"""
+
+    def __init__(self, sale_data, countdown_sec=10, parent=None):
+        super().__init__(parent)
+        self.sale_data = sale_data
+        self.countdown = countdown_sec
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+
+        card = QFrame(self)
+        card.setObjectName("ReceiptCard")
+        card.setStyleSheet(
+            "QFrame#ReceiptCard { background: #0F172A; border-radius: 16px; "
+            "border: 2px dashed #334155; }"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.addWidget(card)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 24, 24, 24)
+        card_layout.setSpacing(10)
+
+        # 1. 模拟小票 Header
+        lbl_shop = QLabel(sale_data.get("shop_name", u"杨国福麻辣烫"))
+        lbl_shop.setAlignment(Qt.AlignCenter)
+        lbl_shop.setStyleSheet("font-size: 20px; font-weight: 900; color: #F9FAFB; border: none;")
+        card_layout.addWidget(lbl_shop)
+
+        sub_title = sale_data.get("shop_subtitle", "")
+        if sub_title:
+            lbl_sub = QLabel(sub_title)
+            lbl_sub.setAlignment(Qt.AlignCenter)
+            lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+            card_layout.addWidget(lbl_sub)
+
+        # 叫号大牌
+        call_no_box = QFrame()
+        call_no_box.setStyleSheet("background: rgba(249, 115, 22, 0.15); border-radius: 10px; padding: 6px;")
+        cn_layout = QVBoxLayout(call_no_box)
+        lbl_call = QLabel(f"取餐叫号: #{sale_data.get('call_no', '01')}")
+        lbl_call.setAlignment(Qt.AlignCenter)
+        lbl_call.setStyleSheet("font-size: 26px; font-weight: 900; color: #F97316; border: none;")
+        cn_layout.addWidget(lbl_call)
+        card_layout.addWidget(call_no_box)
+
+        # 虚线分隔
+        line1 = QLabel("----------------------------------------")
+        line1.setAlignment(Qt.AlignCenter)
+        line1.setStyleSheet("color: #475569; font-family: monospace; border: none;")
+        card_layout.addWidget(line1)
+
+        # 商品明细
+        items_layout = QVBoxLayout()
+        items_layout.setSpacing(4)
+        for item in sale_data.get("cart_items", []):
+            item_row = QHBoxLayout()
+            name_str = item["name"]
+            tag_str = item.get("tag", "")
+            if tag_str:
+                name_str += f" ({tag_str})"
+            
+            lbl_name = QLabel(name_str)
+            lbl_name.setStyleSheet("font-size: 14px; font-weight: bold; color: #E2E8F0; border: none;")
+            
+            qty = item.get("qty", 1)
+            price_val = item.get("price", 0.0)
+            lbl_price = QLabel(f"x{qty}  ￥{price_val:.2f}")
+            lbl_price.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl_price.setStyleSheet("font-size: 14px; font-weight: bold; color: #F59E0B; border: none;")
+            
+            item_row.addWidget(lbl_name, stretch=1)
+            item_row.addWidget(lbl_price)
+            items_layout.addLayout(item_row)
+
+        card_layout.addLayout(items_layout)
+
+        line2 = QLabel("----------------------------------------")
+        line2.setAlignment(Qt.AlignCenter)
+        line2.setStyleSheet("color: #475569; font-family: monospace; border: none;")
+        card_layout.addWidget(line2)
+
+        # 金额与时间
+        total_p = sum(i.get("price", 0.0) for i in sale_data.get("cart_items", []))
+        lbl_total = QLabel(f"实收金额：￥{total_p:.2f}")
+        lbl_total.setAlignment(Qt.AlignRight)
+        lbl_total.setStyleSheet("font-size: 22px; font-weight: 900; color: #34D399; border: none;")
+        card_layout.addWidget(lbl_total)
+
+        card_layout.addSpacing(10)
+
+        # 2. 底部操作按钮
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_cancel = QPushButton("取消打票")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.setStyleSheet(
+            "QPushButton { background: #334155; color: #F87171; font-weight: bold; font-size: 15px; "
+            "border-radius: 10px; padding: 12px 20px; border: 1px solid #7F1D1D; }"
+            "QPushButton:hover { background: #7F1D1D; color: #FFFFFF; }"
+        )
+        self.btn_cancel.clicked.connect(self._on_cancel)
+        btn_box.addWidget(self.btn_cancel, stretch=1)
+
+        self.btn_print = QPushButton(f"立即打票 ({self.countdown}s)")
+        self.btn_print.setCursor(Qt.PointingHandCursor)
+        self.btn_print.setStyleSheet(
+            "QPushButton { background: #EA580C; color: white; font-weight: bold; font-size: 15px; "
+            "border-radius: 10px; padding: 12px 24px; border: 1px solid #F97316; }"
+            "QPushButton:hover { background: #F97316; }"
+        )
+        self.btn_print.clicked.connect(self._on_print_now)
+        btn_box.addWidget(self.btn_print, stretch=2)
+
+        card_layout.addLayout(btn_box)
+        self.resize(400, 480)
+
+        # 3. 倒计时 Timer
+        from PyQt5.QtCore import QTimer
+        self.timer = QTimer(self)
+        self.timer.setInterval(1000)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start()
+
+    def _tick(self):
+        self.countdown -= 1
+        if self.countdown > 0:
+            self.btn_print.setText(f"立即打票 ({self.countdown}s)")
+        else:
+            self.timer.stop()
+            self._on_print_now()
+
+    def _on_print_now(self):
+        if hasattr(self, 'timer') and self.timer.isActive():
+            self.timer.stop()
+        self.accept()
+
+    def _on_cancel(self):
+        if hasattr(self, 'timer') and self.timer.isActive():
+            self.timer.stop()
+        self.reject()

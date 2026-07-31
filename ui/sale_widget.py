@@ -16,7 +16,7 @@ from core.database import Database
 from core.printer import ReceiptPrinter
 from core.scale_reader import ScaleReader
 from core.call_number_manager import CallNumberManager
-from ui.custom_dialog import show_warning, show_info, show_question, get_int_input
+from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
 
 
 class TasteSelectionDialog(QDialog):
@@ -654,7 +654,7 @@ class SaleWidget(QWidget):
         self.btn_clear.clicked.connect(self._on_clear)
         btn_box.addWidget(self.btn_clear, stretch=1)
 
-        self.btn_print = QPushButton(u"称重并打印小票")
+        self.btn_print = QPushButton(u"确认收款")
         self.btn_print.setObjectName("btn_print")
         self.btn_print.setCursor(Qt.PointingHandCursor)
         self.btn_print.clicked.connect(self._on_print)
@@ -981,7 +981,7 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_print(self):
-        """称重并打印小票"""
+        """确认收款 -> 弹出模拟小票预览与 10s 倒计时 -> 确认/到期打票"""
         if not self.cart_items:
             show_warning(self, u"提示", u"请先点选汤底或附加项目加入开单列表！")
             return
@@ -990,36 +990,53 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
         
         total_price = sum(item["price"] for item in self.cart_items)
-        assigned_num = self.call_mgr.get_next_number()
-        call_no_str = "%02d" % assigned_num
+        peek_num = self.call_mgr.peek_next_number()
+        call_no_str = "%02d" % peek_num
 
         items_summary = ", ".join(
             f"{item['name']}({item['tag']})" if item.get("tag") else item["name"]
             for item in self.cart_items
         )
 
-        record = self.db.insert_sale(
-            weight_kg=self.current_weight,
-            unit_price=unit_price,
-            price_unit=price_unit,
-            total_price=total_price,
-            remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, call_no_str, items_summary)
-        )
+        sale_data = {
+            "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
+            "shop_subtitle": self.config.get("shop_subtitle", ""),
+            "receipt_footer": self.config.get("receipt_footer", u"谢谢惠顾！"),
+            "call_no": call_no_str,
+            "cart_items": self.cart_items,
+            "weight_kg": self.current_weight,
+            "unit_price": unit_price,
+            "price_unit": price_unit,
+            "total_price": total_price,
+            "temp_order_no": self.temp_order_no,
+            "remark": u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, call_no_str, items_summary)
+        }
 
-        sale_data = dict(record)
-        sale_data["shop_name"] = self.config.get("shop_name", u"杨国福麻辣烫")
-        sale_data["shop_subtitle"] = self.config.get("shop_subtitle", "")
-        sale_data["receipt_footer"] = self.config.get("receipt_footer", u"谢谢惠顾！")
-        sale_data["call_no"] = call_no_str
-        sale_data["cart_items"] = self.cart_items
+        # 1. 弹出模拟小票框框 (含取消打票 / 立即打票 / 10s 倒计时)
+        dlg = ReceiptPreviewDialog(sale_data, countdown_sec=10, parent=self)
+        if dlg.exec_() == QDialog.Accepted:
+            # 2. 确认打票：正式消费叫号、记录数据库与驱动硬件打票
+            actual_num = self.call_mgr.get_next_number()
+            sale_data["call_no"] = "%02d" % actual_num
 
-        success = self.printer.print_receipt(sale_data)
+            record = self.db.insert_sale(
+                weight_kg=self.current_weight,
+                unit_price=unit_price,
+                price_unit=price_unit,
+                total_price=total_price,
+                remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary)
+            )
 
-        if success:
-            self._on_clear()
-            self.refresh_call_number_display()
-        else:
-            show_warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
+            full_sale = dict(record)
+            full_sale.update(sale_data)
+
+            success = self.printer.print_receipt(full_sale)
+
+            if success:
+                self._on_clear()
+                self.refresh_call_number_display()
+            else:
+                show_warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
 
     def _on_clear(self):
         """清空购物车与所有按钮角标"""
