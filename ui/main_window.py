@@ -90,16 +90,12 @@ class MainWindow(QMainWindow):
 
     def _on_auto_update(self):
         """一键自动 Git 更新并无缝重启 POS 程序（静默无黑框）"""
-        from PyQt5.QtWidgets import QMessageBox
+        from ui.custom_dialog import show_question, show_warning
         import subprocess
         import sys
         import os
 
-        reply = QMessageBox.question(
-            self, u"系统在线更新", u"确定要检查并自动拉取 GitHub 最新版本代码吗？\n更新完成后 POS 系统将自动重新启动。",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
-        )
-        if reply == QMessageBox.Yes:
+        if show_question(self, u"系统在线更新", u"确定要检查并自动拉取 GitHub 最新版本代码吗？\n更新完成后 POS 系统将自动重新启动。"):
             try:
                 # 1. 释放称重串口与硬件资源
                 if hasattr(self, 'sale_page'):
@@ -118,7 +114,7 @@ class MainWindow(QMainWindow):
                 subprocess.Popen([sys.executable, "main.py"])
                 sys.exit(0)
             except Exception as e:
-                QMessageBox.critical(self, u"更新错误", f"启动更新逻辑失败: {str(e)}")
+                show_warning(self, u"更新错误", f"启动更新逻辑失败: {str(e)}")
 
     def _setup_clock(self):
         self._clock_timer = QTimer(self)

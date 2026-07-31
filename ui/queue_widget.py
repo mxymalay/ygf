@@ -173,8 +173,10 @@ class QueueWidget(QWidget):
         save_config(self.config)
         self.call_mgr.reset_pool()
 
-        QMessageBox.information(self, u"保存成功", u"叫号模式设置已更新并生效！")
+        from ui.custom_dialog import show_info
+        show_info(self, u"保存成功", u"叫号模式设置已更新并生效！")
 
     def _reset_pool(self):
+        from ui.custom_dialog import show_info
         self.call_mgr.reset_pool()
-        QMessageBox.information(self, u"提示", u"已成功重置已叫号历史记录池！")
+        show_info(self, u"提示", u"已成功重置已叫号历史记录池！")

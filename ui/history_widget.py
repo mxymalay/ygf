@@ -215,10 +215,7 @@ class HistoryWidget(QWidget):
             self.table.setCellWidget(row, 5, btn_del)
 
     def _on_delete(self, sale_id):
-        reply = QMessageBox.question(
-            self, u"确认删除", u"确定要删除这条销售记录吗？",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        if reply == QMessageBox.Yes:
+        from ui.custom_dialog import show_question
+        if show_question(self, u"确认删除", u"确定要删除这条销售记录吗？"):
             self.db.delete_sale(sale_id)
             self._on_query()

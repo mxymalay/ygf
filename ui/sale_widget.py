@@ -16,6 +16,7 @@ from core.database import Database
 from core.printer import ReceiptPrinter
 from core.scale_reader import ScaleReader
 from core.call_number_manager import CallNumberManager
+from ui.custom_dialog import show_warning, show_info, show_question, get_int_input
 
 
 class TasteSelectionDialog(QDialog):
@@ -875,9 +876,8 @@ class SaleWidget(QWidget):
             self.lbl_mode_tip.setText(u"模式：手动指定")
 
     def _manual_adjust_call_no(self):
-        from PyQt5.QtWidgets import QInputDialog
         curr = self.call_mgr.peek_next_number()
-        val, ok = QInputDialog.getInt(self, u"微调叫号", u"请输入本次叫号牌号码：", curr, 1, 9999)
+        val, ok = get_int_input(self, u"微调叫号", u"请输入本次叫号牌号码：", curr, 1, 9999)
         if ok:
             self.call_mgr.set_manual_number(val)
             self.lbl_next_call_no.setText("# %d" % val)
@@ -950,7 +950,7 @@ class SaleWidget(QWidget):
     def _on_print(self):
         """称重并打印小票"""
         if not self.cart_items:
-            QMessageBox.warning(self, u"提示", u"请先点选汤底或附加项目加入开单列表！")
+            show_warning(self, u"提示", u"请先点选汤底或附加项目加入开单列表！")
             return
 
         unit_price = self.config.get("unit_price", 47.60)
@@ -986,7 +986,7 @@ class SaleWidget(QWidget):
             self._on_clear()
             self.refresh_call_number_display()
         else:
-            QMessageBox.warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
+            show_warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
 
     def _on_clear(self):
         """清空购物车与所有按钮角标"""

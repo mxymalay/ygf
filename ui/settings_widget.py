@@ -177,4 +177,5 @@ class SettingsWidget(QWidget):
         if hasattr(parent_mw, 'sale_page'):
             parent_mw.sale_page.refresh_unit_price_info()
 
-        QMessageBox.information(self, u"保存成功", u"系统设置已成功保存！")
+        from ui.custom_dialog import show_info
+        show_info(self, u"保存成功", u"系统设置已成功保存！")
