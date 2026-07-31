@@ -1,5 +1,5 @@
 """
-销售/称重界面 — 包含订单项目明细、叫号牌管理与 1-10元 快捷加价
+销售/称重界面 — 智能叫号集成版
 PyQt5 + Python 3.8 兼容
 """
 from datetime import datetime
@@ -14,24 +14,27 @@ from core.calculator import calculate_price, weight_display, price_unit_label
 from core.database import Database
 from core.printer import ReceiptPrinter
 from core.scale_reader import ScaleReader
+from core.call_number_manager import CallNumberManager
 
 
 class SaleWidget(QWidget):
     """主销售界面"""
 
-    def __init__(self, config, db, parent=None):
+    def __init__(self, config, db, call_mgr: CallNumberManager, parent=None):
         super().__init__(parent)
         self.config = config
         self.db = db
+        self.call_mgr = call_mgr
         self.printer = ReceiptPrinter(config)
 
         self.current_weight = 0.0
         self._stable_weight = 0.0
         self._is_stable = False
-        self.extra_fee = 0.0  # 附加快捷加价
+        self.extra_fee = 0.0
 
         self._build_ui()
         self._setup_scale()
+        self.refresh_call_number_display()
 
     def _build_ui(self):
         layout = QHBoxLayout(self)
@@ -42,7 +45,6 @@ class SaleWidget(QWidget):
         left = QVBoxLayout()
         left.setSpacing(12)
 
-        # 顶部状态与单价胶囊
         status_bar = QHBoxLayout()
         self.lbl_conn = QLabel(u"● 正在连接官方称重服务...")
         self.lbl_conn.setObjectName("lbl_status")
@@ -66,7 +68,7 @@ class SaleWidget(QWidget):
 
         left.addLayout(status_bar)
 
-        # 核心重量 display 卡片
+        # 核心重量卡片
         weight_card = QFrame()
         weight_card.setStyleSheet(
             "QFrame { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
@@ -109,7 +111,7 @@ class SaleWidget(QWidget):
 
         left.addWidget(weight_card, stretch=3)
 
-        # ── 新增：订单消费细项明细表 (麻辣烫费用 + 额外项目) ──
+        # 订单消费细项明细表
         detail_group = QGroupBox(u"当前订单收费项目明细")
         dg_layout = QVBoxLayout(detail_group)
         dg_layout.setContentsMargins(8, 8, 8, 8)
@@ -130,7 +132,7 @@ class SaleWidget(QWidget):
 
         dg_layout.addWidget(self.table_items)
 
-        # 底部总金额结算汇总条
+        # 底部结算汇总
         summary_bar = QHBoxLayout()
         summary_bar.setContentsMargins(8, 4, 8, 4)
         lbl_sum_title = QLabel(u"应收总金额：")
@@ -152,34 +154,27 @@ class SaleWidget(QWidget):
         right = QVBoxLayout()
         right.setSpacing(12)
 
-        # 1. 取餐叫号牌卡片
-        call_group = QGroupBox(u"取餐叫号牌设置")
+        # 1. 叫号牌预显面板
+        call_group = QGroupBox(u"取餐叫号牌 (避重引擎预分配)")
         cg_layout = QVBoxLayout(call_group)
         cg_layout.setSpacing(8)
 
         cg_top = QHBoxLayout()
-        cg_top.addWidget(QLabel(u"叫号牌："))
+        cg_top.addWidget(QLabel(u"本次打印叫号："))
 
-        self.spin_call_no = QSpinBox()
-        self.spin_call_no.setRange(1, 999)
-        self.spin_call_no.setValue(1)
-        self.spin_call_no.setStyleSheet("font-size: 20px; font-weight: bold; color: #F97316;")
-        cg_top.addWidget(self.spin_call_no, stretch=1)
+        self.lbl_next_call_no = QLabel("# 50")
+        self.lbl_next_call_no.setStyleSheet("font-size: 28px; font-weight: 900; color: #F97316;")
+        cg_top.addWidget(self.lbl_next_call_no, stretch=1)
 
-        btn_minus = QPushButton(u"-1")
-        btn_minus.clicked.connect(lambda: self.spin_call_no.setValue(max(1, self.spin_call_no.value() - 1)))
-        cg_top.addWidget(btn_minus)
-
-        btn_plus = QPushButton(u"+1")
-        btn_plus.clicked.connect(lambda: self.spin_call_no.setValue(self.spin_call_no.value() + 1))
-        cg_top.addWidget(btn_plus)
+        btn_override = QPushButton(u"手动微调")
+        btn_override.clicked.connect(self._manual_adjust_call_no)
+        cg_top.addWidget(btn_override)
 
         cg_layout.addLayout(cg_top)
 
-        self.chk_auto_inc = QCheckBox(u"打印后自动跳下一号 (+1号)")
-        self.chk_auto_inc.setChecked(True)
-        self.chk_auto_inc.setStyleSheet("color: #9CA3AF; font-size: 13px;")
-        cg_layout.addWidget(self.chk_auto_inc)
+        self.lbl_mode_tip = QLabel(u"当前模式：智能避重模式")
+        self.lbl_mode_tip.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        cg_layout.addWidget(self.lbl_mode_tip)
 
         right.addWidget(call_group)
 
@@ -211,7 +206,7 @@ class SaleWidget(QWidget):
 
         right.addWidget(add_group)
 
-        # 3. 称重打印与清零
+        # 3. 核心按键
         self.btn_print = QPushButton(u"称重并打印小票")
         self.btn_print.setObjectName("btn_print")
         self.btn_print.setCursor(Qt.PointingHandCursor)
@@ -226,8 +221,31 @@ class SaleWidget(QWidget):
 
         layout.addLayout(right, stretch=4)
 
-        # 初始化显示表格
         self._update_price_display()
+
+    def refresh_call_number_display(self):
+        """更新叫号牌显示"""
+        next_num = self.call_mgr.peek_next_number()
+        self.lbl_next_call_no.setText("# %d" % next_num)
+
+        mode = self.call_mgr.get_mode()
+        if mode == CallNumberManager.MODE_SMART:
+            slot = self.call_mgr._get_current_time_slot()
+            slot_name = u"上午 (50-100)" if slot == "morning" else (u"下午 (100-200)" if slot == "afternoon" else u"晚上 (200-300)")
+            self.lbl_mode_tip.setText(u"当前：智能避重模式 [%s]" % slot_name)
+        elif mode == CallNumberManager.MODE_CUSTOM:
+            self.lbl_mode_tip.setText(u"当前：自定义范围避重模式")
+        else:
+            self.lbl_mode_tip.setText(u"当前：手动模式")
+
+    def _manual_adjust_call_no(self):
+        """手动微调当前叫号"""
+        from PyQt5.QtWidgets import QInputDialog
+        curr = self.call_mgr.peek_next_number()
+        val, ok = QInputDialog.getInt(self, u"微调叫号", u"请输入本次叫号牌号码：", curr, 1, 9999)
+        if ok:
+            self.call_mgr.set_manual_number(val)
+            self.lbl_next_call_no.setText("# %d" % val)
 
     def _add_extra_fee(self, fee):
         self.extra_fee += fee
@@ -238,7 +256,6 @@ class SaleWidget(QWidget):
         self._update_price_display()
 
     def _update_price_display(self):
-        """重新计算并更新明细表格与总金额"""
         unit_price = self.config.get("unit_price", 32.00)
         price_unit = self.config.get("price_unit", "per_jin")
         base_price = calculate_price(self.current_weight, unit_price, price_unit)
@@ -246,14 +263,11 @@ class SaleWidget(QWidget):
 
         self.lbl_price.setText(u"￥%.2f" % total)
 
-        # 充填项目明细表格
         rows_data = []
-        # 项目 1: 麻辣烫
         w_disp = weight_display(self.current_weight, price_unit)
         pu_lbl = price_unit_label(price_unit)
         rows_data.append((u"麻辣烫 (食材称重)", w_disp, u"%.2f %s" % (unit_price, pu_lbl), u"￥%.2f" % base_price))
 
-        # 项目 2: 附加项目 (如果有)
         if self.extra_fee > 0:
             rows_data.append((u"附加加价 (打包/餐盒)", u"1 项", u"+￥%.2f" % self.extra_fee, u"￥%.2f" % self.extra_fee))
 
@@ -270,6 +284,7 @@ class SaleWidget(QWidget):
         pu_label = price_unit_label(self.config.get("price_unit", "per_jin"))
         self.lbl_unit_info.setText(u"麻辣烫单价：%.2f %s" % (unit_price, pu_label))
         self._update_price_display()
+        self.refresh_call_number_display()
 
     def restart_scale(self):
         self.refresh_unit_price_info()
@@ -343,7 +358,9 @@ class SaleWidget(QWidget):
         base_price = calculate_price(weight, unit_price, price_unit)
         total_price = base_price + self.extra_fee
 
-        call_no_str = "%02d" % self.spin_call_no.value()
+        # 从叫号避重引擎生成叫号
+        assigned_num = self.call_mgr.get_next_number()
+        call_no_str = "%02d" % assigned_num
 
         record = self.db.insert_sale(
             weight_kg=weight,
@@ -368,16 +385,14 @@ class SaleWidget(QWidget):
                 "font-size: 14px; font-weight: bold; color: #38BDF8;"
                 "padding: 4px 12px; background: #0369A1; border-radius: 6px;"
             )
-
-            if self.chk_auto_inc.isChecked():
-                self.spin_call_no.setValue(self.spin_call_no.value() + 1)
+            # 自动跳刷新预显示下一个叫号
+            self.refresh_call_number_display()
         else:
             self.lbl_stable.setText(u"[X] 打印失败")
             self.lbl_stable.setStyleSheet("font-size: 14px; color: #EF4444;")
             QMessageBox.warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
 
     def _on_clear(self):
-        """清空附加加价项目与提示（始终保持物理电子秤真实读数）"""
         self.extra_fee = 0.0
         self.lbl_stable.setText("")
         self._update_price_display()

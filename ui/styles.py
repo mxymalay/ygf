@@ -1,6 +1,6 @@
 """
-全局 QSS 样式 — 支持现代深色 (Dark) / 浅色 (Light) 双主题
-针对 Windows 7 触控屏及左侧紧凑竖向导航排版深度优化
+全局 QSS 样式 — 旗舰级现代双主题与杨国福原生红色侧边栏风格
+兼容 Python 3.8+
 """
 
 DARK_COLORS = {
@@ -56,39 +56,27 @@ QMainWindow, QWidget {{
     font-size: 14px;
 }}
 
-/* ─── 左侧紧凑竖向导航标签页 (West 布局) ───────── */
-QTabWidget::pane {{
-    border: 1px solid {c['border']};
-    border-radius: 12px;
-    background: {c['bg_secondary']};
-    margin-left: -1px;
+/* ─── 杨国福原生热烈火焰红侧边导航栏 ─────────────── */
+SideNavBar {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #DC2626, stop:0.4 #EA580C, stop:1 #B91C1C);
+    border-right: 1px solid #991B1B;
 }}
 
-QTabBar::tab {{
-    background: {c['bg_card']};
-    color: {c['text_secondary']};
-    padding: 16px 4px;
-    margin-bottom: 6px;
-    border-top-left-radius: 10px;
-    border-bottom-left-radius: 10px;
-    font-size: 14px;
-    font-weight: bold;
-    min-width: 92px;
-    max-width: 100px;
-    min-height: 46px;
-    text-align: center;
+SideNavItem {{
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    margin: 2px 4px;
 }}
 
-QTabBar::tab:selected {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 {c['accent']}, stop:1 {c['accent_orange']});
-    color: #FFFFFF;
-    border-right: none;
+SideNavItem:hover {{
+    background: rgba(255, 255, 255, 0.22);
 }}
 
-QTabBar::tab:hover:!selected {{
-    background: {c['bg_card_active']};
-    color: {c['text_primary']};
+SideNavItem:checked {{
+    background: #7F1D1D;
+    border: 1px solid #FDE047;
 }}
 
 /* ─── 卡片面板 ──────────────────────────────────── */
