@@ -659,11 +659,15 @@ class SaleWidget(QWidget):
             self.btn_toggle_detail.setText(u"详细信息 ∨")
 
     def _update_price_display(self):
-        """刷新购物明细卡片列表与金额"""
+        """刷新购物明细卡片列表与金额 (即刻清理旧组件并强刷新UI)"""
+        from PyQt5.QtCore import QCoreApplication
+
         while self.cart_layout.count() > 0:
             child = self.cart_layout.takeAt(0)
             if child.widget():
-                child.widget().deleteLater()
+                w = child.widget()
+                w.setParent(None)
+                w.deleteLater()
 
         pu_lbl = price_unit_label(self.config.get("price_unit", "per_jin"))
         total_price = 0.0
@@ -687,6 +691,7 @@ class SaleWidget(QWidget):
 
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
         self.lbl_price.setText(u"￥%.2f" % total_price)
+        QCoreApplication.processEvents()
 
     def refresh_call_number_display(self):
         next_num = self.call_mgr.peek_next_number()
