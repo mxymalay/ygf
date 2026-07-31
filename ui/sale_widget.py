@@ -965,12 +965,13 @@ class SaleWidget(QWidget):
         QTimer.singleShot(20, self._update_price_display)
 
     def _get_page_size(self):
-        """根据开单面板视口 real pixel 高度精准计算单页能完整放下的卡片数 (绝对不被遮挡)"""
+        """根据开单面板视口 real pixel 高度精准计算单页能完整放下的卡片数 (排除上一页/下一页控件，绝对不被遮挡)"""
         if hasattr(self, 'cart_scroll') and self.cart_scroll.viewport():
             vh = self.cart_scroll.viewport().height()
-            if vh > 60:
-                # 每一项卡片实际占用高度 (含内边距、外边距、字高与布局间距) 约为 54px
-                fit_count = vh // 54
+            usable_h = max(0, vh - 10)
+            if usable_h > 50:
+                # 每一项卡片实际占用高度 (含内边距、字高与布局间距) 约为 52px
+                fit_count = usable_h // 52
                 return max(1, fit_count)
         return 3
 
@@ -1007,7 +1008,6 @@ class SaleWidget(QWidget):
                 w.setParent(None)
                 w.deleteLater()
 
-        pu_lbl = price_unit_label(self.config.get("price_unit", "per_jin"))
         total_price = 0.0
         total_items = 0
 
@@ -1055,7 +1055,7 @@ class SaleWidget(QWidget):
 
             if item["type"] == "soup":
                 w_str = f"{item['weight']:.3f}"
-                sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   x{qty}"
+                sub_str = f"{w_str} kg"
             else:
                 sub_str = f"¥{item['base_price']:.2f}   x{qty}"
 
