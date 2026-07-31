@@ -81,6 +81,7 @@ class TasteSelectionDialog(QDialog):
         lbl_pref.setStyleSheet(f"font-size: 13px; color: {'#9CA3AF' if is_dark_mode else '#4B5563'}; border: none; background: transparent;")
         self.main_layout.addWidget(lbl_pref)
 
+        self.pref_btns = {}
         pref_box = QHBoxLayout()
         pref_box.setSpacing(8)
         for p in [u"免蒜", u"免醋"]:
@@ -93,7 +94,22 @@ class TasteSelectionDialog(QDialog):
             )
             btn.clicked.connect(lambda checked, val=p: self._toggle_pref(val))
             pref_box.addWidget(btn)
+            self.pref_btns[p] = btn
         self.main_layout.addLayout(pref_box)
+
+    def set_initial_tag(self, tag_str):
+        """解析已有 tag 字符串 (如 '微辣 / 免蒜') 并恢复勾选状态"""
+        if not tag_str:
+            return
+        parts = [p.strip() for p in tag_str.split("/") if p.strip()]
+        for p in parts:
+            if p in self.spicy_options:
+                self.selected_spice = p
+                for s, b in self.spicy_btns.items():
+                    b.setChecked(s == p)
+            elif p in self.pref_btns:
+                self.selected_prefs.add(p)
+                self.pref_btns[p].setChecked(True)
 
     def _select_spice(self, val):
         self.selected_spice = val
@@ -550,9 +566,9 @@ class SaleWidget(QWidget):
         lbl_ops_title.setStyleSheet("font-size: 12px; font-weight: bold; color: #9CA3AF; border: none; background: transparent; margin-bottom: 4px;")
         mid_layout.addWidget(lbl_ops_title)
 
-        # 折扣按钮: 9.5折, 8.8折, 8折 (点击二次可反选恢复原价)
+        # 折扣按钮: 9.5折, 9折, 8.8折, 8折 (点击二次可反选恢复原价)
         self.discount_btns = {}
-        discounts = [(0.95, "9.5折"), (0.88, "8.8折"), (0.80, "8折")]
+        discounts = [(0.95, "9.5折"), (0.90, "9折"), (0.88, "8.8折"), (0.80, "8折")]
         for rate, label_text in discounts:
             btn_d = QPushButton(label_text)
             btn_d.setCursor(Qt.PointingHandCursor)
@@ -563,6 +579,19 @@ class SaleWidget(QWidget):
             btn_d.clicked.connect(lambda checked, r=rate: self._apply_discount_to_selected(r))
             mid_layout.addWidget(btn_d)
             self.discount_btns[rate] = btn_d
+
+        mid_layout.addSpacing(6)
+
+        # 改口味按钮
+        btn_flavor = QPushButton("改口味")
+        btn_flavor.setCursor(Qt.PointingHandCursor)
+        btn_flavor.setToolTip(u"修改选中汤底的辣度与避忌偏好")
+        btn_flavor.setStyleSheet(
+            "QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 8px 4px; min-width: 50px; border: 1px solid #0369A1; }"
+            "QPushButton:hover { background: #0369A1; }"
+        )
+        btn_flavor.clicked.connect(self._change_selected_flavor)
+        mid_layout.addWidget(btn_flavor)
 
         mid_layout.addSpacing(6)
 
@@ -763,6 +792,41 @@ class SaleWidget(QWidget):
         if 0 <= index < len(self.cart_items):
             self.selected_item_index = index
             self._update_price_display()
+
+    def _change_selected_flavor(self):
+        """快捷按键：重新弹出口味选择弹窗修改选中的麻辣烫汤底口味"""
+        if 0 <= self.selected_item_index < len(self.cart_items):
+            item = self.cart_items[self.selected_item_index]
+            if item.get("type") != "soup":
+                show_warning(self, u"提示", u"只有麻辣烫汤底项目支持修改辣度及避忌偏好！")
+                return
+
+            soup_name = item.get("name", u"麻辣烫")
+            dlg = TasteSelectionDialog(soup_name, is_dark_mode=self.is_dark_mode, parent=self)
+            
+            # 设置初始勾选已有的口味标签 (如 '微辣 / 免蒜')
+            if item.get("tag"):
+                dlg.set_initial_tag(item["tag"])
+
+            def update_flavor(new_tag):
+                item["tag"] = new_tag
+                self._update_price_display()
+
+            dlg.flavor_changed.connect(update_flavor)
+
+            dlg.adjustSize()
+            win = self.window()
+            win_rect = win.geometry()
+            target_x = win_rect.x() + (win_rect.width() - dlg.width()) // 2
+            target_y = win_rect.y() + (win_rect.height() - dlg.height()) // 2
+            dlg.arrow_direction = "up"
+            dlg.arrow_x_offset = dlg.width() // 2
+            dlg.update_layout_margins()
+            dlg.move(target_x, target_y)
+
+            dlg.exec_()
+        else:
+            show_warning(self, u"提示", u"请先在已点项目列表中选择要修改口味的麻辣烫！")
 
     def _apply_discount_to_selected(self, rate):
         """对选中的订单项应用或反选折扣 (如再点一次同折扣则恢复原价 1.0)"""
