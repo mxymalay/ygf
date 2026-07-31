@@ -144,10 +144,6 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; border: none;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
-        lbl_text_label = QLabel(u"实时称重：")
-        lbl_text_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; border: none;")
-        led_layout.addWidget(lbl_text_label)
-
         self.lbl_weight = QLabel("00.000 kg")
         self.lbl_weight.setStyleSheet(
             "font-size: 36px; font-weight: 900; color: #FFFFFF; border: none; "
