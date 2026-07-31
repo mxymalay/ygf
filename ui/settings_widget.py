@@ -1,5 +1,5 @@
 """
-设置界面 — 串口/打印机/业务参数配置
+设置界面 — 打印机/业务参数配置
 PyQt5 + Python 3.8 兼容
 """
 from PyQt5.QtWidgets import (
@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 
 from config import save_config
-from utils.port_scanner import scan_ports, scan_printers
+from utils.port_scanner import scan_printers
 
 
 class SettingsWidget(QWidget):
@@ -35,31 +35,19 @@ class SettingsWidget(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # ── 称重秤设置 ──
-        scale_group = QGroupBox(u"称重秤设置 (DIBAL ACS-G315)")
-        sg = QGridLayout(scale_group)
-        sg.setSpacing(12)
-
-        sg.addWidget(QLabel(u"串口："), 0, 0)
-        self.cmb_scale_port = QComboBox()
-        self._refresh_ports()
-        sg.addWidget(self.cmb_scale_port, 0, 1)
-
-        btn_refresh = QPushButton(u"刷新端口")
-        btn_refresh.clicked.connect(self._refresh_ports)
-        sg.addWidget(btn_refresh, 0, 2)
-
-        sg.addWidget(QLabel(u"波特率："), 1, 0)
-        self.cmb_baudrate = QComboBox()
-        for br in ["9600", "4800", "19200", "38400", "57600", "115200"]:
-            self.cmb_baudrate.addItem(br)
-        self.cmb_baudrate.setCurrentText(str(self.config.get("scale_baudrate", 9600)))
-        sg.addWidget(self.cmb_baudrate, 1, 1)
-
-        layout.addWidget(scale_group)
+        # ── 称重服务状态说明 ──
+        scale_info_group = QGroupBox(u"称重服务说明")
+        sig_layout = QVBoxLayout(scale_info_group)
+        lbl_info = QLabel(
+            u"● 本系统已自动绑定【杨国福官方收银系统】称重服务。\n"
+            u"● 无需手动配置串口号或波特率，启动官方收银软件后即可自动无缝读取电子秤重量。"
+        )
+        lbl_info.setStyleSheet("color: #2ecc71; font-size: 14px; line-height: 1.5; padding: 4px;")
+        sig_layout.addWidget(lbl_info)
+        layout.addWidget(scale_info_group)
 
         # ── 打印机设置 ──
-        printer_group = QGroupBox(u"打印机设置 (Xprinter XP-A160M / XP-80C)")
+        printer_group = QGroupBox(u"小票打印机设置 (XP-A160M / XP-80C)")
         pg = QGridLayout(printer_group)
         pg.setSpacing(12)
 
@@ -99,8 +87,8 @@ class SettingsWidget(QWidget):
 
         layout.addWidget(printer_group)
 
-        # ── 业务设置 ──
-        biz_group = QGroupBox(u"业务设置")
+        # ── 业务与计价设置 ──
+        biz_group = QGroupBox(u"店铺与计价设置")
         bg = QGridLayout(biz_group)
         bg.setSpacing(12)
 
@@ -126,7 +114,7 @@ class SettingsWidget(QWidget):
                 break
         bg.addWidget(self.cmb_unit, 3, 1, 1, 2)
 
-        bg.addWidget(QLabel(u"默认单价："), 4, 0)
+        bg.addWidget(QLabel(u"麻辣烫单价："), 4, 0)
         self.spin_default_price = QDoubleSpinBox()
         self.spin_default_price.setRange(0.01, 999.99)
         self.spin_default_price.setValue(self.config.get("unit_price", 32.00))
@@ -156,21 +144,7 @@ class SettingsWidget(QWidget):
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
 
-    # ─── 刷新列表 ──────────────────────────────────
-    def _refresh_ports(self):
-        self.cmb_scale_port.clear()
-        ports = scan_ports()
-        for p in ports:
-            self.cmb_scale_port.addItem(
-                "%s - %s" % (p["device"], p["description"]),
-                p["device"]
-            )
-        cur = self.config.get("scale_port", "COM1")
-        for i in range(self.cmb_scale_port.count()):
-            if self.cmb_scale_port.itemData(i) == cur:
-                self.cmb_scale_port.setCurrentIndex(i)
-                break
-
+    # ─── 刷新打印机列表 ──────────────────────────────
     def _refresh_printers(self):
         self.cmb_printer_name.clear()
         printers = scan_printers()
@@ -180,11 +154,8 @@ class SettingsWidget(QWidget):
         if cur:
             self.cmb_printer_name.setCurrentText(cur)
 
-    # ─── 保存 ──────────────────────────────────────
+    # ─── 保存设置 ──────────────────────────────────
     def _on_save(self):
-        self.config["scale_port"] = self.cmb_scale_port.currentData() or "COM1"
-        self.config["scale_baudrate"] = int(self.cmb_baudrate.currentText())
-
         pt_text = self.cmb_printer_type.currentText()
         self.config["printer_type"] = pt_text.split(" - ")[0].strip()
         self.config["printer_name"] = self.cmb_printer_name.currentText()
@@ -201,7 +172,9 @@ class SettingsWidget(QWidget):
 
         save_config(self.config)
 
-        QMessageBox.information(
-            self, u"保存成功",
-            u"设置已保存！\n部分设置需要重启程序才能生效。"
-        )
+        # 触发主界面单价刷新
+        parent_mw = self.window()
+        if hasattr(parent_mw, 'sale_page'):
+            parent_mw.sale_page.refresh_unit_price_info()
+
+        QMessageBox.information(self, u"保存成功", u"系统设置已成功保存！")
