@@ -114,8 +114,14 @@ class MainWindow(QMainWindow):
 
                 subprocess.run(["git", "pull"], capture_output=True, text=True, startupinfo=startupinfo)
 
-                # 3. 直接启动新的 Python 实例并无缝退出旧进程
-                subprocess.Popen([sys.executable, "main.py"])
+                # 3. 优先使用无黑框终端的 pythonw.exe 重新启动 POS
+                py_exec = sys.executable
+                if "python.exe" in py_exec.lower():
+                    pyw = py_exec.lower().replace("python.exe", "pythonw.exe")
+                    if os.path.exists(pyw):
+                        py_exec = pyw
+
+                subprocess.Popen([py_exec, "main.py"])
                 sys.exit(0)
             except Exception as e:
                 QMessageBox.critical(self, u"更新错误", f"启动更新逻辑失败: {str(e)}")
