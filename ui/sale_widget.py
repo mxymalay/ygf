@@ -111,36 +111,36 @@ class TasteSelectionDialog(QDialog):
 
 
 class OrderItemCard(QFrame):
-    """无边框极简 POS 风格订单细项卡片"""
+    """无边框极简 POS 风格订单细项卡片 (无框无矩形包围)"""
 
     def __init__(self, title, subline, tag="", is_active=False, parent=None):
         super().__init__(parent)
         self.setObjectName("OrderItemCard")
-        bg_color = "#1E293B" if is_active else "#172136"
 
+        # 纯净无框无色块，文字自然流淌
         self.setStyleSheet(
-            f"QFrame#OrderItemCard {{ background: {bg_color}; border: none; "
-            f"border-radius: 8px; margin-bottom: 6px; padding: 10px 12px; }}"
+            "QFrame#OrderItemCard { background: transparent; border: none; "
+            "padding: 6px 2px; margin-bottom: 4px; }"
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(3)
 
         # 商品名称
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
         layout.addWidget(lbl_title)
 
         # 数量、单价与小计行
         lbl_sub = QLabel(subline)
-        lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; font-family: 'Consolas', monospace; border: none;")
+        lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; font-family: 'Consolas', monospace; border: none; background: transparent;")
         layout.addWidget(lbl_sub)
 
         # 口味偏好标签 (如: 微辣 / 免蒜 /)
         if tag:
             lbl_tag = QLabel(tag)
-            lbl_tag.setStyleSheet("font-size: 13px; font-weight: bold; color: #F59E0B; border: none;")
+            lbl_tag.setStyleSheet("font-size: 13px; font-weight: bold; color: #F59E0B; border: none; background: transparent;")
             layout.addWidget(lbl_tag)
 
 
