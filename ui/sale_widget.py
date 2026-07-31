@@ -679,7 +679,7 @@ class SaleWidget(QWidget):
                 card = OrderItemCard(item["name"], sub_str, price_val=item["price"], tag=item.get("tag", ""), is_dark=self.is_dark_mode, is_active=is_last)
                 total_price += item["price"]
             else:
-                sub_str = f"1   ¥{item['price']:.2f}   x1"
+                sub_str = f"¥{item['price']:.2f}   x1"
                 card = OrderItemCard(item["name"], sub_str, price_val=item["price"], is_dark=self.is_dark_mode, is_active=is_last)
                 total_price += item["price"]
 
