@@ -56,6 +56,12 @@ class ScaleReader(QObject):
                 pass
             self._serial = None
 
+    def restart(self):
+        """重新连接串口"""
+        self.stop()
+        time.sleep(0.3)
+        self.start()
+
     def _run_loop(self):
         """主循环 — 直接从真实串口读取数据"""
         self._run_real()
@@ -63,13 +69,14 @@ class ScaleReader(QObject):
     # ─── 真实串口模式 ──────────────────────────────────────
     def _run_real(self):
         """从真实串口读取称重数据"""
+        port = self.config.get("scale_port", "COM1")
+        baudrate = self.config.get("scale_baudrate", 9600)
+        bytesize = self.config.get("scale_bytesize", 8)
+        parity = self.config.get("scale_parity", "N")
+        stopbits = self.config.get("scale_stopbits", 1)
+
         try:
             import serial
-            port = self.config.get("scale_port", "COM1")
-            baudrate = self.config.get("scale_baudrate", 9600)
-            bytesize = self.config.get("scale_bytesize", 8)
-            parity = self.config.get("scale_parity", "N")
-            stopbits = self.config.get("scale_stopbits", 1)
 
             self._serial = serial.Serial(
                 port=port,
@@ -101,11 +108,20 @@ class ScaleReader(QObject):
                     time.sleep(0.05)
 
         except ImportError:
-            self.error_occurred.emit("未安装 pyserial 库，请运行: pip install pyserial")
-            self.status_changed.emit(False, "缺少 pyserial 库")
+            msg = "未安装 pyserial 库，请运行: pip install pyserial"
+            self.error_occurred.emit(msg)
+            self.status_changed.emit(False, msg)
         except Exception as e:
-            self.error_occurred.emit("串口 %s 打开失败: %s" % (self.config.get("scale_port", "COM1"), str(e)))
-            self.status_changed.emit(False, "连接失败: %s" % str(e))
+            err_str = str(e)
+            if "FileNotFoundError" in err_str or "could not open port" in err_str:
+                msg = "串口 %s 未找到/不可用，请在【系统设置】中切换为可用端口 (如 COM1)" % port
+            elif "PermissionError" in err_str or "Access is denied" in err_str:
+                msg = "串口 %s 被其他程序占用 (如公司原有POS系统)，请使用 VSPE 进行端口分流" % port
+            else:
+                msg = "串口 %s 连接失败: %s" % (port, err_str)
+
+            self.error_occurred.emit(msg)
+            self.status_changed.emit(False, msg)
 
     def _parse_weight(self, raw):
         """

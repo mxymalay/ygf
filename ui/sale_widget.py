@@ -43,10 +43,9 @@ class SaleWidget(QWidget):
         status_bar = QHBoxLayout()
         self.lbl_conn = QLabel(u"● 正在连接称重秤...")
         self.lbl_conn.setObjectName("lbl_status")
-        self.lbl_conn.setStyleSheet("color: #f39c12; font-size: 14px; font-weight: bold;")
-        status_bar.addWidget(self.lbl_conn)
-
-        status_bar.addStretch()
+        self.lbl_conn.setWordWrap(True)
+        self.lbl_conn.setStyleSheet("color: #f39c12; font-size: 13px; font-weight: bold;")
+        status_bar.addWidget(self.lbl_conn, stretch=1)
 
         # 显示从设置页面配置的当前单价
         unit_price = self.config.get("unit_price", 32.00)
@@ -138,12 +137,18 @@ class SaleWidget(QWidget):
 
         layout.addLayout(right, stretch=2)
 
-    # ─── 刷新单价显示 ──────────────────────────────────
+    # ─── 刷新单价显示及重启串口 ───────────────────────
     def refresh_unit_price_info(self):
         """从配置更新单价提示标签"""
         unit_price = self.config.get("unit_price", 32.00)
         pu_label = price_unit_label(self.config.get("price_unit", "per_jin"))
         self.lbl_unit_info.setText(u"单价：%.2f %s" % (unit_price, pu_label))
+
+    def restart_scale(self):
+        """刷新配置并重新连接电子秤"""
+        self.refresh_unit_price_info()
+        if hasattr(self, 'scale'):
+            self.scale.restart()
 
     # ─── 称重秤连接 ──────────────────────────────────
     def _setup_scale(self):

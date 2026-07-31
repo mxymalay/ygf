@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index):
         if index == 0:
-            self.sale_page.refresh_unit_price_info()
+            self.sale_page.restart_scale()
         elif index == 1:
             self.history_page._on_query()
 
