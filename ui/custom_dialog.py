@@ -4,7 +4,8 @@ POS 现代极简风格统一弹窗组件 (去系统原生框、圆角、无缝�
 """
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSpinBox
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSpinBox,
+    QGraphicsBlurEffect
 )
 
 class ModernDialog(QDialog):
@@ -115,6 +116,28 @@ class ModernDialog(QDialog):
     def _on_cancel(self):
         self.result_choice = False
         self.reject()
+
+    def exec_(self):
+        parent_w = self.parent()
+        if parent_w and hasattr(parent_w, 'window'):
+            parent_w = parent_w.window()
+        
+        if parent_w:
+            try:
+                blur = QGraphicsBlurEffect(parent_w)
+                blur.setBlurRadius(16)
+                parent_w.setGraphicsEffect(blur)
+            except Exception:
+                pass
+
+        try:
+            return super().exec_()
+        finally:
+            if parent_w:
+                try:
+                    parent_w.setGraphicsEffect(None)
+                except Exception:
+                    pass
 
 
 class ModernInputDialog(QDialog):
@@ -397,3 +420,25 @@ class ReceiptPreviewDialog(QDialog):
     def _on_cancel(self):
         self._stop_all_timers()
         self.reject()
+
+    def exec_(self):
+        parent_w = self.parent()
+        if parent_w and hasattr(parent_w, 'window'):
+            parent_w = parent_w.window()
+        
+        if parent_w:
+            try:
+                blur = QGraphicsBlurEffect(parent_w)
+                blur.setBlurRadius(16)
+                parent_w.setGraphicsEffect(blur)
+            except Exception:
+                pass
+
+        try:
+            return super().exec_()
+        finally:
+            if parent_w:
+                try:
+                    parent_w.setGraphicsEffect(None)
+                except Exception:
+                    pass
