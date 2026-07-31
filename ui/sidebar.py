@@ -106,13 +106,8 @@ class SideNavBar(QWidget):
         layout.addWidget(item_report)
         self._items.append(item_report)
 
-        # 间隔分割线 — 将“叫号设置”与“系统设置”独立成组
-        layout.addSpacing(10)
-        line_sep = QFrame()
-        line_sep.setFrameShape(QFrame.HLine)
-        line_sep.setStyleSheet("color: rgba(255, 255, 255, 0.25); margin: 0 10px;")
-        layout.addWidget(line_sep)
-        layout.addSpacing(10)
+        # 将“叫号设置”与“系统设置”同上方按钮拉开适当间隙（不使用横线）
+        layout.addSpacing(16)
 
         # 3. 设置管理模块组
         # 3: 叫号设置
