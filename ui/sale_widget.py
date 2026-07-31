@@ -506,8 +506,35 @@ class SaleWidget(QWidget):
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
-            pos = btn.mapToGlobal(btn.rect().bottomLeft())
-            dlg.move(pos.x(), pos.y() - dlg.height() - 10 if pos.y() + 200 > self.height() else pos.y())
+            # 智能精准定位弹窗，确保不超出主窗口与屏幕边界
+            dlg.adjustSize()
+            dlg_w = dlg.width()
+            dlg_h = dlg.height()
+
+            btn_rect = btn.rect()
+            top_left = btn.mapToGlobal(btn_rect.topLeft())
+            bottom_right = btn.mapToGlobal(btn_rect.bottomRight())
+
+            win = self.window()
+            win_rect = win.geometry()
+            win_right = win_rect.x() + win_rect.width()
+            win_bottom = win_rect.y() + win_rect.height()
+
+            # 水平定位：默认靠按钮左侧，若靠右超出窗口，则向左偏移
+            target_x = top_left.x()
+            if target_x + dlg_w > win_right - 12:
+                target_x = bottom_right.x() - dlg_w
+            if target_x < win_rect.x() + 12:
+                target_x = win_rect.x() + 12
+
+            # 垂直定位：默认下方，若下边界超出窗口，则向上出弹窗
+            target_y = bottom_right.y() + 4
+            if target_y + dlg_h > win_bottom - 12:
+                target_y = top_left.y() - dlg_h - 4
+            if target_y < win_rect.y() + 12:
+                target_y = win_rect.y() + 12
+
+            dlg.move(target_x, target_y)
 
             if dlg.exec_() == QDialog.Accepted:
                 tag_str = dlg.get_tag_string()
