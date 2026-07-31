@@ -802,11 +802,8 @@ class SaleWidget(QWidget):
             self._update_price_display()
 
     def _delete_selected_item(self):
-        """删除选中的订单项 (汤底不可单独删除)"""
+        """删除选中的订单项 (支持删除任意选中项，包括汤底)"""
         if 0 <= self.selected_item_index < len(self.cart_items):
-            item = self.cart_items[self.selected_item_index]
-            if item.get("type") == "soup":
-                return
             removed = self.cart_items.pop(self.selected_item_index)
             
             # 更新右侧菜单按钮角标计数
