@@ -275,13 +275,13 @@ class MenuGridButton(QPushButton):
                         "QPushButton { background: #FFF7ED; border: 2px solid #EA580C; border-radius: 10px; }"
                         "QPushButton:hover { background: #FFEDD5; }"
                     )
-                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #EA580C; border: none; background: transparent;")
+                    self.lbl_title.setStyleSheet("font-size: 15px; font-weight: 900; color: #EA580C; border: none; background: transparent;")
                 else:
                     self.setStyleSheet(
-                        "QPushButton { background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 10px; }"
-                        "QPushButton:hover { background: #F9FAFB; }"
+                        "QPushButton { background: #FFFFFF; border: 2px solid #CBD5E1; border-radius: 10px; }"
+                        "QPushButton:hover { background: #F1F5F9; }"
                     )
-                    self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #111827; border: none; background: transparent;")
+                    self.lbl_title.setStyleSheet("font-size: 15px; font-weight: 900; color: #0F172A; border: none; background: transparent;")
 
 
 class SaleWidget(QWidget):

@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
         self.sidebar = SideNavBar()
         self.sidebar.page_changed.connect(self._on_page_changed)
         self.sidebar.theme_toggled.connect(self._toggle_theme)
+        self.sidebar.update_requested.connect(self._on_auto_update)
         self.sidebar.minimized_requested.connect(self.showMinimized)
         self.sidebar.exit_requested.connect(self.close)
 
@@ -97,6 +98,44 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, 'sale_page'):
             self.sale_page.update_theme(self.is_dark_mode)
+
+    def _on_auto_update(self):
+        """一键自动 Git 更新并无缝重启 POS 程序"""
+        from PyQt5.QtWidgets import QMessageBox
+        import subprocess
+        import sys
+        import os
+
+        reply = QMessageBox.question(
+            self, u"系统在线更新", u"确定要检查并自动拉取 GitHub 最新版本代码吗？\n更新完成后 POS 系统将自动重新启动。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                # 释放硬件资源
+                if hasattr(self, 'sale_page'):
+                    self.sale_page.cleanup()
+
+                bat_path = os.path.join(os.getcwd(), "auto_update.bat")
+                with open(bat_path, "w", encoding="gbk") as f:
+                    f.write("@echo off\n")
+                    f.write("chcp 936 >nul\n")
+                    f.write("title 杨国福 POS 系统 - 自动更新中...\n")
+                    f.write("echo ============================================\n")
+                    f.write("echo           正在在线拉取最新程序代码...\n")
+                    f.write("echo ============================================\n")
+                    f.write("git pull\n")
+                    f.write("echo.\n")
+                    f.write("echo ============================================\n")
+                    f.write("echo           更新完毕！正在重启 POS 系统...\n")
+                    f.write("echo ============================================\n")
+                    f.write(f'start "" "{sys.executable}" main.py\n')
+                    f.write("exit\n")
+
+                subprocess.Popen(["cmd.exe", "/c", bat_path], shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                sys.exit(0)
+            except Exception as e:
+                QMessageBox.critical(self, u"更新错误", f"启动更新逻辑失败: {str(e)}")
 
     def _setup_clock(self):
         self._clock_timer = QTimer(self)

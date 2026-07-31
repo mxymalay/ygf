@@ -48,6 +48,7 @@ class SideNavBar(QWidget):
 
     page_changed = pyqtSignal(int)
     theme_toggled = pyqtSignal()
+    update_requested = pyqtSignal()
     minimized_requested = pyqtSignal()
     exit_requested = pyqtSignal()
 
@@ -115,6 +116,11 @@ class SideNavBar(QWidget):
         layout.addStretch()
 
         # 3. 底部快捷控制按钮组
+        # 一键更新
+        item_update = SideNavItem(u"🔄", u"一键更新", -1)
+        item_update.clicked.connect(lambda: self.update_requested.emit())
+        layout.addWidget(item_update)
+
         # 最小化
         item_min = SideNavItem(u"🗕", u"最小化", -1)
         item_min.clicked.connect(lambda: self.minimized_requested.emit())
