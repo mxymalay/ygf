@@ -28,19 +28,24 @@
 ```
 ygf/
 ├── main.py               # 主程序入口
+├── build_exe.py          # PyInstaller 一键 EXE 打包编译工具
+├── build.bat             # Windows 鼠标双击打包批处理文件
 ├── config.py             # 全局配置管理 (JSON 持久化)
 ├── diagnose.py           # 硬件诊断工具 (一键扫描 COM 口和打印机)
 ├── install_env.bat       # Win7 一键环境安装脚本
 ├── requirements.txt      # 依赖列表 (PyQt5, pyserial, pywin32)
 ├── core/                 # 核心模块
+│   ├── call_number_manager.py # 智能避重叫号引擎 (上午/下午/晚上自动段划分)
 │   ├── scale_reader.py   # DIBAL ACS-G315 电子秤串口读取与稳定检测
 │   ├── printer.py        # ESC/POS 小票生成与 Win32 打印驱动
 │   ├── database.py       # SQLite 销售数据 CRUD 与每日汇总
 │   └── calculator.py     # 重量与金额计算器 (按斤/公斤)
 ├── ui/                   # GUI 界面
-│   ├── main_window.py    # 主框架与标签页导航
+│   ├── sidebar.py        # 杨国福原生火焰红竖向导航侧边栏
+│   ├── main_window.py    # 主框架与 QStackedWidget 堆栈导航
 │   ├── sale_widget.py    # 称重收银界面
 │   ├── history_widget.py # 历史记录查询与数据卡片
+│   ├── queue_widget.py   # 叫号避重设置独立菜单
 │   ├── settings_widget.py# 串口/打印机/单价参数设置
 │   └── styles.py         # 现代化触控 QSS 样式表
 ├── utils/                # 诊断与扫描工具
@@ -50,7 +55,19 @@ ygf/
 
 ---
 
-## ⚡ 快速开始
+## 📦 一键打包为独立软件 (.EXE)
+
+系统内置了专业的 PyInstaller 一键打包构建工具，无需店面电脑安装 Python 环境即可独立运行：
+
+### 打包步骤：
+1. **直接双击运行 `build.bat`** (或者在终端运行 `python build_exe.py`)。
+2. 脚本将自动安装打包依赖并完成高压编译。
+3. 编译完成后，编译出的独立免安装软件存放在 `dist/杨国福称重打印系统/` 目录下。
+4. **使用方法**：直接把 `dist/杨国福称重打印系统` 整个文件夹复制或打包发给收银机，双击其中的 `杨国福称重打印系统.exe` 即可运行！
+
+---
+
+## ⚡ 快速开始 (开发调试)
 
 ### 1. 克隆代码
 ```bash
@@ -71,11 +88,3 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
-
----
-
-## 🔒 端口冲突解决方案 (VSPE)
-
-由于公司收银软件占用 `COM1` 串口，推荐使用 **VSPE (Virtual Serial Port Emulator)** 建立 `Splitter`（串口分流器）：
-1. 将物理端口 `COM1` 映射为虚拟端口 `COM2`
-2. 公司收银软件与本系统同时读取 `COM2`，实现两套系统实时并行工作。
