@@ -193,20 +193,28 @@ class TasteSelectionDialog(QDialog):
 
 
 class OrderItemCard(QFrame):
-    """无边框极简 POS 风格订单细项卡片 (深浅主题自适应)"""
+    """无边框极简 POS 风格订单细项卡片 (深浅主题自适应，支持选中高亮与点击选择)"""
+    clicked = pyqtSignal(int)
 
-    def __init__(self, title, subline, price_val, tag="", is_dark=True, is_active=False, parent=None):
+    def __init__(self, index, title, subline, price_val, tag="", discount_rate=1.0, is_dark=True, is_active=False, parent=None):
         super().__init__(parent)
+        self.index = index
         self.setObjectName("OrderItemCard")
+        self.setCursor(Qt.PointingHandCursor)
 
-        # 纯净无框，左右结构
+        # 选中高亮状态样式
+        if is_active:
+            bg_style = "background: rgba(249, 115, 22, 0.18); border: 1.5px solid #F97316; border-radius: 8px;"
+        else:
+            bg_style = "background: transparent; border: 1px solid transparent; border-radius: 8px;"
+
         self.setStyleSheet(
-            "QFrame#OrderItemCard { background: transparent; border: none; "
-            "padding: 6px 2px; margin-bottom: 4px; }"
+            f"QFrame#OrderItemCard {{ {bg_style} padding: 6px 8px; margin-bottom: 2px; }}"
+            "QFrame#OrderItemCard:hover { background: rgba(255, 255, 255, 0.06); }"
         )
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(8)
 
         left_vbox = QVBoxLayout()
@@ -225,18 +233,34 @@ class OrderItemCard(QFrame):
             lbl_sub.setStyleSheet(f"font-size: 13px; color: {sub_col}; font-family: 'Consolas', monospace; border: none; background: transparent;")
             left_vbox.addWidget(lbl_sub)
 
+        # 组合口味标签与折扣标签
+        tag_parts = []
         if tag:
-            lbl_tag = QLabel(tag)
+            tag_parts.append(tag)
+        if discount_rate < 0.999:
+            disc_num = discount_rate * 10.0
+            disc_str = f"[{disc_num:.1f}折]".replace(".0折", "折")
+            tag_parts.append(disc_str)
+
+        full_tag_str = "   ".join(tag_parts)
+
+        if full_tag_str:
+            lbl_tag = QLabel(full_tag_str)
             lbl_tag.setStyleSheet("font-size: 13px; font-weight: bold; color: #F59E0B; border: none; background: transparent;")
             left_vbox.addWidget(lbl_tag)
 
         layout.addLayout(left_vbox, stretch=1)
 
-        # 右侧：右对齐高亮价格
+        # 右侧：高亮价格
         lbl_price = QLabel(f"￥{price_val:.2f}")
         lbl_price.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_price.setStyleSheet("font-size: 18px; font-weight: 900; color: #EA580C; border: none; background: transparent;")
         layout.addWidget(lbl_price)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.index)
+        super().mousePressEvent(event)
 
 
 class MenuGridButton(QPushButton):
@@ -370,8 +394,9 @@ class SaleWidget(QWidget):
         self._stable_weight = 0.0
         self._is_stable = False
         
-        # 购物车项目列表
+        # 购物车项目列表与选中项目索引
         self.cart_items = []
+        self.selected_item_index = -1
         self.menu_buttons = {}
 
         self.temp_order_no = self._gen_temp_order_no()
@@ -508,7 +533,73 @@ class SaleWidget(QWidget):
 
         left_layout.addLayout(footer_line)
 
+        # ── 中间：快捷操作工具栏 (折扣、增减数量、删除) ──
+        mid_bar = QFrame()
+        mid_bar.setObjectName("QuickOpBar")
+        mid_bar.setStyleSheet(
+            "QFrame#QuickOpBar { background: #1E293B; border-radius: 10px; padding: 4px; border: 1px solid #334155; }"
+        )
+        mid_layout = QVBoxLayout(mid_bar)
+        mid_layout.setContentsMargins(6, 12, 6, 12)
+        mid_layout.setSpacing(10)
+        mid_layout.setAlignment(Qt.AlignCenter)
+
+        lbl_ops_title = QLabel(u"快捷\n操作")
+        lbl_ops_title.setAlignment(Qt.AlignCenter)
+        lbl_ops_title.setStyleSheet("font-size: 12px; font-weight: bold; color: #9CA3AF; border: none; background: transparent; margin-bottom: 4px;")
+        mid_layout.addWidget(lbl_ops_title)
+
+        # 折扣按钮: 9.5折, 8.8折, 8折, 原价
+        discounts = [(0.95, "9.5折"), (0.88, "8.8折"), (0.80, "8折"), (1.0, "原价")]
+        for rate, label_text in discounts:
+            btn_d = QPushButton(label_text)
+            btn_d.setCursor(Qt.PointingHandCursor)
+            btn_d.setStyleSheet(
+                "QPushButton { background: #334155; color: #F59E0B; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 8px 4px; min-width: 50px; border: 1px solid #475569; }"
+                "QPushButton:hover { background: #F59E0B; color: #1E293B; border: 1px solid #F59E0B; }"
+            )
+            btn_d.clicked.connect(lambda checked, r=rate: self._apply_discount_to_selected(r))
+            mid_layout.addWidget(btn_d)
+
+        mid_layout.addSpacing(6)
+
+        # 数量加减与删除按钮: +, -, 删
+        btn_plus = QPushButton("＋")
+        btn_plus.setCursor(Qt.PointingHandCursor)
+        btn_plus.setToolTip(u"增加数量 (+1)")
+        btn_plus.setStyleSheet(
+            "QPushButton { background: #064E3B; color: #34D399; font-weight: 900; font-size: 18px; border-radius: 6px; padding: 8px 4px; min-width: 50px; border: 1px solid #059669; }"
+            "QPushButton:hover { background: #059669; color: #FFFFFF; }"
+        )
+        btn_plus.clicked.connect(self._increase_selected_qty)
+        mid_layout.addWidget(btn_plus)
+
+        btn_minus = QPushButton("－")
+        btn_minus.setCursor(Qt.PointingHandCursor)
+        btn_minus.setToolTip(u"减少数量 (-1)")
+        btn_minus.setStyleSheet(
+            "QPushButton { background: #78350F; color: #FBBF24; font-weight: 900; font-size: 18px; border-radius: 6px; padding: 8px 4px; min-width: 50px; border: 1px solid #D97706; }"
+            "QPushButton:hover { background: #D97706; color: #FFFFFF; }"
+        )
+        btn_minus.clicked.connect(self._decrease_selected_qty)
+        mid_layout.addWidget(btn_minus)
+
+        mid_layout.addSpacing(6)
+
+        btn_delete = QPushButton("🗑 删")
+        btn_delete.setCursor(Qt.PointingHandCursor)
+        btn_delete.setToolTip(u"删除选中项目")
+        btn_delete.setStyleSheet(
+            "QPushButton { background: #7F1D1D; color: #F87171; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 10px 4px; min-width: 50px; border: 1px solid #DC2626; }"
+            "QPushButton:hover { background: #DC2626; color: #FFFFFF; }"
+        )
+        btn_delete.clicked.connect(self._delete_selected_item)
+        mid_layout.addWidget(btn_delete)
+
+        mid_layout.addStretch()
+
         layout.addWidget(left_card, stretch=5)
+        layout.addWidget(mid_bar, stretch=0)
 
         # ── 右侧：4x4 网格菜单 ──
         right = QVBoxLayout()
@@ -568,7 +659,7 @@ class SaleWidget(QWidget):
 
         right.addLayout(btn_box)
 
-        layout.addLayout(right, stretch=5)
+        layout.addLayout(right, stretch=7)
 
         self._update_price_display()
 
@@ -591,11 +682,15 @@ class SaleWidget(QWidget):
                 "name": soup_clean_name,
                 "tag": dlg.get_tag_string(),
                 "weight": w,
+                "base_price": b_price,
                 "price": b_price,
                 "unit_price": unit_price,
-                "price_unit": price_unit
+                "price_unit": price_unit,
+                "qty": 1,
+                "discount_rate": 1.0
             }
             self.cart_items.append(item_entry)
+            self.selected_item_index = len(self.cart_items) - 1
             btn.set_count(btn.count + 1)
             self._update_price_display()
 
@@ -641,16 +736,73 @@ class SaleWidget(QWidget):
 
             dlg.exec_()
         else:
-            self.cart_items.append({
+            item_entry = {
                 "type": "item",
                 "key_id": btn.key_id,
                 "name": btn.title_str.replace("\n", " "),
                 "tag": "",
-                "price": btn.price_val
-            })
+                "base_price": btn.price_val,
+                "price": btn.price_val,
+                "qty": 1,
+                "discount_rate": 1.0
+            }
+            self.cart_items.append(item_entry)
+            self.selected_item_index = len(self.cart_items) - 1
             btn.set_count(btn.count + 1)
+            self._update_price_display()
 
-        self._update_price_display()
+    def _select_cart_item(self, index):
+        """选择指定的订单卡片"""
+        if 0 <= index < len(self.cart_items):
+            self.selected_item_index = index
+            self._update_price_display()
+
+    def _apply_discount_to_selected(self, rate):
+        """对选中的订单项应用折扣 (如9.5折, 8.8折, 8折, 原价)"""
+        if 0 <= self.selected_item_index < len(self.cart_items):
+            item = self.cart_items[self.selected_item_index]
+            item["discount_rate"] = rate
+            item["price"] = item["base_price"] * item.get("qty", 1) * rate
+            self._update_price_display()
+
+    def _increase_selected_qty(self):
+        """增加选中项数量 (+1)"""
+        if 0 <= self.selected_item_index < len(self.cart_items):
+            item = self.cart_items[self.selected_item_index]
+            item["qty"] = item.get("qty", 1) + 1
+            item["price"] = item["base_price"] * item["qty"] * item.get("discount_rate", 1.0)
+            self._update_price_display()
+
+    def _decrease_selected_qty(self):
+        """减少选中项数量 (-1)"""
+        if 0 <= self.selected_item_index < len(self.cart_items):
+            item = self.cart_items[self.selected_item_index]
+            cur_qty = item.get("qty", 1)
+            if cur_qty > 1:
+                item["qty"] = cur_qty - 1
+                item["price"] = item["base_price"] * item["qty"] * item.get("discount_rate", 1.0)
+            else:
+                self._delete_selected_item()
+                return
+            self._update_price_display()
+
+    def _delete_selected_item(self):
+        """删除选中的订单项"""
+        if 0 <= self.selected_item_index < len(self.cart_items):
+            removed = self.cart_items.pop(self.selected_item_index)
+            
+            # 更新右侧菜单按钮角标计数
+            key_id = removed.get("key_id")
+            if key_id and key_id in self.menu_buttons:
+                btn = self.menu_buttons[key_id]
+                btn.set_count(max(0, btn.count - 1))
+
+            if self.cart_items:
+                self.selected_item_index = min(self.selected_item_index, len(self.cart_items) - 1)
+            else:
+                self.selected_item_index = -1
+
+            self._update_price_display()
 
     def _toggle_call_detail(self):
         self._detail_expanded = not self._detail_expanded
@@ -673,22 +825,33 @@ class SaleWidget(QWidget):
 
         pu_lbl = price_unit_label(self.config.get("price_unit", "per_jin"))
         total_price = 0.0
-        total_items = len(self.cart_items)
+        total_items = 0
 
         # 遍历渲染所有项目卡片
         for idx, item in enumerate(self.cart_items):
-            is_last = (idx == len(self.cart_items) - 1)
-            
+            is_selected = (idx == self.selected_item_index)
+            qty = item.get("qty", 1)
+            disc_rate = item.get("discount_rate", 1.0)
+            total_items += qty
+
             if item["type"] == "soup":
                 w_str = f"{item['weight']:.3f}"
-                sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   x{w_str}"
-                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], tag=item.get("tag", ""), is_dark=self.is_dark_mode, is_active=is_last)
-                total_price += item["price"]
+                sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   x{qty}"
             else:
-                sub_str = f"¥{item['price']:.2f}   x1"
-                card = OrderItemCard(item["name"], sub_str, price_val=item["price"], is_dark=self.is_dark_mode, is_active=is_last)
-                total_price += item["price"]
+                sub_str = f"¥{item['base_price']:.2f}   x{qty}"
 
+            card = OrderItemCard(
+                index=idx,
+                title=item["name"],
+                subline=sub_str,
+                price_val=item["price"],
+                tag=item.get("tag", ""),
+                discount_rate=disc_rate,
+                is_dark=self.is_dark_mode,
+                is_active=is_selected
+            )
+            card.clicked.connect(self._select_cart_item)
+            total_price += item["price"]
             self.cart_layout.addWidget(card)
 
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
@@ -828,6 +991,7 @@ class SaleWidget(QWidget):
     def _on_clear(self):
         """清空购物车与所有按钮角标"""
         self.cart_items.clear()
+        self.selected_item_index = -1
         for b in self.menu_buttons.values():
             b.set_count(0)
         self.temp_order_no = self._gen_temp_order_no()
