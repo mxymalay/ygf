@@ -47,7 +47,7 @@ class CallNumberManager:
         self._used_numbers.clear()
         self._current_seq_no = None
 
-    def get_next_number((self)) -> int:
+    def get_next_number(self) -> int:
         """根据当前模式产生下一个叫号"""
         mode = self.get_mode()
 
