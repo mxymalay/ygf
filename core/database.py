@@ -93,7 +93,7 @@ class Database:
         conn = self._get_conn()
         row = conn.execute(
             """SELECT
-                   COUNT(*)        AS count,
+                   COUNT(*)                        AS count,
                    COALESCE(SUM(weight_kg), 0)   AS total_weight,
                    COALESCE(SUM(total_price), 0) AS total_amount
                FROM sales
@@ -103,34 +103,36 @@ class Database:
         conn.close()
         return dict(row)
 
-    def get_sales_by_date(self, query_date):
-        """按日期查询所有销售记录"""
-        date_str = query_date.strftime("%Y-%m-%d")
+    def get_sales_by_date(self, start_date, end_date=None):
+        """按日期范围查询所有销售记录"""
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if (end_date and hasattr(end_date, 'strftime')) else (str(end_date) if end_date else s_str)
+
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT * FROM sales WHERE created_at LIKE ? ORDER BY id DESC",
-            ("%s%%" % date_str,)
+            "SELECT * FROM sales WHERE DATE(created_at) BETWEEN ? AND ? ORDER BY id DESC",
+            (s_str, e_str)
         ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
 
-    def get_summary_by_range(self, start_date, end_date):
-        """按日期范围查询每日汇总"""
+    def get_stats_by_date(self, start_date, end_date=None):
+        """获取指定日期范围的汇总统计信息"""
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if (end_date and hasattr(end_date, 'strftime')) else (str(end_date) if end_date else s_str)
+
         conn = self._get_conn()
-        rows = conn.execute(
+        row = conn.execute(
             """SELECT
-                   DATE(created_at) AS sale_date,
-                   COUNT(*)         AS count,
-                   SUM(weight_kg)   AS total_weight,
-                   SUM(total_price) AS total_amount
+                   COUNT(*)                          AS count,
+                   COALESCE(SUM(weight_kg), 0)      AS weight_sum,
+                   COALESCE(SUM(total_price), 0)    AS amount_sum
                FROM sales
-               WHERE DATE(created_at) BETWEEN ? AND ?
-               GROUP BY DATE(created_at)
-               ORDER BY sale_date DESC""",
-            (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
-        ).fetchall()
+               WHERE DATE(created_at) BETWEEN ? AND ?""",
+            (s_str, e_str)
+        ).fetchone()
         conn.close()
-        return [dict(r) for r in rows]
+        return dict(row)
 
     def delete_sale(self, sale_id):
         """按 ID 删除一条记录"""
