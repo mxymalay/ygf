@@ -1,0 +1,152 @@
+"""
+SQLite 数据库模块 — 销售记录的持久化存储
+兼容 Python 3.8+
+"""
+import sqlite3
+import os
+from datetime import datetime, date
+from config import DB_PATH
+
+
+class Database:
+    """本地 SQLite 数据库，管理销售记录"""
+
+    def __init__(self, db_path=DB_PATH):
+        self.db_path = db_path
+        self._init_db()
+
+    def _get_conn(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
+    def _init_db(self):
+        """初始化数据库表结构"""
+        conn = self._get_conn()
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS sales (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_no     TEXT    UNIQUE NOT NULL,
+                weight_kg   REAL    NOT NULL,
+                unit_price  REAL    NOT NULL,
+                price_unit  TEXT    NOT NULL DEFAULT 'per_jin',
+                total_price REAL    NOT NULL,
+                remark      TEXT    DEFAULT '',
+                created_at  TEXT    NOT NULL,
+                printed     INTEGER DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sales_date
+                ON sales(created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_sales_no
+                ON sales(sale_no);
+        """)
+        conn.commit()
+        conn.close()
+
+    def generate_sale_no(self):
+        """生成格式为 YGF + 日期 + 3位序号 的单号"""
+        today_str = datetime.now().strftime("%Y%m%d")
+        prefix = "YGF%s" % today_str
+
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT sale_no FROM sales WHERE sale_no LIKE ? ORDER BY id DESC LIMIT 1",
+            ("%s%%" % prefix,)
+        ).fetchone()
+        conn.close()
+
+        if row:
+            last_seq = int(row["sale_no"][-3:])
+            seq = last_seq + 1
+        else:
+            seq = 1
+
+        return "%s%03d" % (prefix, seq)
+
+    def insert_sale(self, weight_kg, unit_price, price_unit, total_price, remark=""):
+        """插入一条销售记录，返回完整记录字典"""
+        sale_no = self.generate_sale_no()
+        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT INTO sales
+               (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at)
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT * FROM sales WHERE sale_no = ?", (sale_no,)
+        ).fetchone()
+        conn.close()
+
+        return dict(row)
+
+    def get_today_summary(self):
+        """返回今日汇总：笔数、总重量、总金额"""
+        today_str = date.today().strftime("%Y-%m-%d")
+        conn = self._get_conn()
+        row = conn.execute(
+            """SELECT
+                   COUNT(*)        AS count,
+                   COALESCE(SUM(weight_kg), 0)   AS total_weight,
+                   COALESCE(SUM(total_price), 0) AS total_amount
+               FROM sales
+               WHERE created_at LIKE ?""",
+            ("%s%%" % today_str,)
+        ).fetchone()
+        conn.close()
+        return dict(row)
+
+    def get_sales_by_date(self, query_date):
+        """按日期查询所有销售记录"""
+        date_str = query_date.strftime("%Y-%m-%d")
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM sales WHERE created_at LIKE ? ORDER BY id DESC",
+            ("%s%%" % date_str,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def get_summary_by_range(self, start_date, end_date):
+        """按日期范围查询每日汇总"""
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT
+                   DATE(created_at) AS sale_date,
+                   COUNT(*)         AS count,
+                   SUM(weight_kg)   AS total_weight,
+                   SUM(total_price) AS total_amount
+               FROM sales
+               WHERE DATE(created_at) BETWEEN ? AND ?
+               GROUP BY DATE(created_at)
+               ORDER BY sale_date DESC""",
+            (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def delete_sale(self, sale_id):
+        """按 ID 删除一条记录"""
+        conn = self._get_conn()
+        cursor = conn.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+        conn.close()
+        return deleted
+
+    def get_recent_sales(self, limit=20):
+        """获取最近的 N 条销售记录"""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM sales ORDER BY id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
