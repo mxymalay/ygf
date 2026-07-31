@@ -1,5 +1,5 @@
 """
-杨国福麻辣烫 · 电子秤串口串口诊断工具
+杨国福麻辣烫 · 电子秤串口诊断工具
 运行方法: python diagnose_scale.py
 """
 import sys
@@ -14,81 +14,92 @@ except ImportError:
 
 
 def test_scale():
-    print("=" * 60)
-    print("      杨国福麻辣烫 · 电子秤串口诊断与检测工具 v1.0")
-    print("=" * 60)
+    print("=" * 65)
+    print("      杨国福麻辣烫 · 电子秤全串口硬件诊断工具 v2.0")
+    print("=" * 65)
 
     # 1. 扫描串口
     ports = list(serial.tools.list_ports.comports())
-    print("\n[1] 正在扫描电脑可用串口...")
+    print("\n[1] 正在扫描电脑全部可用 COM 串口...")
     if not ports:
-        print("    [!] 未检测到任何可用 COM 串口！请检查串口线或 VSPE 分流设置。")
+        print("    [!] 未检测到任何可用 COM 串口！请检查电子秤数据线或 VSPE 设置。")
         return
 
-    for p in ports:
-        print("    -> 找到串口: %s (%s)" % (p.device, p.description))
-
-    target_port = "COM1"
     available_devices = [p.device for p in ports]
-    if target_port not in available_devices:
-        target_port = available_devices[0]
+    for p in ports:
+        print("    -> [%s] %s (%s)" % (p.device, p.description, p.hwid))
 
-    print("\n[2] 开始测试目标串口: %s" % target_port)
+    print("\n[2] 开始逐个轮询扫描所有串口数据...")
     baudrates = [9600, 4800, 2400, 19200]
     query_cmds = [b"\x05", b"W\r\n", b"Q\r\n", b"S\r\n", b"P\r\n"]
 
-    for baud in baudrates:
-        print("\n--------------------------------------------------")
-        print("  正在尝试波特率: %d bps..." % baud)
-        print("--------------------------------------------------")
-        try:
-            ser = serial.Serial(target_port, baudrate=baud, timeout=0.5)
-            print("  [OK] 串口 %s (%d) 打开成功！正在监听 3 秒..." % (target_port, baud))
+    found_port = None
 
-            received_any = False
-            start_t = time.time()
+    for port_name in available_devices:
+        print("\n" + "=" * 50)
+        print(" 🔍 正在测试端口: %s" % port_name)
+        print("=" * 50)
 
-            # 先被动监听
-            while time.time() - start_t < 2.5:
-                if ser.in_waiting > 0:
-                    raw = ser.read(ser.in_waiting)
-                    received_any = True
-                    hex_str = raw.hex(' ')
-                    asc_str = raw.decode("ascii", errors="ignore").strip()
-                    print("  [★ 被动收到数据] HEX: %s  | ASCII: %s" % (hex_str, asc_str))
-                time.sleep(0.1)
+        for baud in baudrates:
+            try:
+                ser = serial.Serial(port_name, baudrate=baud, timeout=0.3)
+                print("  -> 尝试 %s (%d bps)... 打开成功，监听中..." % (port_name, baud))
 
-            # 再主动发送查询指令测试
-            if not received_any:
-                print("  [i] 被动未收到数据，尝试主动发送查询指令 (ENQ / W\\r)...")
-                for cmd in query_cmds:
-                    ser.write(cmd)
-                    time.sleep(0.3)
+                received_any = False
+                start_t = time.time()
+
+                # 被动监听 1.5 秒
+                while time.time() - start_t < 1.5:
                     if ser.in_waiting > 0:
                         raw = ser.read(ser.in_waiting)
                         received_any = True
                         hex_str = raw.hex(' ')
                         asc_str = raw.decode("ascii", errors="ignore").strip()
-                        print("  [★ 指令 %r 响应] HEX: %s | ASCII: %s" % (cmd, hex_str, asc_str))
-                        break
+                        print("  [🎉 收到数据] HEX: %s | ASCII: %s" % (hex_str, asc_str))
+                    time.sleep(0.1)
 
-            ser.close()
-            if received_any:
-                print("\n  [🎉 成功] 在 %d bps 波特率下成功接收到了电子秤数据！" % baud)
-                return
+                # 主动发送命令探针
+                if not received_any:
+                    for cmd in query_cmds:
+                        try:
+                            ser.write(cmd)
+                            time.sleep(0.2)
+                            if ser.in_waiting > 0:
+                                raw = ser.read(ser.in_waiting)
+                                received_any = True
+                                hex_str = raw.hex(' ')
+                                asc_str = raw.decode("ascii", errors="ignore").strip()
+                                print("  [🎉 命令 %r 响应] HEX: %s | ASCII: %s" % (cmd, hex_str, asc_str))
+                                break
+                        except Exception:
+                            pass
 
-        except Exception as e:
-            print("  [X] 打开 %s (%d bps) 失败: %s" % (target_port, baud, str(e)))
+                ser.close()
+                if received_any:
+                    found_port = (port_name, baud)
+                    print("\n" + "★" * 50)
+                    print("  【匹配成功！】硬件位于 %s (波特率 %d bps)" % (port_name, baud))
+                    print("★" * 50)
+                    break
+
+            except Exception as e:
+                print("  [!] %s (%d bps) 打开失败: %s" % (port_name, baud, str(e)))
+
+        if found_port:
+            break
 
     print("\n" * 2)
-    print("=" * 60)
-    print("【诊断排查结论与建议】")
-    print("1. 如果程序提示 'Access is denied' (拒绝访问)：")
-    print("   说明公司原 POS 系统正独占 COM1。请打开 VSPE (Virtual Serial Port Emulator)")
-    print("   将物理 COM1 分流出一个虚拟端口 (如 COM3)，然后在软件里设置选择 COM3。")
-    print("2. 如果串口打开成功但收不到数据：")
-    print("   请按一下电子秤面板上的【小票】/【打印】/【确认】键，看数据是否发送！")
-    print("=" * 60)
+    print("=" * 65)
+    print("【诊断结果汇总】")
+    if found_port:
+        print(" 找到正确串口: %s (波特率 %d bps)" % (found_port[0], found_port[1]))
+        print(" 请在软件【系统设置】中将串口选为 %s 并保存！" % found_port[0])
+    else:
+        print(" 没有任何串口接收到数据。排查建议：")
+        print(" 1. 【按键测试】：请放上食材后，按一下电子秤面板上的【小票】/【打印】或【确认】按键！")
+        print(" 2. 【VSPE 分流】：如果公司旧软件正在运行，旧软件会独占物理 COM1。")
+        print("    请查看 VSPE 里分流出来的虚拟串口名称（如 COM3），并在软件【系统设置】里选择该虚拟串口！")
+    print("=" * 65)
 
 
 if __name__ == "__main__":
