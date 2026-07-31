@@ -44,11 +44,10 @@ class TasteSelectionDialog(QDialog):
         # 草本骨汤不提供“不辣”
         if "草本骨汤" in soup_name:
             self.spicy_options = [u"微辣", u"中辣", u"重辣"]
-            self.selected_spice = "微辣"
         else:
             self.spicy_options = [u"不辣", u"微辣", u"中辣", u"重辣"]
-            self.selected_spice = "微辣"
 
+        self.selected_spice = ""
         self.selected_prefs = set()
 
         self.main_layout = QVBoxLayout(self)
@@ -99,6 +98,13 @@ class TasteSelectionDialog(QDialog):
 
     def set_initial_tag(self, tag_str):
         """解析已有 tag 字符串 (如 '微辣 / 免蒜') 并恢复勾选状态"""
+        self.selected_spice = ""
+        self.selected_prefs.clear()
+        for b in self.spicy_btns.values():
+            b.setChecked(False)
+        for b in self.pref_btns.values():
+            b.setChecked(False)
+
         if not tag_str:
             return
         parts = [p.strip() for p in tag_str.split("/") if p.strip()]
@@ -112,9 +118,12 @@ class TasteSelectionDialog(QDialog):
                 self.pref_btns[p].setChecked(True)
 
     def _select_spice(self, val):
-        self.selected_spice = val
+        if self.selected_spice == val:
+            self.selected_spice = ""
+        else:
+            self.selected_spice = val
         for s, btn in self.spicy_btns.items():
-            btn.setChecked(s == val)
+            btn.setChecked(s == self.selected_spice)
         self.flavor_changed.emit(self.get_tag_string())
 
     def _toggle_pref(self, val):
@@ -192,9 +201,12 @@ class TasteSelectionDialog(QDialog):
         painter.drawPath(path)
 
     def _select_spice(self, val):
-        self.selected_spice = val
+        if self.selected_spice == val:
+            self.selected_spice = ""
+        else:
+            self.selected_spice = val
         for s, btn in self.spicy_btns.items():
-            btn.setChecked(s == val)
+            btn.setChecked(s == self.selected_spice)
         self.flavor_changed.emit(self.get_tag_string())
 
     def _toggle_pref(self, val):
@@ -205,7 +217,10 @@ class TasteSelectionDialog(QDialog):
         self.flavor_changed.emit(self.get_tag_string())
 
     def get_tag_string(self):
-        tags = [self.selected_spice] + sorted(list(self.selected_prefs))
+        tags = []
+        if self.selected_spice:
+            tags.append(self.selected_spice)
+        tags.extend(sorted(list(self.selected_prefs)))
         return " / ".join(tags)
 
 
