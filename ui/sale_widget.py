@@ -226,38 +226,38 @@ class OrderItemCard(QFrame):
             bg_style = "background: transparent; border: 1px solid transparent; border-radius: 8px;"
 
         self.setStyleSheet(
-            f"QFrame#OrderItemCard {{ {bg_style} padding: 6px 8px; margin-bottom: 2px; }}"
+            f"QFrame#OrderItemCard {{ {bg_style} padding: 4px 6px; margin-bottom: 1px; }}"
             "QFrame#OrderItemCard:hover { background: rgba(255, 255, 255, 0.06); }"
         )
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(4, 3, 4, 3)
+        layout.setSpacing(6)
 
         # 1. 最左侧：清晰不易混淆的第几项序号徽章 (如 #1, #2, #3...)
         lbl_badge = QLabel(f"#{index + 1}")
         lbl_badge.setAlignment(Qt.AlignCenter)
         badge_bg = "#EA580C" if is_active else "#334155"
         lbl_badge.setStyleSheet(
-            f"font-size: 13px; font-weight: 900; color: #FFFFFF; "
-            f"background: {badge_bg}; border-radius: 6px; padding: 3px 6px; min-width: 24px;"
+            f"font-size: 12px; font-weight: 900; color: #FFFFFF; "
+            f"background: {badge_bg}; border-radius: 5px; padding: 2px 5px; min-width: 22px;"
         )
         layout.addWidget(lbl_badge, alignment=Qt.AlignVCenter)
 
         left_vbox = QVBoxLayout()
         left_vbox.setContentsMargins(0, 0, 0, 0)
-        left_vbox.setSpacing(3)
+        left_vbox.setSpacing(2)
 
         title_col = "#F9FAFB" if is_dark else "#111827"
         sub_col = "#9CA3AF" if is_dark else "#4B5563"
 
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {title_col}; border: none; background: transparent;")
+        lbl_title.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {title_col}; border: none; background: transparent;")
         left_vbox.addWidget(lbl_title)
 
         if subline:
             lbl_sub = QLabel(subline)
-            lbl_sub.setStyleSheet(f"font-size: 13px; color: {sub_col}; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            lbl_sub.setStyleSheet(f"font-size: 12px; color: {sub_col}; font-family: 'Consolas', monospace; border: none; background: transparent;")
             left_vbox.addWidget(lbl_sub)
 
         # 组合口味标签与折扣标签
@@ -773,7 +773,7 @@ class SaleWidget(QWidget):
             }
             self.cart_items.append(item_entry)
             self.selected_item_index = len(self.cart_items) - 1
-            self.cart_page = (len(self.cart_items) - 1) // 5
+            self.cart_page = (len(self.cart_items) - 1) // self._get_page_size()
             btn.set_count(btn.count + 1)
             self._update_price_display()
 
@@ -800,7 +800,7 @@ class SaleWidget(QWidget):
             }
             self.cart_items.append(item_entry)
             self.selected_item_index = len(self.cart_items) - 1
-            self.cart_page = (len(self.cart_items) - 1) // 5
+            self.cart_page = (len(self.cart_items) - 1) // self._get_page_size()
             btn.set_count(btn.count + 1)
             self._update_price_display()
 
@@ -962,6 +962,18 @@ class SaleWidget(QWidget):
         else:
             self.btn_toggle_detail.setText(u"详细信息 ∨")
 
+    def _get_page_size(self):
+        """根据当前开单面板实际高度自适应计算每页容纳的卡片数量 (精算防溢出)"""
+        if hasattr(self, 'cart_scroll') and self.cart_scroll.height() > 80:
+            # 单张卡片约 46px，防溢出计算
+            calc_size = max(3, self.cart_scroll.height() // 48)
+            return min(6, calc_size)
+        return 4
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_price_display()
+
     def _prev_cart_page(self):
         if self.cart_page > 0:
             self.cart_page -= 1
@@ -969,14 +981,14 @@ class SaleWidget(QWidget):
 
     def _next_cart_page(self):
         total_items_count = len(self.cart_items)
-        PAGE_SIZE = 5
+        PAGE_SIZE = self._get_page_size()
         total_pages = max(1, (total_items_count + PAGE_SIZE - 1) // PAGE_SIZE)
         if self.cart_page < total_pages - 1:
             self.cart_page += 1
             self._update_price_display()
 
     def _update_price_display(self):
-        """刷新购物明细卡片列表与金额 (支持分页与无混淆序号徽章)"""
+        """刷新购物明细卡片列表与金额 (自适应高度分页与无混淆序号徽章)"""
         from PyQt5.QtCore import QCoreApplication
 
         while self.cart_layout.count() > 0:
@@ -1011,9 +1023,9 @@ class SaleWidget(QWidget):
             total_price += item["price"]
             total_items += item.get("qty", 1)
 
-        # 2. 分页处理 (每页固死 5 项，防出现垂直滑动条)
+        # 2. 动态自适应分页处理 (防出现任何垂直滑动条)
         total_items_count = len(self.cart_items)
-        PAGE_SIZE = 5
+        PAGE_SIZE = self._get_page_size()
         total_pages = max(1, (total_items_count + PAGE_SIZE - 1) // PAGE_SIZE)
         self.cart_page = min(max(0, self.cart_page), total_pages - 1)
 
