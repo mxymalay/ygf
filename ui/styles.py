@@ -56,6 +56,14 @@ QMainWindow, QWidget {{
     font-size: 14px;
 }}
 
+QLabel {{
+    border: none;
+    background: transparent;
+    background-color: transparent;
+    padding: 0px;
+    margin: 0px;
+}}
+
 /* ─── 杨国福原生火焰红侧边导航栏 ─────────────── */
 SideNavBar {{
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,

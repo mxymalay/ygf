@@ -406,16 +406,17 @@ class SaleWidget(QWidget):
         call_header = QHBoxLayout()
         
         self.lbl_call_title = QLabel(u"本次打印叫号：")
-        self.lbl_call_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
+        self.lbl_call_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none; background: transparent; padding: 0px;")
         call_header.addWidget(self.lbl_call_title)
 
         self.lbl_next_call_no = QLabel("# 50")
-        self.lbl_next_call_no.setStyleSheet("font-size: 26px; font-weight: 900; color: #F97316; border: none;")
+        self.lbl_next_call_no.setStyleSheet("font-size: 26px; font-weight: 900; color: #F97316; border: none; background: transparent; padding: 0px;")
         call_header.addWidget(self.lbl_next_call_no)
 
         self.btn_toggle_detail = QPushButton(u"详细信息 ∨")
+        self.btn_toggle_detail.setCursor(Qt.PointingHandCursor)
         self.btn_toggle_detail.setStyleSheet(
-            "background: #1E293B; color: #38BDF8; font-size: 13px; font-weight: bold; border-radius: 6px; padding: 4px 10px;"
+            "background: transparent; color: #38BDF8; font-size: 13px; font-weight: bold; border: none; padding: 0px 6px;"
         )
         self.btn_toggle_detail.clicked.connect(self._toggle_call_detail)
         call_header.addWidget(self.btn_toggle_detail)
