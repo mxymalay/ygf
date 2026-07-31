@@ -42,10 +42,10 @@ class OrderCard(QFrame):
         # 第一行：POS点餐：050 堂食         已支付
         row1 = QHBoxLayout()
         lbl_title = QLabel(u"📋 POS点餐：%s 堂食" % call_no)
-        lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB;")
+        lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none;")
 
         lbl_status = QLabel(u"已支付")
-        lbl_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #EA580C;")
+        lbl_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #EA580C; border: none;")
 
         row1.addWidget(lbl_title)
         row1.addStretch()
@@ -55,10 +55,10 @@ class OrderCard(QFrame):
         # 第二行：2026-07-31 21:12:05     实收：¥ 38.83
         row2 = QHBoxLayout()
         lbl_time = QLabel(created_at)
-        lbl_time.setStyleSheet("font-size: 12px; color: #9CA3AF;")
+        lbl_time.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
 
         lbl_amount = QLabel(u"实收：¥ %.2f" % r.get("total_price", 0.0))
-        lbl_amount.setStyleSheet("font-size: 13px; font-weight: bold; color: #D1D5DB;")
+        lbl_amount.setStyleSheet("font-size: 13px; font-weight: bold; color: #D1D5DB; border: none;")
 
         row2.addWidget(lbl_time)
         row2.addStretch()
@@ -78,7 +78,7 @@ class OrderCard(QFrame):
             )
         else:
             self.setStyleSheet(
-                "QFrame { background: #111827; border: 1px solid #374151; border-radius: 8px; }"
+                "QFrame { background: #111827; border: none; border-radius: 8px; }"
                 "QFrame:hover { background: #1F2937; }"
             )
 
@@ -116,7 +116,7 @@ class HistoryWidget(QWidget):
         self.date_picker.setDisplayFormat("yyyy-MM-dd")
         self.date_picker.setStyleSheet(
             "QDateEdit { background: #1F2937; color: #F9FAFB; font-size: 14px; font-weight: bold; "
-            "padding: 6px 12px; border: 1px solid #374151; border-radius: 6px; }"
+            "padding: 6px 12px; border: none; border-radius: 6px; }"
         )
         self.date_picker.dateChanged.connect(self._on_query)
         header_bar.addWidget(self.date_picker)
@@ -125,14 +125,14 @@ class HistoryWidget(QWidget):
 
         # 选中的订单标题
         self.lbl_header_title = QLabel(u"📋 POS点餐：--- 堂食")
-        self.lbl_header_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #F9FAFB;")
+        self.lbl_header_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #F9FAFB; border: none;")
         header_bar.addWidget(self.lbl_header_title)
 
         header_bar.addStretch()
 
         # 右侧状态标识
         self.lbl_header_status = QLabel(u"已支付")
-        self.lbl_header_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #EA580C;")
+        self.lbl_header_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #EA580C; border: none;")
         header_bar.addWidget(self.lbl_header_status)
 
         main_layout.addLayout(header_bar)
@@ -140,7 +140,7 @@ class HistoryWidget(QWidget):
         # 分割线
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #374151;")
+        line.setStyleSheet("color: #374151; border: none;")
         main_layout.addWidget(line)
 
         # ── 2. 主体：左右双栏结构 ──
@@ -158,14 +158,14 @@ class HistoryWidget(QWidget):
         self.cbo_search_type = QComboBox()
         self.cbo_search_type.addItems([u"取餐号", u"订单号"])
         self.cbo_search_type.setStyleSheet(
-            "QComboBox { background: #1F2937; color: white; padding: 6px; border: 1px solid #374151; border-radius: 6px; }"
+            "QComboBox { background: #1F2937; color: white; padding: 6px 12px; border: none; border-radius: 6px; }"
         )
         search_row.addWidget(self.cbo_search_type)
 
         self.txt_search = QLineEdit()
         self.txt_search.setPlaceholderText(u"输入查询内容...")
         self.txt_search.setStyleSheet(
-            "QLineEdit { background: #1F2937; color: white; padding: 6px; border: 1px solid #374151; border-radius: 6px; }"
+            "QLineEdit { background: #1F2937; color: white; padding: 6px 12px; border: none; border-radius: 6px; }"
         )
         self.txt_search.returnPressed.connect(self._on_query)
         search_row.addWidget(self.txt_search)
@@ -184,30 +184,6 @@ class HistoryWidget(QWidget):
         search_row.addWidget(btn_sort)
 
         left_col.addLayout(search_row)
-
-        # (2) 渠道与状态 Filter 标签页
-        chan_row = QHBoxLayout()
-        chan_row.setSpacing(4)
-        for name in [u"全部", u"POS", u"小程序", u"饿了么", u"美团", u"其它"]:
-            b = QPushButton(name)
-            if name == u"全部":
-                b.setStyleSheet("background: #EA580C; color: white; font-weight: bold; border-radius: 4px; padding: 4px 8px; border: none;")
-            else:
-                b.setStyleSheet("background: #1F2937; color: #9CA3AF; font-weight: bold; border-radius: 4px; padding: 4px 8px; border: 1px solid #374151;")
-            chan_row.addWidget(b)
-        left_col.addLayout(chan_row)
-
-        status_row = QHBoxLayout()
-        status_row.setSpacing(8)
-        b_paid = QPushButton(u"已支付")
-        b_paid.setStyleSheet("background: #1F2937; color: #EA580C; font-weight: bold; border: 1px solid #EA580C; border-radius: 4px; padding: 4px 12px;")
-        status_row.addWidget(b_paid)
-
-        b_refunded = QPushButton(u"已退单")
-        b_refunded.setStyleSheet("background: #1F2937; color: #9CA3AF; font-weight: bold; border: 1px solid #374151; border-radius: 4px; padding: 4px 12px;")
-        status_row.addWidget(b_refunded)
-        status_row.addStretch()
-        left_col.addLayout(status_row)
 
         # (3) 订单滚动列表
         self.scroll_orders = QScrollArea()
@@ -246,14 +222,14 @@ class HistoryWidget(QWidget):
         # (1) 基础信息 Header
         meta_row = QHBoxLayout()
         lbl_meta = QLabel(u"POS机号：1    就餐人数：1    收银员：杨国福(肥西水晶城店)门店经理")
-        lbl_meta.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold;")
+        lbl_meta.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold; border: none;")
         meta_row.addWidget(lbl_meta)
         meta_row.addStretch()
         right_col.addLayout(meta_row)
 
         # (2) 购买商品明细卡片
         self.items_card = QFrame()
-        self.items_card.setStyleSheet("QFrame { background: #1E293B; border: 1px solid #374151; border-radius: 10px; }")
+        self.items_card.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 10px; }")
         self.items_layout = QVBoxLayout(self.items_card)
         self.items_layout.setContentsMargins(16, 14, 16, 14)
         self.items_layout.setSpacing(10)
@@ -262,20 +238,20 @@ class HistoryWidget(QWidget):
 
         # (3) 支付信息卡片
         self.pay_card = QFrame()
-        self.pay_card.setStyleSheet("QFrame { background: #1E293B; border: 1px solid #374151; border-radius: 10px; }")
+        self.pay_card.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 10px; }")
         pay_layout = QVBoxLayout(self.pay_card)
         pay_layout.setContentsMargins(16, 12, 16, 12)
         pay_layout.setSpacing(6)
 
         lbl_pay_title = QLabel(u"支付信息")
-        lbl_pay_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+        lbl_pay_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
         pay_layout.addWidget(lbl_pay_title)
 
         self.pay_info_row = QHBoxLayout()
         self.lbl_pay_type = QLabel(u"微信:")
-        self.lbl_pay_type.setStyleSheet("color: #9CA3AF; font-size: 14px;")
+        self.lbl_pay_type.setStyleSheet("color: #9CA3AF; font-size: 14px; border: none;")
         self.lbl_pay_val = QLabel(u"¥ 0.00")
-        self.lbl_pay_val.setStyleSheet("color: #F9FAFB; font-size: 14px; font-weight: bold;")
+        self.lbl_pay_val.setStyleSheet("color: #F9FAFB; font-size: 14px; font-weight: bold; border: none;")
         self.pay_info_row.addWidget(self.lbl_pay_type)
         self.pay_info_row.addStretch()
         self.pay_info_row.addWidget(self.lbl_pay_val)
@@ -289,21 +265,21 @@ class HistoryWidget(QWidget):
 
         # 订单信息卡片
         card_order_info = QFrame()
-        card_order_info.setStyleSheet("QFrame { background: #1E293B; border: 1px solid #374151; border-radius: 10px; }")
+        card_order_info.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 10px; }")
         layout_oi = QVBoxLayout(card_order_info)
         layout_oi.setContentsMargins(14, 12, 14, 12)
         layout_oi.setSpacing(6)
 
         lbl_oi_title = QLabel(u"订单信息")
-        lbl_oi_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+        lbl_oi_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
         layout_oi.addWidget(lbl_oi_title)
 
         self.lbl_order_no = QLabel(u"订单编号：---")
-        self.lbl_order_no.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        self.lbl_order_no.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
         self.lbl_create_time = QLabel(u"创建时间：---")
-        self.lbl_create_time.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        self.lbl_create_time.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
         self.lbl_remark_info = QLabel(u"备注信息：")
-        self.lbl_remark_info.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        self.lbl_remark_info.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
 
         layout_oi.addWidget(self.lbl_order_no)
         layout_oi.addWidget(self.lbl_create_time)
@@ -312,21 +288,21 @@ class HistoryWidget(QWidget):
 
         # 金额明细卡片
         card_amount_info = QFrame()
-        card_amount_info.setStyleSheet("QFrame { background: #1E293B; border: 1px solid #374151; border-radius: 10px; }")
+        card_amount_info.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 10px; }")
         layout_ai = QVBoxLayout(card_amount_info)
         layout_ai.setContentsMargins(14, 12, 14, 12)
         layout_ai.setSpacing(6)
 
         lbl_ai_title = QLabel(u"金额明细")
-        lbl_ai_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+        lbl_ai_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
         layout_ai.addWidget(lbl_ai_title)
 
         self.lbl_item_total = QLabel(u"商品金额：¥ 0.00")
-        self.lbl_item_total.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        self.lbl_item_total.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
         self.lbl_discount_total = QLabel(u"折扣金额：¥ 0.00")
-        self.lbl_discount_total.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        self.lbl_discount_total.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
         self.lbl_final_total = QLabel(u"实收金额：¥ 0.00")
-        self.lbl_final_total.setStyleSheet("color: #EA580C; font-size: 15px; font-weight: 900;")
+        self.lbl_final_total.setStyleSheet("color: #EA580C; font-size: 15px; font-weight: 900; border: none;")
 
         layout_ai.addWidget(self.lbl_item_total)
         layout_ai.addWidget(self.lbl_discount_total)
@@ -348,18 +324,10 @@ class HistoryWidget(QWidget):
         right_action_row.addWidget(btn_r_next)
         right_action_row.addStretch()
 
-        btn_part_refund = QPushButton(u"部分退")
-        btn_part_refund.setStyleSheet("background: #374151; color: white; padding: 8px 18px; border-radius: 6px; border: none;")
-        btn_refund = QPushButton(u"退单")
-        btn_refund.setStyleSheet("background: #374151; color: white; padding: 8px 18px; border-radius: 6px; border: none;")
-        btn_refund.clicked.connect(self._on_refund_click)
-
         btn_reprint = QPushButton(u"重打印")
         btn_reprint.setStyleSheet("background: #EA580C; color: white; font-weight: 900; font-size: 15px; padding: 8px 24px; border-radius: 6px; border: none;")
         btn_reprint.clicked.connect(self._on_reprint_click)
 
-        right_action_row.addWidget(btn_part_refund)
-        right_action_row.addWidget(btn_refund)
         right_action_row.addWidget(btn_reprint)
 
         right_col.addLayout(right_action_row)
@@ -469,11 +437,11 @@ class HistoryWidget(QWidget):
             item_row = QVBoxLayout()
             row_main = QHBoxLayout()
             lbl_name = QLabel(u"经典草本骨汤 ( KG )")
-            lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+            lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
             lbl_qty = QLabel("x%.3f" % w_kg)
-            lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB;")
+            lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
             lbl_price = QLabel("¥ %.2f" % tot)
-            lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+            lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
 
             row_main.addWidget(lbl_name)
             row_main.addStretch()
@@ -484,7 +452,7 @@ class HistoryWidget(QWidget):
 
             # 叫号或口味
             lbl_tag = QLabel(u"微辣/")
-            lbl_tag.setStyleSheet("font-size: 12px; color: #9CA3AF;")
+            lbl_tag.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
             item_row.addWidget(lbl_tag)
             self.items_layout.addLayout(item_row)
 
@@ -495,11 +463,11 @@ class HistoryWidget(QWidget):
                     continue
                 item_row = QHBoxLayout()
                 lbl_name = QLabel(p)
-                lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+                lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
                 lbl_qty = QLabel("x1")
-                lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB;")
+                lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
                 lbl_price = QLabel("¥ 1.00")
-                lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+                lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
 
                 item_row.addWidget(lbl_name)
                 item_row.addStretch()
