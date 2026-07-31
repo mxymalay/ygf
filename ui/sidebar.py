@@ -100,8 +100,8 @@ class SideNavBar(QWidget):
         layout.addWidget(item_history)
         self._items.append(item_history)
 
-        # 2: 交班报表
-        item_report = SideNavItem(u"📊", u"交班报表", 2)
+        # 2: 报表
+        item_report = SideNavItem(u"📊", u"报表", 2)
         item_report.clicked.connect(lambda: self._select_page(2))
         layout.addWidget(item_report)
         self._items.append(item_report)

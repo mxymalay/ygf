@@ -39,14 +39,14 @@ class ReportWidget(QWidget):
         # ── 1. 顶部 Header 栏 ──
         header_bar = QHBoxLayout()
 
-        self.lbl_header_title = QLabel(u"交班小结")
-        self.lbl_header_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #F9FAFB;")
+        self.lbl_header_title = QLabel(u"报表")
+        self.lbl_header_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #F9FAFB; border: none;")
         header_bar.addWidget(self.lbl_header_title)
 
         header_bar.addStretch()
 
         self.lbl_header_date = QLabel(self.selected_date_str)
-        self.lbl_header_date.setStyleSheet("font-size: 16px; font-weight: bold; color: #F9FAFB;")
+        self.lbl_header_date.setStyleSheet("font-size: 16px; font-weight: bold; color: #F9FAFB; border: none;")
         header_bar.addWidget(self.lbl_header_date)
 
         main_layout.addLayout(header_bar)
@@ -54,7 +54,7 @@ class ReportWidget(QWidget):
         # 分割线
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #374151;")
+        line.setStyleSheet("color: #374151; border: none;")
         main_layout.addWidget(line)
 
         # ── 2. 主体三栏布局 (左:日历+菜单, 中:交班小结票据, 右:小结状态+历史) ──
@@ -70,9 +70,9 @@ class ReportWidget(QWidget):
         self.calendar.setGridVisible(True)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.calendar.setStyleSheet(
-            "QCalendarWidget { background: #1E293B; color: #F9FAFB; border: 1px solid #374151; border-radius: 8px; }"
-            "QCalendarWidget QWidget#qt_calendar_navigationbar { background: #111827; }"
-            "QCalendarWidget QAbstractItemView { selection-background-color: #EA580C; selection-color: white; }"
+            "QCalendarWidget { background: #1E293B; color: #F9FAFB; border: none; border-radius: 8px; }"
+            "QCalendarWidget QWidget#qt_calendar_navigationbar { background: #111827; border: none; }"
+            "QCalendarWidget QAbstractItemView { selection-background-color: #EA580C; selection-color: white; border: none; }"
         )
         self.calendar.selectionChanged.connect(self._on_date_changed)
         left_col.addWidget(self.calendar)
@@ -103,7 +103,7 @@ class ReportWidget(QWidget):
         # ──────────────── Middle Column (交班小结白板票据) ────────────────
         mid_card = QFrame()
         mid_card.setStyleSheet(
-            "QFrame { background: #FFFFFF; border-radius: 10px; border: 1px solid #E5E7EB; }"
+            "QFrame { background: #FFFFFF; border-radius: 10px; border: none; }"
         )
         mid_layout = QVBoxLayout(mid_card)
         mid_layout.setContentsMargins(20, 20, 20, 20)
@@ -112,21 +112,21 @@ class ReportWidget(QWidget):
         # 票据标题
         lbl_ticket_title = QLabel(u"交班小结")
         lbl_ticket_title.setAlignment(Qt.AlignCenter)
-        lbl_ticket_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #111827;")
+        lbl_ticket_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #111827; border: none;")
         mid_layout.addWidget(lbl_ticket_title)
 
         lbl_sep1 = QLabel("------------------------------------------")
         lbl_sep1.setAlignment(Qt.AlignCenter)
-        lbl_sep1.setStyleSheet("color: #9CA3AF;")
+        lbl_sep1.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_sep1)
 
         # 头部门店元数据
         self.lbl_shop_name = QLabel(u"门店名称：杨国福(肥西水晶城店)")
-        self.lbl_shop_name.setStyleSheet("color: #374151; font-size: 13px;")
+        self.lbl_shop_name.setStyleSheet("color: #374151; font-size: 13px; border: none;")
         self.lbl_start_time = QLabel(u"开始时间：%s" % self.selected_date_str)
-        self.lbl_start_time.setStyleSheet("color: #374151; font-size: 13px;")
+        self.lbl_start_time.setStyleSheet("color: #374151; font-size: 13px; border: none;")
         self.lbl_pending_count = QLabel(u"挂单数量：0")
-        self.lbl_pending_count.setStyleSheet("color: #374151; font-size: 13px;")
+        self.lbl_pending_count.setStyleSheet("color: #374151; font-size: 13px; border: none;")
 
         mid_layout.addWidget(self.lbl_shop_name)
         mid_layout.addWidget(self.lbl_start_time)
@@ -134,17 +134,17 @@ class ReportWidget(QWidget):
 
         lbl_sep2 = QLabel("------------------------------------------")
         lbl_sep2.setAlignment(Qt.AlignCenter)
-        lbl_sep2.setStyleSheet("color: #9CA3AF;")
+        lbl_sep2.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_sep2)
 
         # 销售汇总
         lbl_sec_sales = QLabel(u"销售汇总")
-        lbl_sec_sales.setStyleSheet("font-size: 15px; font-weight: bold; color: #111827;")
+        lbl_sec_sales.setStyleSheet("font-size: 15px; font-weight: bold; color: #111827; border: none;")
         mid_layout.addWidget(lbl_sec_sales)
 
         lbl_eq1 = QLabel("==========================================")
         lbl_eq1.setAlignment(Qt.AlignCenter)
-        lbl_eq1.setStyleSheet("color: #9CA3AF;")
+        lbl_eq1.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_eq1)
 
         # 收入、订单量、客单价
@@ -156,12 +156,12 @@ class ReportWidget(QWidget):
 
         # 收入明细
         lbl_sec_pay = QLabel(u"收入明细")
-        lbl_sec_pay.setStyleSheet("font-size: 15px; font-weight: bold; color: #111827; margin-top: 8px;")
+        lbl_sec_pay.setStyleSheet("font-size: 15px; font-weight: bold; color: #111827; margin-top: 8px; border: none;")
         mid_layout.addWidget(lbl_sec_pay)
 
         lbl_eq2 = QLabel("==========================================")
         lbl_eq2.setAlignment(Qt.AlignCenter)
-        lbl_eq2.setStyleSheet("color: #9CA3AF;")
+        lbl_eq2.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_eq2)
 
         self.lbl_pay_rmb = self._add_receipt_row(mid_layout, u"人民币", u"¥ 0.00")
@@ -196,21 +196,21 @@ class ReportWidget(QWidget):
         # 顶部收银员小结卡片
         summary_card = QFrame()
         summary_card.setStyleSheet(
-            "QFrame { background: #1E293B; border: 1px solid #374151; border-radius: 10px; padding: 14px; }"
+            "QFrame { background: #1E293B; border: none; border-radius: 10px; padding: 14px; }"
         )
         sc_layout = QVBoxLayout(summary_card)
         sc_layout.setSpacing(10)
 
         user_row = QHBoxLayout()
         lbl_avatar = QLabel(u"👤")
-        lbl_avatar.setStyleSheet("font-size: 32px; background: #374151; border-radius: 20px; padding: 4px;")
+        lbl_avatar.setStyleSheet("font-size: 32px; background: #374151; border-radius: 20px; padding: 4px; border: none;")
         user_info = QVBoxLayout()
         lbl_cashier_name = QLabel(u"杨国福(肥西水晶城店)")
-        lbl_cashier_name.setStyleSheet("color: #F9FAFB; font-weight: bold; font-size: 14px;")
+        lbl_cashier_name.setStyleSheet("color: #F9FAFB; font-weight: bold; font-size: 14px; border: none;")
         self.lbl_shift_time = QLabel("%s 06:44:13" % self.selected_date_str)
-        self.lbl_shift_time.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        self.lbl_shift_time.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none;")
         self.lbl_shift_total = QLabel(u"¥ 0.00")
-        self.lbl_shift_total.setStyleSheet("color: #F9FAFB; font-size: 18px; font-weight: 900;")
+        self.lbl_shift_total.setStyleSheet("color: #F9FAFB; font-size: 18px; font-weight: 900; border: none;")
 
         user_info.addWidget(lbl_cashier_name)
         user_info.addWidget(self.lbl_shift_time)
@@ -254,8 +254,8 @@ class ReportWidget(QWidget):
         lbl_v = QLabel(val_text)
 
         font_style = "font-weight: bold;" if is_bold else ""
-        lbl_k.setStyleSheet("color: #111827; font-size: 14px; %s" % font_style)
-        lbl_v.setStyleSheet("color: #111827; font-size: 14px; %s" % font_style)
+        lbl_k.setStyleSheet("color: #111827; font-size: 14px; border: none; %s" % font_style)
+        lbl_v.setStyleSheet("color: #111827; font-size: 14px; border: none; %s" % font_style)
 
         row.addWidget(lbl_k)
         row.addStretch()
@@ -275,7 +275,7 @@ class ReportWidget(QWidget):
             else:
                 btn.setStyleSheet(
                     "background: #1E293B; color: #9CA3AF; font-weight: bold; "
-                    "border-radius: 6px; padding: 10px; border: 1px solid #374151;"
+                    "border-radius: 6px; padding: 10px; border: none;"
                 )
         self._load_data()
 
