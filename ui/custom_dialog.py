@@ -125,7 +125,7 @@ class ModernDialog(QDialog):
         if parent_w:
             try:
                 blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(16)
+                blur.setBlurRadius(42)
                 parent_w.setGraphicsEffect(blur)
             except Exception:
                 pass
@@ -429,7 +429,7 @@ class ReceiptPreviewDialog(QDialog):
         if parent_w:
             try:
                 blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(16)
+                blur.setBlurRadius(42)
                 parent_w.setGraphicsEffect(blur)
             except Exception:
                 pass
