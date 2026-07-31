@@ -23,8 +23,16 @@ class QueueWidget(QWidget):
         self._load_settings()
 
     def _build_ui(self):
+        self.setStyleSheet("""
+            * { border: none; outline: none; }
+            QWidget { border: none; }
+            QFrame { border: none; }
+            QLabel { border: none; }
+            QRadioButton { border: none; }
+            QCheckBox { border: none; }
+        """)
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(16)
+        main_layout.setSpacing(18)
         main_layout.setContentsMargins(24, 20, 24, 20)
 
         # ── 1. 顶部 Header 标题栏 ──
@@ -40,12 +48,6 @@ class QueueWidget(QWidget):
         header_layout.addWidget(lbl_sub)
 
         main_layout.addLayout(header_layout)
-
-        # 分割线
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #374151; border: none; margin-top: 4px; margin-bottom: 4px;")
-        main_layout.addWidget(line)
 
         # 单选按钮组
         self.mode_group = QButtonGroup(self)
