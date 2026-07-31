@@ -683,7 +683,7 @@ class SaleWidget(QWidget):
         self.btn_clear.clicked.connect(self._on_clear)
         btn_box.addWidget(self.btn_clear, stretch=1)
 
-        self.btn_print = QPushButton(u"确认收款")
+        self.btn_print = QPushButton(u"确认已收款")
         self.btn_print.setObjectName("btn_print")
         self.btn_print.setCursor(Qt.PointingHandCursor)
         self.btn_print.clicked.connect(self._on_print)
