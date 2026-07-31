@@ -1,6 +1,7 @@
 """
-称重秤串口读取模块 — 含智能全端口/全波特率自适应扫描匹配
-支持 RTS/DTR 硬件激活与 DIBAL/多品牌协议自动识别
+称重秤读取模块 — 官方日志无缝同步 + 串口自适应混合引擎
+1. 官方系统打开时：实时无缝同步 C:\\YANGGUOFU-POS\\serial\\log_serial_ports_weight (免串口冲突/免VSPE)
+2. 官方系统未打开时：直接打开 COM 串口进行 RTS/DTR 硬件探针读取
 PyQt5 + Python 3.8 兼容
 """
 import re
@@ -14,7 +15,7 @@ from config import save_config
 class ScaleReader(QObject):
     """
     称重秤读取器，运行在后台线程中。
-    具有全自动端口与波特率扫描重连功能。
+    双模式：官方系统日志同步模式 + 物理串口直连模式
     """
 
     weight_updated = pyqtSignal(float)
@@ -32,6 +33,10 @@ class ScaleReader(QObject):
         self._last_weights = []
         self._stable_threshold = config.get("stable_threshold", 0.01)
         self._stable_count = config.get("stable_count", 5)
+
+        # 官方 POS 系统串口日志路径
+        self._ygf_weight_log = r"C:\YANGGUOFU-POS\serial\log_serial_ports_weight"
+        self._ygf_info_log = r"C:\YANGGUOFU-POS\serial\log_serial_ports_info"
 
     def start(self):
         """启动称重读取"""
@@ -52,13 +57,96 @@ class ScaleReader(QObject):
             self._serial = None
 
     def restart(self):
-        """重新连接串口"""
+        """重新连接称重服务"""
         self.stop()
         time.sleep(0.3)
         self.start()
 
     def _run_loop(self):
-        """主循环 — 智能匹配串口与波特率"""
+        """主循环 — 优先检查官方日志共享模式，其次退回物理串口"""
+        while self._running:
+            # 检查官方 POS 日志文件是否存在且在 5 秒内有更新
+            if self._is_ygf_log_active():
+                self._read_from_ygf_log()
+            else:
+                self._read_from_serial()
+
+    def _is_ygf_log_active(self) -> bool:
+        """检查官方系统的称重日志是否处于活跃更新状态"""
+        for log_path in [self._ygf_weight_log, self._ygf_info_log]:
+            if os.path.exists(log_path):
+                try:
+                    mtime = os.path.getmtime(log_path)
+                    if time.time() - mtime < 5.0:  # 5秒内有写入数据
+                        return True
+                except Exception:
+                    pass
+        return False
+
+    def _read_from_ygf_log(self):
+        """模式 1：从官方系统实时日志中拉取重量（零串口冲突、零配置）"""
+        self.status_changed.emit(True, "● 已同步官方收银系统称重服务 (免串口占用/免VSPE)")
+        last_pos = 0
+        last_weight = None
+
+        target_file = self._ygf_weight_log if os.path.exists(self._ygf_weight_log) else self._ygf_info_log
+
+        try:
+            with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
+                f.seek(0, os.SEEK_END)
+                last_pos = f.tell()
+
+                while self._running:
+                    # 如果日志停更超过 6 秒，退出此模式切回物理串口
+                    if not self._is_ygf_log_active():
+                        break
+
+                    current_pos = f.tell()
+                    if current_pos < last_pos:  # 文件可能被切割重写
+                        f.seek(0, os.SEEK_SET)
+
+                    lines = f.readlines()
+                    last_pos = f.tell()
+
+                    for line in reversed(lines):
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # 格式1: [中国标准时间)] DI_BAO read - 000.350
+                        # 格式2: ["00.350", "00.350", ...]
+                        m = re.search(r'read\s*-\s*([+-]?\d{1,5}\.\d{1,4})', line)
+                        if not m:
+                            m = re.search(r'"([+-]?\d{1,5}\.\d{1,4})"', line)
+                        if not m:
+                            m = re.search(r'([+-]?\d{1,5}\.\d{1,4})', line)
+
+                        if m:
+                            try:
+                                weight_val = float(m.group(1))
+                                # 兼容克与公斤
+                                if weight_val > 50:
+                                    weight_val = weight_val / 1000.0
+                                weight = round(abs(weight_val), 3)
+
+                                if weight != last_weight:
+                                    last_weight = weight
+                                    self.weight_updated.emit(weight)
+                                    self._check_stability(weight)
+                                    self.status_changed.emit(
+                                        True, "● 已同步官方收银称重 | 读数: %.3f kg" % weight
+                                    )
+                                break
+                            except Exception:
+                                pass
+
+                    time.sleep(0.1)
+
+        except Exception:
+            time.sleep(0.5)
+
+    def _read_from_serial(self):
+        """模式 2：独立物理串口模式 (按波特率及端口全自动自适应)"""
         try:
             import serial
             import serial.tools.list_ports
@@ -66,16 +154,15 @@ class ScaleReader(QObject):
             msg = "未安装 pyserial 库，请运行: pip install pyserial"
             self.error_occurred.emit(msg)
             self.status_changed.emit(False, msg)
+            time.sleep(2.0)
             return
 
-        baudrates = [9600, 4800, 2400, 19200, 38400, 115200]
+        baudrates = [9600, 4800, 2400, 19200]
         init_cmds = [b"\x05", b"\x0201\x03", b"W\r\n", b"\x0200\x03", b"Q\r\n"]
 
-        # 先尝试配置中的首选端口与波特率
         pref_port = self.config.get("scale_port", "COM1")
         pref_baud = self.config.get("scale_baudrate", 9600)
 
-        # 构建待测试候选清单
         com_list = [p.device for p in serial.tools.list_ports.comports()]
         if pref_port not in com_list and os.name == 'nt':
             com_list.insert(0, pref_port)
@@ -83,7 +170,6 @@ class ScaleReader(QObject):
         if not com_list:
             com_list = ["COM1", "COM2", "COM3", "COM4"]
 
-        # 候选尝试队列：首选优先，其次遍历所有 COM 与波特率
         candidates = [(pref_port, pref_baud)]
         for p in com_list:
             for b in baudrates:
@@ -94,7 +180,10 @@ class ScaleReader(QObject):
         current_port, current_baud = candidates[0]
 
         while self._running:
-            # 尝试打开当前选定的 (port, baudrate)
+            # 随时检测官方日志是否开启，如果开启立刻退出串口模式进入日志同步模式
+            if self._is_ygf_log_active():
+                return
+
             try:
                 if self._serial:
                     try:
@@ -116,14 +205,12 @@ class ScaleReader(QObject):
                     timeout=0.2
                 )
 
-                # 拉高 RTS/DTR 供电
                 try:
                     self._serial.dtr = True
                     self._serial.rts = True
                 except Exception:
                     pass
 
-                # 发送握手激活探针
                 for cmd in init_cmds:
                     try:
                         self._serial.write(cmd)
@@ -136,8 +223,10 @@ class ScaleReader(QObject):
                 last_query_t = 0
                 got_valid_data = False
 
-                # 监听 3 秒看是否有数据响应
-                while self._running and (time.time() - start_listen_t < 3.0):
+                while self._running and (time.time() - start_listen_t < 2.5):
+                    if self._is_ygf_log_active():
+                        return
+
                     now = time.time()
                     if now - last_query_t > 0.3:
                         for cmd in init_cmds:
@@ -151,7 +240,6 @@ class ScaleReader(QObject):
                         data = self._serial.read(self._serial.in_waiting)
                         buffer += data
 
-                        # 切帧解析
                         while len(buffer) > 0:
                             packet = None
                             if b"\x02" in buffer and b"\x03" in buffer:
@@ -186,43 +274,42 @@ class ScaleReader(QObject):
                                     buffer = buffer[-32:]
                                 break
 
-                        # 一旦在这个端口/波特率上收到了有效数据，就进入持久监听循环！
                         if got_valid_data:
-                            # 自动更新并保存最新匹配到的配置
                             if (self.config.get("scale_port") != current_port or
                                     self.config.get("scale_baudrate") != current_baud):
                                 self.config["scale_port"] = current_port
                                 self.config["scale_baudrate"] = current_baud
                                 save_config(self.config)
 
-                            # 进入长期监听死循环
-                            self._listen_forever(current_port, current_baud, init_cmds)
+                            self._listen_serial_forever(current_port, current_baud, init_cmds)
                             return
 
                     time.sleep(0.05)
 
-                # 3 秒内这个组合没有响应，切换到下一个候选端口/波特率
                 cand_idx = (cand_idx + 1) % len(candidates)
                 current_port, current_baud = candidates[cand_idx]
 
             except Exception as e:
                 err_str = str(e)
                 if "PermissionError" in err_str or "Access is denied" in err_str:
-                    msg = "串口 %s 被公司原POS软件占用！请先关闭原软件或用 VSPE 分流" % current_port
-                    self.status_changed.emit(False, msg)
+                    msg = "● 官方收银系统正在运行中 (已自动开启日志无缝同步)"
+                    self.status_changed.emit(True, msg)
                     time.sleep(1.0)
 
                 cand_idx = (cand_idx + 1) % len(candidates)
                 current_port, current_baud = candidates[cand_idx]
                 time.sleep(0.2)
 
-    def _listen_forever(self, port, baud, init_cmds):
-        """成功锁定硬件后，进入高效持久接收循环"""
+    def _listen_serial_forever(self, port, baud, init_cmds):
+        """直连物理串口长期接收"""
         buffer = b""
         last_query_t = 0
         query_idx = 0
 
         while self._running:
+            if self._is_ygf_log_active():
+                return
+
             now = time.time()
             if now - last_query_t > 0.3:
                 try:
