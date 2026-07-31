@@ -1,5 +1,5 @@
 """
-销售/称重界面 — 称重状态左侧图标融合设计 (⏳ 加载中 / ✅ 绿色对号)
+销售/称重界面 — 原生 4x4 菜单网格 + 汤底选择加入称重明细逻辑
 PyQt5 + Python 3.8 兼容
 """
 import random
@@ -52,6 +52,84 @@ class OrderItemCard(QFrame):
             layout.addWidget(lbl_tag)
 
 
+class MenuGridButton(QPushButton):
+    """
+    杨国福右侧原生菜单卡片按钮
+    支持双行标题 + 价格副标题 + 右上角数字角标 (Badge)
+    """
+
+    def __init__(self, key_id, title, subtitle, price, is_soup=False, parent=None):
+        super().__init__(parent)
+        self.key_id = key_id
+        self.title_str = title
+        self.subtitle_str = subtitle
+        self.price_val = price
+        self.is_soup = is_soup
+        self.count = 0
+
+        self.setMinimumHeight(70)
+        self.setCursor(Qt.PointingHandCursor)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 6, 4, 6)
+        layout.setSpacing(2)
+        layout.setAlignment(Qt.AlignCenter)
+
+        # 标题 (例如: 经典草本骨汤 / 4元饮料)
+        self.lbl_title = QLabel(title)
+        self.lbl_title.setAlignment(Qt.AlignCenter)
+        self.lbl_title.setWordWrap(True)
+        layout.addWidget(self.lbl_title)
+
+        # 副标题价格 (例如: ¥ 47.60/KG / ¥ 4.00/瓶)
+        self.lbl_sub = QLabel(subtitle)
+        self.lbl_sub.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lbl_sub)
+
+        # 右上角数字角标 (Badge)
+        self.lbl_badge = QLabel("", self)
+        self.lbl_badge.setStyleSheet(
+            "background: #EA580C; color: white; font-weight: bold; font-size: 11px; "
+            "border-radius: 9px; padding: 1px 5px;"
+        )
+        self.lbl_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.lbl_badge.hide()
+
+        self._update_style()
+
+    def set_count(self, val: int):
+        self.count = val
+        if val > 0:
+            self.lbl_badge.setText(str(val))
+            self.lbl_badge.show()
+            self.lbl_badge.adjustSize()
+            self.lbl_badge.move(self.width() - self.lbl_badge.width() - 4, 4)
+        else:
+            self.lbl_badge.hide()
+        self._update_style()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.count > 0:
+            self.lbl_badge.move(self.width() - self.lbl_badge.width() - 4, 4)
+
+    def _update_style(self):
+        if self.count > 0:
+            self.setStyleSheet(
+                "QPushButton { background: #1E293B; border: 2px solid #EA580C; border-radius: 10px; }"
+                "QPushButton:hover { background: #263352; }"
+            )
+            self.lbl_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #F97316; border: none; background: transparent;")
+            self.lbl_sub.setStyleSheet("font-size: 12px; color: #38BDF8; border: none; background: transparent;")
+        else:
+            self.setStyleSheet(
+                "QPushButton { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; }"
+                "QPushButton:hover { background: #F3F4F6; }"
+            )
+            self.lbl_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #C2410C; border: none; background: transparent;")
+            self.lbl_sub.setStyleSheet("font-size: 12px; color: #4B5563; border: none; background: transparent;")
+
+
 class SaleWidget(QWidget):
     """主销售界面"""
 
@@ -66,7 +144,12 @@ class SaleWidget(QWidget):
         self._stable_weight = 0.0
         self._is_stable = False
         
-        self.extra_items = []
+        # 选中的汤底（未点击汤底时为 None，不计算称重价钱）
+        self.selected_soup = None
+        # 附加加价项目字典: { item_key: count }
+        self.item_counts = {}
+        
+        self.menu_buttons = {}
         self.temp_order_no = self._gen_temp_order_no()
         self._detail_expanded = False
 
@@ -79,14 +162,14 @@ class SaleWidget(QWidget):
 
     def _build_ui(self):
         layout = QHBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(14)
+        layout.setContentsMargins(12, 12, 12, 12)
 
         # ── 左侧：开单面板 ──
         left_card = QFrame()
         left_card.setStyleSheet("QFrame { background: #111827; border: none; border-radius: 14px; }")
         left_layout = QVBoxLayout(left_card)
-        left_layout.setContentsMargins(14, 14, 14, 14)
+        left_layout.setContentsMargins(12, 12, 12, 12)
         left_layout.setSpacing(10)
 
         # 1. 顶栏：本次打印叫号模块 (带展开/折叠详细信息)
@@ -129,7 +212,7 @@ class SaleWidget(QWidget):
 
         left_layout.addWidget(self.call_detail_box)
 
-        # 原版橙色重量 LED 横幅卡片（状态融合到左侧图标）
+        # 橙色重量 LED 横幅卡片
         led_banner = QFrame()
         led_banner.setStyleSheet(
             "QFrame { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
@@ -167,11 +250,9 @@ class SaleWidget(QWidget):
         scroll.setWidget(self.cart_container)
         left_layout.addWidget(scroll, stretch=1)
 
-
-
-        # 结算金额栏 (去框无痕)
+        # 3. 结算金额栏
         footer_line = QHBoxLayout()
-        self.lbl_item_count = QLabel(u"共 1 件，需付款：")
+        self.lbl_item_count = QLabel(u"共 0 件，需付款：")
         self.lbl_item_count.setStyleSheet("font-size: 16px; font-weight: bold; color: #9CA3AF; border: none;")
         footer_line.addWidget(self.lbl_item_count)
 
@@ -185,86 +266,97 @@ class SaleWidget(QWidget):
 
         layout.addWidget(left_card, stretch=5)
 
-        # ── 右侧：1-10元快捷加价 + 打印操作 ──
+        # ── 右侧：参照原版 4x4 网格菜单 ──
         right = QVBoxLayout()
-        right.setSpacing(14)
+        right.setSpacing(12)
 
-        # 快捷加价网格 (1元 ~ 10元)
-        add_group = QGroupBox(u"快捷添加商品/打包 (1元~10元)")
-        ag_grid = QGridLayout(add_group)
-        ag_grid.setSpacing(8)
+        menu_group = QGroupBox(u"请点选汤底与附加加价项目")
+        mg_grid = QGridLayout(menu_group)
+        mg_grid.setSpacing(8)
 
-        item_names = {
-            1: u"打包盒 (小) (个)",
-            2: u"打包盒 (大) (个)",
-            3: u"3元调料/汤底",
-            4: u"4元饮料 (瓶)",
-            5: u"5元饮料 (瓶)",
-            6: u"6元自选加料",
-            7: u"7元自选加料",
-            8: u"8元自选加料",
-            9: u"9元自选加料",
-            10: u"10元小吃/加餐"
-        }
+        unit_price = self.config.get("unit_price", 47.60)
+        price_unit = self.config.get("price_unit", "per_jin")
+        pu_lbl = price_unit_label(price_unit)
 
-        for i in range(1, 11):
-            name = item_names.get(i, u"+%d元" % i)
-            btn_add = QPushButton(u"+%d元" % i)
-            btn_add.setToolTip(name)
-            btn_add.setStyleSheet(
-                "background: #172136; color: #F9FAFB; border: none;"
-                "border-radius: 8px; font-weight: bold; font-size: 15px; min-height: 42px;"
-            )
-            price_val = float(i)
-            btn_add.clicked.connect(lambda checked, p=price_val, n=name: self._add_item_to_cart(n, p))
+        # 定义参照参考图片的菜单列表 (4列 x 4行)
+        menu_items_config = [
+            # 行 1: 三种汤底 + 1元串/小食
+            (0, 0, "soup_1", u"经典草本骨汤\n( KG )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
+            (0, 1, "soup_2", u"酸甜番茄汤\n( KG )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
+            (0, 2, "soup_3", u"石磨醇香麻辣拌\n( 干拌无汤 )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
+            (0, 3, "item_串", u"1元串/小食", u"¥ 1.00/份", 1.0, False),
 
-            row = (i - 1) // 5
-            col = (i - 1) % 5
-            ag_grid.addWidget(btn_add, row, col)
+            # 行 2: 打包盒 + 1-3元饮料
+            (1, 0, "item_box", u"打包盒 (小)", u"¥ 1.00/个", 1.0, False),
+            (1, 1, "item_1", u"1元饮料", u"¥ 1.00/瓶", 1.0, False),
+            (1, 2, "item_2", u"2元饮料", u"¥ 2.00/瓶", 2.0, False),
+            (1, 3, "item_3", u"3元饮料", u"¥ 3.00/瓶", 3.0, False),
 
-        btn_reset_fee = QPushButton(u"清空附加项目")
-        btn_reset_fee.setStyleSheet(
-            "background: #78350F; color: #FBBF24; border: none;"
-            "border-radius: 8px; font-weight: bold; font-size: 14px; min-height: 40px;"
-        )
-        btn_reset_fee.clicked.connect(self._clear_extra_items)
-        ag_grid.addWidget(btn_reset_fee, 2, 0, 1, 5)
+            # 行 3: 4-7元饮料
+            (2, 0, "item_4", u"4元饮料", u"¥ 4.00/瓶", 4.0, False),
+            (2, 1, "item_5", u"5元饮料", u"¥ 5.00/瓶", 5.0, False),
+            (2, 2, "item_6", u"6元饮料", u"¥ 6.00/瓶", 6.0, False),
+            (2, 3, "item_7", u"7元饮料", u"¥ 7.00/瓶", 7.0, False),
 
-        right.addWidget(add_group)
+            # 行 4: 8-10元饮料
+            (3, 0, "item_8", u"8元饮料", u"¥ 8.00/瓶", 8.0, False),
+            (3, 1, "item_9", u"9元饮料", u"¥ 9.00/瓶", 9.0, False),
+            (3, 2, "item_10", u"10元饮料", u"¥ 10.00/瓶", 10.0, False),
+        ]
 
-        # 核心按键
+        for r, c, key_id, title, sub, price, is_soup in menu_items_config:
+            btn = MenuGridButton(key_id, title, sub, price, is_soup)
+            btn.clicked.connect(lambda checked, b=btn: self._on_menu_click(b))
+            mg_grid.addWidget(btn, r, c)
+            self.menu_buttons[key_id] = btn
+
+        right.addWidget(menu_group)
+
+        # 底部核心按键
+        btn_box = QHBoxLayout()
+        
+        self.btn_clear = QPushButton(u"清空重置")
+        self.btn_clear.setObjectName("btn_clear")
+        self.btn_clear.setCursor(Qt.PointingHandCursor)
+        self.btn_clear.clicked.connect(self._on_clear)
+        btn_box.addWidget(self.btn_clear, stretch=1)
+
         self.btn_print = QPushButton(u"称重并打印小票")
         self.btn_print.setObjectName("btn_print")
         self.btn_print.setCursor(Qt.PointingHandCursor)
         self.btn_print.clicked.connect(self._on_print)
-        right.addWidget(self.btn_print)
+        btn_box.addWidget(self.btn_print, stretch=2)
 
-        self.btn_clear = QPushButton(u"清零 / 重置")
-        self.btn_clear.setObjectName("btn_clear")
-        self.btn_clear.setCursor(Qt.PointingHandCursor)
-        self.btn_clear.clicked.connect(self._on_clear)
-        right.addWidget(self.btn_clear)
+        right.addLayout(btn_box)
 
-        layout.addLayout(right, stretch=4)
+        layout.addLayout(right, stretch=5)
+
+        self._update_price_display()
+
+    def _on_menu_click(self, btn: MenuGridButton):
+        """点击右侧菜单按钮"""
+        if btn.is_soup:
+            # 汤底按钮：取消其他汤底的选择，选中当前汤底
+            for k, b in self.menu_buttons.items():
+                if b.is_soup:
+                    b.set_count(0)
+            self.selected_soup = btn.title_str.replace("\n", " ")
+            btn.set_count(1)
+        else:
+            # 加价/饮料项目：按一次累加 1
+            curr = self.item_counts.get(btn.key_id, 0) + 1
+            self.item_counts[btn.key_id] = curr
+            btn.set_count(curr)
 
         self._update_price_display()
 
     def _toggle_call_detail(self):
-        """展开/收起叫号避重详细信息"""
         self._detail_expanded = not self._detail_expanded
         self.call_detail_box.setVisible(self._detail_expanded)
         if self._detail_expanded:
             self.btn_toggle_detail.setText(u"详细信息 ∧")
         else:
             self.btn_toggle_detail.setText(u"详细信息 ∨")
-
-    def _add_item_to_cart(self, name, price):
-        self.extra_items.append({"name": name, "price": price, "qty": 1})
-        self._update_price_display()
-
-    def _clear_extra_items(self):
-        self.extra_items.clear()
-        self._update_price_display()
 
     def _update_price_display(self):
         """刷新购物明细卡片列表与金额"""
@@ -273,30 +365,43 @@ class SaleWidget(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
-        unit_price = self.config.get("unit_price", 32.00)
+        unit_price = self.config.get("unit_price", 47.60)
         price_unit = self.config.get("price_unit", "per_jin")
         base_price = calculate_price(self.current_weight, unit_price, price_unit)
         pu_lbl = price_unit_label(price_unit)
 
-        extra_total = sum(item["price"] for item in self.extra_items)
-        total_price = base_price + extra_total
+        total_price = 0.0
+        total_items = 0
 
-        # 1. 麻辣烫食材称重主卡片
-        w_str = f"{self.current_weight:.3f}"
-        sub_str = f"{w_str} kg   ¥{unit_price:.2f}/{pu_lbl}   堂食   x{w_str}   ¥{base_price:.2f}"
-        card_main = OrderItemCard(u"经典草本骨汤 ( KG ) (KG)", sub_str, tag=u"微辣/", is_active=False)
-        self.cart_layout.addWidget(card_main)
+        # 1. 只有当点击了汤底时，才加入称重麻辣烫项目！
+        if self.selected_soup:
+            w_str = f"{self.current_weight:.3f}"
+            sub_str = f"{w_str} kg   ¥{unit_price:.2f}/{pu_lbl}   堂食   x{w_str}   ¥{base_price:.2f}"
+            card_main = OrderItemCard(self.selected_soup, sub_str, tag=u"微辣/", is_active=True)
+            self.cart_layout.addWidget(card_main)
+            total_price += base_price
+            total_items += 1
+        else:
+            # 没点击汤底时，在购物车顶部提示
+            lbl_tip = QLabel(u"👈 请点选右侧汤底以加入称重食材")
+            lbl_tip.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold; padding: 12px; border: none;")
+            self.cart_layout.addWidget(lbl_tip)
 
-        # 2. 动态附加项目卡片
-        for idx, item in enumerate(self.extra_items):
-            is_last = (idx == len(self.extra_items) - 1)
-            item_sub = f"1   ¥{item['price']:.2f}   堂食   x1   ¥{item['price']:.2f}"
-            card_extra = OrderItemCard(item["name"], item_sub, is_active=is_last)
-            self.cart_layout.addWidget(card_extra)
+        # 2. 动态附加加价/饮料项目卡片
+        for key_id, count in self.item_counts.items():
+            if count <= 0:
+                continue
+            btn = self.menu_buttons.get(key_id)
+            if btn:
+                item_total = btn.price_val * count
+                item_sub = f"{count}   ¥{btn.price_val:.2f}   堂食   x{count}   ¥{item_total:.2f}"
+                card_extra = OrderItemCard(btn.title_str.replace("\n", " "), item_sub, is_active=False)
+                self.cart_layout.addWidget(card_extra)
+                total_price += item_total
+                total_items += count
 
         # 3. 刷新底部统计
-        item_count = 1 + len(self.extra_items)
-        self.lbl_item_count.setText(u"共 %d 件，需付款：" % item_count)
+        self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
         self.lbl_price.setText(u"￥%.2f" % total_price)
 
     def refresh_call_number_display(self):
@@ -376,15 +481,25 @@ class SaleWidget(QWidget):
 
     def _on_print(self):
         """称重并打印小票"""
+        if not self.selected_soup:
+            QMessageBox.warning(self, u"提示", u"请先点选汤底（如经典草本骨汤）以加入称重项目！")
+            return
+
         weight = self.current_weight
         if weight < 0.01:
             QMessageBox.warning(self, u"提示", u"当前重量为零，请先放上食材！")
             return
 
-        unit_price = self.config.get("unit_price", 32.00)
+        unit_price = self.config.get("unit_price", 47.60)
         price_unit = self.config.get("price_unit", "per_jin")
         base_price = calculate_price(weight, unit_price, price_unit)
-        extra_total = sum(item["price"] for item in self.extra_items)
+        
+        extra_total = 0.0
+        for key_id, count in self.item_counts.items():
+            btn = self.menu_buttons.get(key_id)
+            if btn and count > 0:
+                extra_total += btn.price_val * count
+
         total_price = base_price + extra_total
 
         assigned_num = self.call_mgr.get_next_number()
@@ -395,7 +510,7 @@ class SaleWidget(QWidget):
             unit_price=unit_price,
             price_unit=price_unit,
             total_price=total_price,
-            remark=u"单号:%s 叫号:#%s 加价:￥%.2f" % (self.temp_order_no, call_no_str, extra_total)
+            remark=u"单号:%s 汤底:%s 叫号:#%s 加价:￥%.2f" % (self.temp_order_no, self.selected_soup, call_no_str, extra_total)
         )
 
         sale_data = dict(record)
@@ -403,20 +518,25 @@ class SaleWidget(QWidget):
         sale_data["shop_subtitle"] = self.config.get("shop_subtitle", "")
         sale_data["receipt_footer"] = self.config.get("receipt_footer", u"谢谢惠顾！")
         sale_data["call_no"] = call_no_str
+        sale_data["soup_name"] = self.selected_soup
         sale_data["extra_fee"] = extra_total
 
         success = self.printer.print_receipt(sale_data)
 
         if success:
-            self.temp_order_no = self._gen_temp_order_no()
-            self._clear_extra_items()
+            self._on_clear()
             self.refresh_call_number_display()
         else:
             QMessageBox.warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
 
     def _on_clear(self):
-        self._clear_extra_items()
+        """清空购物车与角标"""
+        self.selected_soup = None
+        self.item_counts.clear()
+        for b in self.menu_buttons.values():
+            b.set_count(0)
         self.temp_order_no = self._gen_temp_order_no()
+        self._update_price_display()
 
     def cleanup(self):
         if hasattr(self, 'scale'):
