@@ -180,11 +180,19 @@ QPushButton#btn_clear {{
     border-radius: 8px;
 }}
 
+/* ─── 单选框与复选框 (透明背景去黑条) ──────────── */
+QRadioButton, QCheckBox {{
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    outline: none;
+}}
+
 /* ─── 输入框 ──────────────────────────────────── */
 QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {{
     background-color: {c['bg_input']};
     color: {c['text_primary']};
-    border: 1px solid #374151;
+    border: none;
     border-radius: 8px;
     padding: 4px 10px;
     font-size: 14px;
@@ -192,7 +200,7 @@ QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {{
 }}
 
 QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {{
-    border-color: {c['accent_orange']};
+    border: none;
 }}
 
 /* ─── 表格 ──────────────────────────────────── */

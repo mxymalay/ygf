@@ -27,9 +27,9 @@ class QueueWidget(QWidget):
             * { border: none; outline: none; }
             QWidget { border: none; }
             QFrame { border: none; }
-            QLabel { border: none; }
-            QRadioButton { border: none; }
-            QCheckBox { border: none; }
+            QLabel { border: none; background: transparent; }
+            QRadioButton { border: none; background: transparent; background-color: transparent; }
+            QCheckBox { border: none; background: transparent; background-color: transparent; }
         """)
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(18)
@@ -40,11 +40,11 @@ class QueueWidget(QWidget):
         header_layout.setSpacing(4)
 
         lbl_title = QLabel(u"⚡ 叫号避重模式设置")
-        lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #F9FAFB; border: none;")
+        lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #F9FAFB; border: none; background: transparent;")
         header_layout.addWidget(lbl_title)
 
         lbl_sub = QLabel(u"设置顾客餐牌叫号生成模式，智能避开官方主POS重号，提升翻台与叫号体验。")
-        lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+        lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none; background: transparent;")
         header_layout.addWidget(lbl_sub)
 
         main_layout.addLayout(header_layout)
@@ -54,7 +54,7 @@ class QueueWidget(QWidget):
 
         # ── 2. 模式一：智能避重卡片 ──
         card_smart = QFrame()
-        card_smart.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 12px; }")
+        card_smart.setStyleSheet("QFrame { background-color: #1E293B; border: none; border-radius: 12px; }")
         cs_layout = QVBoxLayout(card_smart)
         cs_layout.setContentsMargins(20, 16, 20, 16)
         cs_layout.setSpacing(10)
@@ -62,9 +62,9 @@ class QueueWidget(QWidget):
         cs_header = QHBoxLayout()
         self.rb_smart = QRadioButton(u"模式一：智能时段避重 (推荐)")
         self.rb_smart.setStyleSheet(
-            "QRadioButton { font-size: 16px; font-weight: bold; color: #F9FAFB; border: none; }"
-            "QRadioButton::indicator { width: 18px; height: 18px; }"
-            "QRadioButton::indicator:checked { background: #EA580C; border-radius: 9px; }"
+            "QRadioButton { font-size: 16px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; }"
+            "QRadioButton::indicator { width: 18px; height: 18px; border: none; }"
+            "QRadioButton::indicator:checked { background-color: #EA580C; border-radius: 9px; }"
         )
         self.mode_group.addButton(self.rb_smart, 1)
         cs_header.addWidget(self.rb_smart)
@@ -72,7 +72,7 @@ class QueueWidget(QWidget):
 
         lbl_tag_rec = QLabel(u"🔥 店长推荐")
         lbl_tag_rec.setStyleSheet(
-            "background: #EA580C; color: white; font-size: 12px; font-weight: bold; "
+            "background-color: #EA580C; color: white; font-size: 12px; font-weight: bold; "
             "padding: 3px 10px; border-radius: 10px; border: none;"
         )
         cs_header.addWidget(lbl_tag_rec)
@@ -84,23 +84,23 @@ class QueueWidget(QWidget):
             u"  • 下午 (12:00 - 18:00)：100 - 200 之间随机叫号\n"
             u"  • 晚上 (18:00 - 05:00)：200 - 300 之间随机叫号"
         )
-        lbl_s_desc.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none; line-height: 1.5;")
+        lbl_s_desc.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none; background: transparent; line-height: 1.5;")
         cs_layout.addWidget(lbl_s_desc)
 
         main_layout.addWidget(card_smart)
 
         # ── 3. 模式二：自定义范围卡片 ──
         card_custom = QFrame()
-        card_custom.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 12px; }")
+        card_custom.setStyleSheet("QFrame { background-color: #1E293B; border: none; border-radius: 12px; }")
         cc_layout = QVBoxLayout(card_custom)
         cc_layout.setContentsMargins(20, 16, 20, 16)
         cc_layout.setSpacing(12)
 
         self.rb_custom = QRadioButton(u"模式二：自定义范围叫号")
         self.rb_custom.setStyleSheet(
-            "QRadioButton { font-size: 16px; font-weight: bold; color: #F9FAFB; border: none; }"
-            "QRadioButton::indicator { width: 18px; height: 18px; }"
-            "QRadioButton::indicator:checked { background: #EA580C; border-radius: 9px; }"
+            "QRadioButton { font-size: 16px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; }"
+            "QRadioButton::indicator { width: 18px; height: 18px; border: none; }"
+            "QRadioButton::indicator:checked { background-color: #EA580C; border-radius: 9px; }"
         )
         self.mode_group.addButton(self.rb_custom, 2)
         cc_layout.addWidget(self.rb_custom)
@@ -109,25 +109,25 @@ class QueueWidget(QWidget):
         c_inputs.setContentsMargins(24, 4, 0, 4)
 
         lbl_start = QLabel(u"起始号码：")
-        lbl_start.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
+        lbl_start.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none; background: transparent;")
         c_inputs.addWidget(lbl_start)
 
         self.spin_start = QSpinBox()
         self.spin_start.setRange(1, 9999)
         self.spin_start.setStyleSheet(
-            "QSpinBox { background: #334155; color: #F9FAFB; font-size: 14px; font-weight: bold; "
+            "QSpinBox { background-color: #334155; color: #F9FAFB; font-size: 14px; font-weight: bold; "
             "padding: 6px 12px; border-radius: 6px; border: none; min-width: 80px; }"
         )
         c_inputs.addWidget(self.spin_start)
 
         lbl_to = QLabel(u"  至  结束号码：")
-        lbl_to.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
+        lbl_to.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none; background: transparent;")
         c_inputs.addWidget(lbl_to)
 
         self.spin_end = QSpinBox()
         self.spin_end.setRange(1, 9999)
         self.spin_end.setStyleSheet(
-            "QSpinBox { background: #334155; color: #F9FAFB; font-size: 14px; font-weight: bold; "
+            "QSpinBox { background-color: #334155; color: #F9FAFB; font-size: 14px; font-weight: bold; "
             "padding: 6px 12px; border-radius: 6px; border: none; min-width: 80px; }"
         )
         c_inputs.addWidget(self.spin_end)
@@ -138,7 +138,9 @@ class QueueWidget(QWidget):
         c_opts = QHBoxLayout()
         c_opts.setContentsMargins(24, 0, 0, 0)
         self.chk_custom_seq = QCheckBox(u"按顺序依次递增叫号 (未勾选则在指定范围内随机叫号)")
-        self.chk_custom_seq.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+        self.chk_custom_seq.setStyleSheet(
+            "QCheckBox { font-size: 13px; color: #9CA3AF; border: none; background: transparent; }"
+        )
         c_opts.addWidget(self.chk_custom_seq)
         cc_layout.addLayout(c_opts)
 
@@ -146,22 +148,22 @@ class QueueWidget(QWidget):
 
         # ── 4. 模式三：手动指定模式卡片 ──
         card_manual = QFrame()
-        card_manual.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 12px; }")
+        card_manual.setStyleSheet("QFrame { background-color: #1E293B; border: none; border-radius: 12px; }")
         cm_layout = QVBoxLayout(card_manual)
         cm_layout.setContentsMargins(20, 16, 20, 16)
         cm_layout.setSpacing(6)
 
         self.rb_manual = QRadioButton(u"模式三：传统手动模式")
         self.rb_manual.setStyleSheet(
-            "QRadioButton { font-size: 16px; font-weight: bold; color: #F9FAFB; border: none; }"
-            "QRadioButton::indicator { width: 18px; height: 18px; }"
-            "QRadioButton::indicator:checked { background: #EA580C; border-radius: 9px; }"
+            "QRadioButton { font-size: 16px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; }"
+            "QRadioButton::indicator { width: 18px; height: 18px; border: none; }"
+            "QRadioButton::indicator:checked { background-color: #EA580C; border-radius: 9px; }"
         )
         self.mode_group.addButton(self.rb_manual, 3)
         cm_layout.addWidget(self.rb_manual)
 
         lbl_m_desc = QLabel(u"每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
-        lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none; margin-left: 24px;")
+        lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none; background: transparent; margin-left: 24px;")
         cm_layout.addWidget(lbl_m_desc)
 
         main_layout.addWidget(card_manual)
