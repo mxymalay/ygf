@@ -1,5 +1,5 @@
 """
-全局 QSS 样式 — 现代深色主题，专为触屏收银台设计
+全局 QSS 样式 — 现代深色主题，专为 Windows 7 POS 触屏优化
 """
 
 COLORS = {
@@ -68,10 +68,10 @@ QPushButton {{
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
     border-radius: 8px;
-    padding: 12px 24px;
-    font-size: 15px;
+    padding: 10px 20px;
+    font-size: 14px;
     font-weight: bold;
-    min-height: 20px;
+    min-height: 36px;
 }}
 
 QPushButton:hover {{
@@ -111,17 +111,18 @@ QPushButton#btn_clear {{
     min-height: 40px;
 }}
 
-/* ─── 输入框 ─────────────────────────────────── */
-QLineEdit, QDoubleSpinBox, QSpinBox {{
+/* ─── 输入框 (彻底修复 Win7 挤压问题) ──────────── */
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {{
     background-color: {COLORS['bg_input']};
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
     border-radius: 6px;
-    padding: 8px 12px;
-    font-size: 16px;
+    padding: 4px 10px;
+    font-size: 14px;
+    min-height: 38px;
 }}
 
-QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus {{
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {{
     border-color: {COLORS['accent2']};
 }}
 
@@ -130,17 +131,6 @@ QSpinBox::up-button, QSpinBox::down-button {{
     width: 28px;
     border: none;
     background: {COLORS['border']};
-}}
-
-/* ─── 下拉框 ─────────────────────────────────── */
-QComboBox {{
-    background-color: {COLORS['bg_input']};
-    color: {COLORS['text_primary']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-    padding: 8px 12px;
-    font-size: 14px;
-    min-width: 120px;
 }}
 
 QComboBox::drop-down {{
@@ -153,6 +143,7 @@ QComboBox QAbstractItemView {{
     color: {COLORS['text_primary']};
     selection-background-color: {COLORS['accent']};
     border: 1px solid {COLORS['border']};
+    padding: 6px;
 }}
 
 /* ─── 表格 ──────────────────────────────────── */
@@ -185,27 +176,13 @@ QHeaderView::section {{
     font-size: 13px;
 }}
 
-/* ─── 日期选择 ────────────────────────────────── */
-QDateEdit {{
-    background-color: {COLORS['bg_input']};
-    color: {COLORS['text_primary']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-    padding: 8px;
-    font-size: 14px;
-}}
-
-QCalendarWidget {{
-    background: {COLORS['bg_card']};
-    color: {COLORS['text_primary']};
-}}
-
 /* ─── 分组框 ─────────────────────────────────── */
 QGroupBox {{
     border: 1px solid {COLORS['border']};
     border-radius: 8px;
     margin-top: 16px;
-    padding-top: 24px;
+    padding-top: 20px;
+    padding-bottom: 12px;
     font-weight: bold;
     color: {COLORS['accent2']};
 }}
@@ -217,15 +194,20 @@ QGroupBox::title {{
 }}
 
 /* ─── 滚动条 ─────────────────────────────────── */
+QScrollArea {{
+    border: none;
+    background-color: transparent;
+}}
+
 QScrollBar:vertical {{
     background: {COLORS['bg_primary']};
-    width: 8px;
-    border-radius: 4px;
+    width: 10px;
+    border-radius: 5px;
 }}
 
 QScrollBar::handle:vertical {{
     background: {COLORS['border_light']};
-    border-radius: 4px;
+    border-radius: 5px;
     min-height: 30px;
 }}
 

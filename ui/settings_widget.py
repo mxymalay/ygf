@@ -5,8 +5,9 @@ PyQt5 + Python 3.8 兼容
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QLineEdit, QComboBox, QSpinBox,
-    QDoubleSpinBox, QMessageBox
+    QDoubleSpinBox, QMessageBox, QScrollArea
 )
+from PyQt5.QtCore import Qt
 
 from config import save_config
 from utils.port_scanner import scan_ports, scan_printers
@@ -21,14 +22,23 @@ class SettingsWidget(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 添加 QScrollArea 防止低分辨率屏幕挤压
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setSpacing(16)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(20, 20, 20, 20)
 
         # ── 称重秤设置 ──
         scale_group = QGroupBox(u"称重秤设置 (DIBAL ACS-G315)")
         sg = QGridLayout(scale_group)
-        sg.setSpacing(10)
+        sg.setSpacing(12)
 
         sg.addWidget(QLabel(u"串口："), 0, 0)
         self.cmb_scale_port = QComboBox()
@@ -51,7 +61,7 @@ class SettingsWidget(QWidget):
         # ── 打印机设置 ──
         printer_group = QGroupBox(u"打印机设置 (Xprinter XP-A160M / XP-80C)")
         pg = QGridLayout(printer_group)
-        pg.setSpacing(10)
+        pg.setSpacing(12)
 
         pg.addWidget(QLabel(u"打印方式："), 0, 0)
         self.cmb_printer_type = QComboBox()
@@ -92,7 +102,7 @@ class SettingsWidget(QWidget):
         # ── 业务设置 ──
         biz_group = QGroupBox(u"业务设置")
         bg = QGridLayout(biz_group)
-        bg.setSpacing(10)
+        bg.setSpacing(12)
 
         bg.addWidget(QLabel(u"店名："), 0, 0)
         self.txt_shop = QLineEdit(self.config.get("shop_name", u"杨国福麻辣烫"))
@@ -135,6 +145,7 @@ class SettingsWidget(QWidget):
             "stop:0 #2ecc71, stop:1 #27ae60);"
             "color: white; font-size: 18px; font-weight: bold;"
             "padding: 14px 48px; border-radius: 10px; border: none;"
+            "min-height: 48px;"
         )
         btn_save.clicked.connect(self._on_save)
         btn_bar.addWidget(btn_save)
@@ -142,7 +153,8 @@ class SettingsWidget(QWidget):
         btn_bar.addStretch()
         layout.addLayout(btn_bar)
 
-        layout.addStretch()
+        scroll.setWidget(container)
+        main_layout.addWidget(scroll)
 
     # ─── 刷新列表 ──────────────────────────────────
     def _refresh_ports(self):
