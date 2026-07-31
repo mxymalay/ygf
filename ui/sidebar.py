@@ -71,12 +71,13 @@ class SideNavBar(QWidget):
         bf_layout = QVBoxLayout(brand_frame)
         bf_layout.setAlignment(Qt.AlignCenter)
 
-        lbl_logo = QLabel(u"杨")
+        lbl_logo = QLabel(u"🍜")
         lbl_logo.setAlignment(Qt.AlignCenter)
         lbl_logo.setStyleSheet(
-            "font-size: 20px; font-weight: 900; color: #DC2626; "
-            "background: #FFFFFF; border-radius: 20px; min-width: 40px; max-width: 40px; "
-            "min-height: 40px; max-height: 40px;"
+            "font-size: 22px; "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F97316, stop:1 #EA580C); "
+            "border-radius: 20px; min-width: 40px; max-width: 40px; "
+            "min-height: 40px; max-height: 40px; border: none;"
         )
         bf_layout.addWidget(lbl_logo)
         layout.addWidget(brand_frame)
