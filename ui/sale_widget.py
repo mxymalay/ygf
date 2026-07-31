@@ -1,5 +1,5 @@
 """
-销售/称重界面 — 汤底/加价区分样式 + 汤底多重点击累加与非汤底去小字设计
+销售/称重界面 — 点击汤底弹出【不辣/微辣/中辣/重辣/免蒜/免醋】口味选择
 PyQt5 + Python 3.8 兼容
 """
 import random
@@ -7,7 +7,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
-    QScrollArea
+    QScrollArea, QDialog
 )
 from PyQt5.QtCore import Qt, pyqtSlot
 
@@ -16,6 +16,98 @@ from core.database import Database
 from core.printer import ReceiptPrinter
 from core.scale_reader import ScaleReader
 from core.call_number_manager import CallNumberManager
+
+
+class TasteSelectionDialog(QDialog):
+    """
+    点击汤底时弹出的口味偏好对话框 (不辣 / 微辣 / 中辣 / 重辣 / 免蒜 / 免醋)
+    """
+
+    def __init__(self, soup_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"选择口味 - {soup_name}")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Popup)
+        self.setStyleSheet(
+            "QDialog { background: #111827; border: 2px solid #EA580C; border-radius: 12px; }"
+        )
+
+        self.selected_spice = "微辣"
+        self.selected_prefs = set()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        lbl_title = QLabel(f"🍲 请选择 【{soup_name}】 口味")
+        lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F97316; border: none;")
+        layout.addWidget(lbl_title)
+
+        # 辣度选择 (单选)
+        lbl_spicy = QLabel(u"辣度偏好：")
+        lbl_spicy.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+        layout.addWidget(lbl_spicy)
+
+        spicy_box = QHBoxLayout()
+        spicy_box.setSpacing(8)
+        self.spicy_btns = {}
+        for s in [u"不辣", u"微辣", u"中辣", u"重辣"]:
+            btn = QPushButton(s)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setChecked(s == self.selected_spice)
+            btn.setStyleSheet(
+                "QPushButton { background: #1F2937; color: #D1D5DB; border: 1px solid #374151; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }"
+                "QPushButton:checked { background: #EA580C; color: white; border: 1px solid #F97316; }"
+            )
+            btn.clicked.connect(lambda checked, val=s: self._select_spice(val))
+            spicy_box.addWidget(btn)
+            self.spicy_btns[s] = btn
+        layout.addLayout(spicy_box)
+
+        # 忌口偏好 (多选)
+        lbl_pref = QLabel(u"附加避忌：")
+        lbl_pref.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+        layout.addWidget(lbl_pref)
+
+        pref_box = QHBoxLayout()
+        pref_box.setSpacing(8)
+        for p in [u"免蒜", u"免醋"]:
+            btn = QPushButton(p)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                "QPushButton { background: #1F2937; color: #D1D5DB; border: 1px solid #374151; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }"
+                "QPushButton:checked { background: #059669; color: white; border: 1px solid #10B981; }"
+            )
+            btn.clicked.connect(lambda checked, val=p: self._toggle_pref(val))
+            pref_box.addWidget(btn)
+        layout.addLayout(pref_box)
+
+        # 确定按钮
+        btn_confirm = QPushButton(u"确定加入订单")
+        btn_confirm.setCursor(Qt.PointingHandCursor)
+        btn_confirm.setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #EA580C, stop:1 #C2410C); "
+            "color: white; font-weight: bold; font-size: 15px; border-radius: 8px; min-height: 40px; margin-top: 6px; border: none; }"
+            "QPushButton:hover { background: #EA580C; }"
+        )
+        btn_confirm.clicked.connect(self.accept)
+        layout.addWidget(btn_confirm)
+
+    def _select_spice(self, val):
+        self.selected_spice = val
+        for s, btn in self.spicy_btns.items():
+            btn.setChecked(s == val)
+
+    def _toggle_pref(self, val):
+        if val in self.selected_prefs:
+            self.selected_prefs.remove(val)
+        else:
+            self.selected_prefs.add(val)
+
+    def get_tag_string(self):
+        tags = [self.selected_spice] + sorted(list(self.selected_prefs))
+        return " / ".join(tags) + " /"
 
 
 class OrderItemCard(QFrame):
@@ -45,10 +137,10 @@ class OrderItemCard(QFrame):
         lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; font-family: 'Consolas', monospace; border: none;")
         layout.addWidget(lbl_sub)
 
-        # 标签 (如: 微辣/)
+        # 口味偏好标签 (如: 微辣 / 免蒜 /)
         if tag:
             lbl_tag = QLabel(tag)
-            lbl_tag.setStyleSheet("font-size: 12px; color: #F59E0B; border: none;")
+            lbl_tag.setStyleSheet("font-size: 13px; font-weight: bold; color: #F59E0B; border: none;")
             layout.addWidget(lbl_tag)
 
 
@@ -119,7 +211,6 @@ class MenuGridButton(QPushButton):
         if self.is_soup:
             # ── 汤底专属高端暖色/亮橙样式 ──
             if self.count > 0:
-                # 激活被点选中状态：鲜亮热烈橘红
                 self.setStyleSheet(
                     "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #EA580C, stop:1 #C2410C); "
                     "border: 2px solid #F97316; border-radius: 10px; }"
@@ -129,7 +220,6 @@ class MenuGridButton(QPushButton):
                 if self.lbl_sub:
                     self.lbl_sub.setStyleSheet("font-size: 12px; color: #FFEDD5; border: none; background: transparent;")
             else:
-                # 未激活状态：高端淡米金底色 + 暖橙外框（区分于普通白框）
                 self.setStyleSheet(
                     "QPushButton { background: #FFF7ED; border: 2px solid #FDBA74; border-radius: 10px; }"
                     "QPushButton:hover { background: #FFEDD5; }"
@@ -167,8 +257,7 @@ class SaleWidget(QWidget):
         self._stable_weight = 0.0
         self._is_stable = False
         
-        # 已添加的项目列表 (包含重复点击累加的汤底与附加加价项)
-        # 结构: list of dict {"type": "soup"|"item", "key_id": str, "name": str, "weight": float, "price": float}
+        # 购物车项目列表
         self.cart_items = []
         self.menu_buttons = {}
 
@@ -300,27 +389,23 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
         pu_lbl = price_unit_label(price_unit)
 
-        # 菜单配置：去除1元串，除了汤底去掉副标题小字
+        # 菜单配置：三款汤底 + 打包盒 + 1-10元饮料
         menu_items_config = [
-            # 行 0: 三种汤底 + 打包盒 (小)
             (0, 0, "soup_1", u"经典草本骨汤\n( KG )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
             (0, 1, "soup_2", u"酸甜番茄汤\n( KG )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
             (0, 2, "soup_3", u"石磨醇香麻辣拌\n( 干拌无汤 )", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True),
             (0, 3, "item_box", u"打包盒 (小)", "", 1.0, False),
 
-            # 行 1: 1-4元饮料
             (1, 0, "item_1", u"1元饮料", "", 1.0, False),
             (1, 1, "item_2", u"2元饮料", "", 2.0, False),
             (1, 2, "item_3", u"3元饮料", "", 3.0, False),
             (1, 3, "item_4", u"4元饮料", "", 4.0, False),
 
-            # 行 2: 5-8元饮料
             (2, 0, "item_5", u"5元饮料", "", 5.0, False),
             (2, 1, "item_6", u"6元饮料", "", 6.0, False),
             (2, 2, "item_7", u"7元饮料", "", 7.0, False),
             (2, 3, "item_8", u"8元饮料", "", 8.0, False),
 
-            # 行 3: 9-10元饮料
             (3, 0, "item_9", u"9元饮料", "", 9.0, False),
             (3, 1, "item_10", u"10元饮料", "", 10.0, False),
         ]
@@ -355,35 +440,46 @@ class SaleWidget(QWidget):
         self._update_price_display()
 
     def _on_menu_click(self, btn: MenuGridButton):
-        """点击右侧菜单按钮 — 重复点击累加增加项目"""
+        """点击右侧菜单按钮"""
         unit_price = self.config.get("unit_price", 47.60)
         price_unit = self.config.get("price_unit", "per_jin")
 
         if btn.is_soup:
-            # 点击汤底：抓取当前电子秤上的实时重量并计算金额，追加为新的麻辣烫明细项！
-            w = self.current_weight
-            b_price = calculate_price(w, unit_price, price_unit)
+            # 弹出快捷口味选择框 (不辣/微辣/中辣/重辣/免蒜/免醋)
+            soup_clean_name = btn.title_str.replace("\n", " ")
+            dlg = TasteSelectionDialog(soup_clean_name, self)
             
-            self.cart_items.append({
-                "type": "soup",
-                "key_id": btn.key_id,
-                "name": btn.title_str.replace("\n", " "),
-                "weight": w,
-                "price": b_price,
-                "unit_price": unit_price,
-                "price_unit": price_unit
-            })
+            # 定位到当前点击按钮旁
+            pos = btn.mapToGlobal(btn.rect().bottomLeft())
+            dlg.move(pos.x(), pos.y() - dlg.height() - 10 if pos.y() + 200 > self.height() else pos.y())
+
+            if dlg.exec_() == QDialog.Accepted:
+                tag_str = dlg.get_tag_string()
+                w = self.current_weight
+                b_price = calculate_price(w, unit_price, price_unit)
+                
+                self.cart_items.append({
+                    "type": "soup",
+                    "key_id": btn.key_id,
+                    "name": soup_clean_name,
+                    "tag": tag_str,
+                    "weight": w,
+                    "price": b_price,
+                    "unit_price": unit_price,
+                    "price_unit": price_unit
+                })
+                btn.set_count(btn.count + 1)
         else:
-            # 点击普通加价项目：追加到购物车列表中
+            # 点击普通加价项目
             self.cart_items.append({
                 "type": "item",
                 "key_id": btn.key_id,
                 "name": btn.title_str.replace("\n", " "),
+                "tag": "",
                 "price": btn.price_val
             })
+            btn.set_count(btn.count + 1)
 
-        # 更新按钮右上角数字角标
-        btn.set_count(btn.count + 1)
         self._update_price_display()
 
     def _toggle_call_detail(self):
@@ -417,7 +513,7 @@ class SaleWidget(QWidget):
             if item["type"] == "soup":
                 w_str = f"{item['weight']:.3f}"
                 sub_str = f"{w_str} kg   ¥{item['unit_price']:.2f}/{pu_lbl}   堂食   x{w_str}   ¥{item['price']:.2f}"
-                card = OrderItemCard(item["name"], sub_str, is_active=is_last)
+                card = OrderItemCard(item["name"], sub_str, tag=item.get("tag", ""), is_active=is_last)
                 total_price += item["price"]
             else:
                 sub_str = f"1   ¥{item['price']:.2f}   堂食   x1   ¥{item['price']:.2f}"
@@ -517,7 +613,10 @@ class SaleWidget(QWidget):
         assigned_num = self.call_mgr.get_next_number()
         call_no_str = "%02d" % assigned_num
 
-        items_summary = ", ".join(item["name"] for item in self.cart_items)
+        items_summary = ", ".join(
+            f"{item['name']}({item['tag']})" if item.get("tag") else item["name"]
+            for item in self.cart_items
+        )
 
         record = self.db.insert_sale(
             weight_kg=self.current_weight,
