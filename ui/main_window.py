@@ -1,11 +1,10 @@
 """
-主窗口 — 1:1 杨国福 POS 布局 (左侧导航栏 + 触控框架)
+主窗口 — 标签页导航
 """
 from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
-    QStackedWidget, QStatusBar, QLabel, QFrame
+    QMainWindow, QTabWidget, QStatusBar, QLabel
 )
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer
 from datetime import datetime
 
 from core.database import Database
@@ -28,83 +27,42 @@ class MainWindow(QMainWindow):
         self._setup_clock()
 
     def _init_window(self):
-        self.setWindowTitle(u"杨国福麻辣烫 POS 收银系统")
-        self.setMinimumSize(960, 600)
-        self.resize(1280, 800)
+        self.setWindowTitle(u"杨国福麻辣烫 · 称重打印系统")
+        self.setMinimumSize(800, 500)
+        self.resize(1024, 720)
         self.setStyleSheet(GLOBAL_STYLE)
 
     def _build_ui(self):
-        main_widget = QWidget()
-        main_layout = QHBoxLayout(main_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        # 标签页
+        self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.North)
 
-        # ── 1. 左侧杨国福品牌橙色导航栏 ──
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(80)
-
-        sb_layout = QVBoxLayout(sidebar)
-        sb_layout.setContentsMargins(0, 0, 0, 0)
-        sb_layout.setSpacing(0)
-
-        self.btn_nav_sale = self._make_nav_btn(u"💴\n收银台", True)
-        self.btn_nav_history = self._make_nav_btn(u"📑\n订单查询", False)
-        self.btn_nav_settings = self._make_nav_btn(u"⚙️\n更多设置", False)
-
-        self.btn_nav_sale.clicked.connect(lambda: self._switch_tab(0))
-        self.btn_nav_history.clicked.connect(lambda: self._switch_tab(1))
-        self.btn_nav_settings.clicked.connect(lambda: self._switch_tab(2))
-
-        sb_layout.addWidget(self.btn_nav_sale)
-        sb_layout.addWidget(self.btn_nav_history)
-        sb_layout.addWidget(self.btn_nav_settings)
-        sb_layout.addStretch()
-
-        main_layout.addWidget(sidebar)
-
-        # ── 2. 右侧主工作区 (QStackedWidget) ──
-        self.stack = QStackedWidget()
-
+        # 销售页
         self.sale_page = SaleWidget(self.config, self.db)
+        self.tabs.addTab(self.sale_page, u"称重收银")
+
+        # 历史页
         self.history_page = HistoryWidget(self.db)
+        self.tabs.addTab(self.history_page, u"历史记录")
+
+        # 设置页
         self.settings_page = SettingsWidget(self.config)
+        self.tabs.addTab(self.settings_page, u"系统设置")
 
-        self.stack.addWidget(self.sale_page)
-        self.stack.addWidget(self.history_page)
-        self.stack.addWidget(self.settings_page)
+        self.setCentralWidget(self.tabs)
 
-        main_layout.addWidget(self.stack, stretch=1)
-
-        self.setCentralWidget(main_widget)
+        # 切换标签页事件
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         # 状态栏
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
         self.lbl_clock = QLabel()
-        self.lbl_clock.setStyleSheet("color: #666666; padding-right: 16px; font-weight: bold;")
+        self.lbl_clock.setStyleSheet("color: #a0a0b8; padding-right: 16px;")
         self.status.addPermanentWidget(self.lbl_clock)
 
-        self.status.showMessage(u"  已连接称重硬件 (COM1)  |  杨国福麻辣烫独立收银系统")
-
-    def _make_nav_btn(self, text, is_active):
-        btn = QPushButton(text)
-        btn.setCheckable(True)
-        btn.setChecked(is_active)
-        btn.setProperty("class", "sidebar-btn")
-        btn.setMinimumHeight(80)
-        btn.setCursor(Qt.PointingHandCursor)
-        return btn
-
-    def _switch_tab(self, index):
-        self.stack.setCurrentIndex(index)
-        self.btn_nav_sale.setChecked(index == 0)
-        self.btn_nav_history.setChecked(index == 1)
-        self.btn_nav_settings.setChecked(index == 2)
-
-        if index == 1:
-            self.history_page._on_query()
+        self.status.showMessage(u" 已就绪  |  硬件直连模式  |  数据存储于本地 SQLite")
 
     def _setup_clock(self):
         self._clock_timer = QTimer(self)
@@ -115,6 +73,12 @@ class MainWindow(QMainWindow):
     def _update_clock(self):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.lbl_clock.setText(now)
+
+    def _on_tab_changed(self, index):
+        if index == 0:
+            self.sale_page.refresh_unit_price_info()
+        elif index == 1:
+            self.history_page._on_query()
 
     def closeEvent(self, event):
         self.sale_page.cleanup()
