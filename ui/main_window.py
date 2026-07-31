@@ -13,6 +13,7 @@ from core.call_number_manager import CallNumberManager
 from ui.sidebar import SideNavBar
 from ui.sale_widget import SaleWidget
 from ui.history_widget import HistoryWidget
+from ui.report_widget import ReportWidget
 from ui.queue_widget import QueueWidget
 from ui.settings_widget import SettingsWidget
 from ui.styles import DARK_STYLE, LIGHT_STYLE
@@ -66,11 +67,15 @@ class MainWindow(QMainWindow):
         self.history_page = HistoryWidget(self.db, printer=self.sale_page.printer, config=self.config)
         self.stack.addWidget(self.history_page)
 
-        # 页面 2: 叫号设置 (独立叫号避重菜单)
+        # 页面 2: 交班报表
+        self.report_page = ReportWidget(self.db, printer=self.sale_page.printer, config=self.config)
+        self.stack.addWidget(self.report_page)
+
+        # 页面 3: 叫号设置 (独立叫号避重菜单)
         self.queue_page = QueueWidget(self.config, self.call_mgr)
         self.stack.addWidget(self.queue_page)
 
-        # 页面 3: 系统设置
+        # 页面 4: 系统设置
         self.settings_page = SettingsWidget(self.config)
         self.stack.addWidget(self.settings_page)
 
@@ -133,6 +138,8 @@ class MainWindow(QMainWindow):
         elif index == 1:
             self.history_page._on_query()
         elif index == 2:
+            self.report_page.reload_report()
+        elif index == 3:
             self.queue_page._load_settings()
 
     def closeEvent(self, event):
