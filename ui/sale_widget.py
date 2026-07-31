@@ -171,20 +171,7 @@ class SaleWidget(QWidget):
         scroll.setWidget(self.cart_container)
         left_layout.addWidget(scroll, stretch=1)
 
-        # 3. 翻页与无框结算底栏
-        page_bar = QHBoxLayout()
-        btn_prev = QPushButton(u"上一页")
-        btn_prev.setStyleSheet(
-            "background: #1E293B; color: #D1D5DB; font-weight: bold; border-radius: 6px; min-height: 36px;"
-        )
-        page_bar.addWidget(btn_prev)
 
-        btn_next = QPushButton(u"下一页")
-        btn_next.setStyleSheet(
-            "background: #1E293B; color: #D1D5DB; font-weight: bold; border-radius: 6px; min-height: 36px;"
-        )
-        page_bar.addWidget(btn_next)
-        left_layout.addLayout(page_bar)
 
         # 结算金额栏 (去框无痕)
         footer_line = QHBoxLayout()
