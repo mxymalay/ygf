@@ -49,7 +49,6 @@ class MainWindow(QMainWindow):
         # 1. 经典杨国福红 竖向固定侧边栏 (SideNavBar)
         self.sidebar = SideNavBar()
         self.sidebar.page_changed.connect(self._on_page_changed)
-        self.sidebar.theme_toggled.connect(self._toggle_theme)
         self.sidebar.update_requested.connect(self._on_auto_update)
         self.sidebar.minimized_requested.connect(self.showMinimized)
         self.sidebar.exit_requested.connect(self.close)
@@ -87,17 +86,7 @@ class MainWindow(QMainWindow):
 
         self.status.showMessage(u" ● 系统运行正常  |  官方称重日志实时同步模式  |  智能避重叫号引擎就绪")
 
-    def _toggle_theme(self):
-        """切换深色 / 浅色视觉主题"""
-        self.is_dark_mode = not self.is_dark_mode
-        if self.is_dark_mode:
-            self.setStyleSheet(DARK_STYLE)
-        else:
-            self.setStyleSheet(LIGHT_STYLE)
-        self.sidebar.update_theme_icon(self.is_dark_mode)
 
-        if hasattr(self, 'sale_page'):
-            self.sale_page.update_theme(self.is_dark_mode)
 
     def _on_auto_update(self):
         """一键自动 Git 更新并无缝重启 POS 程序"""

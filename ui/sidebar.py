@@ -47,7 +47,6 @@ class SideNavBar(QWidget):
     """左侧固定竖向导航栏"""
 
     page_changed = pyqtSignal(int)
-    theme_toggled = pyqtSignal()
     update_requested = pyqtSignal()
     minimized_requested = pyqtSignal()
     exit_requested = pyqtSignal()
@@ -125,11 +124,6 @@ class SideNavBar(QWidget):
         item_min = SideNavItem(u"—", u"最小化", -1)
         item_min.clicked.connect(lambda: self.minimized_requested.emit())
         layout.addWidget(item_min)
-
-        # 主题切换
-        self.item_theme = SideNavItem(u"🌙", u"切换主题", -1)
-        self.item_theme.clicked.connect(lambda: self.theme_toggled.emit())
-        layout.addWidget(self.item_theme)
 
         # 退出程序
         item_exit = SideNavItem(u"✕", u"退出程序", -1)

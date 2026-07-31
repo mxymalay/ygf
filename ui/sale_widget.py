@@ -44,12 +44,6 @@ class TasteSelectionDialog(QDialog):
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(18, 26, 18, 18)
-        self.main_layout.setSpacing(12)
-
-        lbl_title = QLabel(f"🍲 请选择 【{soup_name}】 口味")
-        lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F97316; border: none; background: transparent;")
-        self.main_layout.addWidget(lbl_title)
-
         # 辣度选择 (单选)
         lbl_spicy = QLabel(u"辣度偏好：")
         lbl_spicy.setStyleSheet(f"font-size: 13px; color: {'#9CA3AF' if is_dark_mode else '#4B5563'}; border: none; background: transparent;")
@@ -506,7 +500,7 @@ class SaleWidget(QWidget):
         right = QVBoxLayout()
         right.setSpacing(12)
 
-        menu_group = QGroupBox(u"请点选汤底与附加项目")
+        menu_group = QGroupBox("")
         mg_grid = QGridLayout(menu_group)
         mg_grid.setSpacing(8)
 
