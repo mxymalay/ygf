@@ -16,7 +16,7 @@ CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
 DEFAULT_CONFIG = {
     # 称重秤设置 — DIBAL ACS-G315
     "scale_model": "DIBAL ACS-G315",
-    "scale_port": "COM1",               # 店内真实端口 COM1
+    "scale_port": "COM1",               # 店内真实物理端口 COM1
     "scale_baudrate": 9600,             # DIBAL 默认 9600
     "scale_bytesize": 8,
     "scale_parity": "N",
@@ -51,6 +51,12 @@ def load_config() -> dict:
                 saved = json.load(f)
             merged = {**DEFAULT_CONFIG, **saved}
             merged.pop("simulation_mode", None)  # 移除旧的模拟模式字段
+
+            # 修正历史测试残余的 COM3 端口配置为店内默认 COM1
+            if merged.get("scale_port") == "COM3":
+                merged["scale_port"] = "COM1"
+                save_config(merged)
+
             return merged
         except Exception:
             pass
