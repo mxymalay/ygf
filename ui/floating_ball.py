@@ -1,21 +1,23 @@
 """
 纯触屏高颜值胶囊型悬浮球 (Capsule Floating Toggle Badge)
 采用 iOS 灵动岛 / 微信悬浮窗流线型胶囊设计：
-- 宽度 88px, 高度 50px，圆角 25px
-- 极简高雅配色：私域 (翡翠绿) ↔ 官方 (宝蓝色)，点击绝对不变杂色
+- 双层高科技玻璃倒角边框 (Double Bevel Glass Border)
+- 边框嵌入式 LED 呼吸指示灯 (Embedded LED Status Dot)
+- 边框隐退倒计时动态进度条 (Dynamic Countdown Border Stroke)
 - 单触 (Single Tap): 极速切换 官方系统 ↔ 私域 POS
-- 连触 3 下 (Triple Tap): 0.01秒防督导紧急销毁
+- 连触 3 下 / 长按 1.2 秒: 0.01秒防督导紧急销毁
 """
+import time
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
-from PyQt5.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient
+from PyQt5.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QPainterPath
 
 from utils.window_utils import bring_official_to_front, bring_our_pos_to_front
 from utils.panic_handler import execute_panic_exit
 
 
 class FloatingBall(QWidget):
-    """纯触屏高颜值胶囊悬浮徽章"""
+    """纯触屏高颜值胶囊悬浮徽章 — 科技感动态边框版"""
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
@@ -31,7 +33,7 @@ class FloatingBall(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # 88x50 黄金比例胶囊尺寸 (彻底消除文字溢出)
+        # 88x50 黄金比例胶囊尺寸
         self.setFixedSize(88, 50)
 
         # 移动到屏幕右上角默认位置
@@ -53,36 +55,93 @@ class FloatingBall(QWidget):
         self._tap_reset_timer.setSingleShot(True)
         self._tap_reset_timer.timeout.connect(self._reset_tap_count)
 
+        # 边框出票隐退倒计时动效
+        self._countdown_active = False
+        self._countdown_ratio = 1.0
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(40)  # 25 fps 顺滑刷新
+        self._countdown_timer.timeout.connect(self._on_countdown_tick)
+        self._countdown_total_ms = 3000.0
+        self._countdown_start_time = 0.0
+
+    def start_countdown(self, seconds: float):
+        """出票后启动边框隐退倒计时动效"""
+        self._countdown_active = True
+        self._countdown_total_ms = seconds * 1000.0
+        self._countdown_start_time = time.time()
+        self._countdown_ratio = 1.0
+        self._countdown_timer.start()
+        self.update()
+
+    def stop_countdown(self):
+        """停止倒计时动效"""
+        self._countdown_active = False
+        self._countdown_timer.stop()
+        self.update()
+
+    def _on_countdown_tick(self):
+        elapsed_ms = (time.time() - self._countdown_start_time) * 1000.0
+        remaining_ratio = max(0.0, 1.0 - (elapsed_ms / self._countdown_total_ms))
+        self._countdown_ratio = remaining_ratio
+        if remaining_ratio <= 0.0:
+            self.stop_countdown()
+        else:
+            self.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
 
-        # 仅保留严格两种高雅主题色 (绝不变乱七八糟杂色)
+        # 1. 颜色风格与边框主题
         if self.is_our_pos_active:
-            bg_color1 = QColor(16, 185, 129, 235)  # 翡翠绿 (私域 POS)
+            bg_color1 = QColor(16, 185, 129, 235)   # 翡翠绿 (私域 POS)
             bg_color2 = QColor(5, 150, 105, 235)
-            border_color = QColor(110, 231, 183)
+            border_outer = QColor(52, 211, 153)     # 亮高光绿外框
+            led_color = QColor(52, 211, 153)
         else:
-            bg_color1 = QColor(37, 99, 235, 235)   # 宝蓝色 (官方系统)
+            bg_color1 = QColor(37, 99, 235, 235)    # 宝蓝色 (官方系统)
             bg_color2 = QColor(29, 78, 216, 235)
-            border_color = QColor(147, 197, 253)
+            border_outer = QColor(147, 197, 253)    # 浅亮蓝外框
+            led_color = QColor(96, 165, 250)
 
+        # 渐变底色
         grad = QLinearGradient(0, 0, 0, 50)
         grad.setColorAt(0.0, bg_color1)
         grad.setColorAt(1.0, bg_color2)
 
-        # 绘制流线型胶囊圆角矩形 (r=24)
+        # 2. 绘制主胶囊背景与外边框 (r=24)
         painter.setBrush(QBrush(grad))
-        painter.setPen(QPen(border_color, 1.5))
+        painter.setPen(QPen(border_outer, 2.0))
         painter.drawRoundedRect(1, 1, 86, 48, 24, 24)
 
-        # 两行居中文字排版
+        # 3. 绘制内侧微高光倒角线 (3D 玻璃质感)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(255, 255, 255, 70), 1.0))
+        painter.drawRoundedRect(3, 3, 82, 44, 22, 22)
+
+        # 4. 如果处在【出票倒计时隐退】状态，在边框上绘制动态倒计时进度弧/线条
+        if self._countdown_active and self._countdown_ratio > 0:
+            progress_pen = QPen(QColor(254, 240, 138), 3.0)  # 亮黄色倒计时进度线
+            progress_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(progress_pen)
+            
+            # 在顶部边框沿线绘制进度条 (从左到右缩短)
+            bar_width = int(80 * self._countdown_ratio)
+            if bar_width > 4:
+                painter.drawLine(4, 2, 4 + bar_width, 2)
+
+        # 5. 边框嵌入式 LED 呼吸指示灯 (位于胶囊左侧)
+        painter.setBrush(QBrush(led_color))
+        painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
+        painter.drawEllipse(12, 14, 6, 6)
+
+        # 6. 两行居中文字排版
         title_text = u"私域 POS" if self.is_our_pos_active else u"官方系统"
         font_title = QFont("Microsoft YaHei", 9, QFont.Bold)
         painter.setFont(font_title)
         painter.setPen(QColor(255, 255, 255))
-        rect_title = QRect(0, 5, 88, 20)
+        rect_title = QRect(6, 5, 82, 20)
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
         sub_text = u"长按或连点可退出"
@@ -140,6 +199,7 @@ class FloatingBall(QWidget):
 
     def _on_click_toggle(self):
         """手指轻点：快速在官方界面与私域 POS 之间切换"""
+        self.stop_countdown()
         if self.is_our_pos_active:
             success = bring_official_to_front()
             if not success and self.main_window:

@@ -103,6 +103,8 @@ class AutoSwitchController(QObject):
 
         delay_ms = self._auto_hide_delay_sec * 1000
         print(f"[AutoSwitch] 小票已打印，启动 {self._auto_hide_delay_sec} 秒延时自动隐退程序...")
+        if hasattr(self.main_window, 'floating_ball') and self.main_window.floating_ball:
+            self.main_window.floating_ball.start_countdown(self._auto_hide_delay_sec)
         self._hide_timer.start(delay_ms)
 
     def _on_auto_hide_timeout(self):
