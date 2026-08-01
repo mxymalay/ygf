@@ -87,12 +87,12 @@ class OrderCard(QFrame):
         pm_color = pm_colors.get(pm, "#6B7280")
 
         row1.addWidget(lbl_title)
+        row1.addWidget(lbl_status)
         row1.addStretch()
         if pm_text:
             lbl_pm = QLabel(pm_text)
             lbl_pm.setStyleSheet(f"font-size: 10px; font-weight: bold; color: white; background: {pm_color}; border-radius: 4px; padding: 2px 5px;")
             row1.addWidget(lbl_pm)
-        row1.addWidget(lbl_status)
         layout.addLayout(row1)
 
         # 第二行：2026-07-31 21:12:05     实收：¥ 38.83
