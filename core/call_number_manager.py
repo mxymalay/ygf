@@ -47,8 +47,8 @@ class CallNumberManager:
 
     def set_mode(self, mode: str):
         self.config["call_mode"] = mode
+        self._cached_next_number = None
         save_config(self.config)
-        self.reset_pool()
 
     def reset_pool(self):
         """重置已使用号码池"""
@@ -83,7 +83,8 @@ class CallNumberManager:
         else:
             # 手动模式
             num = self._current_manual_no
-            self._current_manual_no += 1
+            self._used_numbers.add(num)
+            self._current_manual_no = num + 1
             self._cached_next_number = None
             self._save_state()
             return num

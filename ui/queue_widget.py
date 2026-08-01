@@ -456,7 +456,7 @@ class QueueWidget(QWidget):
         self.config["custom_is_seq"] = self.chk_custom_seq.isChecked()
 
         save_config(self.config)
-        self.call_mgr.reset_pool()
+        self.call_mgr._cached_next_number = None
         self.refresh_pool_display()
 
         from ui.custom_dialog import show_info

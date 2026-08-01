@@ -1344,6 +1344,22 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
         
         total_price = sum(item["price"] for item in self.cart_items)
+
+        # 模式三：传统手动模式 -> 弹出确认/输入餐牌号弹窗
+        if self.call_mgr.get_mode() == CallNumberManager.MODE_MANUAL:
+            curr = self.call_mgr.peek_next_number()
+            val, ok = get_int_input(
+                self,
+                u"手动指定叫号牌",
+                u"【模式三：传统手动模式】\n请输入或确认本次结账的餐牌号码：",
+                curr,
+                1,
+                9999
+            )
+            if not ok:
+                return
+            self.call_mgr.set_manual_number(val)
+
         peek_num = self.call_mgr.peek_next_number()
         call_no_str = "%02d" % peek_num
 
