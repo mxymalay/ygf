@@ -77,16 +77,18 @@ class ReportWidget(QWidget):
         
         # 快捷按钮布局
         quick_btn_style = """
-            QPushButton { background: #374151; color: white; font-weight: bold; font-size: 13px; padding: 6px; border-radius: 6px; border: none; }
+            QPushButton { background: #374151; color: white; font-weight: bold; font-size: 13px; padding: 4px; border-radius: 4px; border: none; }
             QPushButton:hover { background: #4B5563; }
         """
         quick_grid = QGridLayout()
-        quick_grid.setSpacing(6)
+        quick_grid.setSpacing(4)
         
         btn_configs = [
-            [(u"今天", "today"), (u"昨天", "yesterday"), (u"前天", "day_before"), (u"本周", "this_week")],
-            [(u"上周", "last_week"), (u"本月", "this_month"), (u"上月", "last_month"), (u"本年", "this_year")],
-            [(u"去年", "last_year"), (u"7天", "7_days"), (u"30天", "30_days"), (u"365天", "365_days")]
+            [(u"今天", "today"), (u"昨天", "yesterday"), (u"前天", "day_before")],
+            [(u"本周", "this_week"), (u"上周", "last_week"), None],
+            [(u"本月", "this_month"), (u"上月", "last_month"), None],
+            [(u"本年", "this_year"), (u"去年", "last_year"), None],
+            [(u"7天", "7_days"), (u"30天", "30_days"), (u"365天", "365_days")]
         ]
         
         for row, row_items in enumerate(btn_configs):
