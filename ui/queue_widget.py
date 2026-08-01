@@ -249,22 +249,8 @@ class QueueWidget(QWidget):
         card_smart = QFrame()
         card_smart.setStyleSheet("QFrame { background: transparent; border: none; }")
         cs_layout = QVBoxLayout(card_smart)
-        cs_layout.setContentsMargins(16, 12, 16, 12)
+        cs_layout.setContentsMargins(0, 0, 0, 0)
         cs_layout.setSpacing(8)
-
-        cs_header = QHBoxLayout()
-        lbl_title_smart = QLabel(u"智能时段避重 (推荐)")
-        lbl_title_smart.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
-        cs_header.addWidget(lbl_title_smart)
-        cs_header.addStretch()
-
-        lbl_tag_rec = QLabel(u"🔥 店长推荐")
-        lbl_tag_rec.setStyleSheet(
-            "background-color: #EA580C; color: white; font-size: 11px; font-weight: bold; "
-            "padding: 2px 8px; border-radius: 8px; border: none;"
-        )
-        cs_header.addWidget(lbl_tag_rec)
-        cs_layout.addLayout(cs_header)
 
         lbl_s_desc = QLabel(
             u"根据营业时段自动分段生成随机避重号牌：\n"
@@ -281,15 +267,11 @@ class QueueWidget(QWidget):
         card_custom = QFrame()
         card_custom.setStyleSheet("QFrame { background: transparent; border: none; }")
         cc_layout = QVBoxLayout(card_custom)
-        cc_layout.setContentsMargins(16, 12, 16, 12)
+        cc_layout.setContentsMargins(0, 0, 0, 0)
         cc_layout.setSpacing(10)
 
-        lbl_title_custom = QLabel(u"自定义范围叫号")
-        lbl_title_custom.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
-        cc_layout.addWidget(lbl_title_custom)
-
         c_inputs = QHBoxLayout()
-        c_inputs.setContentsMargins(30, 2, 0, 2)
+        c_inputs.setContentsMargins(0, 2, 0, 2)
 
         lbl_start = QLabel(u"起始号码：")
         lbl_start.setStyleSheet("font-size: 13px; color: #D1D5DB; border: none; background: transparent;")
@@ -319,7 +301,7 @@ class QueueWidget(QWidget):
         cc_layout.addLayout(c_inputs)
 
         c_opts = QHBoxLayout()
-        c_opts.setContentsMargins(30, 0, 0, 0)
+        c_opts.setContentsMargins(0, 0, 0, 0)
         self.chk_custom_seq = QCheckBox(u"按顺序依次递增叫号 (未勾选则在指定范围内随机叫号)")
         self.chk_custom_seq.setStyleSheet("""
             QCheckBox { font-size: 12px; color: #9CA3AF; border: none; background: transparent; spacing: 8px; }
@@ -336,15 +318,11 @@ class QueueWidget(QWidget):
         card_manual = QFrame()
         card_manual.setStyleSheet("QFrame { background: transparent; border: none; }")
         cm_layout = QVBoxLayout(card_manual)
-        cm_layout.setContentsMargins(16, 12, 16, 12)
+        cm_layout.setContentsMargins(0, 0, 0, 0)
         cm_layout.setSpacing(6)
 
-        lbl_title_manual = QLabel(u"传统手动模式")
-        lbl_title_manual.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
-        cm_layout.addWidget(lbl_title_manual)
-
         lbl_m_desc = QLabel(u"每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
-        lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent; margin-left: 30px;")
+        lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent;")
         cm_layout.addWidget(lbl_m_desc)
 
         self.stack_mode.addWidget(card_manual)
