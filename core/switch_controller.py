@@ -51,7 +51,9 @@ class AutoSwitchController(QObject):
                     print(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg -> 算法决策：分配给【私域 POS】 (当前实际比例: {self.get_actual_private_ratio():.1f}%)")
                 else:
                     # 决策分配给【官方系统】 -> 本系统隐藏在后台，保持/拉出官方界面
-                    bring_official_to_front()
+                    ok = bring_official_to_front()
+                    if not ok and self.main_window:
+                        self.main_window.showMinimized()
                     self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方")
                     print(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg -> 算法决策：分配给【官方收银系统】 (当前实际比例: {self.get_actual_private_ratio():.1f}%)")
         else:
@@ -100,7 +102,9 @@ class AutoSwitchController(QObject):
     def _on_auto_hide_timeout(self):
         """延时结束，隐退切回官方系统"""
         print("[AutoSwitch] 延时结束，自动隐退切回官方收银界面")
-        bring_official_to_front()
+        ok = bring_official_to_front()
+        if not ok and self.main_window:
+            self.main_window.showMinimized()
         self._update_floating_ball_status(is_private=False, reason="出票延时结束")
 
     def _update_floating_ball_status(self, is_private: bool, reason: str = ""):
