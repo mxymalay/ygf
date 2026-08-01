@@ -788,15 +788,20 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
         pu_lbl = price_unit_label(price_unit)
 
-        # 菜单配置：三款汤底 (第0行) + 打包盒 (第1行独占) + 油面筋 (第2行独占) + 1-10元饮料 (第3-5行)
+        soup4_price = self.config.get("soup_price_4", 25.00 if price_unit == "per_jin" else 50.00)
+        soup5_price = self.config.get("soup_price_5", 25.00 if price_unit == "per_jin" else 50.00)
+
+        # 菜单配置：5款汤底 (第0-1行) + 打包盒 (第1行) + 油面筋 (第2行独占) + 1-10元饮料 (第3-5行)
         menu_items_config = [
             # 第 0 行：汤底类 (橙暖色)
             (0, 0, "soup_1", u"经典草本骨汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
             (0, 1, "soup_2", u"酸甜番茄汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
             (0, 2, "soup_3", u"石磨醇香麻辣拌", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
+            (0, 3, "soup_4", u"草本穹顶菌汤", f"¥ {soup4_price:.2f}/{pu_lbl}", soup4_price, True, False, False),
 
-            # 第 1 行：打包盒类 (另起一行，独占该行，翡翠青绿色)
-            (1, 0, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
+            # 第 1 行：汤底 (续) + 打包盒
+            (1, 0, "soup_5", u"草本酸辣金汤", f"¥ {soup5_price:.2f}/{pu_lbl}", soup5_price, True, False, False),
+            (1, 1, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
 
             # 第 2 行：油面筋类 (另起一行，独占该行，典雅紫罗兰色)
             (2, 0, "item_gluten_05", u"油面筋 0.5元", "¥ 0.50", 0.5, False, False, True),
@@ -864,7 +869,8 @@ class SaleWidget(QWidget):
             skip_flavor_popup = ("番茄汤" in soup_clean_name or "麻辣拌" in soup_clean_name)
             
             w = self.current_weight
-            b_price = calculate_price(w, unit_price, price_unit)
+            soup_unit_price = btn.price if (btn.price > 0) else unit_price
+            b_price = calculate_price(w, soup_unit_price, price_unit)
             
             # 1. 点击汤底卡片，无需二次确认，即刻加入订单列表
             item_entry = {
@@ -875,7 +881,7 @@ class SaleWidget(QWidget):
                 "weight": w,
                 "base_price": b_price,
                 "price": b_price,
-                "unit_price": unit_price,
+                "unit_price": soup_unit_price,
                 "price_unit": price_unit,
                 "qty": 1,
                 "discount_rate": 1.0
@@ -1238,12 +1244,25 @@ class SaleWidget(QWidget):
         unit_price = self.config.get("unit_price", 47.60)
         price_unit = self.config.get("price_unit", "per_jin")
         pu_lbl = price_unit_label(price_unit)
-        sub_text = f"¥ {unit_price:.2f}/{pu_lbl}"
+
+        soup4_price = self.config.get("soup_price_4", 25.00 if price_unit == "per_jin" else 50.00)
+        soup5_price = self.config.get("soup_price_5", 25.00 if price_unit == "per_jin" else 50.00)
 
         for key_id in ["soup_1", "soup_2", "soup_3"]:
             btn = self.menu_buttons.get(key_id)
             if btn:
-                btn.update_subtitle(sub_text)
+                btn.update_subtitle(f"¥ {unit_price:.2f}/{pu_lbl}")
+                btn.price = unit_price
+
+        btn4 = self.menu_buttons.get("soup_4")
+        if btn4:
+            btn4.update_subtitle(f"¥ {soup4_price:.2f}/{pu_lbl}")
+            btn4.price = soup4_price
+
+        btn5 = self.menu_buttons.get("soup_5")
+        if btn5:
+            btn5.update_subtitle(f"¥ {soup5_price:.2f}/{pu_lbl}")
+            btn5.price = soup5_price
 
         self._update_price_display()
         self.refresh_call_number_display()
