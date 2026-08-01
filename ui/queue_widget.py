@@ -4,7 +4,7 @@ PyQt5 + Python 3.8 兼容
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QRadioButton, QSpinBox, QCheckBox, QFrame, QButtonGroup, QScrollArea, QLayout
+    QRadioButton, QSpinBox, QCheckBox, QFrame, QButtonGroup, QScrollArea, QLayout, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QRect, QPoint, QSize
 from PyQt5.QtGui import QPainter, QRadialGradient, QColor, QBrush, QPen, QFont
@@ -200,8 +200,8 @@ class QueueWidget(QWidget):
 
         layout.addLayout(header_layout)
 
-        # 模式选择下拉框
         mode_box = QFrame()
+        mode_box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         mode_box.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; }")
         mb_layout = QVBoxLayout(mode_box)
         mb_layout.setContentsMargins(16, 16, 16, 16)
