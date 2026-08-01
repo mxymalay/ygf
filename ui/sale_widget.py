@@ -221,7 +221,7 @@ class TasteSelectionDialog(QDialog):
         if self.selected_spice:
             tags.append(self.selected_spice)
         tags.extend(sorted(list(self.selected_prefs)))
-        return " / ".join(tags)
+        return "/".join(tags)
 
 
 class OrderItemCard(QFrame):
