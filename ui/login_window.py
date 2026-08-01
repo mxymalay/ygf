@@ -124,6 +124,7 @@ class LoginWindow(QDialog):
         super().__init__(parent)
         self.config = config or {}
         self.hardware_warnings = []
+        self.official_ok = False
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.is_mock_mode = False
@@ -330,11 +331,13 @@ class LoginWindow(QDialog):
         
     def _do_check_official_software(self):
         if check_ygf_official_running():
+            self.official_ok = True
             self.lbl_check1.setText(u"✔ 官方收银环境检测：通过")
             self.lbl_check1.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
         else:
-            self.lbl_check1.setText(u"⚠️ 官方收银环境检测：未运行")
-            self.lbl_check1.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
+            self.official_ok = False
+            self.lbl_check1.setText(u"✖ 官方收银环境检测：未运行")
+            self.lbl_check1.setStyleSheet("color: #EF4444; font-size: 14px; font-weight: bold;")
             self.hardware_warnings.append("官方收银软件未运行")
             
         QTimer.singleShot(150, self._check_printer)
@@ -373,7 +376,10 @@ class LoginWindow(QDialog):
             self.lbl_check3.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
             self.hardware_warnings.append(f"收钱吧 {port} 未连通")
 
-        QTimer.singleShot(300, self.accept)
+        if self.official_ok:
+            QTimer.singleShot(300, self.accept)
+        else:
+            self.btn_debug.show()
 
     def _on_debug_click(self):
         self.is_mock_mode = True
