@@ -40,15 +40,25 @@ def _do_send_amount(amount: float, config: dict):
         payload = f"{amount:.2f}\r\n"
 
     try:
-        # write_timeout 设为 0.5 秒，避免打开无效 COM 端口阻塞
-        with serial.Serial(port, baudrate=baudrate, timeout=0.5, write_timeout=0.5) as ser:
-            ser.write(payload.encode("ascii"))
-            ser.flush()
-            logger.info(f"成功向收钱吧串口 {port} 发送金额: {payload.strip()}")
-            print(f"[收钱吧推送] 成功推送到 {port}: {payload.strip()}")
+        ser = serial.Serial()
+        ser.port = port
+        ser.baudrate = baudrate
+        ser.timeout = 0.5
+        ser.write_timeout = 1.0
+        ser.rtscts = False
+        ser.dsrdtr = False
+        
+        ser.open()
+        ser.dtr = True
+        ser.rts = True
+
+        ser.write(payload.encode("ascii"))
+        logger.info(f"成功向收钱吧串口 {port} 发送金额: {payload.strip()}")
+        print(f"[收钱吧推送 Success] 已成功向 {port} 写入金额数据包: {payload.strip()}")
+        ser.close()
     except Exception as e:
-        logger.warning(f"推送金额到收钱吧串口 {port} 失败: {e}")
-        print(f"[收钱吧推送] 端口 {port} 写入失败/未就绪 (不影响系统运行): {e}")
+        logger.warning(f"推送金额到收钱吧串口 {port} 提示: {e}")
+        print(f"[收钱吧推送 Status] 端口 {port} 发送提示: {e}")
 
 
 def send_shouqianba_amount(amount: float, config: dict):
