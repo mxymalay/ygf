@@ -13,6 +13,11 @@ def execute_panic_exit():
     """彻底避险销毁操作：切回官方软件 + 强行杀死当前 Python 进程"""
     print("[Panic] 触发紧急避险，正在销毁程序...")
     try:
+        from core.app_logger import log_event, CAT_PANIC
+        log_event(CAT_PANIC, "触发紧急避险销毁", "0.01秒切回官方并销毁进程")
+    except Exception:
+        pass
+    try:
         # 1. 强行将官方系统拉至最前
         bring_official_to_front()
     except Exception:

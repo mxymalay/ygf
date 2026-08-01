@@ -4,6 +4,7 @@
 """
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 from utils.window_utils import bring_official_to_front, bring_our_pos_to_front
+from core.app_logger import log_event, CAT_SCALE, CAT_DECISION, CAT_SWITCH, CAT_PRINT
 
 
 class AutoSwitchController(QObject):
@@ -40,6 +41,7 @@ class AutoSwitchController(QObject):
             if not self._has_auto_popped:
                 self._has_auto_popped = True
                 self._hide_timer.stop()
+                log_event(CAT_SCALE, f"称重检测到放碗动作", f"重量: {weight_kg:.3f}kg")
 
                 # 🤖 执行全自动智能决策算法
                 is_private_turn = self._evaluate_decision(weight_kg)
@@ -50,6 +52,7 @@ class AutoSwitchController(QObject):
                     self._update_floating_ball_status(is_private=True, reason="智能算法选择: 本单走私域")
                     msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
                     print(f"[AutoDecisionEngine] {msg}")
+                    log_event(CAT_DECISION, f"决策: 走私域 POS", f"重量 {weight_kg:.2f}kg | 截留占比: {self.get_actual_private_ratio():.1f}%")
                     if hasattr(self.main_window, 'status'):
                         self.main_window.status.showMessage(msg, 5000)
                 else:
@@ -60,6 +63,7 @@ class AutoSwitchController(QObject):
                     self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方")
                     msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
                     print(f"[AutoDecisionEngine] {msg}")
+                    log_event(CAT_DECISION, f"决策: 走官方系统", f"重量 {weight_kg:.2f}kg | 截留占比: {self.get_actual_private_ratio():.1f}%")
                     if hasattr(self.main_window, 'status'):
                         self.main_window.status.showMessage(msg, 5000)
         else:
@@ -78,6 +82,7 @@ class AutoSwitchController(QObject):
         if weight_kg < self._min_private_weight:
             self._official_orders_count += 1
             print(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg < {self._min_private_weight:.3f}kg 属于轻量单 -> 全自动分配给【官方】")
+            log_event(CAT_DECISION, f"轻量单过滤 -> 走官方", f"重量 {weight_kg:.3f}kg < 门限 {self._min_private_weight:.3f}kg")
             return False
 
         # 规则 2：动态配额算法 (Quota Balancing Algorithm)
@@ -103,6 +108,7 @@ class AutoSwitchController(QObject):
 
         delay_ms = self._auto_hide_delay_sec * 1000
         print(f"[AutoSwitch] 小票已打印，启动 {self._auto_hide_delay_sec} 秒延时自动隐退程序...")
+        log_event(CAT_PRINT, f"小票打印完成", f"启动 {self._auto_hide_delay_sec} 秒延时自动隐退")
         if hasattr(self.main_window, 'floating_ball') and self.main_window.floating_ball:
             self.main_window.floating_ball.start_countdown(self._auto_hide_delay_sec)
         self._hide_timer.start(delay_ms)
@@ -110,6 +116,7 @@ class AutoSwitchController(QObject):
     def _on_auto_hide_timeout(self):
         """延时结束，隐退切回官方系统"""
         print("[AutoSwitch] 延时结束，自动隐退切回官方收银界面")
+        log_event(CAT_SWITCH, f"自动隐退切回官方系统", f"延时 {self._auto_hide_delay_sec} 秒结束")
         ok = bring_official_to_front()
         if not ok and self.main_window:
             self.main_window.showMinimized()

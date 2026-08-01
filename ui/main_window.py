@@ -16,6 +16,7 @@ from ui.history_widget import HistoryWidget
 from ui.report_widget import ReportWidget
 from ui.queue_widget import QueueWidget
 from ui.settings_widget import SettingsWidget
+from ui.log_widget import LogWidget
 from ui.styles import DARK_STYLE, LIGHT_STYLE
 
 
@@ -81,6 +82,10 @@ class MainWindow(QMainWindow):
         # 页面 4: 系统设置
         self.settings_page = SettingsWidget(self.config)
         self.stack.addWidget(self.settings_page)
+
+        # 页面 5: 运营日志
+        self.log_page = LogWidget()
+        self.stack.addWidget(self.log_page)
 
         main_layout.addWidget(self.stack, stretch=1)
 
@@ -189,6 +194,8 @@ class MainWindow(QMainWindow):
             self.report_page.reload_report()
         elif index == 3:
             self.queue_page._load_settings()
+        elif index == 5:
+            self.log_page._load_logs()
 
     def _check_first_run_price(self):
         """首次使用初始化弹窗，提示用户设定/修改公斤单价与分店名称"""

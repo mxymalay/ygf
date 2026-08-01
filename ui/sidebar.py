@@ -123,6 +123,12 @@ class SideNavBar(QWidget):
         layout.addWidget(item_settings)
         self._items.append(item_settings)
 
+        # 5: 日志信息
+        item_log = SideNavItem(u"📋", u"日志信息", 5)
+        item_log.clicked.connect(lambda: self._select_page(5))
+        layout.addWidget(item_log)
+        self._items.append(item_log)
+
         layout.addStretch()
 
         # 3. 底部快捷控制按钮组

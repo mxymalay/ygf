@@ -14,6 +14,7 @@ from config import load_config, save_config
 from ui.main_window import MainWindow
 from ui.login_window import LoginWindow
 from utils.system_utils import apply_auto_start_settings
+from core.app_logger import log_event, cleanup_old_logs, CAT_SYSTEM
 
 
 def main():
@@ -23,6 +24,16 @@ def main():
     # 首次运行时保存默认配置
     if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "settings.json")):
         save_config(config)
+
+    # 启动时自动清理超过 3 天的旧日志
+    try:
+        removed = cleanup_old_logs()
+        if removed > 0:
+            print(f"[Logger] 自动清理了 {removed} 条过期日志")
+    except Exception:
+        pass
+
+    log_event(CAT_SYSTEM, "系统启动", f"POS 辅助系统开始初始化")
 
     # 0. 尝试同步开机自启动设置
     apply_auto_start_settings(
@@ -66,6 +77,7 @@ def main():
     # 2. 验证通过 (或选择跳过进入模拟调试)，打开主系统
     window = MainWindow(config, hardware_warnings=hw_warnings)
     window.showMaximized()
+    log_event(CAT_SYSTEM, "主界面就绪", f"开始运营服务，模拟模式: {config.get('is_mock_mode', False)}")
 
     sys.exit(app.exec_())
 
