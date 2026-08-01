@@ -64,15 +64,33 @@ def main():
     if res == 0:
         dist_file = os.path.join("dist", "%s.exe" % app_name)
         
+        # 自动分发逻辑
+        import platform
+        try:
+            is_win7 = (platform.release() == "7" or (sys.getwindowsversion().major == 6 and sys.getwindowsversion().minor == 1))
+        except Exception:
+            is_win7 = False
+            
+        if is_win7:
+            target_dir = r"C:\驱动"
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+            target_path = os.path.join(target_dir, "%s.exe" % app_name)
+            action_desc = f"系统检测为 Windows 7，已自动部署至: {target_path}"
+        else:
+            target_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+            target_path = os.path.join(target_dir, "%s.exe" % app_name)
+            action_desc = f"系统检测非 Windows 7，已自动拷贝至桌面: {target_path}"
+            
+        shutil.copy2(dist_file, target_path)
+
         print("\n" + "=" * 60)
-        print(" [v] 打包成功！单文件可执行程序位于 dist/ 目录下。")
-        print(" [Exe] 单文件程序位置:")
-        print("      %s" % os.path.abspath(dist_file))
+        print(" [v] 打包成功！")
+        print(f" [*] {action_desc}")
         print("=" * 60)
         print("[!] 重要提示：")
-        print("   只需要把 'dist\\%s.exe' 这一个文件发送到任何新电脑或收银机上，" % app_name)
-        print("   直接双击 '%s.exe' 即可直接启动运行！" % app_name)
-        print("   (!) 目标收银机电脑【完全不需要安装 Python】或任何环境！")
+        print("   原始文件仍保留在: %s" % os.path.abspath(dist_file))
+        print("   目标收银机电脑【完全不需要安装 Python】或任何环境！")
         print("=" * 60)
     else:
         print("\n[X] 打包失败，请检查编译日志！")
