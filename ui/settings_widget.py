@@ -118,19 +118,12 @@ class SettingsWidget(QWidget):
         self.spin_default_price.setDecimals(2)
         bg.addWidget(self.spin_default_price, 3, 1)
 
-        bg.addWidget(QLabel(u"穹顶菌汤单价："), 4, 0)
-        self.spin_soup4_price = QDoubleSpinBox()
-        self.spin_soup4_price.setRange(0.01, 999.99)
-        self.spin_soup4_price.setValue(self.config.get("soup_price_4", 25.00))
-        self.spin_soup4_price.setDecimals(2)
-        bg.addWidget(self.spin_soup4_price, 4, 1)
-
-        bg.addWidget(QLabel(u"酸辣金汤单价："), 4, 2)
-        self.spin_soup5_price = QDoubleSpinBox()
-        self.spin_soup5_price.setRange(0.01, 999.99)
-        self.spin_soup5_price.setValue(self.config.get("soup_price_5", 25.00))
-        self.spin_soup5_price.setDecimals(2)
-        bg.addWidget(self.spin_soup5_price, 4, 3)
+        bg.addWidget(QLabel(u"精品汤底单价(菌汤/金汤)："), 3, 2)
+        self.spin_special_price = QDoubleSpinBox()
+        self.spin_special_price.setRange(0.01, 999.99)
+        self.spin_special_price.setValue(self.config.get("special_soup_price", self.config.get("soup_price_4", 25.00)))
+        self.spin_special_price.setDecimals(2)
+        bg.addWidget(self.spin_special_price, 3, 3)
 
         layout.addWidget(biz_group)
 
@@ -179,8 +172,7 @@ class SettingsWidget(QWidget):
         pu_text = self.cmb_unit.currentText()
         self.config["price_unit"] = pu_text.split(" - ")[0].strip()
         self.config["unit_price"] = self.spin_default_price.value()
-        self.config["soup_price_4"] = self.spin_soup4_price.value()
-        self.config["soup_price_5"] = self.spin_soup5_price.value()
+        self.config["special_soup_price"] = self.spin_special_price.value()
 
         save_config(self.config)
 

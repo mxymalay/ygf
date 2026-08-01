@@ -26,9 +26,8 @@ DEFAULT_CONFIG = {
     "printer_serial_port": "COM4",
 
     # 业务设置
-    "unit_price": 1.00,                 # 默认单价：1.00 元/kg
-    "soup_price_4": 50.00,              # 草本穹顶菌汤单价：50.00 元/kg
-    "soup_price_5": 50.00,              # 草本酸辣金汤单价：50.00 元/kg
+    "unit_price": 1.00,                 # 标准汤底单价：1.00 元/kg
+    "special_soup_price": 50.00,        # 精品汤底单价(菌汤/金汤)：50.00 元/kg
     "price_unit": "per_kg",             # 默认按公斤计价
     "shop_name": "杨国福麻辣烫",
     "shop_subtitle": "杨国福(测试店)",
