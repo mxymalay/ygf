@@ -87,13 +87,13 @@ class AutoSwitchController(QObject):
                 log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
                 return True
 
-        # 规则 0B：官方多碗/连续开单保护 (如果 15 秒内上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
+        # 规则 0B：官方多碗/连续开单保护 (如果 60 秒 (1分钟) 内上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
         now_ts = time.time()
-        if now_ts - self._last_official_time < 15.0:
+        if now_ts - self._last_official_time < 60.0:
             elapsed = now_ts - self._last_official_time
             self._last_official_time = now_ts  # 刷新连单锁定期
-            print(f"[AutoDecisionEngine] 检测到 15 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
-            log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < 15s | 本次称重 {weight_kg:.3f}kg")
+            print(f"[AutoDecisionEngine] 检测到 60 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
+            log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < 60s | 本次称重 {weight_kg:.3f}kg")
             return False
 
         self._total_evaluated_orders += 1
