@@ -261,12 +261,21 @@ class OrderItemCard(QFrame):
         title_row.addWidget(lbl_title)
 
         if is_soup:
-            btn_takeout = QPushButton("打包?")
+            is_takeout = "打包" in [p.strip() for p in tag.split("/") if p.strip()]
+            btn_text = "打包 ∨" if is_takeout else "堂食 ∨"
+            
+            btn_takeout = QPushButton(btn_text)
             btn_takeout.setCursor(Qt.PointingHandCursor)
-            btn_takeout.setStyleSheet(
-                "QPushButton { background: transparent; color: #9CA3AF; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 1px 6px; border: 1px dashed #475569; }"
-                "QPushButton:hover { border: 1px dashed #F59E0B; color: #F59E0B; }"
-            )
+            if is_takeout:
+                btn_takeout.setStyleSheet(
+                    "QPushButton { background: transparent; color: #F59E0B; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 1px 6px; border: 1px dashed #F59E0B; }"
+                    "QPushButton:hover { background: rgba(245, 158, 11, 0.1); }"
+                )
+            else:
+                btn_takeout.setStyleSheet(
+                    "QPushButton { background: transparent; color: #9CA3AF; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 1px 6px; border: 1px dashed #475569; }"
+                    "QPushButton:hover { border: 1px dashed #F59E0B; color: #F59E0B; }"
+                )
             btn_takeout.clicked.connect(self._on_takeout_click)
             title_row.addWidget(btn_takeout)
 
@@ -967,7 +976,7 @@ class SaleWidget(QWidget):
             self._update_price_display()
 
     def _on_cart_item_takeout_click(self, index):
-        """在已选汤底卡片上点击了打包按钮"""
+        """在已选汤底卡片上点击了打包/堂食按钮"""
         if 0 <= index < len(self.cart_items):
             item = self.cart_items[index]
             if item["type"] != "soup": return
@@ -988,6 +997,28 @@ class SaleWidget(QWidget):
             else:
                 tags.remove("打包")
                 item["tag"] = " / ".join(tags)
+                
+                # 自动删减一个打包盒 (从后往前找最近添加的)
+                for i in range(len(self.cart_items)-1, -1, -1):
+                    box_item = self.cart_items[i]
+                    if box_item.get("key_id") == "item_box":
+                        qty = box_item.get("qty", 1)
+                        if qty > 1:
+                            box_item["qty"] = qty - 1
+                            box_item["price"] = box_item["base_price"] * box_item["qty"] * box_item.get("discount_rate", 1.0)
+                        else:
+                            self.cart_items.pop(i)
+                            if "item_box" in self.menu_buttons:
+                                btn = self.menu_buttons["item_box"]
+                                btn.set_count(max(0, btn.count - 1))
+                            
+                            # 调整当前选中的索引，防止越界或错位
+                            if self.selected_item_index == i:
+                                self.selected_item_index = min(self.selected_item_index, max(0, len(self.cart_items)-1)) if self.cart_items else -1
+                            elif self.selected_item_index > i:
+                                self.selected_item_index -= 1
+                        break
+                
                 self._update_price_display()
 
     def _position_popup_at_widget(self, dlg, target_widget):
