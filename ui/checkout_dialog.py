@@ -166,19 +166,24 @@ class CheckoutDialog(QDialog):
             btn_layout.addWidget(lbl_icon)
 
             text_col = QVBoxLayout()
-            text_col.setSpacing(2)
+            text_col.setSpacing(6)
+            text_col.addStretch()
+
             lbl_btn_title = QLabel(title)
             lbl_btn_title.setStyleSheet(
-                f"font-size: 16px; font-weight: 900; color: {fg_accent}; "
+                f"font-size: 24px; font-weight: 900; color: {fg_accent}; "
                 "border: none; background: transparent;"
             )
             text_col.addWidget(lbl_btn_title)
+
             lbl_btn_desc = QLabel(desc)
             lbl_btn_desc.setStyleSheet(
-                "font-size: 11px; color: rgba(255,255,255,0.5); "
+                "font-size: 13px; color: rgba(255,255,255,0.65); "
                 "border: none; background: transparent;"
             )
             text_col.addWidget(lbl_btn_desc)
+
+            text_col.addStretch()
             btn_layout.addLayout(text_col, stretch=1)
 
             # 覆盖的透明按钮 (全区域可点击)
