@@ -229,3 +229,7 @@ class LoginWindow(QDialog):
             self.lbl_status.setStyleSheet("color: #F59E0B; font-size: 16px; font-weight: bold;")
             self.lbl_detail.setText(u"未检测到任何已安装的打印机驱动")
             self.btn_debug.show()
+
+    def _on_debug_click(self):
+        self.is_mock_mode = True
+        self.accept()
