@@ -45,6 +45,7 @@ class LoginWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.is_mock_mode = False
         self._build_ui()
 
