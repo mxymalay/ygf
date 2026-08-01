@@ -123,13 +123,22 @@ class CheckoutDialog(QDialog):
         # 底部打印数量提示
         m_count = sum(1 for item in sale_data.get("cart_items", [])
                       if item.get("type") == "soup" or "weight" in item)
-        slip_info = f"[打印] 1张顾客单 + {m_count}张后厨制作单"
-        lbl_slip = QLabel(slip_info)
-        lbl_slip.setAlignment(Qt.AlignCenter)
-        lbl_slip.setStyleSheet(
-            "background: rgba(16, 185, 129, 0.1); color: #059669; font-size: 12px; "
-            "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
-        )
+        if m_count > 0:
+            slip_info = f"[打印] 1张顾客单 + {m_count}张后厨制作单"
+            lbl_slip = QLabel(slip_info)
+            lbl_slip.setAlignment(Qt.AlignCenter)
+            lbl_slip.setStyleSheet(
+                "background: rgba(16, 185, 129, 0.1); color: #059669; font-size: 12px; "
+                "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
+            )
+        else:
+            slip_info = u"[免出票] 无汤底订单，无需打印顾客单与制作单"
+            lbl_slip = QLabel(slip_info)
+            lbl_slip.setAlignment(Qt.AlignCenter)
+            lbl_slip.setStyleSheet(
+                "background: rgba(245, 158, 11, 0.12); color: #D97706; font-size: 12px; "
+                "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
+            )
         left_layout.addWidget(lbl_slip)
 
         self.receipt_container = left_frame

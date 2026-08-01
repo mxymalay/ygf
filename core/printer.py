@@ -196,6 +196,12 @@ class ReceiptPrinter:
 
     def print_receipt(self, sale, print_type="all"):
         """全流程小票打印入口, print_type: all | customer | kitchen"""
+        cart_items = sale.get("cart_items", [])
+        has_soup = any(i.get("type") == "soup" or "weight" in i for i in cart_items)
+        if not has_soup:
+            print("[ReceiptPrinter] 订单中无汤底项目，跳过打票（顾客单与制作单均不出票）")
+            return True
+
         all_raw_data = bytearray()
         
         if print_type in ("all", "customer"):
