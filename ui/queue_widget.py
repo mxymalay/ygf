@@ -405,6 +405,7 @@ class QueueWidget(QWidget):
         pf_layout.addWidget(lbl_note)
 
         layout.addWidget(pool_frame)
+        layout.addStretch()
 
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
