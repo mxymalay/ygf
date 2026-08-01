@@ -166,7 +166,14 @@ class SettingsWidget(QWidget):
         btn_refresh_ports.clicked.connect(self._refresh_com_ports)
         sg.addWidget(btn_refresh_ports, 1, 2)
 
-        sg.addWidget(QLabel(u"解析规则："), 2, 0)
+        sg.addWidget(QLabel(u"波特率 (Baudrate)："), 2, 0)
+        self.cmb_sqb_baud = QComboBox()
+        self.cmb_sqb_baud.addItems(["2400", "9600", "19200", "38400", "115200"])
+        cur_baud = str(self.config.get("shouqianba_baudrate", 2400))
+        self.cmb_sqb_baud.setCurrentText(cur_baud)
+        sg.addWidget(self.cmb_sqb_baud, 2, 1, 1, 2)
+
+        sg.addWidget(QLabel(u"解析规则："), 3, 0)
         self.cmb_sqb_fmt = QComboBox()
         self.cmb_sqb_fmt.addItems([
             u"QA - QA标记 (例如 QA12.50)",
@@ -175,7 +182,7 @@ class SettingsWidget(QWidget):
         fmt = self.config.get("shouqianba_format", "QA")
         if fmt == "FLOAT":
             self.cmb_sqb_fmt.setCurrentIndex(1)
-        sg.addWidget(self.cmb_sqb_fmt, 2, 1, 1, 2)
+        sg.addWidget(self.cmb_sqb_fmt, 3, 1, 1, 2)
 
         layout.addWidget(sqb_group)
 
@@ -269,6 +276,10 @@ class SettingsWidget(QWidget):
         # 保存收钱吧配置
         self.config["shouqianba_enabled"] = (self.cmb_sqb_enable.currentIndex() == 0)
         self.config["shouqianba_port"] = self.cmb_sqb_port.currentText().strip()
+        try:
+            self.config["shouqianba_baudrate"] = int(self.cmb_sqb_baud.currentText().strip())
+        except Exception:
+            self.config["shouqianba_baudrate"] = 2400
         fmt_text = self.cmb_sqb_fmt.currentText()
         self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
 
