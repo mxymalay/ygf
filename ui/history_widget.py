@@ -875,7 +875,7 @@ class HistoryWidget(QWidget):
             temp_order_match = re.search(r"单号:(\w+)", remark)
             temp_order_no = temp_order_match.group(1) if temp_order_match else r.get("sale_no", "")
 
-            # 提取真实的订单列表数据以供打印，而不是随便塞一个占位符
+            # 提取真实的订单列表数据以供打印
             import json
             cart_items = []
             cart_items_json = r.get("cart_items_json")
@@ -885,8 +885,48 @@ class HistoryWidget(QWidget):
                 except Exception:
                     pass
             if not cart_items:
-                # 兜底：如果找不到 JSON 记录就用占位符
-                cart_items = [{"name": u"重打印历史订单", "price": r.get("total_price", 0.0)}]
+                # 兼容旧版本记录
+                proj_match = re.search(r"项目:(.*)", remark)
+                proj_str = proj_match.group(1).strip() if proj_match else ""
+                w_kg = r.get("weight_kg", 0.0)
+                tot = r.get("total_price", 0.0)
+
+                if proj_str:
+                    items_list = [p.strip() for p in proj_str.split(",") if p.strip()]
+                    for idx, p in enumerate(items_list):
+                        tag_match = re.search(r"^([^(]+)(?:\(([^)]+)\))?", p)
+                        name_part = tag_match.group(1).strip() if tag_match else p
+                        tag_part = tag_match.group(2) if tag_match else ""
+                        
+                        item_entry = {
+                            "name": name_part,
+                            "tag": tag_part if tag_part and tag_part != "无" else ""
+                        }
+                        if idx == 0 and w_kg > 0:
+                            item_entry["type"] = "soup"
+                            item_entry["weight"] = w_kg
+                            item_entry["price"] = tot
+                            item_entry["base_price"] = tot
+                            item_entry["qty"] = 1
+                        else:
+                            item_entry["type"] = "item"
+                            item_entry["price"] = 1.00
+                            item_entry["base_price"] = 1.00
+                            item_entry["qty"] = 1
+                        cart_items.append(item_entry)
+                elif w_kg > 0:
+                    cart_items.append({
+                        "name": u"称重菜品",
+                        "type": "soup",
+                        "weight": w_kg,
+                        "price": tot,
+                        "base_price": tot,
+                        "qty": 1,
+                        "tag": ""
+                    })
+                else:
+                    # 兜底：如果找不到任何信息
+                    cart_items = [{"name": u"重打印历史订单", "price": tot, "type": "soup", "weight": 0.0}]
 
             sale_data = {
                 "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
