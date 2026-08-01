@@ -215,6 +215,18 @@ class TasteSelectionDialog(QDialog):
         return " / ".join(tags)
 
 
+class TakeoutLabel(QLabel):
+    clicked = pyqtSignal()
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAlignment(Qt.AlignCenter)
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            event.accept()
+
 class OrderItemCard(QFrame):
     """无边框极简 POS 风格订单细项卡片 (深浅主题自适应，支持选中高亮与点击选择)"""
     clicked = pyqtSignal(int)
@@ -270,18 +282,14 @@ class OrderItemCard(QFrame):
             is_takeout = "打包" in [p.strip() for p in tag.split("/") if p.strip()]
             btn_text = "打包 ∨" if is_takeout else "堂食 ∨"
             
-            btn_takeout = QPushButton(btn_text)
-            btn_takeout.setCursor(Qt.PointingHandCursor)
-            btn_takeout.setFixedHeight(16)
+            btn_takeout = TakeoutLabel(btn_text)
             if is_takeout:
                 btn_takeout.setStyleSheet(
-                    "QPushButton { background: transparent; color: #F59E0B; font-weight: bold; font-size: 10px; border-radius: 3px; padding: 0px 4px; margin: 0px; border: 1px dashed #F59E0B; }"
-                    "QPushButton:hover { background: rgba(245, 158, 11, 0.1); }"
+                    "color: #F59E0B; font-weight: bold; font-size: 11px; border-radius: 3px; padding: 1px 4px; margin: 0px; border: 1px dashed #F59E0B; background: transparent;"
                 )
             else:
                 btn_takeout.setStyleSheet(
-                    "QPushButton { background: transparent; color: #9CA3AF; font-weight: bold; font-size: 10px; border-radius: 3px; padding: 0px 4px; margin: 0px; border: 1px dashed #475569; }"
-                    "QPushButton:hover { border: 1px dashed #F59E0B; color: #F59E0B; }"
+                    "color: #9CA3AF; font-weight: bold; font-size: 11px; border-radius: 3px; padding: 1px 4px; margin: 0px; border: 1px dashed #475569; background: transparent;"
                 )
             btn_takeout.clicked.connect(self._on_takeout_click)
             title_row.addWidget(btn_takeout, alignment=Qt.AlignVCenter)
