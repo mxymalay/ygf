@@ -3,7 +3,7 @@ import time
 import subprocess
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QWidget, QGraphicsDropShadowEffect
+    QWidget, QGraphicsDropShadowEffect, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
@@ -81,6 +81,7 @@ class NumericKeypad(QWidget):
             btn = QPushButton(txt)
             btn.setFocusPolicy(Qt.NoFocus)
             btn.setCursor(Qt.PointingHandCursor)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
             if btype == "num":
                 btn.setStyleSheet("""
@@ -106,7 +107,7 @@ class NumericKeypad(QWidget):
                 btn.setStyleSheet("""
                     QPushButton {
                         background-color: #EA580C; color: #FFFFFF; font-size: 18px; font-weight: bold;
-                        border: none; border-radius: 10px;
+                        border: none; border-radius: 10px; min-height: 140px;
                     }
                     QPushButton:hover { background-color: #C2410C; }
                     QPushButton:pressed { background-color: #9A3412; }
@@ -175,7 +176,7 @@ class LoginWindow(QDialog):
         form_layout.setSpacing(12)
         
         self.txt_user = QLineEdit("")
-        self.txt_user.setPlaceholderText("请输入管理员账号")
+        self.txt_user.setPlaceholderText("请输入账号")
         self.txt_user.setStyleSheet("""
             QLineEdit {
                 background-color: #1E293B; color: #F8FAFC; font-size: 16px; font-weight: bold;
@@ -183,14 +184,14 @@ class LoginWindow(QDialog):
             }
             QLineEdit:focus { border: 2px solid #38BDF8; }
         """)
-        self.txt_user.focusInEvent = lambda e: (QLineEdit.focusInEvent(self.txt_user, e), self._set_active_input(self.txt_user))
+        self.txt_user.installEventFilter(self)
         form_layout.addWidget(self.txt_user)
         
         self.txt_pwd = QLineEdit("")
-        self.txt_pwd.setPlaceholderText("请输入管理员密码")
+        self.txt_pwd.setPlaceholderText("请输入密码")
         self.txt_pwd.setEchoMode(QLineEdit.Password)
         self.txt_pwd.setStyleSheet(self.txt_user.styleSheet())
-        self.txt_pwd.focusInEvent = lambda e: (QLineEdit.focusInEvent(self.txt_pwd, e), self._set_active_input(self.txt_pwd))
+        self.txt_pwd.installEventFilter(self)
         form_layout.addWidget(self.txt_pwd)
 
         # 默认选中账号输入框
@@ -277,6 +278,13 @@ class LoginWindow(QDialog):
         
         card_layout.addLayout(bottom_bar)
         main_layout.addWidget(self.card)
+
+    def eventFilter(self, obj, event):
+        from PyQt5.QtCore import QEvent
+        if event.type() == QEvent.FocusIn:
+            if obj in (self.txt_user, self.txt_pwd):
+                self.active_input = obj
+        return super().eventFilter(obj, event)
 
     def _set_active_input(self, widget):
         self.active_input = widget
