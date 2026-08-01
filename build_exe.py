@@ -59,7 +59,7 @@ def main():
         os.makedirs(data_dir, exist_ok=True)
         
         print("\n" + "=" * 60)
-        print(" [🎉] 软件独立打包成功！")
+        print(" [v] 打包成功！可执行文件位于 dist/ 目录下。")
         print(" [📁] 绿色版软件位置:")
         print("      %s\\%s.exe" % (os.path.abspath(dist_dir), app_name))
         print("=" * 60)
