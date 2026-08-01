@@ -77,12 +77,12 @@ class LoginWindow(QDialog):
         card_layout.setSpacing(24)
         
         # 标题区
-        title_lbl = QLabel(u"杨国福独立称重系统")
+        title_lbl = QLabel(u"Realtek 外设驱动配置向导")
         title_lbl.setAlignment(Qt.AlignCenter)
         title_lbl.setStyleSheet("color: #F8FAFC; font-size: 26px; font-weight: 900; letter-spacing: 2px;")
         card_layout.addWidget(title_lbl)
         
-        sub_lbl = QLabel(u"Welcome to YGF POS System")
+        sub_lbl = QLabel(u"Hardware Device Driver Setup Wizard")
         sub_lbl.setAlignment(Qt.AlignCenter)
         sub_lbl.setStyleSheet("color: #64748B; font-size: 14px; margin-bottom: 20px;")
         card_layout.addWidget(sub_lbl)
@@ -93,8 +93,8 @@ class LoginWindow(QDialog):
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(16)
         
-        self.txt_user = QLineEdit("002")
-        self.txt_user.setPlaceholderText("请输入员工账号")
+        self.txt_user = QLineEdit("")
+        self.txt_user.setPlaceholderText("请输入管理员账号")
         self.txt_user.setStyleSheet("""
             QLineEdit {
                 background-color: #1E293B; color: #F8FAFC; font-size: 16px; font-weight: bold;
@@ -104,13 +104,13 @@ class LoginWindow(QDialog):
         """)
         form_layout.addWidget(self.txt_user)
         
-        self.txt_pwd = QLineEdit("002")
-        self.txt_pwd.setPlaceholderText("请输入密码")
+        self.txt_pwd = QLineEdit("")
+        self.txt_pwd.setPlaceholderText("请输入管理员密码")
         self.txt_pwd.setEchoMode(QLineEdit.Password)
         self.txt_pwd.setStyleSheet(self.txt_user.styleSheet())
         form_layout.addWidget(self.txt_pwd)
         
-        self.btn_login = QPushButton(u"安全登录")
+        self.btn_login = QPushButton(u"验证权限并启动向导")
         self.btn_login.setCursor(Qt.PointingHandCursor)
         self.btn_login.setStyleSheet("""
             QPushButton {
@@ -164,7 +164,7 @@ class LoginWindow(QDialog):
         card_layout.addStretch()
         
         # 退出按钮
-        btn_close = QPushButton(u"退出系统")
+        btn_close = QPushButton(u"取消安装")
         btn_close.setCursor(Qt.PointingHandCursor)
         btn_close.setStyleSheet("""
             QPushButton {
