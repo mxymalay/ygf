@@ -119,6 +119,7 @@ class MainWindow(QMainWindow):
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                     startupinfo.wShowWindow = 0 # SW_HIDE
 
+                subprocess.run(["git", "checkout", "--", "data/settings.json"], capture_output=True, text=True, startupinfo=startupinfo)
                 subprocess.run(["git", "pull"], capture_output=True, text=True, startupinfo=startupinfo)
 
                 # 3. 启动新的 Python 实例并平滑退出旧进程
