@@ -73,9 +73,18 @@ class AutoSwitchController(QObject):
     def _evaluate_decision(self, weight_kg: float) -> bool:
         """
         全自动核心决策算法：
-        1. 门限过滤：如果重量 < min_private_weight_kg (如 < 0.25kg)，必走官方
+        0. 连单/多碗保护：如果当前私域 POS 购物车中已有菜品 (正在开单)，继承走私域 POS
+        1. 门限过滤：如果重量 < min_private_weight_kg (如 < 0.25kg) 且购物车为空，分配给官方
         2. 目标比例动态调控：比较当前实际私域比例与目标比例，平滑交替分配
         """
+        # 规则 0：多碗/连续开单保护 (如果购物车中已有未结账项目，保持私域 POS 连续开单)
+        if hasattr(self.main_window, 'sale_page') and self.main_window.sale_page:
+            cart_items = getattr(self.main_window.sale_page, 'cart_items', [])
+            if cart_items:
+                print(f"[AutoDecisionEngine] 检测到购物车中已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
+                log_event(CAT_DECISION, "多碗连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
+                return True
+
         self._total_evaluated_orders += 1
 
         # 规则 1：小单过滤，低于设定重量一律分配给官方
