@@ -522,8 +522,9 @@ class CheckoutDialog(QDialog):
             # 确认付款成功 → 执行结账出票
             self._complete_checkout(method)
         else:
-            # 支付失败/退回 → 不记录订单，恢复按钮
-            print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，已取消本次结账提交。")
+            # 支付失败/退回 → 直接关闭结账弹窗，退出到点菜界面
+            print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，直接退出至点菜界面。")
+            self.reject()
 
     def _start_fly_animation(self):
         """小票飞出动画，同时右侧面板淡出，2秒后自动 accept"""
