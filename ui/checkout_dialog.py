@@ -121,27 +121,10 @@ class CheckoutDialog(QDialog):
         left_layout.addWidget(ticket_card, stretch=1)
 
         # 底部打印数量提示
-        cart_items = sale_data.get("cart_items", [])
-        if isinstance(cart_items, str):
-            import json
-            try:
-                cart_items = json.loads(cart_items)
-            except Exception:
-                cart_items = []
-
-        has_soup = False
-        m_count = 0
-        if isinstance(cart_items, list):
-            for item in cart_items:
-                if isinstance(item, dict):
-                    name = str(item.get("name", ""))
-                    key_id = str(item.get("key_id", ""))
-                    if item.get("type") == "soup" or key_id.startswith("soup") or "weight" in item or any(k in name for k in ["骨汤", "番茄", "麻辣拌", "菌汤", "金汤"]):
-                        has_soup = True
-                        m_count += 1
-
-        if has_soup:
-            slip_info = f"[打印] 1张顾客单 + {max(1, m_count)}张后厨制作单"
+        m_count = sum(1 for item in sale_data.get("cart_items", [])
+                      if item.get("type") == "soup" or "weight" in item)
+        if m_count > 0:
+            slip_info = f"[打印] 1张顾客单 + {m_count}张后厨制作单"
             lbl_slip = QLabel(slip_info)
             lbl_slip.setAlignment(Qt.AlignCenter)
             lbl_slip.setStyleSheet(
@@ -571,59 +554,50 @@ class CheckoutDialog(QDialog):
             self.reject()
 
     def _start_fly_animation(self):
-        """结账完成动画：需打印订单向上飞出，免打印订单直接原地渐隐"""
-        cart_items = self.sale_data.get("cart_items", [])
-        if isinstance(cart_items, str):
-            import json
-            try:
-                cart_items = json.loads(cart_items)
-            except Exception:
-                cart_items = []
-
-        has_soup = False
-        if isinstance(cart_items, list):
-            for item in cart_items:
-                if isinstance(item, dict):
-                    name = str(item.get("name", ""))
-                    key_id = str(item.get("key_id", ""))
-                    if item.get("type") == "soup" or key_id.startswith("soup") or "weight" in item or any(k in name for k in ["骨汤", "番茄", "麻辣拌", "菌汤", "金汤"]):
-                        has_soup = True
-                        break
-
+        """小票动画：需打票则向上飞出，免打票则向下下沉，右侧面板淡出后关闭"""
         self.opacity_effect = QGraphicsOpacityEffect(self.receipt_container)
         self.receipt_container.setGraphicsEffect(self.opacity_effect)
 
+        cart_items = self.sale_data.get("cart_items", [])
+        has_soup = any(item.get("type") == "soup" or "weight" in item for item in cart_items)
+
+        # 位移动画
+        self.pos_anim = QPropertyAnimation(self.receipt_container, b"pos")
+        self.pos_anim.setDuration(800)
+        start_pos = self.receipt_container.pos()
+        
+        if has_soup:
+            # 有汤底（出票）：向上飞出
+            end_pos = QPoint(start_pos.x(), start_pos.y() - 250)
+        else:
+            # 无汤底（免出票）：向下下沉，与出票方向相反
+            end_pos = QPoint(start_pos.x(), start_pos.y() + 250)
+
+        self.pos_anim.setStartValue(start_pos)
+        self.pos_anim.setEndValue(end_pos)
+        self.pos_anim.setEasingCurve(QEasingCurve.InBack)
+
         # 渐隐透明度 (左侧小票)
         self.opa_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.opa_anim.setDuration(400 if not has_soup else 800)
+        self.opa_anim.setDuration(800)
         self.opa_anim.setStartValue(1.0)
         self.opa_anim.setEndValue(0.0)
-        self.opa_anim.setEasingCurve(QEasingCurve.OutCubic if not has_soup else QEasingCurve.InCubic)
-        self.opa_anim.start()
+        self.opa_anim.setEasingCurve(QEasingCurve.InCubic)
 
-        if has_soup:
-            # 只有需打印的订单才触发【向上出票】位移动画
-            self.pos_anim = QPropertyAnimation(self.receipt_container, b"pos")
-            self.pos_anim.setDuration(800)
-            start_pos = self.receipt_container.pos()
-            end_pos = QPoint(start_pos.x(), start_pos.y() - 250)
-            self.pos_anim.setStartValue(start_pos)
-            self.pos_anim.setEndValue(end_pos)
-            self.pos_anim.setEasingCurve(QEasingCurve.InBack)
-            self.pos_anim.start()
-
-        # 右侧面板淡出
+        # 右侧面板快速淡出
         self.right_opacity = QGraphicsOpacityEffect(self.right_panel)
         self.right_panel.setGraphicsEffect(self.right_opacity)
         self.right_opa_anim = QPropertyAnimation(self.right_opacity, b"opacity")
         self.right_opa_anim.setDuration(400)
         self.right_opa_anim.setStartValue(1.0)
         self.right_opa_anim.setEndValue(0.0)
+
+        self.pos_anim.start()
+        self.opa_anim.start()
         self.right_opa_anim.start()
 
         # 动画结束后自动关闭模态框
-        close_delay = 450 if not has_soup else 900
-        QTimer.singleShot(close_delay, self.accept)
+        QTimer.singleShot(900, self.accept)
 
     def mousePressEvent(self, event):
         # 如果点击了空白处（没有点到小票或按钮），则取消结账
