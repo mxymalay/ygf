@@ -27,26 +27,48 @@ class AutoSwitchController(QObject):
 
         self._has_auto_popped = False  # 防止在同一个重量上重复判断
         self._last_official_time = 0.0  # 记录上一次判定为官方 POS 的时间戳 (用于官方连单保护)
+        self._manual_override_until = 0.0  # 店员手动干预锁定期 (防止称重自动抢抓焦点)
+        self._zero_start_time = 0.0  # 记录归零起始时间戳
+        self._last_popped_weight = 0.0  # 记录上次触发决策时的重量 (用于重量剧增二次更正)
+        self._current_is_private = False
 
         # 退场延时定时器
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self._on_auto_hide_timeout)
 
+    def notify_manual_switch(self, duration_sec: float = 30.0):
+        """店员手动点击悬浮球/快捷键触发：锁定 30 秒内不被称重自动抢抓覆盖"""
+        self._manual_override_until = time.time() + duration_sec
+        log_event(CAT_SWITCH, f"店员手动干预锁定", f"优先尊重店员操作，暂停自动调度 {duration_sec} 秒")
+
     def on_weight_changed(self, weight_kg: float):
         """当称重数据变动时被触发，全自动运行决策引擎"""
         if not self._auto_switch_enabled:
             return
 
+        now_ts = time.time()
+        # 1. 如果在店员手动干预锁定期内，尊重店员手动控制，不自动抢抓界面
+        if now_ts < self._manual_override_until:
+            return
+
         # 重量门限判断 (例如大于 0.08kg 视为有放碗动作)
         if weight_kg > 0.08:
-            if not self._has_auto_popped:
+            self._zero_start_time = 0.0  # 重置归零时间戳
+
+            # 2. 动态重量递增修正 (比如手刚放碗读数 0.12kg，1秒内手放开稳在 0.55kg)
+            weight_diff = weight_kg - self._last_popped_weight
+            is_surge = self._has_auto_popped and weight_diff > 0.15 and not self._current_is_private
+
+            if not self._has_auto_popped or is_surge:
                 self._has_auto_popped = True
+                self._last_popped_weight = weight_kg
                 self._hide_timer.stop()
-                log_event(CAT_SCALE, f"称重检测到放碗动作", f"重量: {weight_kg:.3f}kg")
+                log_event(CAT_SCALE, f"称重检测到放碗动作" if not is_surge else "称重稳定修正 (重量增加)", f"重量: {weight_kg:.3f}kg")
 
                 # 🤖 执行全自动智能决策算法
                 is_private_turn = self._evaluate_decision(weight_kg)
+                self._current_is_private = is_private_turn
 
                 if is_private_turn:
                     # 决策分配给【私域 POS】 -> 自动将本系统弹出最前
@@ -71,6 +93,17 @@ class AutoSwitchController(QObject):
         else:
             # 称上重量归零 (放下碗拿走)，重置弹出标记
             self._has_auto_popped = False
+            self._last_popped_weight = 0.0
+            self._current_is_private = False
+
+            # 3. 称重归零 3 秒智能判定：若空重量保持 3 秒以上，说明上一位顾客已拿碗离开，自动提前解脱官方连单锁
+            if self._zero_start_time == 0.0:
+                self._zero_start_time = now_ts
+            elif now_ts - self._zero_start_time > 3.0:
+                if self._last_official_time > 0:
+                    self._last_official_time = 0.0
+                    print("[AutoDecisionEngine] 称重归零超时 (顾客已离场)，自动解除官方连单锁定")
+                    log_event(CAT_DECISION, "顾客离场解锁", "称重归零超过 3 秒，恢复新单智能决策")
 
     def _evaluate_decision(self, weight_kg: float) -> bool:
         """
@@ -125,6 +158,7 @@ class AutoSwitchController(QObject):
 
     def on_receipt_printed(self):
         """当打完制作单/小票后被触发"""
+        self._last_official_time = 0.0  # 结账出票完成，重置官方锁
         if not self._auto_switch_enabled:
             return
 
