@@ -322,6 +322,22 @@ class ModernDoubleInputDialog(QDialog):
                     pass
 
 
+from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import QDoubleSpinBox, QLineEdit
+
+class FocusSelectDoubleSpinBox(QDoubleSpinBox):
+    """获得焦点时自动全选文本，方便直接输入覆盖已有数值"""
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self.selectAll)
+
+class FocusSelectLineEdit(QLineEdit):
+    """获得焦点时自动全选文本，方便直接输入覆盖已有文本"""
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self.selectAll)
+
+
 class FirstRunInitDialog(QDialog):
     """首次使用初始化对话框 (设置公斤单价与分店名称)"""
 
@@ -366,8 +382,7 @@ class FirstRunInitDialog(QDialog):
         lbl_p.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none;")
         card_layout.addWidget(lbl_p)
 
-        from PyQt5.QtWidgets import QDoubleSpinBox, QLineEdit
-        self.spin = QDoubleSpinBox()
+        self.spin = FocusSelectDoubleSpinBox()
         self.spin.setRange(0.01, 999.99)
         self.spin.setDecimals(2)
         self.spin.setValue(default_price)
@@ -378,18 +393,38 @@ class FirstRunInitDialog(QDialog):
         )
         card_layout.addWidget(self.spin)
 
-        # 字段 2: 分店名称 (修改括号内容)
-        lbl_b = QLabel("2. 本店分店名称 (请修改括号内门店名)：")
+        # 字段 2: 分店名称 (锁定杨国福与括号，用户仅填写括号内容)
+        lbl_b = QLabel("2. 本店分店名称：")
         lbl_b.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none; margin-top: 4px;")
         card_layout.addWidget(lbl_b)
 
-        self.txt_branch = QLineEdit(default_branch)
-        self.txt_branch.setPlaceholderText("例如：杨国福(肥西水晶城店)")
+        branch_row = QHBoxLayout()
+        branch_row.setSpacing(4)
+
+        lbl_prefix = QLabel("杨国福(")
+        lbl_prefix.setStyleSheet("font-size: 17px; font-weight: bold; color: #38BDF8; border: none; background: transparent;")
+        branch_row.addWidget(lbl_prefix)
+
+        # 提取内部默认店名 (如 "测试店" 或 "肥西水晶城店")
+        inner_branch = default_branch
+        if "(" in inner_branch and ")" in inner_branch:
+            inner_branch = inner_branch.split("(")[1].split(")")[0]
+        elif inner_branch.startswith("杨国福"):
+            inner_branch = inner_branch.replace("杨国福", "").replace("(", "").replace(")", "").strip()
+
+        self.txt_branch = FocusSelectLineEdit(inner_branch)
+        self.txt_branch.setPlaceholderText("例如：肥西水晶城店")
         self.txt_branch.setStyleSheet(
-            "QLineEdit { background: #0F172A; color: #38BDF8; font-size: 15px; font-weight: bold; "
+            "QLineEdit { background: #0F172A; color: #38BDF8; font-size: 16px; font-weight: bold; "
             "border: 2px solid #0284C7; border-radius: 8px; padding: 8px 12px; }"
         )
-        card_layout.addWidget(self.txt_branch)
+        branch_row.addWidget(self.txt_branch, stretch=1)
+
+        lbl_suffix = QLabel(")")
+        lbl_suffix.setStyleSheet("font-size: 17px; font-weight: bold; color: #38BDF8; border: none; background: transparent;")
+        branch_row.addWidget(lbl_suffix)
+
+        card_layout.addLayout(branch_row)
 
         card_layout.addSpacing(6)
 
@@ -413,7 +448,11 @@ class FirstRunInitDialog(QDialog):
 
     def _on_ok(self):
         self.price_val = self.spin.value()
-        self.branch_val = self.txt_branch.text().strip() or "杨国福(测试店)"
+        user_inner = self.txt_branch.text().strip()
+        user_inner = user_inner.replace("杨国福", "").replace("(", "").replace(")", "").strip()
+        if not user_inner:
+            user_inner = "测试店"
+        self.branch_val = f"杨国福({user_inner})"
         self.confirmed = True
         self.accept()
 
