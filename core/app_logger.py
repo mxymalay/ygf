@@ -19,8 +19,9 @@ CAT_DECISION = "DECISION"   # 智能决策引擎事件
 CAT_SWITCH   = "SWITCH"     # 系统切换事件
 CAT_PANIC    = "PANIC"      # 防督导避险事件
 CAT_SYSTEM   = "SYSTEM"     # 系统启动/关闭/配置变更等
+CAT_USER     = "USER"       # 用户操作 (点菜/删除/折扣/结账等)
 
-ALL_CATEGORIES = [CAT_SCALE, CAT_PRINT, CAT_DECISION, CAT_SWITCH, CAT_PANIC, CAT_SYSTEM]
+ALL_CATEGORIES = [CAT_SCALE, CAT_PRINT, CAT_DECISION, CAT_SWITCH, CAT_PANIC, CAT_SYSTEM, CAT_USER]
 
 # 日志文件路径
 _LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")

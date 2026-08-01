@@ -14,7 +14,7 @@ from PyQt5.QtGui import QFont
 
 from core.app_logger import (
     read_logs, cleanup_old_logs,
-    CAT_SCALE, CAT_PRINT, CAT_DECISION, CAT_SWITCH, CAT_PANIC, CAT_SYSTEM,
+    CAT_SCALE, CAT_PRINT, CAT_DECISION, CAT_SWITCH, CAT_PANIC, CAT_SYSTEM, CAT_USER,
     ALL_CATEGORIES
 )
 
@@ -27,6 +27,7 @@ CAT_DISPLAY = {
     CAT_SWITCH:  "🔄 系统切换",
     CAT_PANIC:   "🛡️ 避险",
     CAT_SYSTEM:  "💻 系统",
+    CAT_USER:    "👤 用户操作",
 }
 
 # 分类颜色样式
@@ -37,6 +38,7 @@ CAT_COLORS = {
     CAT_SWITCH:   ("#FB923C", "#7C2D12"),  # orange
     CAT_PANIC:    ("#F87171", "#7F1D1D"),  # red
     CAT_SYSTEM:   ("#94A3B8", "#1E293B"),  # slate
+    CAT_USER:     ("#FBBF24", "#78350F"),  # amber
 }
 
 

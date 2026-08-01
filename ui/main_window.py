@@ -185,6 +185,9 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setText(now)
 
     def _on_page_changed(self, index):
+        page_names = {0: "收银台", 1: "订单查询", 2: "交班报表", 3: "叫号设置", 4: "系统设置", 5: "日志信息"}
+        from core.app_logger import log_event, CAT_USER
+        log_event(CAT_USER, f"切换页面: {page_names.get(index, index)}", "")
         self.stack.setCurrentIndex(index)
         if index == 0:
             self.sale_page.restart_scale()

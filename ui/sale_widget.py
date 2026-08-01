@@ -17,6 +17,7 @@ from core.printer import ReceiptPrinter
 from core.scale_reader import ScaleReader
 from core.call_number_manager import CallNumberManager
 from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
+from core.app_logger import log_event, CAT_USER, CAT_PRINT
 
 
 class TasteSelectionDialog(QDialog):
@@ -953,6 +954,7 @@ class SaleWidget(QWidget):
             self.cart_page = len(pages) - 1
             btn.set_count(btn.count + 1)
             self._update_price_display()
+            log_event(CAT_USER, f"点选汤底: {soup_clean_name}", f"重量 {w:.3f}kg | 单价 {soup_unit_price} | 金额 ¥{b_price:.2f}")
 
             # 2. 实时响应辣度/避忌按钮，点击即刻刷新卡片标签
             def update_flavor(new_tag):
@@ -983,6 +985,7 @@ class SaleWidget(QWidget):
             self.cart_page = len(pages) - 1
             btn.set_count(btn.count + 1)
             self._update_price_display()
+            log_event(CAT_USER, f"点选附加项: {btn.title_str.replace(chr(10), ' ')}", f"单价 ¥{btn.price_val:.2f}")
 
     def _select_cart_item(self, index):
         """选择指定的订单卡片"""
@@ -1137,6 +1140,7 @@ class SaleWidget(QWidget):
             item["discount_rate"] = new_rate
             item["price"] = item["base_price"] * item.get("qty", 1) * new_rate
             self._update_price_display()
+            log_event(CAT_USER, f"设置折扣: {item.get('name','')}", f"折扣率: {new_rate:.0%} | 折后价: ¥{item['price']:.2f}")
 
     def _increase_selected_qty(self):
         """增加选中项数量 (+1，汤底不可加减量)"""
@@ -1180,6 +1184,7 @@ class SaleWidget(QWidget):
                 self.selected_item_index = -1
 
             self._update_price_display()
+            log_event(CAT_USER, f"删除订单项: {removed.get('name','')}", f"单价 ¥{removed.get('base_price', 0):.2f}")
 
     def _toggle_call_detail(self):
         self._detail_expanded = not self._detail_expanded
@@ -1552,6 +1557,7 @@ class SaleWidget(QWidget):
                 self.printer.last_error = str(e)
 
             if success:
+                log_event(CAT_USER, f"结账成功: 叫号#{sale_data['call_no']}", f"付款方式: {payment_method} | 总价: ¥{total_price:.2f} | {items_summary}")
                 self._on_clear()
                 self.refresh_call_number_display()
                 # 触发双系统自动退场倒计时
@@ -1560,6 +1566,7 @@ class SaleWidget(QWidget):
                     parent_mw.switch_controller.on_receipt_printed()
             else:
                 err_detail = getattr(self.printer, 'last_error', '') or u"打印机名无效或硬件未连接"
+                log_event(CAT_PRINT, f"打印失败", f"错误: {err_detail}")
                 show_warning(
                     self,
                     u"打印故障提示",
