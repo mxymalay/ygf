@@ -17,7 +17,7 @@ from core.printer import ReceiptPrinter
 from core.scale_reader import ScaleReader
 from core.call_number_manager import CallNumberManager
 from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
-from core.app_logger import log_event, CAT_USER, CAT_PRINT
+from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER
 
 
 class TasteSelectionDialog(QDialog):
@@ -1546,6 +1546,7 @@ class SaleWidget(QWidget):
                 cart_items_json=cart_items_json,
                 payment_method=payment_method
             )
+            log_event(CAT_ORDER, f"订单成交入库: 叫号#{sale_data['call_no']}", f"支付方式: {payment_method} | 实付: ¥{total_price:.2f} | 明细: {items_summary}")
 
             full_sale = dict(record)
             full_sale.update(sale_data)
@@ -1559,7 +1560,7 @@ class SaleWidget(QWidget):
                 self.printer.last_error = str(e)
 
             if success:
-                log_event(CAT_PRINT, f"结账打单完成: 叫号#{sale_data['call_no']}", f"付款方式: {payment_method} | 实付: ¥{total_price:.2f} | {items_summary}")
+                log_event(CAT_PRINT, f"小票驱动出票成功: 叫号#{sale_data['call_no']}", f"出票完成，启动 3 秒全自动退场倒计时")
                 self._on_clear()
                 self.refresh_call_number_display()
                 # 触发双系统自动退场倒计时

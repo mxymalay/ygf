@@ -13,15 +13,16 @@ import threading
 from datetime import datetime, timedelta
 
 # 日志分类常量
+CAT_ORDER    = "ORDER"      # 订单交易事件 (开单/叫号生成/交易落库)
+CAT_USER     = "USER"       # 用户操作 (点菜/删除/折扣/切换页面等)
 CAT_SCALE    = "SCALE"      # 称重事件
-CAT_PRINT    = "PRINT"      # 打印事件
+CAT_PRINT    = "PRINT"      # 小票打印硬件事件
 CAT_DECISION = "DECISION"   # 智能决策引擎事件
 CAT_SWITCH   = "SWITCH"     # 系统切换事件
 CAT_PANIC    = "PANIC"      # 防督导避险事件
 CAT_SYSTEM   = "SYSTEM"     # 系统启动/关闭/配置变更等
-CAT_USER     = "USER"       # 用户操作 (点菜/删除/折扣/结账等)
 
-ALL_CATEGORIES = [CAT_SCALE, CAT_PRINT, CAT_DECISION, CAT_SWITCH, CAT_PANIC, CAT_SYSTEM, CAT_USER]
+ALL_CATEGORIES = [CAT_ORDER, CAT_USER, CAT_SCALE, CAT_PRINT, CAT_DECISION, CAT_SWITCH, CAT_PANIC, CAT_SYSTEM]
 
 # 日志文件路径
 _LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
