@@ -203,21 +203,28 @@ class QueueWidget(QWidget):
 
         layout.addLayout(header_layout)
 
-        # 单选按钮组
-        self.mode_group = QButtonGroup(self)
-
-        # ══════════════════════════════════════════════════════════════
-        # 模块 一：叫号生成模式 (Mode Selection)
-        # ══════════════════════════════════════════════════════════════
-        sec1_lbl = QLabel(u"一、取餐号生成方式")
-        sec1_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #38BDF8; margin-top: 6px;")
-        layout.addWidget(sec1_lbl)
-
-        mode_box = QFrame()
-        mode_box.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; }")
-        mb_layout = QVBoxLayout(mode_box)
-        mb_layout.setContentsMargins(16, 16, 16, 16)
-        mb_layout.setSpacing(14)
+        # 模式选择下拉框
+        from PyQt5.QtWidgets import QComboBox, QStackedWidget
+        mode_select_layout = QHBoxLayout()
+        lbl_ms = QLabel(u"当前模式：")
+        lbl_ms.setStyleSheet("font-size: 14px; font-weight: bold; color: #D1D5DB;")
+        mode_select_layout.addWidget(lbl_ms)
+        
+        self.cmb_mode = QComboBox()
+        self.cmb_mode.addItems([
+            u"模式一：智能时段避重 (推荐)",
+            u"模式二：自定义范围叫号",
+            u"模式三：传统手动模式"
+        ])
+        self.cmb_mode.setStyleSheet("QComboBox { font-size: 14px; padding: 6px; border-radius: 6px; background: #334155; color: white; border: 1px solid #475569; } QComboBox::drop-down { border: none; }")
+        mode_select_layout.addWidget(self.cmb_mode, stretch=1)
+        mb_layout.addLayout(mode_select_layout)
+        
+        self.stack_mode = QStackedWidget()
+        self.stack_mode.setStyleSheet("background: transparent;")
+        mb_layout.addWidget(self.stack_mode)
+        
+        self.cmb_mode.currentIndexChanged.connect(self.stack_mode.setCurrentIndex)
 
         # ── 模式一：智能避重 ──
         card_smart = QFrame()
@@ -226,26 +233,10 @@ class QueueWidget(QWidget):
         cs_layout.setContentsMargins(16, 12, 16, 12)
         cs_layout.setSpacing(8)
 
-        radio_style = """
-            QRadioButton {
-                font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; spacing: 10px;
-            }
-            QRadioButton::indicator {
-                width: 20px; height: 20px; border-radius: 10px; border: 2px solid #64748B; background-color: #1E293B;
-            }
-            QRadioButton::indicator:hover {
-                border-color: #F97316; background-color: #334155;
-            }
-            QRadioButton::indicator:checked {
-                border: 2px solid #F97316; background-color: #EA580C;
-            }
-        """
-
         cs_header = QHBoxLayout()
-        self.rb_smart = QRadioButton(u"模式一：智能时段避重 (推荐)")
-        self.rb_smart.setStyleSheet(radio_style)
-        self.mode_group.addButton(self.rb_smart, 1)
-        cs_header.addWidget(self.rb_smart)
+        lbl_title_smart = QLabel(u"智能时段避重 (推荐)")
+        lbl_title_smart.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+        cs_header.addWidget(lbl_title_smart)
         cs_header.addStretch()
 
         lbl_tag_rec = QLabel(u"🔥 店长推荐")
@@ -265,7 +256,7 @@ class QueueWidget(QWidget):
         lbl_s_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent; line-height: 1.5;")
         cs_layout.addWidget(lbl_s_desc)
 
-        mb_layout.addWidget(card_smart)
+        self.stack_mode.addWidget(card_smart)
 
         # ── 模式二：自定义范围 ──
         card_custom = QFrame()
@@ -274,10 +265,9 @@ class QueueWidget(QWidget):
         cc_layout.setContentsMargins(16, 12, 16, 12)
         cc_layout.setSpacing(10)
 
-        self.rb_custom = QRadioButton(u"模式二：自定义范围叫号")
-        self.rb_custom.setStyleSheet(radio_style)
-        self.mode_group.addButton(self.rb_custom, 2)
-        cc_layout.addWidget(self.rb_custom)
+        lbl_title_custom = QLabel(u"自定义范围叫号")
+        lbl_title_custom.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+        cc_layout.addWidget(lbl_title_custom)
 
         c_inputs = QHBoxLayout()
         c_inputs.setContentsMargins(30, 2, 0, 2)
@@ -321,7 +311,7 @@ class QueueWidget(QWidget):
         c_opts.addWidget(self.chk_custom_seq)
         cc_layout.addLayout(c_opts)
 
-        mb_layout.addWidget(card_custom)
+        self.stack_mode.addWidget(card_custom)
 
         # ── 模式三：手动指定 ──
         card_manual = QFrame()
@@ -330,16 +320,15 @@ class QueueWidget(QWidget):
         cm_layout.setContentsMargins(16, 12, 16, 12)
         cm_layout.setSpacing(6)
 
-        self.rb_manual = QRadioButton(u"模式三：传统手动模式")
-        self.rb_manual.setStyleSheet(radio_style)
-        self.mode_group.addButton(self.rb_manual, 3)
-        cm_layout.addWidget(self.rb_manual)
+        lbl_title_manual = QLabel(u"传统手动模式")
+        lbl_title_manual.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB;")
+        cm_layout.addWidget(lbl_title_manual)
 
         lbl_m_desc = QLabel(u"每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
         lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent; margin-left: 30px;")
         cm_layout.addWidget(lbl_m_desc)
 
-        mb_layout.addWidget(card_manual)
+        self.stack_mode.addWidget(card_manual)
 
         # 保存模式配置按钮
         btn_save = QPushButton(u"保存叫号模式设置")
@@ -432,20 +421,23 @@ class QueueWidget(QWidget):
     def _load_settings(self):
         mode = self.config.get("call_mode", CallNumberManager.MODE_SMART)
         if mode == CallNumberManager.MODE_SMART:
-            self.rb_smart.setChecked(True)
+            self.cmb_mode.setCurrentIndex(0)
         elif mode == CallNumberManager.MODE_CUSTOM:
-            self.rb_custom.setChecked(True)
+            self.cmb_mode.setCurrentIndex(1)
         else:
-            self.rb_manual.setChecked(True)
+            self.cmb_mode.setCurrentIndex(2)
+
+        self.stack_mode.setCurrentIndex(self.cmb_mode.currentIndex())
 
         self.spin_start.setValue(self.config.get("custom_start_no", 50))
         self.spin_end.setValue(self.config.get("custom_end_no", 500))
         self.chk_custom_seq.setChecked(self.config.get("custom_is_seq", False))
 
     def _save_settings(self):
-        if self.rb_smart.isChecked():
+        idx = self.cmb_mode.currentIndex()
+        if idx == 0:
             mode = CallNumberManager.MODE_SMART
-        elif self.rb_custom.isChecked():
+        elif idx == 1:
             mode = CallNumberManager.MODE_CUSTOM
         else:
             mode = CallNumberManager.MODE_MANUAL
