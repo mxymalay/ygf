@@ -319,30 +319,30 @@ class LoginWindow(QDialog):
             
             self.check_widget.show()
             self.lbl_err.setText("")
-            QTimer.singleShot(500, self._check_official_software)
+            QTimer.singleShot(100, self._check_official_software)
         else:
             self.lbl_err.setText(u"账号或密码错误，请重试！")
             
     def _check_official_software(self):
         self.lbl_check1.setText(u"🔄 官方收银环境检测：正在检测...")
         self.lbl_check1.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
-        QTimer.singleShot(600, self._do_check_official_software)
+        QTimer.singleShot(150, self._do_check_official_software)
         
     def _do_check_official_software(self):
         if check_ygf_official_running():
             self.lbl_check1.setText(u"✔ 官方收银环境检测：通过")
             self.lbl_check1.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
-            QTimer.singleShot(400, self._check_printer)
         else:
-            self.lbl_check1.setText(u"✖ 官方收银环境检测：失败 (未检测到官方收银软件运行)")
-            self.lbl_check1.setStyleSheet("color: #EF4444; font-size: 14px; font-weight: bold;")
-            self.btn_debug.show()
-            # 第一个不通过时在此卡住不继续，除非点击调试模式跳过
+            self.lbl_check1.setText(u"⚠️ 官方收银环境检测：未运行")
+            self.lbl_check1.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
+            self.hardware_warnings.append("官方收银软件未运行")
+            
+        QTimer.singleShot(150, self._check_printer)
 
     def _check_printer(self):
         self.lbl_check2.setText(u"🔄 打印机外设检测：正在检测...")
         self.lbl_check2.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
-        QTimer.singleShot(400, self._do_check_printer)
+        QTimer.singleShot(150, self._do_check_printer)
 
     def _do_check_printer(self):
         printers = scan_printers()
@@ -350,30 +350,30 @@ class LoginWindow(QDialog):
             self.lbl_check2.setText(u"✔ 打印机外设检测：通过")
             self.lbl_check2.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
         else:
-            self.lbl_check2.setText(u"⚠️ 打印机外设检测：未发现可用打印机 (已启用模拟打票)")
+            self.lbl_check2.setText(u"⚠️ 打印机外设检测：未连接")
             self.lbl_check2.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
-            self.hardware_warnings.append("打印机未连接驱动")
+            self.hardware_warnings.append("打印机未连接")
         
-        QTimer.singleShot(400, self._check_shouqianba)
+        QTimer.singleShot(150, self._check_shouqianba)
 
     def _check_shouqianba(self):
-        self.lbl_check3.setText(u"🔄 收钱吧串口检测：正在发送测试心跳数据包...")
+        self.lbl_check3.setText(u"🔄 收钱吧串口检测：正在检测...")
         self.lbl_check3.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
-        QTimer.singleShot(400, self._do_check_shouqianba)
+        QTimer.singleShot(150, self._do_check_shouqianba)
 
     def _do_check_shouqianba(self):
         from core.shouqianba_sender import test_shouqianba_port
         ok, msg = test_shouqianba_port(self.config)
         if ok:
-            self.lbl_check3.setText(f"✔ 收钱吧串口检测：通过 ({msg})")
+            self.lbl_check3.setText(u"✔ 收钱吧串口检测：通过")
             self.lbl_check3.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
         else:
             port = self.config.get("shouqianba_port", "COM1")
-            self.lbl_check3.setText(f"⚠️ 收钱吧串口检测：{port} 通道未连接 (已启用剪贴板+快捷键)")
+            self.lbl_check3.setText(f"⚠️ 收钱吧串口检测：{port} 未连通")
             self.lbl_check3.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
-            self.hardware_warnings.append(f"收钱吧 {port} 端口未连通")
+            self.hardware_warnings.append(f"收钱吧 {port} 未连通")
 
-        QTimer.singleShot(800, self.accept)
+        QTimer.singleShot(300, self.accept)
 
     def _on_debug_click(self):
         self.is_mock_mode = True
