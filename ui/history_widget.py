@@ -273,18 +273,8 @@ class HistoryWidget(QWidget):
 
         header_bar.addSpacing(16)
 
-        # 选中的订单标题
-        self.lbl_header_title = QLabel(u"📋 取餐号：---")
-        self.lbl_header_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #F9FAFB; border: none;")
-        header_bar.addWidget(self.lbl_header_title)
-
         header_bar.addStretch()
-
-        # 右侧状态标识
-        self.lbl_header_status = QLabel(u"已支付")
-        self.lbl_header_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #EA580C; border: none;")
-        header_bar.addWidget(self.lbl_header_status)
-
+        
         main_layout.addLayout(header_bar)
 
         # 分割线
@@ -385,9 +375,19 @@ class HistoryWidget(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(10)
 
-        # (1) 基础信息 Header (已根据要求去掉 POS 机号等冗余信息)
+        # (1) 基础信息 Header
         meta_row = QHBoxLayout()
+        
+        self.lbl_header_title = QLabel(u"取餐号：---")
+        self.lbl_header_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #F9FAFB; border: none;")
+        meta_row.addWidget(self.lbl_header_title)
+        
         meta_row.addStretch()
+        
+        self.lbl_header_status = QLabel(u"已支付")
+        self.lbl_header_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #EA580C; border: none;")
+        meta_row.addWidget(self.lbl_header_status)
+        
         right_col.addLayout(meta_row)
 
         # (2) 购买商品明细滚动区域
