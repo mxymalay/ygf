@@ -315,21 +315,20 @@ class QueueWidget(QWidget):
             "padding: 6px 12px; border-radius: 6px; border: 1px solid #475569; min-width: 80px; }"
         )
         c_inputs.addWidget(self.spin_end)
-        c_inputs.addStretch()
+        
+        c_inputs.addSpacing(24)
 
-        cc_layout.addLayout(c_inputs)
-
-        c_opts = QHBoxLayout()
-        c_opts.setContentsMargins(0, 0, 0, 0)
-        self.chk_custom_seq = QCheckBox(u"按顺序依次递增叫号 (未勾选则在指定范围内随机叫号)")
+        self.chk_custom_seq = QCheckBox(u"按顺序依次递增叫号 (未勾选则随机)")
         self.chk_custom_seq.setStyleSheet("""
             QCheckBox { font-size: 13px; color: #94A3B8; border: none; background: transparent; spacing: 8px; }
             QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid #64748B; background-color: #1E293B; }
             QCheckBox::indicator:hover { border-color: #F97316; }
             QCheckBox::indicator:checked { border: 1.5px solid #F97316; background-color: #EA580C; }
         """)
-        c_opts.addWidget(self.chk_custom_seq)
-        cc_layout.addLayout(c_opts)
+        c_inputs.addWidget(self.chk_custom_seq)
+        c_inputs.addStretch()
+
+        cc_layout.addLayout(c_inputs)
 
         self.stack_mode.addWidget(card_custom)
 
