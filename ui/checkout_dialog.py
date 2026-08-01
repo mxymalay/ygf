@@ -87,6 +87,7 @@ class CheckoutDialog(QDialog):
         # 滚动区域
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(
             "QScrollArea { background: transparent; border: none; }"
             "QScrollBar:vertical { width: 5px; background: #F1F5F9; border-radius: 2px; }"
@@ -422,7 +423,7 @@ class CheckoutDialog(QDialog):
                 pass
 
         dlg_h = min(600, max(440, screen_h - 60))
-        dlg_w = min(780, max(600, screen_w - 200))
+        dlg_w = min(880, max(600, screen_w - 120))
         self.inner_container.setFixedSize(dlg_w, dlg_h)
         self.setFixedSize(screen_w, screen_h)
 
