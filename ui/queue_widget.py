@@ -249,6 +249,17 @@ class QueueWidget(QWidget):
         """)
         mode_select_layout.addWidget(self.cmb_mode)
         mode_select_layout.addStretch()
+        
+        # 保存模式配置按钮
+        btn_save = QPushButton(u"保存配置")
+        btn_save.setStyleSheet(
+            "background: #EA580C; color: white; font-weight: bold; "
+            "font-size: 14px; min-height: 40px; border-radius: 8px; padding: 0 24px; border: none;"
+        )
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.clicked.connect(self._save_settings)
+        mode_select_layout.addWidget(btn_save)
+        
         mb_layout.addLayout(mode_select_layout)
         
         # 分割线
@@ -267,7 +278,7 @@ class QueueWidget(QWidget):
         card_smart = QFrame()
         card_smart.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }")
         cs_layout = QVBoxLayout(card_smart)
-        cs_layout.setContentsMargins(16, 14, 16, 14)
+        cs_layout.setContentsMargins(12, 8, 12, 8)
         cs_layout.setSpacing(8)
 
         lbl_s_desc = QLabel(
@@ -285,7 +296,7 @@ class QueueWidget(QWidget):
         card_custom = QFrame()
         card_custom.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }")
         cc_layout = QVBoxLayout(card_custom)
-        cc_layout.setContentsMargins(16, 14, 16, 14)
+        cc_layout.setContentsMargins(12, 8, 12, 8)
         cc_layout.setSpacing(12)
 
         c_inputs = QHBoxLayout()
@@ -336,7 +347,7 @@ class QueueWidget(QWidget):
         card_manual = QFrame()
         card_manual.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }")
         cm_layout = QVBoxLayout(card_manual)
-        cm_layout.setContentsMargins(16, 14, 16, 14)
+        cm_layout.setContentsMargins(12, 8, 12, 8)
         cm_layout.setSpacing(6)
 
         lbl_m_desc = QLabel(u"💡 机制说明：每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
@@ -345,19 +356,7 @@ class QueueWidget(QWidget):
 
         self.stack_mode.addWidget(card_manual)
 
-        # 保存模式配置按钮
-        btn_save = QPushButton(u"保存叫号模式设置")
-        btn_save.setStyleSheet(
-            "background: #EA580C; color: white; font-weight: bold; "
-            "font-size: 14px; min-height: 40px; border-radius: 8px; padding: 0 24px; border: none;"
-        )
-        btn_save.setCursor(Qt.PointingHandCursor)
-        btn_save.clicked.connect(self._save_settings)
-        
-        btn_box = QHBoxLayout()
-        btn_box.addStretch()
-        btn_box.addWidget(btn_save)
-        mb_layout.addLayout(btn_box)
+        # 按钮已移至顶部
 
         layout.addWidget(mode_box)
 
