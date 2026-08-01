@@ -96,8 +96,9 @@ class SettingsWidget(QWidget):
         self.txt_shop = QLineEdit(self.config.get("shop_name", u"杨国福麻辣烫"))
         bg.addWidget(self.txt_shop, 0, 1, 1, 2)
 
-        bg.addWidget(QLabel(u"副标题："), 1, 0)
-        self.txt_sub = QLineEdit(self.config.get("shop_subtitle", u"好吃不贵 · 健康美味"))
+        bg.addWidget(QLabel(u"分店名称："), 1, 0)
+        self.txt_sub = QLineEdit(self.config.get("shop_subtitle", u"杨国福(肥西水晶城店)"))
+        self.txt_sub.setPlaceholderText(u"例如：杨国福(肥西水晶城店)")
         bg.addWidget(self.txt_sub, 1, 1, 1, 2)
 
         bg.addWidget(QLabel(u"小票底部："), 2, 0)

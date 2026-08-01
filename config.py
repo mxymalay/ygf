@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
     "unit_price": 32.00,                # 单价（元/斤 或 元/公斤）
     "price_unit": "per_jin",            # "per_jin" | "per_kg"
     "shop_name": "杨国福麻辣烫",
-    "shop_subtitle": "好吃不贵 · 健康美味",
+    "shop_subtitle": "杨国福(肥西水晶城店)",
     "receipt_footer": "谢谢惠顾！欢迎下次光临",
 
     # 系统设置
