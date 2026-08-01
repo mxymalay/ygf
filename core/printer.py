@@ -140,13 +140,24 @@ class ReceiptPrinter:
         return bytes(d)
 
     def _build_kitchen_slip(self, sale, item, index):
-        """构建【制作单-堂食】 ESC/POS 数据 (严格 30 列排版，防溢出折行)"""
+        """构建【制作单】 ESC/POS 数据 (严格排版，支持打包醒目提示)"""
         d = bytearray()
         d += self.INIT
 
+        tag = item.get("tag", "")
+        is_takeout = "打包" in [p.strip() for p in tag.split("/") if p.strip()]
+        
+        # 如果是打包，最上方密集打印3行“打包”
+        if is_takeout:
+            d += self.FONT_SMALL + self.ALIGN_CENTER
+            packed_line = "打包" * 24 + "\n"
+            d += (packed_line * 3).encode("gbk", errors="ignore")
+            d += self.FONT_NORMAL
+
         # 1. 标题
+        title_str = "制作单-打包\n" if is_takeout else "制作单-堂食\n"
         d += self.ALIGN_CENTER + self.BOLD_ON + self.DOUBLE_HEIGHT
-        d += "制作单-堂食\n".encode("gbk", errors="ignore")
+        d += title_str.encode("gbk", errors="ignore")
         d += self.NORMAL_SIZE + self.BOLD_OFF
         d += b'------------------------------------------------\n'
 
@@ -172,7 +183,6 @@ class ReceiptPrinter:
         # 5. 菜品名称、重量与口味 (大字号加粗显示，方便后厨看单)
         name = item.get("name", "经典草本骨汤")
         weight_val = item.get("weight", sale.get("weight_kg", 0.0))
-        tag = item.get("tag", "")
 
         # 菜品名 & 数量大字号加粗
         d += self.DOUBLE_HEIGHT + self.BOLD_ON
@@ -191,6 +201,13 @@ class ReceiptPrinter:
         # 6. 打印时间
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
         d += ("打印时间：%s\n" % now_str).encode("gbk", errors="ignore")
+        
+        # 如果是打包，最下方再补1行密集的“打包”
+        if is_takeout:
+            d += self.FONT_SMALL + self.ALIGN_CENTER
+            d += ("打包" * 24 + "\n").encode("gbk", errors="ignore")
+            d += self.FONT_NORMAL
+
         d += self.FEED_LINES + self.CUT_PARTIAL
         return bytes(d)
 
