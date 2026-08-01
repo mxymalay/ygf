@@ -141,16 +141,6 @@ class SideNavBar(QWidget):
         item_exit.clicked.connect(lambda: self.exit_requested.emit())
         layout.addWidget(item_exit)
 
-        # 4. 底部版本号显示
-        from config import APP_VERSION
-        lbl_version = QLabel(APP_VERSION)
-        lbl_version.setAlignment(Qt.AlignCenter)
-        lbl_version.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: rgba(255, 255, 255, 0.4); "
-            "background: transparent; margin: 4px 0 6px 0;"
-        )
-        layout.addWidget(lbl_version)
-
         # 默认选中第一页
         self._select_page(0)
 
