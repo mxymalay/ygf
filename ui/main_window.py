@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
 
         # 3. 底部状态栏
         self.status = QStatusBar()
+        self.status.setStyleSheet("QStatusBar::item { border: none; }")
         self.setStatusBar(self.status)
 
         self.lbl_hw_status = QLabel()
