@@ -32,15 +32,16 @@ def setup_auto_start():
         )
         
         # 检查是否已经设置过，如果路径一致就不反复写
+        target_cmd = f'"{exe_path}" --delayed-start'
         try:
             val, _ = winreg.QueryValueEx(key, "YGF_POS_System")
-            if val == f'"{exe_path}"':
+            if val == target_cmd:
                 winreg.CloseKey(key)
                 return
         except WindowsError:
             pass
             
-        winreg.SetValueEx(key, "YGF_POS_System", 0, winreg.REG_SZ, f'"{exe_path}"')
+        winreg.SetValueEx(key, "YGF_POS_System", 0, winreg.REG_SZ, target_cmd)
         winreg.CloseKey(key)
         print("[*] 成功设置开机自启")
     except Exception as e:
@@ -50,6 +51,10 @@ def setup_auto_start():
 def main():
     # 0. 尝试设置开机自启动
     setup_auto_start()
+
+    # 0.5 如果是被系统的“开机自启”拉起的，等待几秒钟让硬件驱动(串口/网卡)先加载完毕
+    if "--delayed-start" in sys.argv:
+        time.sleep(8)
 
     # 启用高分辨率屏幕(High DPI)自适应缩放支持 (必须在创建 QApplication 之前设置)
     if hasattr(Qt, 'AA_EnableHighDpiScaling'):
