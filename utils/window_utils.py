@@ -79,7 +79,7 @@ def bring_official_to_front():
 
 
 def bring_our_pos_to_front(main_window):
-    """将本 POS 系统窗口拉至最前并全屏焦点"""
+    """将本 POS 系统窗口拉至最前并全屏最大化"""
     if not main_window:
         return
     try:
@@ -88,7 +88,7 @@ def bring_our_pos_to_front(main_window):
         main_window.raise_()
         if user32:
             hwnd = int(main_window.winId())
-            user32.ShowWindow(hwnd, 9)
+            user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE = 3 (保持 100% 最大化全屏，严禁变成窗口化)
             user32.SetForegroundWindow(hwnd)
     except Exception as e:
         print("[WindowUtils] 切换至本系统失败:", e)
