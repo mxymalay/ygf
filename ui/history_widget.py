@@ -100,6 +100,16 @@ class HistoryWidget(QWidget):
         self._build_ui()
         self.reload_orders()
 
+    def _clear_layout(self, layout):
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+                else:
+                    self._clear_layout(item.layout())
+
     def reload_orders(self):
         self._on_query()
 
@@ -381,10 +391,7 @@ class HistoryWidget(QWidget):
             self.lbl_final_total.setText(u"实收金额：¥ 0.00")
 
             # 清空商品卡片
-            while self.items_layout.count():
-                item = self.items_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+            self._clear_layout(self.items_layout)
             return
 
         remark = record.get("remark", "")
@@ -402,10 +409,7 @@ class HistoryWidget(QWidget):
         self.lbl_final_total.setText(u"实收金额：¥ %.2f" % tot)
 
         # 渲染右侧商品列表
-        while self.items_layout.count():
-            item = self.items_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self._clear_layout(self.items_layout)
 
         import json
         cart_items_json = record.get("cart_items_json")
