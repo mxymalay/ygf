@@ -65,9 +65,11 @@ class ReportWidget(QWidget):
         left_col.setSpacing(10)
 
         # 日历控件
+        from ui.styles import fix_calendar_header_style
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        fix_calendar_header_style(self.calendar)
         self.calendar.selectionChanged.connect(self._on_date_changed)
         left_col.addWidget(self.calendar)
         left_col.addStretch()

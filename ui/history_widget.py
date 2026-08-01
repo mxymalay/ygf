@@ -110,9 +110,11 @@ class HistoryWidget(QWidget):
         header_bar.setSpacing(12)
 
         # 日期选择
+        from ui.styles import fix_calendar_header_style
         self.date_picker = QDateEdit()
         self.date_picker.setDate(QDate.currentDate())
         self.date_picker.setCalendarPopup(True)
+        fix_calendar_header_style(self.date_picker.calendarWidget())
         self.date_picker.setDisplayFormat("yyyy-MM-dd")
         self.date_picker.setStyleSheet(
             "QDateEdit { background: #1F2937; color: #F9FAFB; font-size: 14px; font-weight: bold; "

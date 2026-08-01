@@ -325,3 +325,23 @@ QCalendarWidget QSpinBox {{
 DARK_STYLE = build_qss(DARK_COLORS)
 LIGHT_STYLE = build_qss(LIGHT_COLORS)
 GLOBAL_STYLE = DARK_STYLE
+
+
+def fix_calendar_header_style(calendar):
+    """强行消除 Windows 原生主题下 QCalendarWidget 星期表头的白色背景条"""
+    if not calendar:
+        return
+    from PyQt5.QtWidgets import QTableView, QCalendarWidget
+    calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+    tv = calendar.findChild(QTableView)
+    if tv:
+        tv.setStyleSheet(
+            "QTableView { background-color: #172136; color: #F9FAFB; border: none; gridline-color: #334155; selection-background-color: #EA580C; selection-color: #FFFFFF; }"
+            "QHeaderView::section { background-color: #1E293B !important; color: #9CA3AF !important; font-weight: bold; border: none; border-bottom: 1px solid #334155; padding: 6px 0px; }"
+        )
+        header = tv.horizontalHeader()
+        if header:
+            header.setStyleSheet(
+                "QHeaderView::section { background-color: #1E293B !important; color: #9CA3AF !important; font-weight: bold; font-size: 13px; border: none; border-bottom: 1px solid #334155; padding: 6px 0px; }"
+            )
+
