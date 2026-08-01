@@ -306,14 +306,24 @@ class HistoryWidget(QWidget):
         meta_row.addStretch()
         right_col.addLayout(meta_row)
 
-        # (2) 购买商品明细卡片
-        self.items_card = QFrame()
-        self.items_card.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 10px; }")
+        # (2) 购买商品明细滚动区域
+        self.items_scroll = QScrollArea()
+        self.items_scroll.setWidgetResizable(True)
+        self.items_scroll.setStyleSheet(
+            "QScrollArea { border: none; background: #1E293B; border-radius: 10px; }"
+            "QScrollBar:vertical { width: 8px; background: #1E293B; }"
+            "QScrollBar::handle:vertical { background: #4B5563; border-radius: 4px; }"
+        )
+        
+        self.items_card = QWidget()
+        self.items_card.setStyleSheet("background: transparent;")
         self.items_layout = QVBoxLayout(self.items_card)
         self.items_layout.setContentsMargins(16, 14, 16, 14)
         self.items_layout.setSpacing(10)
+        self.items_layout.setAlignment(Qt.AlignTop)
 
-        right_col.addWidget(self.items_card, stretch=2)
+        self.items_scroll.setWidget(self.items_card)
+        right_col.addWidget(self.items_scroll, stretch=2)
 
 
 
