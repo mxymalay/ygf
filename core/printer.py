@@ -218,6 +218,73 @@ class ReceiptPrinter:
         except Exception as e:
             print("[打印错误] %s" % str(e))
             raise e
+    def _build_shift_report(self, report_data):
+        """构建【交班小结】ESC/POS 票据 (符合店铺规范，严格 30 列排版)"""
+        d = bytearray()
+        d += self.INIT
+
+        # 1. 标题
+        d += self.ALIGN_CENTER + self.BOLD_ON + self.DOUBLE_HEIGHT
+        d += "交班小结\n".encode("gbk", errors="ignore")
+        d += self.NORMAL_SIZE + self.BOLD_OFF
+        d += b'------------------------------\n'
+
+        # 2. 门店与时间
+        shop_sub = self.config.get("shop_subtitle", "杨国福(肥西水晶城店)")
+        if not shop_sub.startswith("门店名称："):
+            shop_sub = "门店名称：" + shop_sub
+        d += self.ALIGN_LEFT
+        d += (shop_sub + "\n").encode("gbk", errors="ignore")
+        date_str = report_data.get("date_str", time.strftime("%Y-%m-%d"))
+        d += ("开始时间：%s\n" % date_str).encode("gbk", errors="ignore")
+        d += b'------------------------------\n'
+
+        # 3. 销售汇总
+        d += self.BOLD_ON
+        d += "销售汇总\n".encode("gbk", errors="ignore")
+        d += self.BOLD_OFF
+        d += b'==============================\n'
+
+        rev_amt = report_data.get("amount_sum", 0.0)
+        count = report_data.get("count", 0)
+        avg = rev_amt / count if count > 0 else 0.0
+
+        d += fmt_lr_30("营业收入：", "¥ %.2f" % rev_amt).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_30("订单数量：", "%d" % count).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_30("客单价：", "¥ %.2f" % avg).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_30("退单金额：", "¥ 0.00").encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_30("退单数量：", "0").encode("gbk", errors="ignore") + b"\n"
+
+        # 4. 收入明细 (总结)
+        d += self.BOLD_ON
+        d += "收入明细\n".encode("gbk", errors="ignore")
+        d += self.BOLD_OFF
+        d += b'==============================\n'
+        d += self.BOLD_ON
+        d += fmt_lr_30("总结", "¥ %.2f" % rev_amt).encode("gbk", errors="ignore") + b"\n"
+        d += self.BOLD_OFF
+        d += b'------------------------------\n'
+
+        # 5. 打印时间
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        d += ("打印时间：%s\n" % now_str).encode("gbk", errors="ignore")
+        d += self.FEED_LINES + self.CUT_PARTIAL
+        return bytes(d)
+
+    def print_shift_report(self, report_data):
+        """交班小结报表打印入口"""
+        raw_data = self._build_shift_report(report_data)
+        pt = self.config.get("printer_type", "windows")
+        try:
+            if pt == "windows":
+                return self._send_raw_to_windows(raw_data)
+            elif pt == "network":
+                return self._send_raw_to_network(raw_data)
+            elif pt == "serial":
+                return self._send_raw_to_serial(raw_data)
+        except Exception as e:
+            print("[打印错误] %s" % str(e))
+            raise e
         return False
 
     def _send_raw_to_windows(self, raw_data):

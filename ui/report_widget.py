@@ -99,12 +99,9 @@ class ReportWidget(QWidget):
         self.lbl_shop_name.setStyleSheet("color: #374151; font-size: 13px; border: none;")
         self.lbl_start_time = QLabel(u"开始时间：%s" % self.selected_date_str)
         self.lbl_start_time.setStyleSheet("color: #374151; font-size: 13px; border: none;")
-        self.lbl_pending_count = QLabel(u"挂单数量：0")
-        self.lbl_pending_count.setStyleSheet("color: #374151; font-size: 13px; border: none;")
 
         mid_layout.addWidget(self.lbl_shop_name)
         mid_layout.addWidget(self.lbl_start_time)
-        mid_layout.addWidget(self.lbl_pending_count)
 
         lbl_sep2 = QLabel("------------------------------------------")
         lbl_sep2.setAlignment(Qt.AlignCenter)
@@ -128,7 +125,7 @@ class ReportWidget(QWidget):
         self.lbl_ref_amt = self._add_receipt_row(mid_layout, u"退单金额：", u"¥ 0.00")
         self.lbl_ref_cnt = self._add_receipt_row(mid_layout, u"退单数量：", u"0")
 
-        # 收入明细
+        # 收入明细 (总结)
         lbl_sec_pay = QLabel(u"收入明细")
         lbl_sec_pay.setStyleSheet("font-size: 15px; font-weight: bold; color: #111827; margin-top: 8px; border: none;")
         mid_layout.addWidget(lbl_sec_pay)
@@ -138,8 +135,7 @@ class ReportWidget(QWidget):
         lbl_eq2.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_eq2)
 
-        self.lbl_pay_rmb = self._add_receipt_row(mid_layout, u"人民币", u"¥ 0.00")
-        self.lbl_pay_wx = self._add_receipt_row(mid_layout, u"微信-主扫", u"¥ 0.00")
+        self.lbl_pay_total = self._add_receipt_row(mid_layout, u"总结", u"¥ 0.00", is_bold=True)
 
         mid_layout.addStretch()
 
@@ -186,22 +182,27 @@ class ReportWidget(QWidget):
         self.lbl_rev.setText("¥ %.2f" % a_sum)
         self.lbl_cnt.setText("%d" % count)
         self.lbl_avg.setText("¥ %.2f" % avg)
-        self.lbl_pay_wx.setText("¥ %.2f" % a_sum)
+        self.lbl_pay_total.setText("¥ %.2f" % a_sum)
 
     def _on_print_click(self):
-        rev_amt = float(self.lbl_rev.text().replace("¥", "").strip())
+        stats = self.db.get_stats_by_date(self.selected_date_str, self.selected_date_str)
+        stats["date_str"] = self.selected_date_str
         if self.printer:
-            ticket_data = {
-                "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
-                "call_no": "SHIFT",
-                "weight_kg": 0.0,
-                "unit_price": 0.0,
-                "total_price": rev_amt,
-                "temp_order_no": "SHIFT-" + datetime.now().strftime("%Y%m%d%H%M"),
-                "cart_items": [{"name": u"交班小结报表", "price": rev_amt}],
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            self.printer.print_receipt(ticket_data)
+            if hasattr(self.printer, "print_shift_report"):
+                self.printer.print_shift_report(stats)
+            else:
+                rev_amt = float(self.lbl_rev.text().replace("¥", "").strip())
+                ticket_data = {
+                    "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
+                    "call_no": "SHIFT",
+                    "weight_kg": 0.0,
+                    "unit_price": 0.0,
+                    "total_price": rev_amt,
+                    "temp_order_no": "SHIFT-" + datetime.now().strftime("%Y%m%d%H%M"),
+                    "cart_items": [{"name": u"交班小结报表", "price": rev_amt}],
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                self.printer.print_receipt(ticket_data)
 
         from ui.custom_dialog import show_info
         show_info(self, u"打印成功", u"营业小结报表已发送至打印机！")
