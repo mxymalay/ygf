@@ -530,20 +530,22 @@ class ReceiptPreviewDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.addWidget(card)
+        layout.setSpacing(12)
 
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 14, 14, 14)
-        card_layout.setSpacing(10)
-
-        # 0. 顶部固定：闪烁收款提醒 Banner
+        # 0. 顶部固定：闪烁收款提醒 Banner (独立在外)
         self.notice_banner = QLabel(u"⚠️ 请确认已通过其他工具完成收款！")
         self.notice_banner.setAlignment(Qt.AlignCenter)
         self.notice_banner.setStyleSheet(
             "background: #DC2626; color: #FFFFFF; font-size: 14px; font-weight: 900; "
             "padding: 8px; border-radius: 8px; border: none;"
         )
-        card_layout.addWidget(self.notice_banner)
+        layout.addWidget(self.notice_banner)
+
+        layout.addWidget(card, stretch=1)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 14, 14, 14)
+        card_layout.setSpacing(10)
 
         # 1. 中部滚动区域：模拟小票完整票面
         from PyQt5.QtWidgets import QScrollArea, QWidget
@@ -659,17 +661,7 @@ class ReceiptPreviewDialog(QDialog):
         line2.setStyleSheet("color: #475569; font-family: monospace; border: none;")
         scroll_layout.addWidget(line2)
 
-        # 打印单据说明标语
-        slip_info = f"[打印] 打印单据：1张顾客单 + {m_count}张后厨制作单"
-        lbl_slip_info = QLabel(slip_info)
-        lbl_slip_info.setAlignment(Qt.AlignCenter)
-        lbl_slip_info.setStyleSheet(
-            "background: rgba(52, 211, 153, 0.12); color: #34D399; font-size: 13px; "
-            "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
-        )
-        scroll_layout.addWidget(lbl_slip_info)
-
-        # 金额
+        # 金额 (小票内)
         total_p = sum(i.get("price", 0.0) for i in cart_items)
         lbl_total = QLabel(f"应收金额：￥{total_p:.2f}")
         lbl_total.setAlignment(Qt.AlignRight)
@@ -678,6 +670,16 @@ class ReceiptPreviewDialog(QDialog):
 
         scroll_area.setWidget(scroll_widget)
         card_layout.addWidget(scroll_area, stretch=1)
+
+        # 打印单据说明标语 (独立在外)
+        slip_info = f"[打印] 打印单据：1张顾客单 + {m_count}张后厨制作单"
+        lbl_slip_info = QLabel(slip_info)
+        lbl_slip_info.setAlignment(Qt.AlignCenter)
+        lbl_slip_info.setStyleSheet(
+            "background: rgba(52, 211, 153, 0.12); color: #34D399; font-size: 13px; "
+            "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
+        )
+        layout.addWidget(lbl_slip_info)
 
         # 2. 底部固定：操作按钮
         btn_box = QHBoxLayout()
@@ -703,7 +705,7 @@ class ReceiptPreviewDialog(QDialog):
         self.btn_print.clicked.connect(self._on_print_now)
         btn_box.addWidget(self.btn_print, stretch=2)
 
-        card_layout.addLayout(btn_box)
+        layout.addLayout(btn_box)
 
         # 定时器: 倒计时 Timer & 高亮闪烁 Timer
         from PyQt5.QtCore import QTimer
