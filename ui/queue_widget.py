@@ -4,11 +4,130 @@ PyQt5 + Python 3.8 兼容
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QRadioButton, QSpinBox, QCheckBox, QFrame, QButtonGroup, QScrollArea
+    QRadioButton, QSpinBox, QCheckBox, QFrame, QButtonGroup, QScrollArea, QLayout
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QRect, QPoint, QSize
 from config import save_config
 from core.call_number_manager import CallNumberManager
+
+
+class FlowLayout(QLayout):
+    """自动折行自适应流式布局"""
+
+    def __init__(self, parent=None, margin=0, spacing=8):
+        super().__init__(parent)
+        self.setContentsMargins(margin, margin, margin, margin)
+        self.setSpacing(spacing)
+        self.itemList = []
+
+    def __del__(self):
+        item = self.takeAt(0)
+        while item:
+            item = self.takeAt(0)
+
+    def addItem(self, item):
+        self.itemList.append(item)
+
+    def count(self):
+        return len(self.itemList)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Horizontal)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        height = self._doLayout(QRect(0, 0, width, 0), True)
+        return height
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._doLayout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self.itemList:
+            size = size.expandedTo(item.minimumSize())
+        margin = self.contentsMargins().left()
+        return size + QSize(2 * margin, 2 * margin)
+
+    def _doLayout(self, rect, testOnly):
+        x = rect.x()
+        y = rect.y()
+        lineHeight = 0
+
+        for item in self.itemList:
+            spaceX = self.spacing()
+            spaceY = self.spacing()
+            nextX = x + item.sizeHint().width() + spaceX
+            if nextX - spaceX > rect.right() and lineHeight > 0:
+                x = rect.x()
+                y = y + lineHeight + spaceY
+                nextX = x + item.sizeHint().width() + spaceX
+                lineHeight = 0
+
+            if not testOnly:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+
+            x = nextX
+            lineHeight = max(lineHeight, item.sizeHint().height())
+
+        return y + lineHeight - rect.y()
+
+
+class NumberBall(QLabel):
+    """双色球/彩票风格 3D 炫彩数字球球"""
+
+    BALL_STYLES = [
+        # 红色球 (双色球红球)
+        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #FF8787, stop:0.4 #EF4444, stop:1 #991B1B); border: 1.5px solid #FCA5A5;",
+        # 蓝色球 (双色球蓝球)
+        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #60A5FA, stop:0.4 #2563EB, stop:1 #1E3A8A); border: 1.5px solid #93C5FD;",
+        # 琥珀金球
+        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #FBBF24, stop:0.4 #F59E0B, stop:1 #92400E); border: 1.5px solid #FDE68A;",
+        # 翡翠绿球
+        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #34D399, stop:0.4 #059669, stop:1 #064E3B); border: 1.5px solid #A7F3D0;",
+        # 紫晶球
+        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #C084FC, stop:0.4 #9333EA, stop:1 #581C87); border: 1.5px solid #E9D5FF;",
+    ]
+
+    def __init__(self, number: int, parent=None):
+        num_str = "%02d" % number if number < 100 else str(number)
+        super().__init__(num_str, parent)
+        self.setAlignment(Qt.AlignCenter)
+        self.setFixedSize(40, 40)
+        
+        style_idx = (number % len(self.BALL_STYLES))
+        bg_style = self.BALL_STYLES[style_idx]
+
+        self.setStyleSheet(f"""
+            QLabel {{
+                {bg_style}
+                color: #FFFFFF;
+                font-size: 13px;
+                font-weight: 900;
+                font-family: 'Segoe UI', 'Consolas', sans-serif;
+                border-radius: 20px;
+            }}
+            QLabel:hover {{
+                border: 2px solid #FFFFFF;
+            }}
+        """)
+        self.setToolTip(u"已使用餐牌号: #%s" % num_str)
 
 
 class QueueWidget(QWidget):
@@ -237,10 +356,18 @@ class QueueWidget(QWidget):
 
         pf_layout.addLayout(pf_header)
 
-        self.lbl_used_pool = QLabel(u"暂无数据")
-        self.lbl_used_pool.setWordWrap(True)
-        self.lbl_used_pool.setStyleSheet("font-size: 13px; color: #34D399; font-family: monospace; border: none; background: transparent; line-height: 1.4;")
-        pf_layout.addWidget(self.lbl_used_pool)
+        # 球球容器与流式布局
+        self.pool_balls_container = QWidget()
+        self.pool_flow_layout = FlowLayout(self.pool_balls_container, margin=2, spacing=10)
+        pf_layout.addWidget(self.pool_balls_container)
+
+        self.lbl_pool_empty = QLabel(u"暂无已使用号码，号码池为空。")
+        self.lbl_pool_empty.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none; background: transparent; padding: 6px 0;")
+        pf_layout.addWidget(self.lbl_pool_empty)
+
+        lbl_note = QLabel(u"(注：叫号池已开启本地安全持久化，软件重启/故障关机均不会重复号；跨营业时段时会自动重置。)")
+        lbl_note.setStyleSheet("font-size: 12px; color: #64748B; border: none; background: transparent; margin-top: 6px;")
+        pf_layout.addWidget(lbl_note)
 
         layout.addWidget(pool_frame)
 
@@ -252,19 +379,23 @@ class QueueWidget(QWidget):
         self.refresh_pool_display()
 
     def refresh_pool_display(self):
+        # 清空已有球球控件
+        while self.pool_flow_layout.count() > 0:
+            item = self.pool_flow_layout.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
+
         used = self.call_mgr._used_numbers
         if not used:
-            self.lbl_used_pool.setText(
-                u"暂无已使用号码，号码池为空。\n"
-                u"(注：叫号池已开启本地安全持久化，软件重启/故障关机均不会重复号；跨营业时段时会自动重置。)"
-            )
+            self.lbl_pool_empty.show()
+            self.pool_balls_container.hide()
         else:
+            self.lbl_pool_empty.hide()
+            self.pool_balls_container.show()
             sorted_used = sorted(list(used))
-            txt = ", ".join(str(x) for x in sorted_used)
-            self.lbl_used_pool.setText(
-                f"{txt}\n\n"
-                u"(注：叫号池已开启本地安全持久化，软件重启/故障关机均不会重复号；跨营业时段时会自动重置。)"
-            )
+            for num in sorted_used:
+                ball = NumberBall(num)
+                self.pool_flow_layout.addWidget(ball)
 
     def _load_settings(self):
         mode = self.config.get("call_mode", CallNumberManager.MODE_SMART)
