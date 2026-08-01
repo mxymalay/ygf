@@ -372,7 +372,7 @@ class QueueWidget(QWidget):
         pf_layout.setSpacing(12)
 
         pf_header = QHBoxLayout()
-        lbl_p_title = QLabel(u"🟢 今日已用号码池状态：")
+        lbl_p_title = QLabel(u"[*] 今日已用号码池状态：")
         lbl_p_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
         pf_header.addWidget(lbl_p_title)
         pf_header.addStretch()

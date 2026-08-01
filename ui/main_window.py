@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
 
     def update_hardware_warnings(self, warnings: list):
         if not warnings:
-            self.lbl_hw_status.setText(u"🟢 硬件设备连接良好")
+            self.lbl_hw_status.setText(u"[√] 硬件设备连接良好")
             self.lbl_hw_status.setStyleSheet("color: #10B981; font-size: 13px; font-weight: bold; padding-left: 12px;")
         else:
             warn_msg = " | ".join(warnings)
