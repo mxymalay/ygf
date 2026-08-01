@@ -121,10 +121,27 @@ class CheckoutDialog(QDialog):
         left_layout.addWidget(ticket_card, stretch=1)
 
         # 底部打印数量提示
-        m_count = sum(1 for item in sale_data.get("cart_items", [])
-                      if item.get("type") == "soup" or "weight" in item)
-        if m_count > 0:
-            slip_info = f"[打印] 1张顾客单 + {m_count}张后厨制作单"
+        cart_items = sale_data.get("cart_items", [])
+        if isinstance(cart_items, str):
+            import json
+            try:
+                cart_items = json.loads(cart_items)
+            except Exception:
+                cart_items = []
+
+        has_soup = False
+        m_count = 0
+        if isinstance(cart_items, list):
+            for item in cart_items:
+                if isinstance(item, dict):
+                    name = str(item.get("name", ""))
+                    key_id = str(item.get("key_id", ""))
+                    if item.get("type") == "soup" or key_id.startswith("soup") or "weight" in item or any(k in name for k in ["骨汤", "番茄", "麻辣拌", "菌汤", "金汤"]):
+                        has_soup = True
+                        m_count += 1
+
+        if has_soup:
+            slip_info = f"[打印] 1张顾客单 + {max(1, m_count)}张后厨制作单"
             lbl_slip = QLabel(slip_info)
             lbl_slip.setAlignment(Qt.AlignCenter)
             lbl_slip.setStyleSheet(
@@ -556,7 +573,22 @@ class CheckoutDialog(QDialog):
     def _start_fly_animation(self):
         """结账完成动画：需打印订单向上飞出，免打印订单直接原地渐隐"""
         cart_items = self.sale_data.get("cart_items", [])
-        has_soup = any(item.get("type") == "soup" or "weight" in item for item in cart_items)
+        if isinstance(cart_items, str):
+            import json
+            try:
+                cart_items = json.loads(cart_items)
+            except Exception:
+                cart_items = []
+
+        has_soup = False
+        if isinstance(cart_items, list):
+            for item in cart_items:
+                if isinstance(item, dict):
+                    name = str(item.get("name", ""))
+                    key_id = str(item.get("key_id", ""))
+                    if item.get("type") == "soup" or key_id.startswith("soup") or "weight" in item or any(k in name for k in ["骨汤", "番茄", "麻辣拌", "菌汤", "金汤"]):
+                        has_soup = True
+                        break
 
         self.opacity_effect = QGraphicsOpacityEffect(self.receipt_container)
         self.receipt_container.setGraphicsEffect(self.opacity_effect)

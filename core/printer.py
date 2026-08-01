@@ -197,7 +197,23 @@ class ReceiptPrinter:
     def print_receipt(self, sale, print_type="all"):
         """全流程小票打印入口, print_type: all | customer | kitchen"""
         cart_items = sale.get("cart_items", [])
-        has_soup = any(i.get("type") == "soup" or "weight" in i for i in cart_items)
+        if isinstance(cart_items, str):
+            import json
+            try:
+                cart_items = json.loads(cart_items)
+            except Exception:
+                cart_items = []
+
+        has_soup = False
+        if isinstance(cart_items, list):
+            for item in cart_items:
+                if isinstance(item, dict):
+                    name = str(item.get("name", ""))
+                    key_id = str(item.get("key_id", ""))
+                    if item.get("type") == "soup" or key_id.startswith("soup") or "weight" in item or any(k in name for k in ["骨汤", "番茄", "麻辣拌", "菌汤", "金汤"]):
+                        has_soup = True
+                        break
+
         if not has_soup:
             print("[ReceiptPrinter] 订单中无汤底项目，跳过打票（顾客单与制作单均不出票）")
             return True
