@@ -254,10 +254,28 @@ class SettingsWidget(QWidget):
             self.cmb_floating_ball.setCurrentIndex(1)
         syg.addWidget(self.cmb_floating_ball, 4, 1, 1, 2)
 
+        syg.addWidget(QLabel(u"智能私域截留目标比例："), 5, 0)
+        self.spin_private_ratio = QSpinBox()
+        self.spin_private_ratio.setRange(10, 95)
+        self.spin_private_ratio.setSuffix(u" %")
+        self.spin_private_ratio.setToolTip(u"设置期望拦截到本私域 POS 的订单比例。例如 70% 代表 70% 走私域，30% 自动留给官方系统。")
+        self.spin_private_ratio.setValue(int(self.config.get("private_ratio_percent", 70)))
+        syg.addWidget(self.spin_private_ratio, 5, 1, 1, 2)
+
+        syg.addWidget(QLabel(u"小单必走官方门限重量："), 6, 0)
+        self.spin_min_private_weight = QDoubleSpinBox()
+        self.spin_min_private_weight.setRange(0.05, 5.00)
+        self.spin_min_private_weight.setSingleStep(0.05)
+        self.spin_min_private_weight.setDecimals(2)
+        self.spin_min_private_weight.setSuffix(u" kg")
+        self.spin_min_private_weight.setToolTip(u"小于此重量的订单视为小单/轻量单，算法将全自动分配给官方收银系统报备。")
+        self.spin_min_private_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
+        syg.addWidget(self.spin_min_private_weight, 6, 1, 1, 2)
+
         btn_save_sys = QPushButton(u"保存运行设置")
         self._style_save_btn(btn_save_sys)
         btn_save_sys.clicked.connect(self._on_save_sys)
-        syg.addWidget(btn_save_sys, 5, 0, 1, 4, Qt.AlignRight)
+        syg.addWidget(btn_save_sys, 7, 0, 1, 4, Qt.AlignRight)
 
         layout.addWidget(sys_group)
 
@@ -427,6 +445,8 @@ class SettingsWidget(QWidget):
         self.config["auto_switch_enabled"] = (self.cmb_auto_switch.currentIndex() == 0)
         self.config["auto_hide_delay_sec"] = self.spin_auto_hide_delay.value()
         self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
+        self.config["private_ratio_percent"] = self.spin_private_ratio.value()
+        self.config["min_private_weight_kg"] = self.spin_min_private_weight.value()
         save_config(self.config)
 
         # 1. 立即应用自动启动配置

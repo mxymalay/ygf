@@ -49,6 +49,8 @@ DEFAULT_CONFIG = {
     "floating_ball_enabled": True,      # 常驻悬浮切换球
     "panic_hotkey": "F10",              # 紧急避险老板键
     "auto_hide_delay_sec": 3,           # 出票后自动隐退延时(秒)
+    "private_ratio_percent": 70,        # 私域截留百分比目标(如 70 代表 70% 私域，30% 走官方)
+    "min_private_weight_kg": 0.25,      # 触发私域的最小重量门限 (低于此门限必走官方)
 
     # 收钱吧 PC收款助手设置
     "shouqianba_enabled": True,         # 开启收钱吧串口/快捷键自动推送
