@@ -86,7 +86,7 @@ class OrderCard(QFrame):
             pass
 
         lbl_status = QLabel(tag_text)
-        lbl_status.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {tag_color}; border: none; background: transparent;")
+        lbl_status.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {tag_color}; border: 1px solid {tag_color}; border-radius: 4px; padding: 2px 6px; background: transparent;")
 
         row1.addWidget(lbl_title)
         row1.addStretch()
@@ -659,7 +659,7 @@ class HistoryWidget(QWidget):
             pass
 
         self.lbl_header_status.setText(tag_text)
-        self.lbl_header_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {tag_color}; border: none;")
+        self.lbl_header_status.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {tag_color}; border: 1px solid {tag_color}; border-radius: 4px; padding: 2px 8px; background: transparent;")
         tot = record.get("total_price", 0.0)
         self.lbl_item_total.setText(u"商品金额：¥ %.2f" % tot)
         self.lbl_discount_total.setText(u"折扣金额：¥ 0.00")
