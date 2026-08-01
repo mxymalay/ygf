@@ -38,11 +38,11 @@ class CheckoutDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
-        # 外层容器：背景全透明，让左右两边看起来浮在模糊背景上
+        # 外层容器：使用极低透明度(alpha=1)替代完全透明，以确保系统能捕获到鼠标点击事件
         self.outer = QFrame(self)
         self.outer.setObjectName("CheckoutOuter")
         self.outer.setStyleSheet(
-            "#CheckoutOuter { background: transparent; border: none; }"
+            "#CheckoutOuter { background: rgba(0, 0, 0, 1); border: none; }"
         )
 
         outer_layout = QVBoxLayout(self)
@@ -121,7 +121,7 @@ class CheckoutDialog(QDialog):
         right_frame = QFrame()
         right_frame.setObjectName("PaymentRight")
         right_frame.setStyleSheet(
-            "#PaymentRight { background: transparent; border: none; }"
+            "#PaymentRight { background: rgba(0, 0, 0, 1); border: none; }"
         )
         self.right_panel = right_frame
         right_layout = QVBoxLayout(right_frame)
