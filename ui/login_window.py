@@ -148,14 +148,16 @@ class LoginWindow(QDialog):
         check_layout.addWidget(self.lbl_detail)
         
         self.btn_debug = QPushButton(u"跳过检测 (模拟调试模式)")
+        self.btn_debug.setFocusPolicy(Qt.NoFocus)
         self.btn_debug.hide()
         self.btn_debug.setCursor(Qt.PointingHandCursor)
         self.btn_debug.setStyleSheet("""
             QPushButton {
                 background-color: transparent; color: #F59E0B; font-size: 15px; font-weight: bold;
-                padding: 14px 0; border-radius: 12px; border: 2px solid #F59E0B; margin-top: 20px;
+                padding: 14px 0; border-radius: 12px; border: 2px solid #F59E0B; margin-top: 20px; outline: none;
             }
             QPushButton:hover { background-color: rgba(245, 158, 11, 0.1); }
+            QPushButton:focus { outline: none; }
         """)
         self.btn_debug.clicked.connect(self.accept)
         check_layout.addWidget(self.btn_debug)
@@ -165,12 +167,14 @@ class LoginWindow(QDialog):
         
         # 退出按钮
         btn_close = QPushButton(u"取消安装")
+        btn_close.setFocusPolicy(Qt.NoFocus)
         btn_close.setCursor(Qt.PointingHandCursor)
         btn_close.setStyleSheet("""
             QPushButton {
-                color: #64748B; background: transparent; border: none; font-size: 14px; font-weight: bold;
+                color: #64748B; background: transparent; border: none; font-size: 14px; font-weight: bold; outline: none;
             }
             QPushButton:hover { color: #EF4444; }
+            QPushButton:focus { outline: none; border: none; }
         """)
         btn_close.clicked.connect(self.reject)
         card_layout.addWidget(btn_close)
