@@ -160,7 +160,7 @@ class MainWindow(QMainWindow):
                 self,
                 title=u"👋 欢迎使用 - 首次初始化设置",
                 message=u"系统已切换为【默认按公斤 (KG) 称重计价】\n请设定本店的基础信息与计价单价：",
-                default_price=self.config.get("unit_price", 1.00),
+                default_price=self.config.get("unit_price", 47.60),
                 default_special_price=self.config.get("special_soup_price", 50.00),
                 default_branch=self.config.get("shop_subtitle", "杨国福(测试店)")
             )

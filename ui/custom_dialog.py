@@ -341,7 +341,7 @@ class FocusSelectLineEdit(QLineEdit):
 class FirstRunInitDialog(QDialog):
     """首次使用初始化对话框 (设置公斤单价与分店名称)"""
 
-    def __init__(self, title, message, default_price=1.00, default_special_price=50.00, default_branch="杨国福(测试店)", parent=None):
+    def __init__(self, title, message, default_price=47.60, default_special_price=50.00, default_branch="杨国福(测试店)", parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -521,7 +521,7 @@ def get_price_input(parent, title, message, value=1.00, min_val=0.01, max_val=99
     res = dlg.exec_()
     return dlg.input_value, (res == QDialog.Accepted)
 
-def get_first_run_input(parent, title, message, default_price=1.00, default_special_price=50.00, default_branch="杨国福(测试店)"):
+def get_first_run_input(parent, title, message, default_price=47.60, default_special_price=50.00, default_branch="杨国福(测试店)"):
     dlg = FirstRunInitDialog(title, message, default_price, default_special_price, default_branch, parent=parent)
     res = dlg.exec_()
     return dlg.price_val, dlg.special_price_val, dlg.branch_val, (res == QDialog.Accepted)
