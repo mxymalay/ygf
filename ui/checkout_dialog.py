@@ -116,46 +116,18 @@ class CheckoutDialog(QDialog):
         root.addWidget(self.receipt_container, stretch=5)
 
         # ════════════════════════════════════════════════════════════
-        # 右侧：付款方式选择面板
+        # 右侧：付款方式选择面板（仅按钮悬浮）
         # ════════════════════════════════════════════════════════════
         right_frame = QFrame()
         right_frame.setObjectName("PaymentRight")
         right_frame.setStyleSheet(
-            "#PaymentRight { background: #1E293B; "
-            "border-radius: 18px; border: 1px solid #334155; }"
+            "#PaymentRight { background: transparent; border: none; }"
         )
         self.right_panel = right_frame
         right_layout = QVBoxLayout(right_frame)
-        right_layout.setContentsMargins(20, 24, 20, 20)
-        right_layout.setSpacing(12)
-
-        # 标题
-        lbl_title = QLabel(u"请选择结账方式")
-        lbl_title.setAlignment(Qt.AlignCenter)
-        lbl_title.setStyleSheet(
-            "font-size: 17px; font-weight: 900; color: #F8FAFC; "
-            "border: none; background: transparent; letter-spacing: 2px;"
-        )
-        right_layout.addWidget(lbl_title)
-
-        # 应收金额
-        total_p = sum(i.get("price", 0.0) for i in sale_data.get("cart_items", []))
-        lbl_amount = QLabel(f"¥ {total_p:.2f}")
-        lbl_amount.setAlignment(Qt.AlignCenter)
-        lbl_amount.setStyleSheet(
-            "font-size: 32px; font-weight: 900; color: #F97316; "
-            "border: none; background: transparent; font-family: 'Segoe UI', monospace;"
-        )
-        right_layout.addWidget(lbl_amount)
-
-        lbl_amount_sub = QLabel(u"应收金额")
-        lbl_amount_sub.setAlignment(Qt.AlignCenter)
-        lbl_amount_sub.setStyleSheet(
-            "font-size: 12px; color: #64748B; border: none; background: transparent;"
-        )
-        right_layout.addWidget(lbl_amount_sub)
-
-        right_layout.addSpacing(8)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(16)
+        right_layout.setAlignment(Qt.AlignCenter)
 
         # ── 三个竖排精致付款按钮 ──
         btn_configs = [
@@ -168,8 +140,10 @@ class CheckoutDialog(QDialog):
         ]
 
         self.pay_buttons = []
+        right_layout.addStretch()
         for method, icon, title, desc, bg_dark, bg_main, bg_hover, fg_accent in btn_configs:
             btn_frame = QFrame()
+            btn_frame.setFixedHeight(110)
             btn_frame.setStyleSheet(f"""
                 QFrame {{
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -223,22 +197,10 @@ class CheckoutDialog(QDialog):
             # 让覆盖按钮跟随 frame 大小
             btn_frame.resizeEvent = lambda event, ob=overlay_btn, bf=btn_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-            right_layout.addWidget(btn_frame, stretch=1)
+            right_layout.addWidget(btn_frame)
             self.pay_buttons.append(overlay_btn)
 
-        right_layout.addSpacing(4)
-
-        # 取消按钮
-        btn_cancel = QPushButton(u"取消结账")
-        btn_cancel.setCursor(Qt.PointingHandCursor)
-        btn_cancel.setStyleSheet(
-            "QPushButton { background: transparent; color: #64748B; font-weight: bold; "
-            "font-size: 13px; border-radius: 8px; padding: 8px 16px; border: 1px solid #334155; }"
-            "QPushButton:hover { background: #374151; color: #F87171; border-color: #7F1D1D; }"
-        )
-        btn_cancel.clicked.connect(self._on_cancel)
-        right_layout.addWidget(btn_cancel)
-
+        right_layout.addStretch()
         root.addWidget(right_frame, stretch=3)
 
     def _build_receipt_content(self, layout):
@@ -423,6 +385,14 @@ class CheckoutDialog(QDialog):
 
         # 动画结束后自动关闭模态框
         QTimer.singleShot(2100, self.accept)
+
+    def mousePressEvent(self, event):
+        # 如果点击了空白处（没有点到小票或按钮），则取消结账
+        child = self.childAt(event.pos())
+        if not child or child == self.outer:
+            self.reject()
+        else:
+            super().mousePressEvent(event)
 
     def _on_cancel(self):
         self.reject()
