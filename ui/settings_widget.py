@@ -238,11 +238,14 @@ class SettingsWidget(QWidget):
             ports = get_available_com_ports()
         except Exception:
             ports = []
-        if not ports:
-            ports = ["COM1", "COM2", "COM3", "COM4", "COM5", "COM6"]
+        # 将 COM1 ~ COM12 加入可选列表，方便使用虚拟串口
+        all_ports = [f"COM{i}" for i in range(1, 13)]
         for p in ports:
+            if p not in all_ports:
+                all_ports.append(p)
+        for p in sorted(all_ports, key=lambda x: int(x.replace("COM", "")) if x.startswith("COM") and x[3:].isdigit() else 99):
             self.cmb_sqb_port.addItem(p)
-        cur = self.config.get("shouqianba_port", "COM3")
+        cur = self.config.get("shouqianba_port", "COM1")
         if cur:
             self.cmb_sqb_port.setCurrentText(cur)
 
