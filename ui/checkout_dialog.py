@@ -453,7 +453,7 @@ class CheckoutDialog(QDialog):
         """弹窗询问收银员【收钱吧】是否付款成功 (高级高斯模糊 + 模态深色黑金遮罩)"""
         # 给 CheckoutDialog 的底层内容添加高斯模糊
         blur = QGraphicsBlurEffect(self.inner_container)
-        blur.setBlurRadius(45)
+        blur.setBlurRadius(18)
         self.inner_container.setGraphicsEffect(blur)
 
         confirm_dialog = QDialog(self)
@@ -545,22 +545,22 @@ class CheckoutDialog(QDialog):
             self.reject()
 
     def _start_fly_animation(self):
-        """小票飞出动画，同时右侧面板淡出，2秒后自动 accept"""
+        """小票飞出动画，同时右侧面板淡出，快速自动 accept"""
         self.opacity_effect = QGraphicsOpacityEffect(self.receipt_container)
         self.receipt_container.setGraphicsEffect(self.opacity_effect)
 
         # 向上飞出位移
         self.pos_anim = QPropertyAnimation(self.receipt_container, b"pos")
-        self.pos_anim.setDuration(2000)
+        self.pos_anim.setDuration(800)
         start_pos = self.receipt_container.pos()
-        end_pos = QPoint(start_pos.x(), start_pos.y() - 350)
+        end_pos = QPoint(start_pos.x(), start_pos.y() - 250)
         self.pos_anim.setStartValue(start_pos)
         self.pos_anim.setEndValue(end_pos)
         self.pos_anim.setEasingCurve(QEasingCurve.InBack)
 
         # 渐隐透明度 (左侧小票)
         self.opa_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.opa_anim.setDuration(2000)
+        self.opa_anim.setDuration(800)
         self.opa_anim.setStartValue(1.0)
         self.opa_anim.setEndValue(0.0)
         self.opa_anim.setEasingCurve(QEasingCurve.InCubic)
@@ -569,7 +569,7 @@ class CheckoutDialog(QDialog):
         self.right_opacity = QGraphicsOpacityEffect(self.right_panel)
         self.right_panel.setGraphicsEffect(self.right_opacity)
         self.right_opa_anim = QPropertyAnimation(self.right_opacity, b"opacity")
-        self.right_opa_anim.setDuration(800)
+        self.right_opa_anim.setDuration(400)
         self.right_opa_anim.setStartValue(1.0)
         self.right_opa_anim.setEndValue(0.0)
 
@@ -578,7 +578,7 @@ class CheckoutDialog(QDialog):
         self.right_opa_anim.start()
 
         # 动画结束后自动关闭模态框
-        QTimer.singleShot(2100, self.accept)
+        QTimer.singleShot(900, self.accept)
 
     def mousePressEvent(self, event):
         # 如果点击了空白处（没有点到小票或按钮），则取消结账
@@ -603,7 +603,7 @@ class CheckoutDialog(QDialog):
             screen_w = parent_w.width()
             try:
                 blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(65)
+                blur.setBlurRadius(20)
                 parent_w.setGraphicsEffect(blur)
             except Exception:
                 pass

@@ -503,6 +503,8 @@ class SaleWidget(QWidget):
 
         self.temp_order_no = self._gen_temp_order_no()
         self._detail_expanded = False
+        self._resize_timer = None
+        self._cart_dirty = True
 
         self._build_ui()
         self._setup_scale()
@@ -1127,12 +1129,24 @@ class SaleWidget(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._cart_dirty = True
         from PyQt5.QtCore import QTimer
         QTimer.singleShot(50, self._update_price_display)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._update_price_display()
+        if self._resize_timer is not None:
+            self.killTimer(self._resize_timer)
+        self._resize_timer = self.startTimer(80)
+
+    def timerEvent(self, event):
+        if event.timerId() == self._resize_timer:
+            self.killTimer(self._resize_timer)
+            self._resize_timer = None
+            self._cart_dirty = True
+            self._update_price_display()
+        else:
+            super().timerEvent(event)
 
     def _prev_cart_page(self):
         if self.cart_page > 0:
@@ -1147,15 +1161,6 @@ class SaleWidget(QWidget):
 
     def _update_price_display(self):
         """刷新购物明细卡片列表与金额 (根据口味动态切页与无混淆序号徽章)"""
-        from PyQt5.QtCore import QCoreApplication
-
-        while self.cart_layout.count() > 0:
-            child = self.cart_layout.takeAt(0)
-            if child.widget():
-                w = child.widget()
-                w.setParent(None)
-                w.deleteLater()
-
         total_price = 0.0
         total_items = 0
 
@@ -1202,7 +1207,23 @@ class SaleWidget(QWidget):
 
         start_idx, end_idx = pages[self.cart_page]
 
-        # 3. 渲染当前页的商品卡片 (带有 #1, #2, #3 高亮序号徽章)
+        # 3. 仅在数据变化时重建卡片，避免无意义的 destroy+recreate 开销
+        self._rebuild_cart_cards(start_idx, end_idx)
+
+        self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
+        self.lbl_price.setText(u"￥%.2f" % total_price)
+
+    def _rebuild_cart_cards(self, start_idx, end_idx):
+        """高效重建当前页购物车卡片"""
+        # 清除旧卡片
+        while self.cart_layout.count() > 0:
+            child = self.cart_layout.takeAt(0)
+            w = child.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+
+        # 渲染当前页的商品卡片
         for idx in range(start_idx, end_idx):
             item = self.cart_items[idx]
             is_selected = (idx == self.selected_item_index)
@@ -1210,8 +1231,7 @@ class SaleWidget(QWidget):
             disc_rate = item.get("discount_rate", 1.0)
 
             if item["type"] == "soup":
-                w_str = f"{item['weight']:.3f}"
-                sub_str = f"{w_str} kg"
+                sub_str = f"{item['weight']:.3f} kg"
             else:
                 sub_str = f"¥{item['base_price']:.2f}   x{qty}"
 
@@ -1227,10 +1247,6 @@ class SaleWidget(QWidget):
             )
             card.clicked.connect(self._select_cart_item)
             self.cart_layout.addWidget(card)
-
-        self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
-        self.lbl_price.setText(u"￥%.2f" % total_price)
-        QCoreApplication.processEvents()
 
     def refresh_call_number_display(self):
         next_num = self.call_mgr.peek_next_number()
