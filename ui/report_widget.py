@@ -245,6 +245,11 @@ class ReportWidget(QWidget):
         self.start_date_str = start_d.strftime("%Y-%m-%d")
         self.end_date_str = end_d.strftime("%Y-%m-%d")
         
+        self.calendar.blockSignals(True)
+        from PyQt5.QtCore import QDate
+        self.calendar.setSelectedDate(QDate(start_d.year, start_d.month, start_d.day))
+        self.calendar.blockSignals(False)
+        
         if self.start_date_str == self.end_date_str:
             self.lbl_header_date.setText(self.start_date_str)
             self.lbl_start_time.setText(u"统计时间：%s" % self.start_date_str)
