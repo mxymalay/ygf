@@ -120,7 +120,6 @@ class AutoSwitchController(QObject):
         if hasattr(self.main_window, 'floating_ball') and self.main_window.floating_ball:
             fb = self.main_window.floating_ball
             fb.is_our_pos_active = is_private
-            fb.lbl_text.setText("YGF" if is_private else "官方")
             actual_pct = int(self.get_actual_private_ratio())
             fb.setToolTip(f"自动决策系统 | 当前私域比: {actual_pct}%\n{reason}\n轻触: 手动切换 | 长按/三连击: 紧急避险销毁")
             fb.update()
