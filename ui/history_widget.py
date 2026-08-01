@@ -42,7 +42,7 @@ class OrderCard(QFrame):
 
         # 第一行：取餐号：050         已支付
         row1 = QHBoxLayout()
-        lbl_title = QLabel(u"📋 取餐号：%s" % call_no)
+        lbl_title = QLabel(u"取餐号：%s" % call_no)
         lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
 
         import json
@@ -68,7 +68,7 @@ class OrderCard(QFrame):
                         has_box = True
                         
                 if has_soup:
-                    tag_text = u"🍲 含汤底"
+                    tag_text = u"含汤底"
                     tag_color = "#F59E0B" # Orange
                 else:
                     tag_text = u"不含汤底"
@@ -81,7 +81,7 @@ class OrderCard(QFrame):
 
         # 结账方式标签
         pm = r.get("payment_method", "")
-        pm_labels = {"scan": "💳主扫", "cash": "💵现金", "qr": "📱被扫"}
+        pm_labels = {"scan": "主扫", "cash": "现金", "qr": "被扫"}
         pm_colors = {"scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED"}
         pm_text = pm_labels.get(pm, "")
         pm_color = pm_colors.get(pm, "#6B7280")

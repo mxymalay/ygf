@@ -171,10 +171,7 @@ class CheckoutDialog(QDialog):
             btn_layout.setContentsMargins(16, 14, 16, 14)
             btn_layout.setSpacing(12)
 
-            lbl_icon = QLabel(icon)
-            lbl_icon.setStyleSheet("font-size: 46px; border: none; background: transparent;")
-            lbl_icon.setFixedWidth(56)
-            btn_layout.addWidget(lbl_icon)
+
 
             text_col = QVBoxLayout()
             text_col.setSpacing(6)
