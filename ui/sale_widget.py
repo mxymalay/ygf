@@ -336,9 +336,12 @@ class MenuGridButton(QPushButton):
         self.lbl_title.setWordWrap(True)
         layout.addWidget(self.lbl_title)
 
-        self.lbl_sub = QLabel(subtitle)
-        self.lbl_sub.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.lbl_sub)
+        if subtitle:
+            self.lbl_sub = QLabel(subtitle)
+            self.lbl_sub.setAlignment(Qt.AlignCenter)
+            layout.addWidget(self.lbl_sub)
+        else:
+            self.lbl_sub = None
 
         self.lbl_badge = QLabel("", self)
         self.lbl_badge.setAlignment(Qt.AlignCenter)
@@ -813,14 +816,14 @@ class SaleWidget(QWidget):
             (2, 0, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
 
             # 第 3 行：精品串类 (1-4元，典雅紫罗兰色)
-            (3, 0, "item_skewer_1", u"精品串 1元", "¥ 1.00", 1.0, False, False, True),
-            (3, 1, "item_skewer_2", u"精品串 2元", "¥ 2.00", 2.0, False, False, True),
-            (3, 2, "item_skewer_3", u"精品串 3元", "¥ 3.00", 3.0, False, False, True),
-            (3, 3, "item_skewer_4", u"精品串 4元", "¥ 4.00", 4.0, False, False, True),
+            (3, 0, "item_skewer_1", u"精品串 1元", "", 1.0, False, False, True),
+            (3, 1, "item_skewer_2", u"精品串 2元", "", 2.0, False, False, True),
+            (3, 2, "item_skewer_3", u"精品串 3元", "", 3.0, False, False, True),
+            (3, 3, "item_skewer_4", u"精品串 4元", "", 4.0, False, False, True),
 
             # 第 4 行：精品串类 (5-6元，典雅紫罗兰色)
-            (4, 0, "item_skewer_5", u"精品串 5元", "¥ 5.00", 5.0, False, False, True),
-            (4, 1, "item_skewer_6", u"精品串 6元", "¥ 6.00", 6.0, False, False, True),
+            (4, 0, "item_skewer_5", u"精品串 5元", "", 5.0, False, False, True),
+            (4, 1, "item_skewer_6", u"精品串 6元", "", 6.0, False, False, True),
 
             # 第 5 行：1-4元饮料
             (5, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
