@@ -328,20 +328,33 @@ GLOBAL_STYLE = DARK_STYLE
 
 
 def fix_calendar_header_style(calendar):
-    """强行消除 Windows 原生主题下 QCalendarWidget 星期表头的白色背景条"""
+    """彻底解决 Windows 系统下 QCalendarWidget 原生白条表头问题"""
     if not calendar:
         return
-    from PyQt5.QtWidgets import QTableView, QCalendarWidget
-    calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
-    tv = calendar.findChild(QTableView)
-    if tv:
-        tv.setStyleSheet(
-            "QTableView { background-color: #172136; color: #F9FAFB; border: none; gridline-color: #334155; selection-background-color: #EA580C; selection-color: #FFFFFF; }"
-            "QHeaderView::section { background-color: #1E293B !important; color: #9CA3AF !important; font-weight: bold; border: none; border-bottom: 1px solid #334155; padding: 6px 0px; }"
-        )
-        header = tv.horizontalHeader()
-        if header:
-            header.setStyleSheet(
-                "QHeaderView::section { background-color: #1E293B !important; color: #9CA3AF !important; font-weight: bold; font-size: 13px; border: none; border-bottom: 1px solid #334155; padding: 6px 0px; }"
-            )
+    from PyQt5.QtWidgets import QCalendarWidget, QWidget, QHBoxLayout, QLabel, QVBoxLayout
+    from PyQt5.QtCore import Qt
 
+    calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+    calendar.setHorizontalHeaderFormat(QCalendarWidget.NoHorizontalHeader)
+
+    if getattr(calendar, "_has_custom_dark_header", False):
+        return
+    calendar._has_custom_dark_header = True
+
+    hdr = QWidget()
+    hdr.setStyleSheet("background-color: #1E293B; border-bottom: 1px solid #334155;")
+    hdr_layout = QHBoxLayout(hdr)
+    hdr_layout.setContentsMargins(4, 6, 4, 6)
+    hdr_layout.setSpacing(0)
+
+    days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    for d in days:
+        lbl = QLabel(d)
+        lbl.setAlignment(Qt.AlignCenter)
+        color = "#EF4444" if d in ["周六", "周日"] else "#9CA3AF"
+        lbl.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 12px; border: none; background: transparent;")
+        hdr_layout.addWidget(lbl)
+
+    cal_layout = calendar.layout()
+    if isinstance(cal_layout, QVBoxLayout):
+        cal_layout.insertWidget(1, hdr)
