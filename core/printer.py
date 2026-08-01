@@ -150,7 +150,7 @@ class ReceiptPrinter:
         # 如果是打包，最上方密集打印3行“打包”
         if is_takeout:
             d += self.FONT_SMALL + self.ALIGN_CENTER
-            packed_line = "打包" * 24 + "\n"
+            packed_line = "打包" * 12 + "\n"
             d += (packed_line * 3).encode("gbk", errors="ignore")
             d += self.FONT_NORMAL
 
@@ -205,7 +205,7 @@ class ReceiptPrinter:
         # 如果是打包，最下方再补1行密集的“打包”
         if is_takeout:
             d += self.FONT_SMALL + self.ALIGN_CENTER
-            d += ("打包" * 24 + "\n").encode("gbk", errors="ignore")
+            d += ("打包" * 12 + "\n").encode("gbk", errors="ignore")
             d += self.FONT_NORMAL
 
         d += self.FEED_LINES + self.CUT_PARTIAL
