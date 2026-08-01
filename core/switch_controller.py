@@ -96,14 +96,14 @@ class AutoSwitchController(QObject):
             self._last_popped_weight = 0.0
             self._current_is_private = False
 
-            # 3. 称重归零 3 秒智能判定：若空重量保持 3 秒以上，说明上一位顾客已拿碗离开，自动提前解脱官方连单锁
+            # 3. 称重归零 5 秒智能判定：若空重量保持 5 秒以上，说明上一位顾客已拿碗离开，自动提前解脱官方连单锁
             if self._zero_start_time == 0.0:
                 self._zero_start_time = now_ts
-            elif now_ts - self._zero_start_time > 3.0:
+            elif now_ts - self._zero_start_time > 5.0:
                 if self._last_official_time > 0:
                     self._last_official_time = 0.0
                     print("[AutoDecisionEngine] 称重归零超时 (顾客已离场)，自动解除官方连单锁定")
-                    log_event(CAT_DECISION, "顾客离场解锁", "称重归零超过 3 秒，恢复新单智能决策")
+                    log_event(CAT_DECISION, "顾客离场解锁", "称重归零超过 5 秒，恢复新单智能决策")
 
     def _evaluate_decision(self, weight_kg: float) -> bool:
         """
