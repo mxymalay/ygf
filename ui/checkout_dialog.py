@@ -479,11 +479,6 @@ class CheckoutDialog(QDialog):
         lbl_amt.setStyleSheet("font-size: 34px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
         box.addWidget(lbl_amt)
 
-        lbl_desc = QLabel(u"系统已发送唤起指令与金额数据包！\n请听到收钱吧“到账语音播报”或确认收款成功后点击下方【确认成功】：")
-        lbl_desc.setAlignment(Qt.AlignCenter)
-        lbl_desc.setStyleSheet("font-size: 13px; color: #94A3B8; border: none; background: transparent;")
-        box.addWidget(lbl_desc)
-
         btn_row = QHBoxLayout()
         btn_row.setSpacing(14)
 
