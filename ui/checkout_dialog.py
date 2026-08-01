@@ -59,8 +59,8 @@ class CheckoutDialog(QDialog):
         left_frame = QFrame()
         left_frame.setObjectName("ReceiptLeft")
         left_frame.setStyleSheet(
-            "#ReceiptLeft { background: #111827; "
-            "border-radius: 18px; border: 1px solid #1E293B; }"
+            "#ReceiptLeft { background: #FFFFFF; "
+            "border-radius: 18px; border: 1px solid #E2E8F0; }"
         )
         left_layout = QVBoxLayout(left_frame)
         left_layout.setContentsMargins(14, 14, 14, 14)
@@ -70,8 +70,8 @@ class CheckoutDialog(QDialog):
         ticket_card = QFrame()
         ticket_card.setObjectName("TicketCard")
         ticket_card.setStyleSheet(
-            "#TicketCard { background: #0F172A; border-radius: 12px; "
-            "border: 2px dashed #334155; }"
+            "#TicketCard { background: #F8FAFC; border-radius: 12px; "
+            "border: 2px dashed #CBD5E1; }"
         )
         tc_layout = QVBoxLayout(ticket_card)
         tc_layout.setContentsMargins(12, 12, 12, 12)
@@ -82,8 +82,8 @@ class CheckoutDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(
             "QScrollArea { background: transparent; border: none; }"
-            "QScrollBar:vertical { width: 5px; background: #1E293B; border-radius: 2px; }"
-            "QScrollBar::handle:vertical { background: #475569; border-radius: 2px; }"
+            "QScrollBar:vertical { width: 5px; background: #F1F5F9; border-radius: 2px; }"
+            "QScrollBar::handle:vertical { background: #CBD5E1; border-radius: 2px; }"
             "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
         )
 
@@ -107,7 +107,7 @@ class CheckoutDialog(QDialog):
         lbl_slip = QLabel(slip_info)
         lbl_slip.setAlignment(Qt.AlignCenter)
         lbl_slip.setStyleSheet(
-            "background: rgba(52, 211, 153, 0.12); color: #34D399; font-size: 12px; "
+            "background: rgba(16, 185, 129, 0.1); color: #059669; font-size: 12px; "
             "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
         )
         left_layout.addWidget(lbl_slip)
@@ -154,8 +154,8 @@ class CheckoutDialog(QDialog):
             btn_layout.setSpacing(12)
 
             lbl_icon = QLabel(icon)
-            lbl_icon.setStyleSheet("font-size: 30px; border: none; background: transparent;")
-            lbl_icon.setFixedWidth(40)
+            lbl_icon.setStyleSheet("font-size: 46px; border: none; background: transparent;")
+            lbl_icon.setFixedWidth(56)
             btn_layout.addWidget(lbl_icon)
 
             text_col = QVBoxLayout()
@@ -207,12 +207,12 @@ class CheckoutDialog(QDialog):
         # Header
         lbl_top = QLabel("POS点餐  堂食")
         lbl_top.setAlignment(Qt.AlignCenter)
-        lbl_top.setStyleSheet("font-size: 13px; font-weight: bold; color: #94A3B8; border: none;")
+        lbl_top.setStyleSheet("font-size: 13px; font-weight: bold; color: #64748B; border: none;")
         layout.addWidget(lbl_top)
 
         lbl_shop = QLabel(sd.get("shop_name", u"杨国福麻辣烫"))
         lbl_shop.setAlignment(Qt.AlignCenter)
-        lbl_shop.setStyleSheet("font-size: 19px; font-weight: 900; color: #F9FAFB; border: none;")
+        lbl_shop.setStyleSheet("font-size: 19px; font-weight: 900; color: #0F172A; border: none;")
         layout.addWidget(lbl_shop)
 
         sub_title = sd.get("shop_subtitle", "")
@@ -221,7 +221,7 @@ class CheckoutDialog(QDialog):
                 sub_title = u"门店名称：" + sub_title
             lbl_sub = QLabel(sub_title)
             lbl_sub.setAlignment(Qt.AlignCenter)
-            lbl_sub.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
+            lbl_sub.setStyleSheet("font-size: 12px; color: #64748B; border: none;")
             layout.addWidget(lbl_sub)
 
         # 叫号大牌
@@ -271,7 +271,7 @@ class CheckoutDialog(QDialog):
             if is_soup:
                 m_count += 1
                 title_lbl = QLabel(f"【制{m_count}】{name_str}")
-                title_lbl.setStyleSheet("font-size: 14px; font-weight: 900; color: #F8FAFC; border: none;")
+                title_lbl.setStyleSheet("font-size: 14px; font-weight: 900; color: #0F172A; border: none;")
                 item_row.addWidget(title_lbl, stretch=1)
 
                 w_val = item.get("weight", sd.get("weight_kg", 0.0))
@@ -281,12 +281,12 @@ class CheckoutDialog(QDialog):
                 for t in ["KG", f"{p_val:.2f}", f"{w_val:.3f}", f"{sub_total:.2f}"]:
                     l = QLabel(t)
                     l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    l.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
+                    l.setStyleSheet("font-size: 13px; color: #D97706; font-family: monospace; border: none;")
                     l.setFixedWidth(45)
                     item_row.addWidget(l)
             else:
                 title_lbl = QLabel(name_str)
-                title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #E2E8F0; border: none;")
+                title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #1E293B; border: none;")
                 item_row.addWidget(title_lbl, stretch=1)
 
                 qty = item.get("qty", 1)
@@ -297,7 +297,7 @@ class CheckoutDialog(QDialog):
                 for t in [unit_label, f"{base_p:.2f}", f"{qty}", f"{sub_total:.2f}"]:
                     l = QLabel(t)
                     l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    l.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
+                    l.setStyleSheet("font-size: 13px; color: #D97706; font-family: monospace; border: none;")
                     l.setFixedWidth(45)
                     item_row.addWidget(l)
 
@@ -305,7 +305,7 @@ class CheckoutDialog(QDialog):
 
             if tag_str:
                 lbl_tag = QLabel(f"  {tag_str}")
-                lbl_tag.setStyleSheet("font-size: 12px; color: #34D399; font-weight: bold; border: none;")
+                lbl_tag.setStyleSheet("font-size: 12px; color: #059669; font-weight: bold; border: none;")
                 item_box.addWidget(lbl_tag)
 
             layout.addLayout(item_box)
@@ -316,13 +316,13 @@ class CheckoutDialog(QDialog):
         total_p = sum(i.get("price", 0.0) for i in cart_items)
         lbl_total = QLabel(f"应收金额：￥{total_p:.2f}")
         lbl_total.setAlignment(Qt.AlignRight)
-        lbl_total.setStyleSheet("font-size: 20px; font-weight: 900; color: #34D399; border: none;")
+        lbl_total.setStyleSheet("font-size: 20px; font-weight: 900; color: #059669; border: none;")
         layout.addWidget(lbl_total)
 
     def _add_sep(self, layout):
         lbl = QLabel("----------------------------------------")
         lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet("color: #475569; font-family: monospace; border: none;")
+        lbl.setStyleSheet("color: #CBD5E1; font-family: monospace; border: none;")
         layout.addWidget(lbl)
 
     def _on_payment_selected(self, method):
