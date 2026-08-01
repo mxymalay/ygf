@@ -149,11 +149,11 @@ class CheckoutDialog(QDialog):
 
         # ── 三个竖排精致付款按钮 ──
         btn_configs = [
-            (PAYMENT_SCAN, u"💳", u"主扫", u"已通过POS/扫码终端主动扫码",
+            (PAYMENT_SCAN, u"💳", u"已主动收款", u"已通过POS/扫码终端主动扫码",
              "#064E3B", "#059669", "#10B981", "#A7F3D0"),
-            (PAYMENT_CASH, u"💵", u"现金", u"已收到顾客现金",
+            (PAYMENT_CASH, u"💵", u"已现金收款", u"已收到顾客现金",
              "#1E3A5F", "#2563EB", "#3B82F6", "#93C5FD"),
-            (PAYMENT_QR,   u"📱", u"被扫", u"顾客已扫描收钱吧/微信/支付宝二维码",
+            (PAYMENT_QR,   u"📱", u"已被动收款", u"顾客已扫描收钱吧/微信/支付宝二维码",
              "#4C1D95", "#7C3AED", "#8B5CF6", "#DDD6FE"),
         ]
 
