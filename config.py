@@ -5,7 +5,7 @@ import os
 import json
 
 # ─── 应用版本号 ───────────────────────────────────────
-APP_VERSION = "v1.0.0"
+APP_VERSION = "v1.1.0"
 
 import sys
 
