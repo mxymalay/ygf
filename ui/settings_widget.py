@@ -184,6 +184,14 @@ class SettingsWidget(QWidget):
             self.cmb_sqb_fmt.setCurrentIndex(1)
         sg.addWidget(self.cmb_sqb_fmt, 3, 1, 1, 2)
 
+        sg.addWidget(QLabel(u"唤起快捷键："), 4, 0)
+        self.cmb_sqb_hotkey = QComboBox()
+        self.cmb_sqb_hotkey.setEditable(True)
+        self.cmb_sqb_hotkey.addItems(["F12", "Ctrl+F12", "Ctrl+Shift+P", "F9", "F10", "Alt+S"])
+        cur_hk = str(self.config.get("shouqianba_hotkey", "F12"))
+        self.cmb_sqb_hotkey.setCurrentText(cur_hk)
+        sg.addWidget(self.cmb_sqb_hotkey, 4, 1, 1, 2)
+
         layout.addWidget(sqb_group)
 
         # ── 危险操作区 ──
@@ -285,6 +293,7 @@ class SettingsWidget(QWidget):
             self.config["shouqianba_baudrate"] = 2400
         fmt_text = self.cmb_sqb_fmt.currentText()
         self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
+        self.config["shouqianba_hotkey"] = self.cmb_sqb_hotkey.currentText().strip()
 
         save_config(self.config)
 

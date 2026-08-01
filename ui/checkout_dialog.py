@@ -385,10 +385,10 @@ class CheckoutDialog(QDialog):
         layout.addWidget(lbl)
 
     def _on_payment_selected(self, method):
-        """用户点击付款方式 → 立即发送打印指令，同时触发飞出动画"""
+        """用户点击付款方式"""
         self.selected_payment_method = method
-        
-        # 如果点击的是【收钱吧】，则在此时主动唤起并推送金额
+
+        # 如果点击的是【收钱吧】，先唤起收钱吧并推送金额，然后弹出二次确认框
         if method == PAYMENT_SQB:
             try:
                 from core.shouqianba_sender import send_shouqianba_amount
@@ -403,6 +403,15 @@ class CheckoutDialog(QDialog):
             except Exception as e:
                 print(f"[CheckoutDialog] 调起收钱吧金额异常: {e}")
 
+            # 弹出确认窗口询问收银员是否收款成功
+            self._show_sqb_confirm_overlay(total_amt, method)
+            return
+
+        # 其他付款方式（现金/主扫/被扫）直接完成
+        self._complete_checkout(method)
+
+    def _complete_checkout(self, method):
+        """执行最终结账、发送打印指令与飞出出票动画"""
         # 禁用所有按钮，防止重复点击
         for btn in self.pay_buttons:
             btn.setEnabled(False)
@@ -410,12 +419,88 @@ class CheckoutDialog(QDialog):
                 "QPushButton { background: transparent; border: none; }"
             )
 
-        # 立即回调发送打印指令
+        # 立即回调发送打印指令与保存数据库
         if self.on_payment_callback:
             self.on_payment_callback(method)
 
         # 启动飞出动画
         QTimer.singleShot(100, self._start_fly_animation)
+
+    def _show_sqb_confirm_overlay(self, amount, method):
+        """弹窗询问收银员【收钱吧】是否付款成功"""
+        confirm_dialog = QDialog(self)
+        confirm_dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        confirm_dialog.setAttribute(Qt.WA_TranslucentBackground)
+        confirm_dialog.setModal(True)
+
+        cd_outer = QFrame(confirm_dialog)
+        cd_outer.setStyleSheet("""
+            QFrame {
+                background: #1E293B;
+                border-radius: 18px;
+                border: 2px solid #F97316;
+            }
+        """)
+        outer_lay = QVBoxLayout(confirm_dialog)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+        outer_lay.addWidget(cd_outer)
+
+        box = QVBoxLayout(cd_outer)
+        box.setContentsMargins(28, 24, 28, 24)
+        box.setSpacing(16)
+
+        lbl_icon = QLabel(u"⚡ 收钱吧 支付确认")
+        lbl_icon.setAlignment(Qt.AlignCenter)
+        lbl_icon.setStyleSheet("font-size: 22px; font-weight: 900; color: #F97316; border: none; background: transparent;")
+        box.addWidget(lbl_icon)
+
+        lbl_amt = QLabel(f"订单金额：￥{amount:.2f}")
+        lbl_amt.setAlignment(Qt.AlignCenter)
+        lbl_amt.setStyleSheet("font-size: 32px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
+        box.addWidget(lbl_amt)
+
+        lbl_desc = QLabel(u"系统已发送唤起指令与金额数据包！\n请听到收钱吧“到账语音播报”或确认收款成功后点击下方【确认成功】：")
+        lbl_desc.setAlignment(Qt.AlignCenter)
+        lbl_desc.setStyleSheet("font-size: 13px; color: #94A3B8; border: none; background: transparent;")
+        box.addWidget(lbl_desc)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(14)
+
+        btn_cancel = QPushButton(u"❌ 支付失败 / 退回")
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background: #334155; color: #F1F5F9; font-size: 15px; font-weight: bold;
+                border-radius: 10px; padding: 12px 18px; border: 1px solid #475569;
+            }
+            QPushButton:hover { background: #475569; }
+        """)
+        btn_cancel.clicked.connect(confirm_dialog.reject)
+        btn_row.addWidget(btn_cancel, stretch=1)
+
+        btn_ok = QPushButton(u"✅ 确认付款成功 (完成出票)")
+        btn_ok.setCursor(Qt.PointingHandCursor)
+        btn_ok.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10B981);
+                color: #FFFFFF; font-size: 16px; font-weight: 900;
+                border-radius: 10px; padding: 12px 20px; border: none;
+            }
+            QPushButton:hover { background: #10B981; }
+        """)
+        btn_ok.clicked.connect(confirm_dialog.accept)
+        btn_row.addWidget(btn_ok, stretch=2)
+
+        box.addLayout(btn_row)
+
+        res = confirm_dialog.exec_()
+        if res == QDialog.Accepted:
+            # 确认付款成功 → 执行结账出票
+            self._complete_checkout(method)
+        else:
+            # 支付失败/退回 → 不记录订单，恢复按钮
+            print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，已取消本次结账提交。")
 
     def _start_fly_animation(self):
         """小票飞出动画，同时右侧面板淡出，2秒后自动 accept"""

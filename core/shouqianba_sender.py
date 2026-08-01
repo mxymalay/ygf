@@ -1,9 +1,10 @@
 """
 收钱吧 PC收款助手 多通道集成处理模块
 包含：
-1. 虚拟串口/串口推关金额 (支持 2400/9600 波特率，QA标记/纯数字)
+1. 虚拟串口/串口推送金额 (支持 2400/9600 波特率，QA标记/纯数字)
 2. 系统剪贴板自动复制 (金额自动写入 Windows 剪贴板)
-3. 窗口自动唤起 (自动查找并唤起【收钱吧 PC收款】窗口至最前台)
+3. 键盘快捷键模拟 (自动发送用户配置的唤起快捷键，如 F12 / Ctrl+F12)
+4. 窗口自动唤起 (自动查找并唤起【收钱吧 PC收款】窗口至最前台)
 
 PyQt5 + Python 3.8 兼容
 """
@@ -12,8 +13,57 @@ import serial.tools.list_ports
 import threading
 import logging
 import ctypes
+import time
 
 logger = logging.getLogger("ShouqianbaSender")
+
+# Virtual key mapping for Windows keybd_event
+VK_MAPPING = {
+    "CTRL": 0x11, "CONTROL": 0x11,
+    "ALT": 0x12, "SHIFT": 0x10,
+    "F1": 0x70, "F2": 0x71, "F3": 0x72, "F4": 0x73,
+    "F5": 0x74, "F6": 0x75, "F7": 0x76, "F8": 0x77,
+    "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B,
+    "SPACE": 0x20, "ENTER": 0x0D, "TAB": 0x09,
+}
+for i in range(26):
+    ch = chr(ord('A') + i)
+    VK_MAPPING[ch] = 0x41 + i
+for i in range(10):
+    VK_MAPPING[str(i)] = 0x30 + i
+
+
+def send_hotkey(hotkey_str: str):
+    """模拟键盘发送快捷键 (例如 F12, Ctrl+F12, Alt+S 等)"""
+    if not hotkey_str:
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        parts = [p.strip().upper() for p in hotkey_str.split("+") if p.strip()]
+        vk_codes = [VK_MAPPING[p] for p in parts if p in VK_MAPPING]
+
+        if not vk_codes:
+            return False
+
+        KEYEVENTF_KEYUP = 0x0002
+
+        # 按下所有组合键
+        for vk in vk_codes:
+            user32.keybd_event(vk, 0, 0, 0)
+            time.sleep(0.02)
+
+        time.sleep(0.05)
+
+        # 逆序释放键
+        for vk in reversed(vk_codes):
+            user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.02)
+
+        print(f"[快捷键唤起] 成功模拟发送收钱吧快捷键: {hotkey_str}")
+        return True
+    except Exception as e:
+        logger.warning(f"发送快捷键 {hotkey_str} 异常: {e}")
+        return False
 
 
 def get_available_com_ports():
@@ -89,11 +139,16 @@ def _do_send_amount(amount: float, config: dict):
     # 1. 自动将金额复制到 Windows 剪贴板
     copy_to_clipboard(amt_str)
 
-    # 2. 自动尝试将收钱吧窗口置顶前台
+    # 2. 自动模拟发送快捷键
+    hotkey = config.get("shouqianba_hotkey", "F12")
+    if hotkey:
+        send_hotkey(hotkey)
+
+    # 3. 自动尝试将收钱吧窗口置顶前台
     bring_shouqianba_to_front()
 
-    # 3. 串口推送逻辑
-    port = config.get("shouqianba_port", "COM4")
+    # 4. 串口推送逻辑
+    port = config.get("shouqianba_port", "COM1")
     baudrate = int(config.get("shouqianba_baudrate", 2400))  # 默认 2400
     fmt = config.get("shouqianba_format", "QA")               # "QA" 或 "FLOAT"
 
