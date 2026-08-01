@@ -1050,12 +1050,12 @@ class SaleWidget(QWidget):
         QTimer.singleShot(20, self._update_price_display)
 
     def _compute_cart_pages(self):
-        """根据每张卡片真实渲染像素高度 (带口味 80px，无口味 60px) 动态计算切页，绝不遮挡卡片"""
+        """根据每张卡片真实渲染像素高度 (带口味 66px，无口味 48px) 精准计算切页，零空隙无遮挡"""
         usable_h = 300
         if hasattr(self, 'cart_scroll') and self.cart_scroll.viewport():
             vh = self.cart_scroll.viewport().height()
             if vh > 50:
-                usable_h = max(50, vh - 10)
+                usable_h = max(50, vh - 2)
 
         if not self.cart_items:
             return [(0, 0)]
@@ -1065,8 +1065,8 @@ class SaleWidget(QWidget):
         curr_h = 0
 
         for i, item in enumerate(self.cart_items):
-            # 真实测量：带口味卡片 76px+4px间距=80px，无口味卡片 56px+4px间距=60px
-            item_h = 80 if item.get("tag") else 60
+            # 精确渲染高度：带口味 66px，无口味 48px
+            item_h = 66 if item.get("tag") else 48
             if curr_h + item_h > usable_h and i > curr_start:
                 pages.append((curr_start, i))
                 curr_start = i
