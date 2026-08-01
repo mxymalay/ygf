@@ -660,7 +660,7 @@ class ReceiptPreviewDialog(QDialog):
         scroll_layout.addWidget(line2)
 
         # 打印单据说明标语
-        slip_info = f"🖨️ 打印单据：1张顾客单 + {m_count}张后厨制作单"
+        slip_info = f"[打印] 打印单据：1张顾客单 + {m_count}张后厨制作单"
         lbl_slip_info = QLabel(slip_info)
         lbl_slip_info.setAlignment(Qt.AlignCenter)
         lbl_slip_info.setStyleSheet(
