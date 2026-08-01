@@ -427,36 +427,55 @@ class CheckoutDialog(QDialog):
         QTimer.singleShot(100, self._start_fly_animation)
 
     def _show_sqb_confirm_overlay(self, amount, method):
-        """弹窗询问收银员【收钱吧】是否付款成功"""
+        """弹窗询问收银员【收钱吧】是否付款成功 (高级高斯模糊 + 模态深色黑金遮罩)"""
+        # 给 CheckoutDialog 的底层内容添加高斯模糊
+        blur = QGraphicsBlurEffect(self.inner_container)
+        blur.setBlurRadius(45)
+        self.inner_container.setGraphicsEffect(blur)
+
         confirm_dialog = QDialog(self)
         confirm_dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         confirm_dialog.setAttribute(Qt.WA_TranslucentBackground)
         confirm_dialog.setModal(True)
+        confirm_dialog.resize(self.size())
 
-        cd_outer = QFrame(confirm_dialog)
+        # 深色半透明高奢遮罩
+        mask_frame = QFrame(confirm_dialog)
+        mask_frame.setObjectName("ConfirmMask")
+        mask_frame.setStyleSheet(
+            "#ConfirmMask { background: rgba(15, 23, 42, 0.65); border: none; }"
+        )
+        mask_layout = QVBoxLayout(confirm_dialog)
+        mask_layout.setContentsMargins(0, 0, 0, 0)
+        mask_layout.addWidget(mask_frame)
+
+        dialog_layout = QHBoxLayout(mask_frame)
+        dialog_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 居中黑金精致确认框
+        cd_outer = QFrame()
+        cd_outer.setFixedWidth(520)
         cd_outer.setStyleSheet("""
             QFrame {
                 background: #1E293B;
-                border-radius: 18px;
+                border-radius: 20px;
                 border: 2px solid #F97316;
             }
         """)
-        outer_lay = QVBoxLayout(confirm_dialog)
-        outer_lay.setContentsMargins(0, 0, 0, 0)
-        outer_lay.addWidget(cd_outer)
+        dialog_layout.addWidget(cd_outer, alignment=Qt.AlignCenter)
 
         box = QVBoxLayout(cd_outer)
-        box.setContentsMargins(28, 24, 28, 24)
-        box.setSpacing(16)
+        box.setContentsMargins(32, 28, 32, 28)
+        box.setSpacing(18)
 
         lbl_icon = QLabel(u"⚡ 收钱吧 支付确认")
         lbl_icon.setAlignment(Qt.AlignCenter)
-        lbl_icon.setStyleSheet("font-size: 22px; font-weight: 900; color: #F97316; border: none; background: transparent;")
+        lbl_icon.setStyleSheet("font-size: 24px; font-weight: 900; color: #F97316; border: none; background: transparent;")
         box.addWidget(lbl_icon)
 
         lbl_amt = QLabel(f"订单金额：￥{amount:.2f}")
         lbl_amt.setAlignment(Qt.AlignCenter)
-        lbl_amt.setStyleSheet("font-size: 32px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
+        lbl_amt.setStyleSheet("font-size: 34px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
         box.addWidget(lbl_amt)
 
         lbl_desc = QLabel(u"系统已发送唤起指令与金额数据包！\n请听到收钱吧“到账语音播报”或确认收款成功后点击下方【确认成功】：")
@@ -495,6 +514,10 @@ class CheckoutDialog(QDialog):
         box.addLayout(btn_row)
 
         res = confirm_dialog.exec_()
+
+        # 还原底层高斯模糊
+        self.inner_container.setGraphicsEffect(None)
+
         if res == QDialog.Accepted:
             # 确认付款成功 → 执行结账出票
             self._complete_checkout(method)
