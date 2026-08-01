@@ -252,9 +252,26 @@ class OrderItemCard(QFrame):
         title_col = "#F9FAFB" if is_dark else "#111827"
         sub_col = "#9CA3AF" if is_dark else "#4B5563"
 
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {title_col}; border: none; background: transparent;")
-        left_vbox.addWidget(lbl_title)
+        title_row.addWidget(lbl_title)
+
+        if is_soup:
+            btn_takeout = QPushButton("打包?")
+            btn_takeout.setCursor(Qt.PointingHandCursor)
+            btn_takeout.setStyleSheet(
+                "QPushButton { background: transparent; color: #9CA3AF; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 1px 6px; border: 1px dashed #475569; }"
+                "QPushButton:hover { border: 1px dashed #F59E0B; color: #F59E0B; }"
+            )
+            btn_takeout.clicked.connect(self._on_takeout_click)
+            title_row.addWidget(btn_takeout)
+
+        title_row.addStretch()
+        left_vbox.addLayout(title_row)
 
         if subline:
             lbl_sub = QLabel(subline)
@@ -279,27 +296,11 @@ class OrderItemCard(QFrame):
 
         layout.addLayout(left_vbox, stretch=1)
 
-        # 右侧：高亮价格与打包按钮
-        right_vbox = QVBoxLayout()
-        right_vbox.setContentsMargins(0, 0, 0, 0)
-        right_vbox.setSpacing(4)
-        
+        # 右侧：高亮价格
         lbl_price = QLabel(f"￥{price_val:.2f}")
         lbl_price.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_price.setStyleSheet("font-size: 18px; font-weight: 900; color: #EA580C; border: none; background: transparent;")
-        right_vbox.addWidget(lbl_price)
-        
-        if is_soup:
-            btn_takeout = QPushButton("打包?")
-            btn_takeout.setCursor(Qt.PointingHandCursor)
-            btn_takeout.setStyleSheet(
-                "QPushButton { background: #047857; color: white; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 2px 6px; border: 1px solid #059669; }"
-                "QPushButton:hover { background: #059669; }"
-            )
-            btn_takeout.clicked.connect(self._on_takeout_click)
-            right_vbox.addWidget(btn_takeout, alignment=Qt.AlignRight)
-            
-        layout.addLayout(right_vbox)
+        layout.addWidget(lbl_price)
 
     def _on_takeout_click(self):
         self.clicked.emit(self.index)
