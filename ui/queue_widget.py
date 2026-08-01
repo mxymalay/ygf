@@ -193,11 +193,11 @@ class QueueWidget(QWidget):
         header_layout = QVBoxLayout()
         header_layout.setSpacing(4)
 
-        lbl_title = QLabel(u"⚡ 叫号避重与数据管理")
+        lbl_title = QLabel(u"☕ 取餐号管理")
         lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #F9FAFB; border: none; background: transparent;")
         header_layout.addWidget(lbl_title)
 
-        lbl_sub = QLabel(u"配置顾客餐牌叫号生成模式，防范与官方主 POS 重号，并实时监控已用号码池。")
+        lbl_sub = QLabel(u"配置取餐号生成方式，避免与主收银系统重号。")
         lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none; background: transparent;")
         header_layout.addWidget(lbl_sub)
 
@@ -209,7 +209,7 @@ class QueueWidget(QWidget):
         # ══════════════════════════════════════════════════════════════
         # 模块 一：叫号生成模式 (Mode Selection)
         # ══════════════════════════════════════════════════════════════
-        sec1_lbl = QLabel(u"一、叫号生成模式配置")
+        sec1_lbl = QLabel(u"一、取餐号生成方式")
         sec1_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #38BDF8; margin-top: 6px;")
         layout.addWidget(sec1_lbl)
 
@@ -360,7 +360,7 @@ class QueueWidget(QWidget):
         # ══════════════════════════════════════════════════════════════
         # 模块 二：已用叫号池与防重监控 (Pool Status Monitor)
         # ══════════════════════════════════════════════════════════════
-        sec2_lbl = QLabel(u"二、已用叫号池实时监控")
+        sec2_lbl = QLabel(u"二、已用取餐号池")
         sec2_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #10B981; margin-top: 10px;")
         layout.addWidget(sec2_lbl)
 

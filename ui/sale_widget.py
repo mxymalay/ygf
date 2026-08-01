@@ -200,21 +200,6 @@ class TasteSelectionDialog(QDialog):
         painter.setPen(QPen(border_col, 2))
         painter.drawPath(path)
 
-    def _select_spice(self, val):
-        if self.selected_spice == val:
-            self.selected_spice = ""
-        else:
-            self.selected_spice = val
-        for s, btn in self.spicy_btns.items():
-            btn.setChecked(s == self.selected_spice)
-        self.flavor_changed.emit(self.get_tag_string())
-
-    def _toggle_pref(self, val):
-        if val in self.selected_prefs:
-            self.selected_prefs.remove(val)
-        else:
-            self.selected_prefs.add(val)
-        self.flavor_changed.emit(self.get_tag_string())
 
     def get_tag_string(self):
         tags = []
@@ -310,7 +295,7 @@ class MenuGridButton(QPushButton):
     右侧菜单卡片按钮 — 深浅主题自适应 (分类支持汤底、打包盒、精品串与饮料)
     """
 
-    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_skewer=False, is_dark_mode=True, parent=None, is_gluten=False):
+    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_skewer=False, is_dark_mode=True, parent=None):
         super().__init__(parent)
         self.key_id = key_id
         self.title_str = title
@@ -319,8 +304,7 @@ class MenuGridButton(QPushButton):
         self.price = price
         self.is_soup = is_soup
         self.is_box = is_box
-        self.is_skewer = is_skewer or is_gluten
-        self.is_gluten = self.is_skewer
+        self.is_skewer = is_skewer
         self.is_dark_mode = is_dark_mode
         self.count = 0
 
@@ -853,8 +837,8 @@ class SaleWidget(QWidget):
             (7, 1, "item_10", u"10元饮料", "", 10.0, False, False, False),
         ]
 
-        for r, c, key_id, title, sub, price, is_soup, is_box, is_gluten in menu_items_config:
-            btn = MenuGridButton(key_id, title, sub, price, is_soup, is_box, is_gluten, self.is_dark_mode)
+        for r, c, key_id, title, sub, price, is_soup, is_box, is_skewer in menu_items_config:
+            btn = MenuGridButton(key_id, title, sub, price, is_soup, is_box, is_skewer, self.is_dark_mode)
             btn.clicked.connect(lambda checked, b=btn: self._on_menu_click(b))
             mg_grid.addWidget(btn, r, c)
             self.menu_buttons[key_id] = btn

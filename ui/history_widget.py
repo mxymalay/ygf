@@ -241,28 +241,7 @@ class HistoryWidget(QWidget):
 
         right_col.addWidget(self.items_card, stretch=2)
 
-        # (3) 支付信息卡片
-        self.pay_card = QFrame()
-        self.pay_card.setStyleSheet("QFrame { background: #1E293B; border: none; border-radius: 10px; }")
-        pay_layout = QVBoxLayout(self.pay_card)
-        pay_layout.setContentsMargins(16, 12, 16, 12)
-        pay_layout.setSpacing(6)
 
-        lbl_pay_title = QLabel(u"支付信息")
-        lbl_pay_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
-        pay_layout.addWidget(lbl_pay_title)
-
-        self.pay_info_row = QHBoxLayout()
-        self.lbl_pay_type = QLabel(u"支付金额:")
-        self.lbl_pay_type.setStyleSheet("color: #9CA3AF; font-size: 14px; border: none;")
-        self.lbl_pay_val = QLabel(u"¥ 0.00")
-        self.lbl_pay_val.setStyleSheet("color: #F9FAFB; font-size: 14px; font-weight: bold; border: none;")
-        self.pay_info_row.addWidget(self.lbl_pay_type)
-        self.pay_info_row.addStretch()
-        self.pay_info_row.addWidget(self.lbl_pay_val)
-        pay_layout.addLayout(self.pay_info_row)
-
-        right_col.addWidget(self.pay_card)
 
         # (4) 底部并排信息框 (订单信息 + 金额明细)
         bottom_cards_row = QHBoxLayout()
@@ -403,7 +382,6 @@ class HistoryWidget(QWidget):
             self.lbl_create_time.setText(u"创建时间：---")
             self.lbl_item_total.setText(u"商品金额：¥ 0.00")
             self.lbl_final_total.setText(u"实收金额：¥ 0.00")
-            self.lbl_pay_val.setText(u"¥ 0.00")
 
             # 清空商品卡片
             while self.items_layout.count():
@@ -424,7 +402,6 @@ class HistoryWidget(QWidget):
         tot = record.get("total_price", 0.0)
         self.lbl_item_total.setText(u"商品金额：¥ %.2f" % tot)
         self.lbl_final_total.setText(u"实收金额：¥ %.2f" % tot)
-        self.lbl_pay_val.setText(u"¥ %.2f" % tot)
 
         # 渲染右侧商品列表
         while self.items_layout.count():

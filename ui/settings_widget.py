@@ -31,6 +31,18 @@ class SettingsWidget(QWidget):
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         container = QWidget()
+        container.setStyleSheet("""
+            QGroupBox {
+                font-size: 15px; font-weight: bold; color: #F9FAFB;
+                border: 1px solid #334155; border-radius: 10px;
+                margin-top: 12px; padding: 18px 14px 14px 14px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin; subcontrol-position: top left;
+                padding: 2px 10px; color: #38BDF8;
+            }
+            QLabel { color: #D1D5DB; font-size: 14px; }
+        """)
         layout = QVBoxLayout(container)
         layout.setSpacing(16)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -42,12 +54,12 @@ class SettingsWidget(QWidget):
             u"● 本系统已自动绑定【杨国福官方收银系统】称重服务。\n"
             u"● 无需手动配置串口号或波特率，启动官方收银软件后即可自动无缝读取电子秤重量。"
         )
-        lbl_info.setStyleSheet("color: #2ecc71; font-size: 14px; line-height: 1.5; padding: 4px;")
+        lbl_info.setStyleSheet("color: #34D399; font-size: 14px; line-height: 1.5; padding: 4px;")
         sig_layout.addWidget(lbl_info)
         layout.addWidget(scale_info_group)
 
         # ── 打印机设置 ──
-        printer_group = QGroupBox(u"小票打印机设置 (XP-A160M / XP-80C)")
+        printer_group = QGroupBox(u"小票打印机设置")
         pg = QGridLayout(printer_group)
         pg.setSpacing(12)
 
@@ -101,7 +113,12 @@ class SettingsWidget(QWidget):
         self.txt_sub.setPlaceholderText(u"例如：杨国福(肥西水晶城店)")
         bg.addWidget(self.txt_sub, 1, 1, 1, 2)
 
-        bg.addWidget(QLabel(u"计价方式："), 2, 0)
+        bg.addWidget(QLabel(u"小票底部文字："), 2, 0)
+        self.txt_footer = QLineEdit(self.config.get("receipt_footer", u"谢谢惠顾！"))
+        self.txt_footer.setPlaceholderText(u"例如：谢谢惠顾！")
+        bg.addWidget(self.txt_footer, 2, 1, 1, 2)
+
+        bg.addWidget(QLabel(u"计价方式："), 3, 0)
         self.cmb_unit = QComboBox()
         self.cmb_unit.addItems(["per_jin - 按斤计价", "per_kg - 按公斤计价"])
         pu = self.config.get("price_unit", "per_jin")
@@ -109,21 +126,21 @@ class SettingsWidget(QWidget):
             if self.cmb_unit.itemText(i).startswith(pu):
                 self.cmb_unit.setCurrentIndex(i)
                 break
-        bg.addWidget(self.cmb_unit, 2, 1, 1, 2)
+        bg.addWidget(self.cmb_unit, 3, 1, 1, 2)
 
-        bg.addWidget(QLabel(u"标准汤底单价："), 3, 0)
+        bg.addWidget(QLabel(u"标准汤底单价："), 4, 0)
         self.spin_default_price = QDoubleSpinBox()
         self.spin_default_price.setRange(0.01, 999.99)
         self.spin_default_price.setValue(self.config.get("unit_price", 47.60))
         self.spin_default_price.setDecimals(2)
-        bg.addWidget(self.spin_default_price, 3, 1)
+        bg.addWidget(self.spin_default_price, 4, 1)
 
-        bg.addWidget(QLabel(u"精品汤底单价："), 3, 2)
+        bg.addWidget(QLabel(u"精品汤底单价："), 4, 2)
         self.spin_special_price = QDoubleSpinBox()
         self.spin_special_price.setRange(0.01, 999.99)
-        self.spin_special_price.setValue(self.config.get("special_soup_price", self.config.get("soup_price_4", 25.00)))
+        self.spin_special_price.setValue(self.config.get("special_soup_price", 50.00))
         self.spin_special_price.setDecimals(2)
-        bg.addWidget(self.spin_special_price, 3, 3)
+        bg.addWidget(self.spin_special_price, 4, 3)
 
         layout.addWidget(biz_group)
 
@@ -168,6 +185,7 @@ class SettingsWidget(QWidget):
 
         self.config["shop_name"] = self.txt_shop.text()
         self.config["shop_subtitle"] = self.txt_sub.text()
+        self.config["receipt_footer"] = self.txt_footer.text()
 
         pu_text = self.cmb_unit.currentText()
         self.config["price_unit"] = pu_text.split(" - ")[0].strip()
