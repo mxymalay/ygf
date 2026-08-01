@@ -41,6 +41,7 @@ class ReceiptPrinter:
 
     def __init__(self, config):
         self.config = config
+        self.last_error = ""
 
     def _build_customer_receipt(self, sale):
         """构建【顾客单】 ESC/POS 数据 (严格 30 列排版，防溢出折行)"""
@@ -210,6 +211,10 @@ class ReceiptPrinter:
             all_raw_data += kb
 
         pt = self.config.get("printer_type", "windows")
+        if self.config.get("is_mock_mode", False):
+            print("[模拟调试模式] 已完成小票及制作单模拟发单！")
+            return True
+
         try:
             if pt == "windows":
                 return self._send_raw_to_windows(bytes(all_raw_data))
@@ -218,8 +223,12 @@ class ReceiptPrinter:
             elif pt == "serial":
                 return self._send_raw_to_serial(bytes(all_raw_data))
         except Exception as e:
-            print("[打印错误] %s" % str(e))
-            raise e
+            err_msg = str(e)
+            print("[打印错误] %s" % err_msg)
+            self.last_error = err_msg
+            return False
+        return False
+
     def _build_shift_report(self, report_data):
         """构建【交班小结】ESC/POS 票据 (符合店铺规范，严格 30 列排版)"""
         d = bytearray()
@@ -275,6 +284,10 @@ class ReceiptPrinter:
 
     def print_shift_report(self, report_data):
         """交班小结报表打印入口"""
+        if self.config.get("is_mock_mode", False):
+            print("[模拟调试模式] 已完成交班小结模拟打票！")
+            return True
+
         raw_data = self._build_shift_report(report_data)
         pt = self.config.get("printer_type", "windows")
         try:
@@ -285,40 +298,60 @@ class ReceiptPrinter:
             elif pt == "serial":
                 return self._send_raw_to_serial(raw_data)
         except Exception as e:
-            print("[打印错误] %s" % str(e))
-            raise e
+            err_msg = str(e)
+            print("[打印错误] %s" % err_msg)
+            self.last_error = err_msg
+            return False
         return False
 
     def _send_raw_to_windows(self, raw_data):
-        import win32print
-        name = self.config.get("printer_name", "shouyin") or win32print.GetDefaultPrinter()
-        h = win32print.OpenPrinter(name)
         try:
-            win32print.StartDocPrinter(h, 1, ("POS_Receipt", None, "RAW"))
-            win32print.StartPagePrinter(h)
-            win32print.WritePrinter(h, raw_data)
-            win32print.EndPagePrinter(h)
-            win32print.EndDocPrinter(h)
-        finally:
-            win32print.ClosePrinter(h)
-        return True
+            import win32print
+            name = self.config.get("printer_name", "shouyin") or win32print.GetDefaultPrinter()
+            h = win32print.OpenPrinter(name)
+            try:
+                win32print.StartDocPrinter(h, 1, ("POS_Receipt", None, "RAW"))
+                win32print.StartPagePrinter(h)
+                win32print.WritePrinter(h, raw_data)
+                win32print.EndPagePrinter(h)
+                win32print.EndDocPrinter(h)
+                return True
+            finally:
+                win32print.ClosePrinter(h)
+        except Exception as e:
+            err_msg = str(e)
+            print("[Windows 打印错误] %s" % err_msg)
+            self.last_error = err_msg
+            return False
 
     def _send_raw_to_network(self, raw_data):
-        ip = self.config.get("printer_ip", "192.168.1.100")
-        port = self.config.get("printer_port", 9100)
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(5)
-        s.connect((ip, port))
-        s.sendall(raw_data)
-        s.close()
-        return True
+        try:
+            ip = self.config.get("printer_ip", "192.168.1.100")
+            port = self.config.get("printer_port", 9100)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(5)
+            s.connect((ip, port))
+            s.sendall(raw_data)
+            s.close()
+            return True
+        except Exception as e:
+            err_msg = str(e)
+            print("[网络打印错误] %s" % err_msg)
+            self.last_error = err_msg
+            return False
 
     def _send_raw_to_serial(self, raw_data):
-        import serial
-        port = self.config.get("printer_serial_port", "COM4")
-        ser = serial.Serial(port, 9600, timeout=2)
-        ser.write(raw_data)
-        ser.flush()
-        time.sleep(0.5)
-        ser.close()
-        return True
+        try:
+            import serial
+            port = self.config.get("printer_serial_port", "COM4")
+            ser = serial.Serial(port, 9600, timeout=2)
+            ser.write(raw_data)
+            ser.flush()
+            time.sleep(0.5)
+            ser.close()
+            return True
+        except Exception as e:
+            err_msg = str(e)
+            print("[串口打印错误] %s" % err_msg)
+            self.last_error = err_msg
+            return False

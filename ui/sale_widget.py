@@ -1384,13 +1384,34 @@ class SaleWidget(QWidget):
             full_sale = dict(record)
             full_sale.update(sale_data)
 
-            success = self.printer.print_receipt(full_sale)
+            is_mock = self.config.get("is_mock_mode", False)
+            try:
+                success = self.printer.print_receipt(full_sale)
+            except Exception as e:
+                success = False
+                self.printer.last_error = str(e)
 
             if success:
                 self._on_clear()
                 self.refresh_call_number_display()
+                if is_mock:
+                    show_info(
+                        self,
+                        u"模拟打印完成",
+                        u"【模拟调试模式】小票及后厨制作单已发送模拟打印！\n\n"
+                        f"叫号牌：#{sale_data['call_no']} | 实收金额：¥{total_price:.2f}\n"
+                        u"（消费数据已安全保存至本地数据库）"
+                    )
             else:
-                show_warning(self, u"打印失败", u"小票打印失败，请检查打印机连接！\n记录已保存。")
+                err_detail = getattr(self.printer, 'last_error', '') or u"打印机名无效或硬件未连接"
+                show_warning(
+                    self,
+                    u"打印故障提示",
+                    u"小票硬件发送失败，错误详情：\n"
+                    f"{err_detail}\n\n"
+                    u"请检查打印机驱动名称与物理硬件连接！\n"
+                    u"（注：本次消费记录已安全存入本地数据库，不会丢单）"
+                )
 
     def _on_clear(self):
         """清空购物车与所有按钮角标"""
