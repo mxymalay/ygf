@@ -79,15 +79,15 @@ class LoginWindow(QDialog):
         card_layout.setSpacing(24)
         
         # 标题区
-        title_lbl = QLabel(u"Realtek 外设驱动配置向导")
-        title_lbl.setAlignment(Qt.AlignCenter)
-        title_lbl.setStyleSheet("color: #F8FAFC; font-size: 26px; font-weight: 900; letter-spacing: 2px;")
-        card_layout.addWidget(title_lbl)
+        self.title_lbl = QLabel(u"Realtek 外设驱动配置向导")
+        self.title_lbl.setAlignment(Qt.AlignCenter)
+        self.title_lbl.setStyleSheet("color: #F8FAFC; font-size: 26px; font-weight: 900; letter-spacing: 2px;")
+        card_layout.addWidget(self.title_lbl)
         
-        sub_lbl = QLabel(u"Hardware Device Driver Setup Wizard")
-        sub_lbl.setAlignment(Qt.AlignCenter)
-        sub_lbl.setStyleSheet("color: #64748B; font-size: 14px; margin-bottom: 20px;")
-        card_layout.addWidget(sub_lbl)
+        self.sub_lbl = QLabel(u"Hardware Device Driver Setup Wizard")
+        self.sub_lbl.setAlignment(Qt.AlignCenter)
+        self.sub_lbl.setStyleSheet("color: #64748B; font-size: 14px; margin-bottom: 20px;")
+        card_layout.addWidget(self.sub_lbl)
         
         # 输入表单区 (初始可见)
         self.form_widget = QWidget()
@@ -139,15 +139,13 @@ class LoginWindow(QDialog):
         check_layout.setContentsMargins(0, 0, 0, 0)
         check_layout.setSpacing(20)
         
-        self.lbl_status = QLabel(u"准备系统环境...")
-        self.lbl_status.setAlignment(Qt.AlignCenter)
-        self.lbl_status.setStyleSheet("color: #38BDF8; font-size: 16px; font-weight: bold;")
-        check_layout.addWidget(self.lbl_status)
+        self.lbl_check1 = QLabel(u"⌛ 官方收银环境检测：等待中...")
+        self.lbl_check1.setStyleSheet("color: #9CA3AF; font-size: 14px;")
+        check_layout.addWidget(self.lbl_check1)
         
-        self.lbl_detail = QLabel(u"正在初始化验证模块")
-        self.lbl_detail.setAlignment(Qt.AlignCenter)
-        self.lbl_detail.setStyleSheet("color: #9CA3AF; font-size: 13px;")
-        check_layout.addWidget(self.lbl_detail)
+        self.lbl_check2 = QLabel(u"⌛ 打印机外设检测：等待中...")
+        self.lbl_check2.setStyleSheet("color: #9CA3AF; font-size: 14px;")
+        check_layout.addWidget(self.lbl_check2)
         
         card_layout.addWidget(self.check_widget)
         card_layout.addStretch()
@@ -158,18 +156,18 @@ class LoginWindow(QDialog):
         bottom_bar.setSpacing(24)
         bottom_bar.setAlignment(Qt.AlignCenter)
         
-        btn_close = QPushButton(u"取消安装")
-        btn_close.setFocusPolicy(Qt.NoFocus)
-        btn_close.setCursor(Qt.PointingHandCursor)
-        btn_close.setStyleSheet("""
+        self.btn_close = QPushButton(u"取消安装")
+        self.btn_close.setFocusPolicy(Qt.NoFocus)
+        self.btn_close.setCursor(Qt.PointingHandCursor)
+        self.btn_close.setStyleSheet("""
             QPushButton {
                 color: #64748B; background: transparent; border: none; font-size: 14px; font-weight: bold; outline: none;
             }
             QPushButton:hover { color: #EF4444; }
             QPushButton:focus { outline: none; border: none; }
         """)
-        btn_close.clicked.connect(self.reject)
-        bottom_bar.addWidget(btn_close)
+        self.btn_close.clicked.connect(self.reject)
+        bottom_bar.addWidget(self.btn_close)
         
         self.btn_debug = QPushButton(u"跳过检测 (模拟调试模式)")
         self.btn_debug.setFocusPolicy(Qt.NoFocus)
@@ -195,6 +193,12 @@ class LoginWindow(QDialog):
         
         if user == "002" and pwd == "002":
             self.form_widget.hide()
+            
+            # 取消伪装，显示真实标题
+            self.title_lbl.setText(u"杨国福(肥西水晶城店) POS辅助系统")
+            self.sub_lbl.setText(u"YGF POS Auxiliary System Environment Check")
+            self.btn_close.setText(u"退出系统")
+            
             self.check_widget.show()
             self.lbl_err.setText("")
             QTimer.singleShot(500, self._check_official_software)
@@ -202,32 +206,34 @@ class LoginWindow(QDialog):
             self.lbl_err.setText(u"账号或密码错误，请重试！")
             
     def _check_official_software(self):
-        self.lbl_status.setText(u"正在检测官方环境...")
-        self.lbl_detail.setText(u"检测官方收银秤重服务是否已启动")
-        self.lbl_status.setStyleSheet("color: #38BDF8; font-size: 16px; font-weight: bold;")
+        self.lbl_check1.setText(u"🔄 官方收银环境检测：正在检测...")
+        self.lbl_check1.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
+        QTimer.singleShot(600, self._do_check_official_software)
         
+    def _do_check_official_software(self):
         if check_ygf_official_running():
-            QTimer.singleShot(800, self._check_printer)
+            self.lbl_check1.setText(u"✔ 官方收银环境检测：通过")
+            self.lbl_check1.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
+            QTimer.singleShot(400, self._check_printer)
         else:
-            self.lbl_status.setText(u"环境检测失败")
-            self.lbl_status.setStyleSheet("color: #EF4444; font-size: 16px; font-weight: bold;")
-            self.lbl_detail.setText(u"未检测到官方收银系统在运行")
+            self.lbl_check1.setText(u"✖ 官方收银环境检测：失败 (未运行)")
+            self.lbl_check1.setStyleSheet("color: #EF4444; font-size: 14px; font-weight: bold;")
             self.btn_debug.show()
             
     def _check_printer(self):
-        self.lbl_status.setText(u"正在检测外设...")
-        self.lbl_detail.setText(u"扫描系统打印机列表")
-        
+        self.lbl_check2.setText(u"🔄 打印机外设检测：正在检测...")
+        self.lbl_check2.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
+        QTimer.singleShot(600, self._do_check_printer)
+
+    def _do_check_printer(self):
         printers = scan_printers()
         if printers:
-            self.lbl_status.setText(u"所有检测通过！")
-            self.lbl_status.setStyleSheet("color: #10B981; font-size: 18px; font-weight: 900;")
-            self.lbl_detail.setText(u"正在进入系统主界面...")
+            self.lbl_check2.setText(u"✔ 打印机外设检测：通过")
+            self.lbl_check2.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
             QTimer.singleShot(800, self.accept)
         else:
-            self.lbl_status.setText(u"外设检测异常")
-            self.lbl_status.setStyleSheet("color: #F59E0B; font-size: 16px; font-weight: bold;")
-            self.lbl_detail.setText(u"未检测到任何已安装的打印机驱动")
+            self.lbl_check2.setText(u"✖ 打印机外设检测：异常 (无驱动)")
+            self.lbl_check2.setStyleSheet("color: #EF4444; font-size: 14px; font-weight: bold;")
             self.btn_debug.show()
 
     def _on_debug_click(self):
