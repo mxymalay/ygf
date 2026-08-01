@@ -43,6 +43,8 @@ DEFAULT_CONFIG = {
     "auto_print": False,                # 称重稳定后自动打印
     "stable_threshold": 0.01,           # 重量稳定判断阈值(kg)
     "stable_count": 5,                  # 连续稳定次数才认为稳定
+    "auto_start_enabled": True,         # 是否开启开机自启动
+    "auto_start_delay": 8,              # 自启动延迟秒数
 
     # 收钱吧 PC收款助手设置
     "shouqianba_enabled": True,         # 开启收钱吧串口/快捷键自动推送

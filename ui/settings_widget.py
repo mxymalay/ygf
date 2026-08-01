@@ -196,6 +196,28 @@ class SettingsWidget(QWidget):
 
         layout.addWidget(biz_group)
 
+        # ── 系统运行设置 ──
+        sys_group = QGroupBox(u"系统运行设置 (开机自启与延时)")
+        syg = QGridLayout(sys_group)
+        syg.setSpacing(12)
+
+        syg.addWidget(QLabel(u"开机自启动："), 0, 0)
+        self.cmb_auto_start = QComboBox()
+        self.cmb_auto_start.addItems([u"开启 - 随 Windows 启动并打开点餐系统", u"关闭 - 仅允许手动启动"])
+        if not self.config.get("auto_start_enabled", True):
+            self.cmb_auto_start.setCurrentIndex(1)
+        syg.addWidget(self.cmb_auto_start, 0, 1, 1, 2)
+
+        syg.addWidget(QLabel(u"自启缓冲延迟："), 1, 0)
+        self.spin_auto_start_delay = QSpinBox()
+        self.spin_auto_start_delay.setRange(0, 60)
+        self.spin_auto_start_delay.setSuffix(u" 秒")
+        self.spin_auto_start_delay.setToolTip(u"设置软件随系统开机后静默等待的秒数，用于等待网卡和串口驱动加载完毕。")
+        self.spin_auto_start_delay.setValue(self.config.get("auto_start_delay", 8))
+        syg.addWidget(self.spin_auto_start_delay, 1, 1, 1, 2)
+
+        layout.addWidget(sys_group)
+
         # ── 收钱吧 PC收款助手设置 ──
         sqb_group = QGroupBox(u"收钱吧 PC收款助手设置")
         sg = QGridLayout(sqb_group)
@@ -363,7 +385,18 @@ class SettingsWidget(QWidget):
         self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
         self.config["shouqianba_hotkey"] = self.txt_sqb_hotkey.text().strip()
 
+        # 保存自启动配置
+        self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
+        self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
+
         save_config(self.config)
+
+        # 立即应用自动启动配置 (动态更新注册表)
+        from utils.system_utils import apply_auto_start_settings
+        apply_auto_start_settings(
+            self.config["auto_start_enabled"], 
+            self.config["auto_start_delay"]
+        )
 
         # 触发主界面单价刷新
         parent_mw = self.window()

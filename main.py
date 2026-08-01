@@ -13,48 +13,32 @@ from PyQt5.QtGui import QFont
 from config import load_config, save_config
 from ui.main_window import MainWindow
 from ui.login_window import LoginWindow
-
-
-def setup_auto_start():
-    """将当前打包好的 EXE 路径写入 Windows 注册表，实现开机自启"""
-    if not getattr(sys, 'frozen', False):
-        return  # 仅在打包后的 EXE 环境中生效
-
-    try:
-        import winreg
-        exe_path = sys.executable
-        # 打开注册表的自启项键
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, 
-            r"Software\Microsoft\Windows\CurrentVersion\Run", 
-            0, 
-            winreg.KEY_SET_VALUE | winreg.KEY_READ
-        )
-        
-        # 检查是否已经设置过，如果路径一致就不反复写
-        target_cmd = f'"{exe_path}" --delayed-start'
-        try:
-            val, _ = winreg.QueryValueEx(key, "YGF_POS_System")
-            if val == target_cmd:
-                winreg.CloseKey(key)
-                return
-        except WindowsError:
-            pass
-            
-        winreg.SetValueEx(key, "YGF_POS_System", 0, winreg.REG_SZ, target_cmd)
-        winreg.CloseKey(key)
-        print("[*] 成功设置开机自启")
-    except Exception as e:
-        print("[!] 自动设置开机启动失败:", e)
+from utils.system_utils import apply_auto_start_settings
 
 
 def main():
-    # 0. 尝试设置开机自启动
-    setup_auto_start()
+    # 加载配置
+    config = load_config()
 
-    # 0.5 如果是被系统的“开机自启”拉起的，等待几秒钟让硬件驱动(串口/网卡)先加载完毕
+    # 首次运行时保存默认配置
+    if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "settings.json")):
+        save_config(config)
+
+    # 0. 尝试同步开机自启动设置
+    apply_auto_start_settings(
+        config.get("auto_start_enabled", True), 
+        config.get("auto_start_delay", 8)
+    )
+
+    # 0.5 如果是被系统的“开机自启”拉起的，等待指定秒数让硬件驱动(串口/网卡)先加载完毕
     if "--delayed-start" in sys.argv:
-        time.sleep(8)
+        try:
+            delay_idx = sys.argv.index("--delayed-start") + 1
+            delay_sec = int(sys.argv[delay_idx])
+        except (ValueError, IndexError):
+            delay_sec = 8
+        if delay_sec > 0:
+            time.sleep(delay_sec)
 
     # 启用高分辨率屏幕(High DPI)自适应缩放支持 (必须在创建 QApplication 之前设置)
     if hasattr(Qt, 'AA_EnableHighDpiScaling'):
@@ -69,13 +53,6 @@ def main():
     # 设置默认字体
     font = QFont("Microsoft YaHei", 10)
     app.setFont(font)
-
-    # 加载配置
-    config = load_config()
-
-    # 首次运行时保存默认配置
-    if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "settings.json")):
-        save_config(config)
 
     # 1. 弹出登录与检测界面
     login_dlg = LoginWindow(config)
