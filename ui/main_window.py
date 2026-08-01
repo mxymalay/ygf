@@ -41,15 +41,7 @@ class MainWindow(QMainWindow):
         self.resize(1180, 760)
         self.setStyleSheet(DARK_STYLE)
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            event.accept()
 
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton and hasattr(self, '_drag_pos'):
-            self.move(event.globalPos() - self._drag_pos)
-            event.accept()
 
     def _build_ui(self):
         main_widget = QWidget()
