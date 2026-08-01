@@ -409,39 +409,47 @@ class HistoryWidget(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        # 解析项目
-        proj_match = re.search(r"项目:(.*)", remark)
-        proj_str = proj_match.group(1).strip() if proj_match else ""
+        import json
+        cart_items_json = record.get("cart_items_json")
+        cart_items = []
+        if cart_items_json:
+            try:
+                cart_items = json.loads(cart_items_json)
+            except Exception:
+                pass
 
-        w_kg = record.get("weight_kg", 0.0)
-
-        if proj_str:
-            items_list = [p.strip() for p in proj_str.split(",") if p.strip()]
-            for idx, p in enumerate(items_list):
-                tag_match = re.search(r"^([^(]+)(?:\(([^)]+)\))?", p)
-                if tag_match:
-                    name_part = tag_match.group(1).strip()
-                    tag_part = tag_match.group(2)
-                else:
-                    name_part = p
-                    tag_part = None
-
+        if cart_items:
+            original_total = 0.0
+            for idx, item in enumerate(cart_items):
+                name = item.get("name", "")
+                tag = item.get("tag", "")
+                qty = item.get("qty", 1)
+                price = item.get("price", 0.0)
+                base_price = item.get("base_price", 0.0)
+                item_type = item.get("type", "")
+                disc_rate = item.get("discount_rate", 1.0)
+                
+                original_total += base_price * qty
+                
                 item_row = QVBoxLayout()
                 item_row.setSpacing(2)
 
                 row_main = QHBoxLayout()
-                lbl_name = QLabel(name_part)
+                lbl_name = QLabel(name)
                 lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
 
-                if idx == 0 and w_kg > 0:
-                    lbl_qty = QLabel("x%.3f kg" % w_kg)
-                    item_price_str = "¥ %.2f" % tot
+                if item_type == "soup":
+                    w = item.get("weight", record.get("weight_kg", 0.0))
+                    lbl_qty = QLabel("x%.3f kg" % w)
                 else:
-                    lbl_qty = QLabel("x1")
-                    item_price_str = "¥ 1.00" if (idx > 0 and w_kg > 0) else ("¥ %.2f" % tot)
+                    lbl_qty = QLabel("x%d" % qty)
 
                 lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
-                lbl_price = QLabel(item_price_str)
+                
+                if abs(disc_rate - 1.0) > 0.001:
+                    lbl_price = QLabel(f"<s>¥ {base_price * qty:.2f}</s>  <span style='color:#F59E0B;'>¥ {price:.2f}</span>")
+                else:
+                    lbl_price = QLabel("¥ %.2f" % price)
                 lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
 
                 row_main.addWidget(lbl_name)
@@ -451,30 +459,81 @@ class HistoryWidget(QWidget):
                 row_main.addWidget(lbl_price)
                 item_row.addLayout(row_main)
 
-                if tag_part and tag_part != "无":
-                    lbl_tag = QLabel(tag_part)
+                if tag and tag != "无":
+                    lbl_tag = QLabel(tag)
                     lbl_tag.setStyleSheet("font-size: 12px; color: #EA580C; border: none; font-weight: bold;")
                     item_row.addWidget(lbl_tag)
 
                 self.items_layout.addLayout(item_row)
+            
+            self.lbl_item_total.setText(u"商品金额：¥ %.2f" % original_total)
+        else:
+            # 兼容旧版本记录
+            proj_match = re.search(r"项目:(.*)", remark)
+            proj_str = proj_match.group(1).strip() if proj_match else ""
 
-        elif w_kg > 0:
-            item_row = QVBoxLayout()
-            row_main = QHBoxLayout()
-            lbl_name = QLabel(u"称重菜品")
-            lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
-            lbl_qty = QLabel("x%.3f kg" % w_kg)
-            lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
-            lbl_price = QLabel("¥ %.2f" % tot)
-            lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+            w_kg = record.get("weight_kg", 0.0)
 
-            row_main.addWidget(lbl_name)
-            row_main.addStretch()
-            row_main.addWidget(lbl_qty)
-            row_main.addSpacing(30)
-            row_main.addWidget(lbl_price)
-            item_row.addLayout(row_main)
-            self.items_layout.addLayout(item_row)
+            if proj_str:
+                items_list = [p.strip() for p in proj_str.split(",") if p.strip()]
+                for idx, p in enumerate(items_list):
+                    tag_match = re.search(r"^([^(]+)(?:\(([^)]+)\))?", p)
+                    if tag_match:
+                        name_part = tag_match.group(1).strip()
+                        tag_part = tag_match.group(2)
+                    else:
+                        name_part = p
+                        tag_part = None
+
+                    item_row = QVBoxLayout()
+                    item_row.setSpacing(2)
+
+                    row_main = QHBoxLayout()
+                    lbl_name = QLabel(name_part)
+                    lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+
+                    if idx == 0 and w_kg > 0:
+                        lbl_qty = QLabel("x%.3f kg" % w_kg)
+                        item_price_str = "¥ %.2f" % tot
+                    else:
+                        lbl_qty = QLabel("x1")
+                        item_price_str = "¥ 1.00" if (idx > 0 and w_kg > 0) else ("¥ %.2f" % tot)
+
+                    lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
+                    lbl_price = QLabel(item_price_str)
+                    lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+
+                    row_main.addWidget(lbl_name)
+                    row_main.addStretch()
+                    row_main.addWidget(lbl_qty)
+                    row_main.addSpacing(30)
+                    row_main.addWidget(lbl_price)
+                    item_row.addLayout(row_main)
+
+                    if tag_part and tag_part != "无":
+                        lbl_tag = QLabel(tag_part)
+                        lbl_tag.setStyleSheet("font-size: 12px; color: #EA580C; border: none; font-weight: bold;")
+                        item_row.addWidget(lbl_tag)
+
+                    self.items_layout.addLayout(item_row)
+
+            elif w_kg > 0:
+                item_row = QVBoxLayout()
+                row_main = QHBoxLayout()
+                lbl_name = QLabel(u"称重菜品")
+                lbl_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+                lbl_qty = QLabel("x%.3f kg" % w_kg)
+                lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
+                lbl_price = QLabel("¥ %.2f" % tot)
+                lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+
+                row_main.addWidget(lbl_name)
+                row_main.addStretch()
+                row_main.addWidget(lbl_qty)
+                row_main.addSpacing(30)
+                row_main.addWidget(lbl_price)
+                item_row.addLayout(row_main)
+                self.items_layout.addLayout(item_row)
 
         self.items_layout.addStretch()
 

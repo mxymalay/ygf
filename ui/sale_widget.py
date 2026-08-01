@@ -1416,12 +1416,16 @@ class SaleWidget(QWidget):
             actual_num = self.call_mgr.get_next_number()
             sale_data["call_no"] = "%02d" % actual_num
 
+            import json
+            cart_items_json = json.dumps(sale_data["cart_items"], ensure_ascii=False)
+
             record = self.db.insert_sale(
                 weight_kg=self.current_weight,
                 unit_price=unit_price,
                 price_unit=price_unit,
                 total_price=total_price,
-                remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary)
+                remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary),
+                cart_items_json=cart_items_json
             )
 
             full_sale = dict(record)

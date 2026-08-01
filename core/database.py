@@ -44,6 +44,14 @@ class Database:
                 ON sales(sale_no);
         """)
         conn.commit()
+
+        # 安全升级：尝试添加 cart_items_json 列，如果已存在则忽略
+        try:
+            conn.execute("ALTER TABLE sales ADD COLUMN cart_items_json TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
         conn.close()
 
     def generate_sale_no(self):
@@ -66,7 +74,7 @@ class Database:
 
         return "%s%03d" % (prefix, seq)
 
-    def insert_sale(self, weight_kg, unit_price, price_unit, total_price, remark=""):
+    def insert_sale(self, weight_kg, unit_price, price_unit, total_price, remark="", cart_items_json=None):
         """插入一条销售记录，返回完整记录字典"""
         sale_no = self.generate_sale_no()
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -74,9 +82,9 @@ class Database:
         conn = self._get_conn()
         conn.execute(
             """INSERT INTO sales
-               (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at)
+               (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json)
         )
         conn.commit()
 
