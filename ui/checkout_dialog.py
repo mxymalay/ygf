@@ -140,10 +140,8 @@ class CheckoutDialog(QDialog):
         ]
 
         self.pay_buttons = []
-        right_layout.addStretch()
         for method, icon, title, desc, bg_dark, bg_main, bg_hover, fg_accent in btn_configs:
             btn_frame = QFrame()
-            btn_frame.setFixedHeight(110)
             btn_frame.setStyleSheet(f"""
                 QFrame {{
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -197,10 +195,9 @@ class CheckoutDialog(QDialog):
             # 让覆盖按钮跟随 frame 大小
             btn_frame.resizeEvent = lambda event, ob=overlay_btn, bf=btn_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-            right_layout.addWidget(btn_frame)
+            right_layout.addWidget(btn_frame, stretch=1)
             self.pay_buttons.append(overlay_btn)
 
-        right_layout.addStretch()
         root.addWidget(right_frame, stretch=3)
 
     def _build_receipt_content(self, layout):
@@ -267,48 +264,44 @@ class CheckoutDialog(QDialog):
             item_box = QVBoxLayout()
             item_box.setSpacing(2)
 
+            item_row = QHBoxLayout()
+            item_row.setContentsMargins(0, 0, 0, 0)
+            item_row.setSpacing(4)
+
             if is_soup:
                 m_count += 1
                 title_lbl = QLabel(f"【制{m_count}】{name_str}")
                 title_lbl.setStyleSheet("font-size: 14px; font-weight: 900; color: #F8FAFC; border: none;")
-                item_box.addWidget(title_lbl)
+                item_row.addWidget(title_lbl, stretch=1)
 
                 w_val = item.get("weight", sd.get("weight_kg", 0.0))
                 p_val = item.get("unit_price", sd.get("unit_price", 47.60))
                 sub_total = item.get("price", 0.0)
 
-                det_w = QWidget()
-                det_l = QHBoxLayout(det_w)
-                det_l.setContentsMargins(0, 0, 0, 0)
-                det_l.addStretch(1)
                 for t in ["KG", f"{p_val:.2f}", f"{w_val:.3f}", f"{sub_total:.2f}"]:
                     l = QLabel(t)
                     l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     l.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
                     l.setFixedWidth(45)
-                    det_l.addWidget(l)
-                item_box.addWidget(det_w)
+                    item_row.addWidget(l)
             else:
                 title_lbl = QLabel(name_str)
                 title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #E2E8F0; border: none;")
-                item_box.addWidget(title_lbl)
+                item_row.addWidget(title_lbl, stretch=1)
 
                 qty = item.get("qty", 1)
                 unit_label = item.get("unit", "份")
                 base_p = item.get("base_price", item.get("price", 0.0) / max(1, qty))
                 sub_total = item.get("price", 0.0)
 
-                det_w = QWidget()
-                det_l = QHBoxLayout(det_w)
-                det_l.setContentsMargins(0, 0, 0, 0)
-                det_l.addStretch(1)
                 for t in [unit_label, f"{base_p:.2f}", f"{qty}", f"{sub_total:.2f}"]:
                     l = QLabel(t)
                     l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     l.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
                     l.setFixedWidth(45)
-                    det_l.addWidget(l)
-                item_box.addWidget(det_w)
+                    item_row.addWidget(l)
+
+            item_box.addLayout(item_row)
 
             if tag_str:
                 lbl_tag = QLabel(f"  {tag_str}")
@@ -389,7 +382,7 @@ class CheckoutDialog(QDialog):
     def mousePressEvent(self, event):
         # 如果点击了空白处（没有点到小票或按钮），则取消结账
         child = self.childAt(event.pos())
-        if not child or child == self.outer:
+        if not child or child == self.outer or child == self.right_panel:
             self.reject()
         else:
             super().mousePressEvent(event)
@@ -409,7 +402,7 @@ class CheckoutDialog(QDialog):
             screen_w = parent_w.width()
             try:
                 blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(30)
+                blur.setBlurRadius(65)
                 parent_w.setGraphicsEffect(blur)
             except Exception:
                 pass
