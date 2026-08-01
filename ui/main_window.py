@@ -168,16 +168,15 @@ class MainWindow(QMainWindow):
                 self.config["is_first_run"] = False
                 save_config(self.config)
                 
-                # 刷新各页面显示
+                # 刷新各页面与窗口标题显示
+                self._init_window()
                 if hasattr(self, 'sale_page'):
                     self.sale_page.refresh_unit_price_info()
                 if hasattr(self, 'settings_page'):
                     if hasattr(self.settings_page, 'spin_default_price'):
                         self.settings_page.spin_default_price.setValue(price)
-                    if hasattr(self.settings_page, 'txt_shop_subtitle'):
-                        self.settings_page.txt_shop_subtitle.setText(branch_name)
-                if hasattr(self, 'sidebar'):
-                    self.sidebar.set_sub_title(branch_name)
+                    if hasattr(self.settings_page, 'txt_sub'):
+                        self.settings_page.txt_sub.setText(branch_name)
 
     def closeEvent(self, event):
         self.sale_page.cleanup()
