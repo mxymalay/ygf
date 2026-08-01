@@ -97,6 +97,9 @@ class HistoryWidget(QWidget):
         self.records = []
         self.selected_record = None
 
+        self.current_page = 0
+        self.items_per_page = 10
+
         self._build_ui()
         self.reload_orders()
 
@@ -251,6 +254,25 @@ class HistoryWidget(QWidget):
 
         self.scroll_orders.setWidget(self.order_list_container)
         left_col.addWidget(self.scroll_orders, stretch=1)
+
+        # 底部翻页控制
+        left_page_row = QHBoxLayout()
+        self.btn_prev_l = QPushButton(u"上一页")
+        self.btn_prev_l.setStyleSheet("background: #374151; color: white; padding: 6px 12px; border-radius: 6px; border: none;")
+        self.btn_prev_l.clicked.connect(self._on_prev_page)
+
+        self.lbl_page = QLabel("1/1")
+        self.lbl_page.setAlignment(Qt.AlignCenter)
+        self.lbl_page.setStyleSheet("color: white; font-weight: bold;")
+
+        self.btn_next_l = QPushButton(u"下一页")
+        self.btn_next_l.setStyleSheet("background: #EA580C; color: white; font-weight: bold; padding: 6px 12px; border-radius: 6px; border: none;")
+        self.btn_next_l.clicked.connect(self._on_next_page)
+
+        left_page_row.addWidget(self.btn_prev_l)
+        left_page_row.addWidget(self.lbl_page)
+        left_page_row.addWidget(self.btn_next_l)
+        left_col.addLayout(left_page_row)
 
         body_layout.addLayout(left_col, stretch=3)
 
@@ -410,6 +432,7 @@ class HistoryWidget(QWidget):
         is_asc = getattr(self, "btn_sort", None) and self.btn_sort.isChecked()
         self.records.sort(key=lambda x: x.get("id", 0), reverse=not is_asc)
 
+        self.current_page = 0
         self._render_order_list()
 
     def _on_sort_clicked(self):
@@ -420,12 +443,26 @@ class HistoryWidget(QWidget):
             self.btn_sort.setText(u"1↓")
         self._on_query()
 
+    def _on_prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._render_order_list()
+
+    def _on_next_page(self):
+        total_pages = max(1, (len(self.records) + self.items_per_page - 1) // self.items_per_page)
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            self._render_order_list()
+
     def _render_order_list(self):
         # 清空已有卡片
         while self.order_list_layout.count():
             item = self.order_list_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+
+        total_pages = max(1, (len(self.records) + self.items_per_page - 1) // self.items_per_page)
+        self.lbl_page.setText(f"{self.current_page + 1}/{total_pages}")
 
         if not self.records:
             lbl_empty = QLabel(u"暂无订单记录")
@@ -435,13 +472,18 @@ class HistoryWidget(QWidget):
             self._select_order(None)
             return
 
-        for idx, rec in enumerate(self.records):
+        start_idx = self.current_page * self.items_per_page
+        end_idx = start_idx + self.items_per_page
+        page_records = self.records[start_idx:end_idx]
+
+        for idx, rec in enumerate(page_records):
             card = OrderCard(rec, is_selected=(idx == 0))
             card.mousePressEvent = lambda event, r=rec: self._select_order(r)
             self.order_list_layout.addWidget(card)
 
         # 默认选中第一个
-        self._select_order(self.records[0])
+        if page_records:
+            self._select_order(page_records[0])
 
     def _select_order(self, record):
         self.selected_record = record
