@@ -48,14 +48,20 @@ class AutoSwitchController(QObject):
                     # 决策分配给【私域 POS】 -> 自动将本系统弹出最前
                     bring_our_pos_to_front(self.main_window)
                     self._update_floating_ball_status(is_private=True, reason="智能算法选择: 本单走私域")
-                    print(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg -> 算法决策：分配给【私域 POS】 (当前实际比例: {self.get_actual_private_ratio():.1f}%)")
+                    msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
+                    print(f"[AutoDecisionEngine] {msg}")
+                    if hasattr(self.main_window, 'status'):
+                        self.main_window.status.showMessage(msg, 5000)
                 else:
                     # 决策分配给【官方系统】 -> 本系统隐藏在后台，保持/拉出官方界面
                     ok = bring_official_to_front()
                     if not ok and self.main_window:
                         self.main_window.showMinimized()
                     self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方")
-                    print(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg -> 算法决策：分配给【官方收银系统】 (当前实际比例: {self.get_actual_private_ratio():.1f}%)")
+                    msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
+                    print(f"[AutoDecisionEngine] {msg}")
+                    if hasattr(self.main_window, 'status'):
+                        self.main_window.status.showMessage(msg, 5000)
         else:
             # 称上重量归零 (放下碗拿走)，重置弹出标记
             self._has_auto_popped = False
