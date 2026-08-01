@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QRadioButton, QSpinBox, QCheckBox, QFrame, QButtonGroup, QScrollArea, QLayout
 )
 from PyQt5.QtCore import Qt, QRect, QPoint, QSize
+from PyQt5.QtGui import QPainter, QRadialGradient, QColor, QBrush, QPen, QFont
 from config import save_config
 from core.call_number_manager import CallNumberManager
 
@@ -89,45 +90,69 @@ class FlowLayout(QLayout):
         return y + lineHeight - rect.y()
 
 
-class NumberBall(QLabel):
-    """双色球/彩票风格 3D 炫彩数字球球"""
+class NumberBall(QWidget):
+    """双色球/彩票风格 3D 炫彩数字球球 (使用 QPainter 抗锯齿真圆绘制，彻底消除黑框)"""
 
-    BALL_STYLES = [
-        # 红色球 (双色球红球)
-        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #FF8787, stop:0.4 #EF4444, stop:1 #991B1B); border: 1.5px solid #FCA5A5;",
-        # 蓝色球 (双色球蓝球)
-        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #60A5FA, stop:0.4 #2563EB, stop:1 #1E3A8A); border: 1.5px solid #93C5FD;",
-        # 琥珀金球
-        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #FBBF24, stop:0.4 #F59E0B, stop:1 #92400E); border: 1.5px solid #FDE68A;",
-        # 翡翠绿球
-        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #34D399, stop:0.4 #059669, stop:1 #064E3B); border: 1.5px solid #A7F3D0;",
-        # 紫晶球
-        "background: qradialgradient(cx:0.35, cy:0.35, radius:0.75, fx:0.25, fy:0.25, stop:0 #C084FC, stop:0.4 #9333EA, stop:1 #581C87); border: 1.5px solid #E9D5FF;",
+    BALL_PALETTES = [
+        # (c_start, c_mid, c_end, border_color)
+        ("#FF8787", "#EF4444", "#991B1B", "#FCA5A5"),  # 0: 红球 (双色球红球)
+        ("#60A5FA", "#2563EB", "#1E3A8A", "#93C5FD"),  # 1: 蓝球 (双色球蓝球)
+        ("#FBBF24", "#F59E0B", "#92400E", "#FDE68A"),  # 2: 琥珀金球
+        ("#34D399", "#059669", "#064E3B", "#A7F3D0"),  # 3: 翡翠绿球
+        ("#C084FC", "#9333EA", "#581C87", "#E9D5FF"),  # 4: 紫晶球
     ]
 
     def __init__(self, number: int, parent=None):
-        num_str = "%02d" % number if number < 100 else str(number)
-        super().__init__(num_str, parent)
-        self.setAlignment(Qt.AlignCenter)
+        super().__init__(parent)
+        self.number = number
+        self.num_str = "%02d" % number if number < 100 else str(number)
         self.setFixedSize(40, 40)
-        
-        style_idx = (number % len(self.BALL_STYLES))
-        bg_style = self.BALL_STYLES[style_idx]
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setToolTip(u"已使用餐牌号: #%s" % self.num_str)
+        self.is_hovered = False
 
-        self.setStyleSheet(f"""
-            QLabel {{
-                {bg_style}
-                color: #FFFFFF;
-                font-size: 13px;
-                font-weight: 900;
-                font-family: 'Segoe UI', 'Consolas', sans-serif;
-                border-radius: 20px;
-            }}
-            QLabel:hover {{
-                border: 2px solid #FFFFFF;
-            }}
-        """)
-        self.setToolTip(u"已使用餐牌号: #%s" % num_str)
+    def enterEvent(self, event):
+        self.is_hovered = True
+        self.update()
+
+    def leaveEvent(self, event):
+        self.is_hovered = False
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+
+        palette = self.BALL_PALETTES[self.number % len(self.BALL_PALETTES)]
+        c_start, c_mid, c_end, c_border = palette
+
+        # 1. 3D 径向渐变球体 (焦点在左上方 11, 11)
+        radial = QRadialGradient(15, 15, 24)
+        radial.setFocalPoint(11, 11)
+        radial.setColorAt(0.0, QColor(c_start))
+        radial.setColorAt(0.4, QColor(c_mid))
+        radial.setColorAt(1.0, QColor(c_end))
+
+        painter.setBrush(QBrush(radial))
+
+        # 悬停时白色高亮外边框
+        if self.is_hovered:
+            pen = QPen(QColor("#FFFFFF"), 2.2)
+        else:
+            pen = QPen(QColor(c_border), 1.5)
+        painter.setPen(pen)
+
+        # 绘制抗锯齿正圆 (半径 18px)
+        painter.drawEllipse(QPoint(20, 20), 18, 18)
+
+        # 2. 居中绘制白色粗体数字
+        font = QFont("Segoe UI", 11, QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QColor("#FFFFFF"))
+
+        rect = QRect(0, 0, 40, 40)
+        painter.drawText(rect, Qt.AlignCenter, self.num_str)
 
 
 class QueueWidget(QWidget):
@@ -334,7 +359,7 @@ class QueueWidget(QWidget):
         layout.addWidget(sec2_lbl)
 
         pool_frame = QFrame()
-        pool_frame.setStyleSheet("QFrame { background-color: #0F172A; border: 1px solid #059669; border-radius: 12px; }")
+        pool_frame.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; }")
         pf_layout = QVBoxLayout(pool_frame)
         pf_layout.setContentsMargins(20, 16, 20, 16)
         pf_layout.setSpacing(12)
@@ -356,8 +381,9 @@ class QueueWidget(QWidget):
 
         pf_layout.addLayout(pf_header)
 
-        # 球球容器与流式布局
+        # 球球容器与流式布局 (全透明无黑框)
         self.pool_balls_container = QWidget()
+        self.pool_balls_container.setStyleSheet("background: transparent; border: none;")
         self.pool_flow_layout = FlowLayout(self.pool_balls_container, margin=2, spacing=10)
         pf_layout.addWidget(self.pool_balls_container)
 
