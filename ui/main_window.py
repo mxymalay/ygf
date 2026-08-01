@@ -107,7 +107,7 @@ class MainWindow(QMainWindow):
             self.lbl_hw_status.setStyleSheet("color: #10B981; font-size: 13px; font-weight: bold; padding-left: 12px;")
         else:
             warn_msg = " | ".join(warnings)
-            self.lbl_hw_status.setText(f"⚠️ 硬件告警: {warn_msg} (已启用软件应急备用通道)")
+            self.lbl_hw_status.setText(f"⚠️ 硬件告警: {warn_msg}")
             self.lbl_hw_status.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold; padding-left: 12px;")
 
 
