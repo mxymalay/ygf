@@ -40,9 +40,9 @@ class OrderCard(QFrame):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
 
-        # 第一行：POS点餐：050 堂食         已支付
+        # 第一行：POS点餐：050         已支付
         row1 = QHBoxLayout()
-        lbl_title = QLabel(u"📋 POS点餐：%s 堂食" % call_no)
+        lbl_title = QLabel(u"📋 POS点餐：%s" % call_no)
         lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
 
         lbl_status = QLabel(u"已支付")
@@ -129,7 +129,7 @@ class HistoryWidget(QWidget):
         header_bar.addSpacing(16)
 
         # 选中的订单标题
-        self.lbl_header_title = QLabel(u"📋 POS点餐：--- 堂食")
+        self.lbl_header_title = QLabel(u"📋 POS点餐：---")
         self.lbl_header_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #F9FAFB; border: none;")
         header_bar.addWidget(self.lbl_header_title)
 
@@ -374,7 +374,7 @@ class HistoryWidget(QWidget):
                 w.set_selected(w.record == record)
 
         if not record:
-            self.lbl_header_title.setText(u"📋 POS点餐：--- 堂食")
+            self.lbl_header_title.setText(u"📋 POS点餐：---")
             self.lbl_order_no.setText(u"订单编号：---")
             self.lbl_create_time.setText(u"创建时间：---")
             self.lbl_item_total.setText(u"商品金额：¥ 0.00")
@@ -393,7 +393,7 @@ class HistoryWidget(QWidget):
         temp_order_match = re.search(r"单号:(\w+)", remark)
         temp_order_no = temp_order_match.group(1) if temp_order_match else record.get("sale_no", "")
 
-        self.lbl_header_title.setText(u"📋 POS点餐：%s 堂食" % call_no)
+        self.lbl_header_title.setText(u"📋 POS点餐：%s" % call_no)
         self.lbl_order_no.setText(u"订单编号：%s" % temp_order_no)
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
         tot = record.get("total_price", 0.0)
