@@ -204,6 +204,34 @@ class HistoryWidget(QWidget):
         date_layout.addWidget(self.cbo_month)
         date_layout.addWidget(self.cbo_day)
 
+        # ── 添加时间筛选 (从 X 时 到 X 时) ──
+        lbl_from = QLabel(u" 从 ")
+        lbl_from.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
+        date_layout.addWidget(lbl_from)
+
+        self.cbo_start_hour = QComboBox()
+        self.cbo_end_hour = QComboBox()
+
+        for cbo in (self.cbo_start_hour, self.cbo_end_hour):
+            cbo.setStyleSheet(cbo_style)
+            cbo.setItemDelegate(QtWidgets.QStyledItemDelegate())
+            for h in range(0, 24):
+                cbo.addItem(f"{h:02d}时", h)
+
+        self.cbo_start_hour.setCurrentIndex(0)  # 00时
+        self.cbo_end_hour.setCurrentIndex(23)   # 23时
+
+        self.cbo_start_hour.currentIndexChanged.connect(self._on_query)
+        self.cbo_end_hour.currentIndexChanged.connect(self._on_query)
+
+        date_layout.addWidget(self.cbo_start_hour)
+        
+        lbl_to = QLabel(u" 到 ")
+        lbl_to.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
+        date_layout.addWidget(lbl_to)
+        
+        date_layout.addWidget(self.cbo_end_hour)
+
         header_bar.addLayout(date_layout)
 
         # 快捷操作按钮
@@ -505,22 +533,37 @@ class HistoryWidget(QWidget):
         target_date = f"{y}-{m:02d}-{d:02d}"
         raw_records = self.db.get_sales_by_date(target_date, target_date)
 
-        # 如果有关键字搜索
+        # 如果有关键字搜索或时间筛选
         kw = self.txt_search.text().strip()
-        if kw:
-            stype = self.cbo_search_type.currentText()
-            filtered = []
-            for r in raw_records:
+        stype = self.cbo_search_type.currentText()
+        start_h = self.cbo_start_hour.currentData()
+        end_h = self.cbo_end_hour.currentData()
+        
+        filtered = []
+        for r in raw_records:
+            # 1. 时间筛选逻辑 (解析 created_at 字段的小时)
+            created_at = r.get("created_at", "")
+            if len(created_at) >= 13:
+                try:
+                    hour_int = int(created_at[11:13])
+                    if not (start_h <= hour_int <= end_h):
+                        continue
+                except ValueError:
+                    pass
+            
+            # 2. 关键字筛选逻辑
+            if kw:
                 remark = r.get("remark", "")
                 if stype == u"取餐号":
-                    if kw in remark or kw in r.get("sale_no", ""):
-                        filtered.append(r)
+                    if kw not in remark and kw not in r.get("sale_no", ""):
+                        continue
                 else:
-                    if kw in r.get("sale_no", "") or kw in remark:
-                        filtered.append(r)
-            self.records = filtered
-        else:
-            self.records = raw_records
+                    if kw not in r.get("sale_no", "") and kw not in remark:
+                        continue
+                        
+            filtered.append(r)
+            
+        self.records = filtered
 
         # 应用排序逻辑
         is_asc = getattr(self, "btn_sort", None) and self.btn_sort.isChecked()
