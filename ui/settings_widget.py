@@ -336,6 +336,13 @@ class SettingsWidget(QWidget):
 
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
+        
+        self._disable_wheel_events()
+
+    def _disable_wheel_events(self):
+        """禁止鼠标滚轮在控件上意外修改数值"""
+        for widget in self.findChildren((QComboBox, QSpinBox, QDoubleSpinBox)):
+            widget.wheelEvent = lambda event, w=widget: event.ignore()
 
     # ─── 刷新 COM 串口列表 ──────────────────────────
     def _refresh_com_ports(self):
