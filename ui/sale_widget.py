@@ -348,8 +348,9 @@ class MenuGridButton(QPushButton):
         self.lbl_badge.setAlignment(Qt.AlignCenter)
         self.lbl_badge.setStyleSheet(
             "background: #EF4444; color: white; font-size: 11px; font-weight: 900; "
-            "border-radius: 9px; padding: 1px 5px;"
+            "border-radius: 9px; min-width: 18px; max-height: 18px; padding: 1px 4px;"
         )
+        self.lbl_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.lbl_badge.hide()
 
         self._update_style()
@@ -362,14 +363,23 @@ class MenuGridButton(QPushButton):
         self.count = cnt
         if self.count > 0:
             self.lbl_badge.setText(str(self.count))
+            self.lbl_badge.adjustSize()
             self.lbl_badge.show()
+            self.lbl_badge.move(max(0, self.width() - self.lbl_badge.width() - 4), 4)
         else:
             self.lbl_badge.hide()
         self._update_style()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.count > 0:
+            self.lbl_badge.adjustSize()
+            self.lbl_badge.move(max(0, self.width() - self.lbl_badge.width() - 4), 4)
+
     def update_subtitle(self, sub_text):
         self.subtitle_str = sub_text
-        self.lbl_sub.setText(sub_text)
+        if self.lbl_sub:
+            self.lbl_sub.setText(sub_text)
 
     def _update_style(self):
         if self.is_soup:
