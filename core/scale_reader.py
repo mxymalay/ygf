@@ -1,19 +1,70 @@
 """
 称重秤读取模块 — 官方收银系统强绑定与实时同步引擎
-PyQt5 + Python 3.8 兼容
+PyQt5 + Python 3.8 兼容 (Windows 零锁共享读取，防 EBUSY 报错)
 """
 import re
 import os
+import sys
 import time
+import ctypes
 import threading
+from ctypes import wintypes
 from PyQt5.QtCore import QObject, pyqtSignal
 from config import save_config
+
+
+def read_file_shared(filepath: str) -> str:
+    """
+    以 Windows 原生 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE 共享模式无锁读取文件。
+    彻底避免官方收银软件 (yangguofu-pos) 写入日志时出现 EBUSY: resource busy or locked 错误！
+    """
+    if not os.path.exists(filepath):
+        return ""
+
+    if sys.platform == "win32":
+        try:
+            GENERIC_READ = 0x80000000
+            FILE_SHARE_READ = 0x00000001
+            FILE_SHARE_WRITE = 0x00000002
+            FILE_SHARE_DELETE = 0x00000004
+            OPEN_EXISTING = 3
+            FILE_ATTRIBUTE_NORMAL = 0x80
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.CreateFileW(
+                filepath,
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None
+            )
+            if handle != 0 and handle != -1 and handle != 0xFFFFFFFF:
+                try:
+                    size = kernel32.GetFileSize(handle, None)
+                    if size > 0 and size != 0xFFFFFFFF:
+                        buf = ctypes.create_string_buffer(size)
+                        bytes_read = wintypes.DWORD()
+                        if kernel32.ReadFile(handle, buf, size, ctypes.byref(bytes_read), None):
+                            return buf.raw[:bytes_read.value].decode("utf-8", errors="ignore")
+                finally:
+                    kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+
+    # 回退到短连接读取 (打开即读，读完立刻关闭)
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception:
+        return ""
 
 
 class ScaleReader(QObject):
     """
     称重秤读取器，运行在后台线程中。
-    绑定官方系统串口日志实时读取
+    绑定官方系统串口日志实时无锁读取
     """
 
     weight_updated = pyqtSignal(float)
@@ -116,67 +167,36 @@ class ScaleReader(QObject):
         return None
 
     def _read_from_ygf_log(self, target_file: str):
-        """从官方系统实时日志中拉取重量"""
+        """从官方系统实时日志中拉取重量 (Windows 共享无锁模式)"""
         self.status_changed.emit(True, "● 已连接官方称重服务 (%s)" % os.path.basename(target_file))
         last_weight = None
 
-        try:
-            # 启动时首先读取最后 50 行，立刻显示当前读数！
-            with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
+        while self._running:
+            current_log = self._find_active_ygf_log()
+            if not current_log:
+                break  # 官方系统关闭
+
+            content = read_file_shared(current_log)
+            if content:
+                lines = content.strip().splitlines()
+                found_new = False
                 for line in reversed(lines[-50:]):
                     w = self._parse_ygf_log_line(line)
                     if w is not None:
-                        last_weight = w
                         self.weight_updated.emit(w)
                         self._check_stability(w)
+                        last_weight = w
+                        found_new = True
                         self.status_changed.emit(
                             True, "● 已同步官方收银称重 | 读数: %.3f kg" % w
                         )
                         break
 
-            # 持续轮询监听新写入行
-            with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
-                f.seek(0, os.SEEK_END)
-                last_pos = f.tell()
+                if not found_new and last_weight is not None:
+                    self.weight_updated.emit(last_weight)
+                    self._check_stability(last_weight)
 
-                while self._running:
-                    current_log = self._find_active_ygf_log()
-                    if not current_log:
-                        break  # 官方系统关闭
-
-                    if current_log != target_file:
-                        target_file = current_log
-                        f = open(target_file, "r", encoding="utf-8", errors="ignore")
-                        f.seek(0, os.SEEK_END)
-                        last_pos = f.tell()
-
-                    curr_pos = f.tell()
-                    if curr_pos < last_pos:
-                        f.seek(0, os.SEEK_SET)
-
-                    lines = f.readlines()
-                    last_pos = f.tell()
-
-                    found_new = False
-                    for line in reversed(lines):
-                        w = self._parse_ygf_log_line(line)
-                        if w is not None:
-                            self.weight_updated.emit(w)
-                            self._check_stability(w)
-                            last_weight = w
-                            found_new = True
-                            break
-
-                    # 若日志没有新行（说明读数静止未变），持续推送当前静止重量给 UI 判定稳定！
-                    if not found_new and last_weight is not None:
-                        self.weight_updated.emit(last_weight)
-                        self._check_stability(last_weight)
-
-                    time.sleep(0.2)
-
-        except Exception:
-            time.sleep(0.5)
+            time.sleep(0.2)
 
     def _check_stability(self, weight):
         """检测重量是否稳定"""
