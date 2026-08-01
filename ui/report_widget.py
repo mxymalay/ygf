@@ -166,7 +166,8 @@ class ReportWidget(QWidget):
         lbl_eq2.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_eq2)
 
-        self.lbl_pay_scan = self._add_receipt_row(mid_layout, u"主扫：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_sqb = self._add_receipt_row(mid_layout, u"收钱吧：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_scan = self._add_receipt_row(mid_layout, u"手持：", u"¥ 0.00 (0笔)")
         self.lbl_pay_cash = self._add_receipt_row(mid_layout, u"现金：", u"¥ 0.00 (0笔)")
         self.lbl_pay_qr = self._add_receipt_row(mid_layout, u"被扫：", u"¥ 0.00 (0笔)")
         self.lbl_pay_total = self._add_receipt_row(mid_layout, u"合计", u"¥ 0.00", is_bold=True)
@@ -288,10 +289,12 @@ class ReportWidget(QWidget):
         for row in pay_stats:
             pm_data[row.get("pm", "")] = {"cnt": row.get("cnt", 0), "amt": row.get("amt", 0.0)}
 
+        sqb_d = pm_data.get("shouqianba", {"cnt": 0, "amt": 0.0})
         scan_d = pm_data.get("scan", {"cnt": 0, "amt": 0.0})
         cash_d = pm_data.get("cash", {"cnt": 0, "amt": 0.0})
         qr_d = pm_data.get("qr", {"cnt": 0, "amt": 0.0})
 
+        self.lbl_pay_sqb.setText("¥ %.2f (%d笔)" % (sqb_d["amt"], sqb_d["cnt"]))
         self.lbl_pay_scan.setText("¥ %.2f (%d笔)" % (scan_d["amt"], scan_d["cnt"]))
         self.lbl_pay_cash.setText("¥ %.2f (%d笔)" % (cash_d["amt"], cash_d["cnt"]))
         self.lbl_pay_qr.setText("¥ %.2f (%d笔)" % (qr_d["amt"], qr_d["cnt"]))
