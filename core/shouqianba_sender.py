@@ -78,21 +78,31 @@ def get_available_com_ports():
 
 
 def copy_to_clipboard(text: str):
-    """把文本无痛复制到 Windows 系统剪贴板"""
+    """把文本无痛复制到 Windows 系统剪贴板 (64位 ctypes 兼容)"""
     try:
-        GMEM_DDESHARE = 0x2000
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
+
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+
+        GMEM_DDESHARE = 0x2000
         user32.OpenClipboard(0)
         user32.EmptyClipboard()
         text_bytes = text.encode('utf-16le') + b'\x00\x00'
         h_mem = kernel32.GlobalAlloc(GMEM_DDESHARE, len(text_bytes))
-        p_mem = kernel32.GlobalLock(h_mem)
-        ctypes.memmove(p_mem, text_bytes, len(text_bytes))
-        kernel32.GlobalUnlock(h_mem)
-        user32.SetClipboardData(13, h_mem)  # CF_UNICODETEXT
+        if h_mem:
+            p_mem = kernel32.GlobalLock(h_mem)
+            if p_mem:
+                ctypes.memmove(p_mem, text_bytes, len(text_bytes))
+                kernel32.GlobalUnlock(h_mem)
+                user32.SetClipboardData(13, h_mem)  # CF_UNICODETEXT
         user32.CloseClipboard()
-        print(f"[剪贴板] 已将金额 {text} 成功复制到剪贴板！")
+        print(f"[剪贴板 Success] 已将金额 {text} 成功复制到剪贴板！")
     except Exception as e:
         logger.warning(f"复制剪贴板失败: {e}")
 

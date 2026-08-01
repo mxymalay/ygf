@@ -8,9 +8,61 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QMessageBox, QScrollArea
 )
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 
 from config import save_config
 from utils.port_scanner import scan_printers
+
+
+class HotKeyRecorderEdit(QLineEdit):
+    """按键实时录制框：鼠标点击后直接在键盘上敲击组合键 (如 Shift+Q 或 F12) 自动录制"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setPlaceholderText(u"点击此处并按快捷键 (如 Shift+Q 或 F12)")
+        self.setStyleSheet("""
+            QLineEdit {
+                background-color: #0F172A;
+                color: #38BDF8;
+                border: 2px solid #38BDF8;
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-size: 15px;
+                font-weight: bold;
+            }
+            QLineEdit:focus {
+                border: 2px solid #F97316;
+                background-color: #1E293B;
+            }
+        """)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
+            return
+
+        modifiers = event.modifiers()
+        parts = []
+        if modifiers & Qt.ControlModifier:
+            parts.append("Ctrl")
+        if modifiers & Qt.ShiftModifier:
+            parts.append("Shift")
+        if modifiers & Qt.AltModifier:
+            parts.append("Alt")
+
+        key_str = ""
+        if Qt.Key_F1 <= key <= Qt.Key_F12:
+            key_str = f"F{key - Qt.Key_F1 + 1}"
+        else:
+            txt = event.text().upper()
+            if txt and (txt.isalnum() or txt in "+-*/"):
+                key_str = txt
+            else:
+                key_str = QKeySequence(key).toString().upper()
+
+        if key_str:
+            parts.append(key_str)
+            hk_text = "+".join(parts)
+            self.setText(hk_text)
 
 
 class SettingsWidget(QWidget):
@@ -185,12 +237,28 @@ class SettingsWidget(QWidget):
         sg.addWidget(self.cmb_sqb_fmt, 3, 1, 1, 2)
 
         sg.addWidget(QLabel(u"唤起快捷键："), 4, 0)
-        self.cmb_sqb_hotkey = QComboBox()
-        self.cmb_sqb_hotkey.setEditable(True)
-        self.cmb_sqb_hotkey.addItems(["F12", "Ctrl+F12", "Ctrl+Shift+P", "F9", "F10", "Alt+S"])
-        cur_hk = str(self.config.get("shouqianba_hotkey", "F12"))
-        self.cmb_sqb_hotkey.setCurrentText(cur_hk)
-        sg.addWidget(self.cmb_sqb_hotkey, 4, 1, 1, 2)
+        
+        hk_box = QHBoxLayout()
+        self.txt_sqb_hotkey = HotKeyRecorderEdit()
+        cur_hk = str(self.config.get("shouqianba_hotkey", "Shift+Q"))
+        self.txt_sqb_hotkey.setText(cur_hk)
+        hk_box.addWidget(self.txt_sqb_hotkey, stretch=2)
+
+        # 快速预设按钮
+        for hk_item in ["Shift+Q", "F12", "Ctrl+F12", "Alt+S"]:
+            btn_hk = QPushButton(hk_item)
+            btn_hk.setCursor(Qt.PointingHandCursor)
+            btn_hk.setStyleSheet("""
+                QPushButton {
+                    background: #334155; color: #F8FAFC; border: 1px solid #475569;
+                    border-radius: 6px; padding: 4px 8px; font-weight: bold;
+                }
+                QPushButton:hover { background: #38BDF8; color: #0F172A; }
+            """)
+            btn_hk.clicked.connect(lambda chk, t=hk_item: self.txt_sqb_hotkey.setText(t))
+            hk_box.addWidget(btn_hk)
+
+        sg.addLayout(hk_box, 4, 1, 1, 2)
 
         layout.addWidget(sqb_group)
 
@@ -293,7 +361,7 @@ class SettingsWidget(QWidget):
             self.config["shouqianba_baudrate"] = 2400
         fmt_text = self.cmb_sqb_fmt.currentText()
         self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
-        self.config["shouqianba_hotkey"] = self.cmb_sqb_hotkey.currentText().strip()
+        self.config["shouqianba_hotkey"] = self.txt_sqb_hotkey.text().strip()
 
         save_config(self.config)
 
