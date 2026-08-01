@@ -7,6 +7,7 @@ import os
 import sys
 import subprocess
 import shutil
+import time
 
 # 强制控制台输出使用 UTF-8 编码，防止在 Git Bash (MINGW64) 等终端中出现中文乱码
 try:
@@ -16,6 +17,8 @@ except Exception:
     pass
 
 def main():
+    start_time = time.time()
+    
     print("=" * 60)
     print("      杨国福麻辣烫 · 独立称重与打印系统 — 免安装 EXE 打包工具")
     print("=" * 60)
@@ -99,8 +102,13 @@ def main():
         print("   原始文件仍保留在: %s" % os.path.abspath(dist_file))
         print("   目标收银机电脑【完全不需要安装 Python】或任何环境！")
         print("=" * 60)
+        elapsed_time = time.time() - start_time
+        print(f" [i] 打包总耗时: {elapsed_time:.1f} 秒")
+        print("=" * 60)
     else:
         print("\n[X] 打包失败，请检查编译日志！")
+        elapsed_time = time.time() - start_time
+        print(f" [i] 失败，共耗时: {elapsed_time:.1f} 秒")
 
 if __name__ == "__main__":
     main()
