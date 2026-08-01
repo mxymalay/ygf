@@ -81,8 +81,8 @@ class OrderCard(QFrame):
 
         # 结账方式标签
         pm = r.get("payment_method", "")
-        pm_labels = {"scan": "主扫", "cash": "现金", "qr": "被扫"}
-        pm_colors = {"scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED"}
+        pm_labels = {"shouqianba": "收钱吧", "scan": "手持机器", "cash": "现金", "qr": "被扫"}
+        pm_colors = {"shouqianba": "#F97316", "scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED"}
         pm_text = pm_labels.get(pm, "")
         pm_color = pm_colors.get(pm, "#6B7280")
 
@@ -668,7 +668,7 @@ class HistoryWidget(QWidget):
         
         # 结账方式
         pm = record.get("payment_method", "")
-        pm_display = {"scan": "主扫", "cash": "现金", "qr": "被扫"}
+        pm_display = {"shouqianba": "收钱吧", "scan": "手持机器", "cash": "现金", "qr": "被扫"}
         self.lbl_payment_method.setText(u"结账方式：%s" % pm_display.get(pm, "未记录"))
         
         import json

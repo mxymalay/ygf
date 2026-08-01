@@ -19,7 +19,7 @@ PAYMENT_QR   = "qr"          # 被扫/静态码
 
 PAYMENT_LABELS = {
     PAYMENT_SQB:  "收钱吧",
-    PAYMENT_SCAN: "主扫",
+    PAYMENT_SCAN: "手持机器",
     PAYMENT_CASH: "现金",
     PAYMENT_QR:   "被扫",
 }
@@ -213,7 +213,7 @@ class CheckoutDialog(QDialog):
         grid_layout.setSpacing(12)
 
         sub_configs = [
-            (PAYMENT_SCAN, u"💳", u"主扫收款", u"POS主动扫码",
+            (PAYMENT_SCAN, u"💳", u"手持机器", u"手持POS刷卡",
              "#064E3B", "#059669", "#10B981", "#A7F3D0"),
             (PAYMENT_CASH, u"💵", u"现金收款", u"收到顾客现金",
              "#1E3A5F", "#2563EB", "#3B82F6", "#93C5FD"),
