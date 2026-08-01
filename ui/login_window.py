@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 
 from utils.port_scanner import scan_printers
-
+from config import load_config
 
 def check_ygf_official_running() -> bool:
     """检测官方收银系统主程序是否正在运行"""
@@ -194,8 +194,13 @@ class LoginWindow(QDialog):
         if user == "002" and pwd == "002":
             self.form_widget.hide()
             
-            # 取消伪装，显示真实标题
-            self.title_lbl.setText(u"杨国福(肥西水晶城店) POS辅助系统")
+            # 取消伪装，显示真实标题 (从配置读取店名)
+            config = load_config()
+            shop_name = config.get("shop_subtitle", u"未配置门店")
+            if not shop_name:
+                shop_name = config.get("shop_name", u"未配置门店")
+            
+            self.title_lbl.setText(u"%s POS辅助系统" % shop_name)
             self.sub_lbl.setText(u"YGF POS Auxiliary System Environment Check")
             self.btn_close.setText(u"退出系统")
             

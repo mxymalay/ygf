@@ -595,7 +595,7 @@ class ReceiptPreviewDialog(QDialog):
 
         sub_title = sale_data.get("shop_subtitle", "")
         if not sub_title:
-            sub_title = u"门店名称：杨国福(肥西水晶城店)"
+            sub_title = u"门店名称：未配置"
         elif not sub_title.startswith(u"门店名称："):
             sub_title = u"门店名称：" + sub_title
         lbl_sub = QLabel(sub_title)

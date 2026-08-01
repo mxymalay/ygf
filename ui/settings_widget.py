@@ -109,7 +109,7 @@ class SettingsWidget(QWidget):
         bg.addWidget(self.txt_shop, 0, 1, 1, 2)
 
         bg.addWidget(QLabel(u"分店名称："), 1, 0)
-        self.txt_sub = QLineEdit(self.config.get("shop_subtitle", u"杨国福(肥西水晶城店)"))
+        self.txt_sub = QLineEdit(self.config.get("shop_subtitle", u""))
         self.txt_sub.setPlaceholderText(u"例如：杨国福(肥西水晶城店)")
         bg.addWidget(self.txt_sub, 1, 1, 1, 2)
 

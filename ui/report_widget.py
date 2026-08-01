@@ -125,7 +125,8 @@ class ReportWidget(QWidget):
         mid_layout.addWidget(lbl_sep1)
 
         # 头部门店元数据
-        self.lbl_shop_name = QLabel(u"门店名称：杨国福(肥西水晶城店)")
+        shop_name = self.config.get("shop_subtitle", u"未配置门店名称")
+        self.lbl_shop_name = QLabel(u"门店名称：%s" % shop_name)
         self.lbl_shop_name.setStyleSheet("color: #374151; font-size: 13px; border: none;")
         self.lbl_start_time = QLabel(u"统计时间：%s" % self.start_date_str)
         self.lbl_start_time.setStyleSheet("color: #374151; font-size: 13px; border: none;")
