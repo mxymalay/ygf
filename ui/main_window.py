@@ -35,16 +35,20 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(600, self._check_first_run_price)
 
     def _init_window(self):
-        self._update_window_title()
+        self.setWindowFlags(Qt.FramelessWindowHint)
         self.setMinimumSize(960, 640)
         self.resize(1180, 760)
         self.setStyleSheet(DARK_STYLE)
 
-    def _update_window_title(self):
-        from config import APP_VERSION
-        shop_name = self.config.get("shop_name", u"杨国福麻辣烫")
-        shop_sub = self.config.get("shop_subtitle", u"杨国福(测试店)")
-        self.setWindowTitle(u"%s %s · 独立称重与小票打印系统 %s" % (shop_name, shop_sub, APP_VERSION))
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and hasattr(self, '_drag_pos'):
+            self.move(event.globalPos() - self._drag_pos)
+            event.accept()
 
     def _build_ui(self):
         main_widget = QWidget()
