@@ -98,7 +98,7 @@ class HistoryWidget(QWidget):
         self.selected_record = None
 
         self.current_page = 0
-        self.items_per_page = 10
+        self.items_per_page = 8
 
         self._build_ui()
         self.reload_orders()
@@ -267,19 +267,14 @@ class HistoryWidget(QWidget):
 
         left_col.addLayout(search_row)
 
-        # (3) 订单滚动列表
-        self.scroll_orders = QScrollArea()
-        self.scroll_orders.setWidgetResizable(True)
-        self.scroll_orders.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-
+        # (3) 订单列表容器 (取消滑动，纯分页展示)
         self.order_list_container = QWidget()
         self.order_list_layout = QVBoxLayout(self.order_list_container)
         self.order_list_layout.setContentsMargins(0, 0, 0, 0)
         self.order_list_layout.setSpacing(6)
         self.order_list_layout.setAlignment(Qt.AlignTop)
 
-        self.scroll_orders.setWidget(self.order_list_container)
-        left_col.addWidget(self.scroll_orders, stretch=1)
+        left_col.addWidget(self.order_list_container, stretch=1)
 
         # 底部翻页控制
         left_page_row = QHBoxLayout()
