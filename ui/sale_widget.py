@@ -1312,6 +1312,7 @@ class SaleWidget(QWidget):
             child = self.cart_layout.takeAt(0)
             w = child.widget()
             if w:
+                w.hide()
                 w.setParent(None)
                 w.deleteLater()
 
