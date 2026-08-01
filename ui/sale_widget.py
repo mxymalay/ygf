@@ -1411,12 +1411,8 @@ class SaleWidget(QWidget):
 
         # 1. 弹出结账模态框（左侧小票预览 + 右侧付款方式按钮）
         from ui.checkout_dialog import CheckoutDialog
-        dlg = CheckoutDialog(sale_data, parent=self)
-        result = dlg.exec_()
-        
-        if result == QDialog.Accepted:
-            payment_method = dlg.selected_payment_method
-            
+
+        def handle_payment(payment_method):
             # 2. 确认打票：正式消费叫号、记录数据库与驱动硬件打票
             actual_num = self.call_mgr.get_next_number()
             sale_data["call_no"] = "%02d" % actual_num
@@ -1437,7 +1433,6 @@ class SaleWidget(QWidget):
             full_sale = dict(record)
             full_sale.update(sale_data)
 
-            is_mock = self.config.get("is_mock_mode", False)
             try:
                 success = self.printer.print_receipt(full_sale)
             except Exception as e:
@@ -1447,13 +1442,6 @@ class SaleWidget(QWidget):
             if success:
                 self._on_clear()
                 self.refresh_call_number_display()
-                # 显示轻量出票成功动画
-                from ui.checkout_dialog import ReceiptFlyToast, PAYMENT_LABELS
-                pm_label = PAYMENT_LABELS.get(payment_method, "")
-                toast = ReceiptFlyToast(pm_label, parent=self)
-                toast.show()
-                # 保持引用，防止 GC 回收
-                self._fly_toast = toast
             else:
                 err_detail = getattr(self.printer, 'last_error', '') or u"打印机名无效或硬件未连接"
                 show_warning(
@@ -1464,6 +1452,9 @@ class SaleWidget(QWidget):
                     u"请检查打印机驱动名称与物理硬件连接！\n"
                     u"（注：本次消费记录已安全存入本地数据库，不会丢单）"
                 )
+
+        dlg = CheckoutDialog(sale_data, on_payment_callback=handle_payment, parent=self)
+        dlg.exec_()
 
     def _on_clear(self):
         """清空购物车与所有按钮角标"""

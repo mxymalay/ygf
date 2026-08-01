@@ -29,20 +29,20 @@ class CheckoutDialog(QDialog):
     点击付款按钮后**立即** accept()，不等待动画。
     """
 
-    def __init__(self, sale_data, parent=None):
+    def __init__(self, sale_data, parent=None, on_payment_callback=None):
         super().__init__(parent)
         self.sale_data = sale_data
+        self.on_payment_callback = on_payment_callback
         self.selected_payment_method = ""
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
-        # 外层容器
+        # 外层容器：背景全透明，让左右两边看起来浮在模糊背景上
         self.outer = QFrame(self)
         self.outer.setObjectName("CheckoutOuter")
         self.outer.setStyleSheet(
-            "#CheckoutOuter { background: #0F172A; border-radius: 18px; "
-            "border: 2px solid #1E293B; }"
+            "#CheckoutOuter { background: transparent; border: none; }"
         )
 
         outer_layout = QVBoxLayout(self)
@@ -50,8 +50,8 @@ class CheckoutDialog(QDialog):
         outer_layout.addWidget(self.outer)
 
         root = QHBoxLayout(self.outer)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setContentsMargins(30, 20, 30, 20)
+        root.setSpacing(40)
 
         # ════════════════════════════════════════════════════════════
         # 左侧：经典小票预览区域（复用原 ReceiptPreviewDialog 风格）
@@ -60,8 +60,7 @@ class CheckoutDialog(QDialog):
         left_frame.setObjectName("ReceiptLeft")
         left_frame.setStyleSheet(
             "#ReceiptLeft { background: #111827; "
-            "border-top-left-radius: 18px; border-bottom-left-radius: 18px; "
-            "border-right: 1px solid #1E293B; }"
+            "border-radius: 18px; border: 1px solid #1E293B; }"
         )
         left_layout = QVBoxLayout(left_frame)
         left_layout.setContentsMargins(14, 14, 14, 14)
@@ -113,7 +112,8 @@ class CheckoutDialog(QDialog):
         )
         left_layout.addWidget(lbl_slip)
 
-        root.addWidget(left_frame, stretch=5)
+        self.receipt_container = left_frame
+        root.addWidget(self.receipt_container, stretch=5)
 
         # ════════════════════════════════════════════════════════════
         # 右侧：付款方式选择面板
@@ -122,8 +122,9 @@ class CheckoutDialog(QDialog):
         right_frame.setObjectName("PaymentRight")
         right_frame.setStyleSheet(
             "#PaymentRight { background: #1E293B; "
-            "border-top-right-radius: 18px; border-bottom-right-radius: 18px; }"
+            "border-radius: 18px; border: 1px solid #334155; }"
         )
+        self.right_panel = right_frame
         right_layout = QVBoxLayout(right_frame)
         right_layout.setContentsMargins(20, 24, 20, 20)
         right_layout.setSpacing(12)
@@ -370,9 +371,58 @@ class CheckoutDialog(QDialog):
         layout.addWidget(lbl)
 
     def _on_payment_selected(self, method):
-        """用户点击付款方式 → 立即 accept 发送打印指令"""
+        """用户点击付款方式 → 立即发送打印指令，同时触发飞出动画"""
         self.selected_payment_method = method
-        self.accept()
+        
+        # 禁用所有按钮，防止重复点击
+        for btn in self.pay_buttons:
+            btn.setEnabled(False)
+            btn.setStyleSheet(
+                "QPushButton { background: transparent; border: none; }"
+            )
+
+        # 立即回调发送打印指令
+        if self.on_payment_callback:
+            self.on_payment_callback(method)
+
+        # 启动飞出动画
+        QTimer.singleShot(100, self._start_fly_animation)
+
+    def _start_fly_animation(self):
+        """小票飞出动画，同时右侧面板淡出，2秒后自动 accept"""
+        self.opacity_effect = QGraphicsOpacityEffect(self.receipt_container)
+        self.receipt_container.setGraphicsEffect(self.opacity_effect)
+
+        # 向上飞出位移
+        self.pos_anim = QPropertyAnimation(self.receipt_container, b"pos")
+        self.pos_anim.setDuration(2000)
+        start_pos = self.receipt_container.pos()
+        end_pos = QPoint(start_pos.x(), start_pos.y() - 350)
+        self.pos_anim.setStartValue(start_pos)
+        self.pos_anim.setEndValue(end_pos)
+        self.pos_anim.setEasingCurve(QEasingCurve.InBack)
+
+        # 渐隐透明度 (左侧小票)
+        self.opa_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.opa_anim.setDuration(2000)
+        self.opa_anim.setStartValue(1.0)
+        self.opa_anim.setEndValue(0.0)
+        self.opa_anim.setEasingCurve(QEasingCurve.InCubic)
+
+        # 右侧面板快速淡出
+        self.right_opacity = QGraphicsOpacityEffect(self.right_panel)
+        self.right_panel.setGraphicsEffect(self.right_opacity)
+        self.right_opa_anim = QPropertyAnimation(self.right_opacity, b"opacity")
+        self.right_opa_anim.setDuration(800)
+        self.right_opa_anim.setStartValue(1.0)
+        self.right_opa_anim.setEndValue(0.0)
+
+        self.pos_anim.start()
+        self.opa_anim.start()
+        self.right_opa_anim.start()
+
+        # 动画结束后自动关闭模态框
+        QTimer.singleShot(2100, self.accept)
 
     def _on_cancel(self):
         self.reject()
@@ -389,7 +439,7 @@ class CheckoutDialog(QDialog):
             screen_w = parent_w.width()
             try:
                 blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(42)
+                blur.setBlurRadius(30)
                 parent_w.setGraphicsEffect(blur)
             except Exception:
                 pass
@@ -406,66 +456,3 @@ class CheckoutDialog(QDialog):
                     parent_w.setGraphicsEffect(None)
                 except Exception:
                     pass
-
-
-class ReceiptFlyToast(QDialog):
-    """
-    打印成功后的轻量级出票飞出动画 Toast（非阻塞，自动关闭）
-    """
-
-    def __init__(self, payment_label="", parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setModal(False)
-
-        card = QFrame(self)
-        card.setStyleSheet(
-            "QFrame { background: #0F172A; border-radius: 16px; "
-            "border: 2px solid #10B981; }"
-        )
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(card)
-
-        inner = QVBoxLayout(card)
-        inner.setContentsMargins(30, 24, 30, 24)
-        inner.setSpacing(10)
-
-        lbl_icon = QLabel(u"🖨️")
-        lbl_icon.setAlignment(Qt.AlignCenter)
-        lbl_icon.setStyleSheet("font-size: 48px; border: none; background: transparent;")
-        inner.addWidget(lbl_icon)
-
-        lbl_msg = QLabel(u"出票成功！")
-        lbl_msg.setAlignment(Qt.AlignCenter)
-        lbl_msg.setStyleSheet(
-            "font-size: 20px; font-weight: 900; color: #10B981; "
-            "border: none; background: transparent;"
-        )
-        inner.addWidget(lbl_msg)
-
-        if payment_label:
-            lbl_pm = QLabel(payment_label)
-            lbl_pm.setAlignment(Qt.AlignCenter)
-            lbl_pm.setStyleSheet(
-                "font-size: 14px; color: #94A3B8; border: none; background: transparent;"
-            )
-            inner.addWidget(lbl_pm)
-
-        self.setFixedSize(260, 180)
-
-        # 2.5秒后自动关闭
-        QTimer.singleShot(2500, self.close)
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        # 居中在父窗口
-        parent_w = self.parent()
-        if parent_w and hasattr(parent_w, 'window'):
-            parent_w = parent_w.window()
-        if parent_w:
-            geo = parent_w.geometry()
-            x = geo.x() + (geo.width() - self.width()) // 2
-            y = geo.y() + (geo.height() - self.height()) // 2
-            self.move(x, y)
