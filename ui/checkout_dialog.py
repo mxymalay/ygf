@@ -205,10 +205,10 @@ class CheckoutDialog(QDialog):
         btn_sqb_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_SQB))
         sqb_frame.resizeEvent = lambda event, ob=btn_sqb_overlay, bf=sqb_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-        right_layout.addWidget(sqb_frame, stretch=2)
+        right_layout.addWidget(sqb_frame, stretch=1)
         self.pay_buttons.append(btn_sqb_overlay)
 
-        # ── 2. 底部 3 个缩小正方形 / grid 备选按键 ──
+        # ── 2. 底部 3 个精致小正方形 备选按键 ──
         grid_layout = QHBoxLayout()
         grid_layout.setSpacing(12)
 
@@ -223,6 +223,7 @@ class CheckoutDialog(QDialog):
 
         for method, icon, title, desc, bg_dark, bg_main, bg_hover, fg_accent in sub_configs:
             sub_frame = QFrame()
+            sub_frame.setFixedHeight(120)  # 设置固定高度，形成完美正方形比例
             sub_frame.setStyleSheet(f"""
                 QFrame {{
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -231,23 +232,23 @@ class CheckoutDialog(QDialog):
                 }}
             """)
             sub_box = QVBoxLayout(sub_frame)
-            sub_box.setContentsMargins(10, 14, 10, 14)
-            sub_box.setSpacing(6)
+            sub_box.setContentsMargins(6, 10, 6, 10)
+            sub_box.setSpacing(4)
             sub_box.setAlignment(Qt.AlignCenter)
 
             lbl_sub_icon = QLabel(icon)
-            lbl_sub_icon.setStyleSheet("font-size: 28px; border: none; background: transparent;")
+            lbl_sub_icon.setStyleSheet("font-size: 24px; border: none; background: transparent;")
             lbl_sub_icon.setAlignment(Qt.AlignCenter)
             sub_box.addWidget(lbl_sub_icon)
 
             lbl_sub_title = QLabel(title)
             lbl_sub_title.setAlignment(Qt.AlignCenter)
-            lbl_sub_title.setStyleSheet(f"font-size: 16px; font-weight: 900; color: {fg_accent}; border: none; background: transparent;")
+            lbl_sub_title.setStyleSheet(f"font-size: 14px; font-weight: 900; color: {fg_accent}; border: none; background: transparent;")
             sub_box.addWidget(lbl_sub_title)
 
             lbl_sub_desc = QLabel(desc)
             lbl_sub_desc.setAlignment(Qt.AlignCenter)
-            lbl_sub_desc.setStyleSheet("font-size: 11px; color: rgba(255,255,255,0.7); border: none; background: transparent;")
+            lbl_sub_desc.setStyleSheet("font-size: 10px; color: rgba(255,255,255,0.7); border: none; background: transparent;")
             sub_box.addWidget(lbl_sub_desc)
 
             sub_overlay = QPushButton("", sub_frame)
@@ -263,7 +264,7 @@ class CheckoutDialog(QDialog):
             grid_layout.addWidget(sub_frame, stretch=1)
             self.pay_buttons.append(sub_overlay)
 
-        right_layout.addLayout(grid_layout, stretch=2)
+        right_layout.addLayout(grid_layout)
 
         root.addWidget(right_frame, stretch=3)
 
