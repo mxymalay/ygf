@@ -8,6 +8,13 @@ import sys
 import subprocess
 import shutil
 
+# 强制控制台输出使用 UTF-8 编码，防止在 Git Bash (MINGW64) 等终端中出现中文乱码
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
 def main():
     print("=" * 60)
     print("      杨国福麻辣烫 · 独立称重与打印系统 — 免安装 EXE 打包工具")
