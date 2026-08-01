@@ -144,6 +144,41 @@ class SettingsWidget(QWidget):
 
         layout.addWidget(biz_group)
 
+        # ── 收钱吧 PC收款助手设置 ──
+        sqb_group = QGroupBox(u"收钱吧 PC收款助手设置")
+        sg = QGridLayout(sqb_group)
+        sg.setSpacing(12)
+
+        sg.addWidget(QLabel(u"自动推送金额："), 0, 0)
+        self.cmb_sqb_enable = QComboBox()
+        self.cmb_sqb_enable.addItems([u"开启 - 自动推送结账金额到收钱吧", u"关闭 - 不推送"])
+        if not self.config.get("shouqianba_enabled", True):
+            self.cmb_sqb_enable.setCurrentIndex(1)
+        sg.addWidget(self.cmb_sqb_enable, 0, 1, 1, 2)
+
+        sg.addWidget(QLabel(u"串口 (COM端口)："), 1, 0)
+        self.cmb_sqb_port = QComboBox()
+        self.cmb_sqb_port.setEditable(True)
+        self._refresh_com_ports()
+        sg.addWidget(self.cmb_sqb_port, 1, 1)
+
+        btn_refresh_ports = QPushButton(u"扫描COM端口")
+        btn_refresh_ports.clicked.connect(self._refresh_com_ports)
+        sg.addWidget(btn_refresh_ports, 1, 2)
+
+        sg.addWidget(QLabel(u"解析规则："), 2, 0)
+        self.cmb_sqb_fmt = QComboBox()
+        self.cmb_sqb_fmt.addItems([
+            u"QA - QA标记 (例如 QA12.50)",
+            u"FLOAT - 纯数字 (例如 12.50)"
+        ])
+        fmt = self.config.get("shouqianba_format", "QA")
+        if fmt == "FLOAT":
+            self.cmb_sqb_fmt.setCurrentIndex(1)
+        sg.addWidget(self.cmb_sqb_fmt, 2, 1, 1, 2)
+
+        layout.addWidget(sqb_group)
+
         # ── 危险操作区 ──
         danger_group = QGroupBox(u"危险操作 (Danger Zone)")
         danger_group.setStyleSheet("""
@@ -188,6 +223,22 @@ class SettingsWidget(QWidget):
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
 
+    # ─── 刷新 COM 串口列表 ──────────────────────────
+    def _refresh_com_ports(self):
+        self.cmb_sqb_port.clear()
+        try:
+            from core.shouqianba_sender import get_available_com_ports
+            ports = get_available_com_ports()
+        except Exception:
+            ports = []
+        if not ports:
+            ports = ["COM1", "COM2", "COM3", "COM4", "COM5", "COM6"]
+        for p in ports:
+            self.cmb_sqb_port.addItem(p)
+        cur = self.config.get("shouqianba_port", "COM3")
+        if cur:
+            self.cmb_sqb_port.setCurrentText(cur)
+
     # ─── 刷新打印机列表 ──────────────────────────────
     def _refresh_printers(self):
         self.cmb_printer_name.clear()
@@ -214,6 +265,12 @@ class SettingsWidget(QWidget):
         self.config["price_unit"] = pu_text.split(" - ")[0].strip()
         self.config["unit_price"] = self.spin_default_price.value()
         self.config["special_soup_price"] = self.spin_special_price.value()
+
+        # 保存收钱吧配置
+        self.config["shouqianba_enabled"] = (self.cmb_sqb_enable.currentIndex() == 0)
+        self.config["shouqianba_port"] = self.cmb_sqb_port.currentText().strip()
+        fmt_text = self.cmb_sqb_fmt.currentText()
+        self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
 
         save_config(self.config)
 

@@ -411,6 +411,17 @@ class CheckoutDialog(QDialog):
         if parent_w and hasattr(parent_w, 'window'):
             parent_w = parent_w.window()
 
+        # 向收钱吧自动推送本次结账金额
+        try:
+            from core.shouqianba_sender import send_shouqianba_amount
+            total_amt = self.sale_data.get("total_price", 0.0)
+            cfg = self.sale_data.get("config", {})
+            if not cfg and hasattr(parent_w, 'config'):
+                cfg = parent_w.config
+            send_shouqianba_amount(total_amt, cfg)
+        except Exception as e:
+            print(f"[CheckoutDialog] 推送收钱吧金额异常: {e}")
+
         screen_h = 768
         screen_w = 1024
         if parent_w:

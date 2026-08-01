@@ -1406,6 +1406,7 @@ class SaleWidget(QWidget):
             "price_unit": price_unit,
             "total_price": total_price,
             "temp_order_no": self.temp_order_no,
+            "config": self.config,
             "remark": u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, call_no_str, items_summary)
         }
 

@@ -43,6 +43,12 @@ DEFAULT_CONFIG = {
     "auto_print": False,                # 称重稳定后自动打印
     "stable_threshold": 0.01,           # 重量稳定判断阈值(kg)
     "stable_count": 5,                  # 连续稳定次数才认为稳定
+
+    # 收钱吧 PC收款助手设置
+    "shouqianba_enabled": True,         # 开启收钱吧串口金额自动推送
+    "shouqianba_port": "COM3",          # 收钱吧监听串口/虚拟串口
+    "shouqianba_baudrate": 9600,        # 波特率
+    "shouqianba_format": "QA",          # 解析规则: "QA" (QA12.50\r\n) 或 "FLOAT" (12.50\r\n)
 }
 
 
