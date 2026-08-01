@@ -122,19 +122,55 @@ class HistoryWidget(QWidget):
         header_bar = QHBoxLayout()
         header_bar.setSpacing(12)
 
-        # 日期选择
-        from ui.styles import fix_calendar_header_style
-        self.date_picker = QDateEdit()
-        self.date_picker.setDate(QDate.currentDate())
-        self.date_picker.setCalendarPopup(True)
-        fix_calendar_header_style(self.date_picker.calendarWidget())
-        self.date_picker.setDisplayFormat("yyyy-MM-dd")
-        self.date_picker.setStyleSheet(
-            "QDateEdit { background: #1F2937; color: #F9FAFB; font-size: 14px; font-weight: bold; "
-            "padding: 6px 12px; border: none; border-radius: 6px; }"
-        )
-        self.date_picker.dateChanged.connect(self._on_query)
-        header_bar.addWidget(self.date_picker)
+        # 日期选择 (触屏优化的独立年月日下拉框)
+        date_layout = QHBoxLayout()
+        date_layout.setSpacing(6)
+        
+        cbo_style = """
+            QComboBox { background: #1F2937; color: #F9FAFB; font-size: 16px; font-weight: bold; 
+                        padding: 8px 12px; border: none; border-radius: 6px; min-width: 80px; }
+            QComboBox QAbstractItemView {
+                background-color: #1F2937;
+                color: #F9FAFB;
+                selection-background-color: #EA580C;
+                font-size: 18px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 44px;
+            }
+        """
+
+        self.cbo_year = QComboBox()
+        self.cbo_month = QComboBox()
+        self.cbo_day = QComboBox()
+
+        for cbo in (self.cbo_year, self.cbo_month, self.cbo_day):
+            cbo.setStyleSheet(cbo_style)
+            # 为了触屏体验，强制下拉项的高度
+            import PyQt5.QtWidgets as QtWidgets
+            cbo.setItemDelegate(QtWidgets.QStyledItemDelegate())
+
+        curr_year = QDate.currentDate().year()
+        for y in range(2020, curr_year + 5):
+            self.cbo_year.addItem(f"{y}年", y)
+        self.cbo_year.setCurrentText(f"{curr_year}年")
+
+        for m in range(1, 13):
+            self.cbo_month.addItem(f"{m:02d}月", m)
+        self.cbo_month.setCurrentText(f"{QDate.currentDate().month():02d}月")
+
+        self._update_days()
+        self.cbo_day.setCurrentText(f"{QDate.currentDate().day():02d}日")
+
+        self.cbo_year.currentIndexChanged.connect(self._on_year_month_changed)
+        self.cbo_month.currentIndexChanged.connect(self._on_year_month_changed)
+        self.cbo_day.currentIndexChanged.connect(self._on_query)
+
+        date_layout.addWidget(self.cbo_year)
+        date_layout.addWidget(self.cbo_month)
+        date_layout.addWidget(self.cbo_day)
+
+        header_bar.addLayout(date_layout)
 
         header_bar.addSpacing(16)
 
@@ -328,8 +364,38 @@ class HistoryWidget(QWidget):
         main_layout.addLayout(body_layout, stretch=1)
 
     # ─── 数据查询与加载 ───
+    def _update_days(self):
+        y = self.cbo_year.currentData()
+        m = self.cbo_month.currentData()
+        if not y or not m: return
+        
+        curr_day_text = self.cbo_day.currentText()
+        curr_day = int(curr_day_text.replace("日", "")) if curr_day_text else 1
+        
+        days_in_month = QDate(y, m, 1).daysInMonth()
+        
+        self.cbo_day.blockSignals(True)
+        self.cbo_day.clear()
+        for d in range(1, days_in_month + 1):
+            self.cbo_day.addItem(f"{d:02d}日", d)
+            
+        if curr_day <= days_in_month:
+            self.cbo_day.setCurrentText(f"{curr_day:02d}日")
+        else:
+            self.cbo_day.setCurrentText(f"{days_in_month:02d}日")
+        self.cbo_day.blockSignals(False)
+
+    def _on_year_month_changed(self):
+        self._update_days()
+        self._on_query()
+
     def _on_query(self):
-        target_date = self.date_picker.date().toString("yyyy-MM-dd")
+        y = self.cbo_year.currentData()
+        m = self.cbo_month.currentData()
+        d = self.cbo_day.currentData()
+        if not y or not m or not d:
+            return
+        target_date = f"{y}-{m:02d}-{d:02d}"
         raw_records = self.db.get_sales_by_date(target_date, target_date)
 
         # 如果有关键字搜索
