@@ -1,10 +1,4 @@
 {
-  "scale_model": "DIBAL ACS-G315",
-  "scale_port": "COM1",
-  "scale_baudrate": 9600,
-  "scale_bytesize": 8,
-  "scale_parity": "N",
-  "scale_stopbits": 1,
   "printer_type": "windows",
   "printer_name": "shouyin",
   "printer_ip": "192.168.1.100",

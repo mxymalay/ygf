@@ -17,14 +17,6 @@ CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
 
 # ─── 默认配置 ────────────────────────────────────────
 DEFAULT_CONFIG = {
-    # 称重秤设置 — DIBAL ACS-G315
-    "scale_model": "DIBAL ACS-G315",
-    "scale_port": "COM1",               # 店内真实物理端口 COM1
-    "scale_baudrate": 9600,             # DIBAL 默认 9600
-    "scale_bytesize": 8,
-    "scale_parity": "N",
-    "scale_stopbits": 1,
-
     # 打印机设置 — Xprinter XP-A160M / XP-80C
     "printer_type": "windows",
     "printer_name": "shouyin",          # 店内真实打印机名称: shouyin
@@ -54,12 +46,9 @@ def load_config() -> dict:
                 saved = json.load(f)
             merged = {**DEFAULT_CONFIG, **saved}
             merged.pop("simulation_mode", None)  # 移除旧的模拟模式字段
-
-            # 修正历史测试残余的 COM3 端口配置为店内默认 COM1
-            if merged.get("scale_port") == "COM3":
-                merged["scale_port"] = "COM1"
-                save_config(merged)
-
+            # 清理历史称重串口相关字段
+            for k in ["scale_model", "scale_port", "scale_baudrate", "scale_bytesize", "scale_parity", "scale_stopbits"]:
+                merged.pop(k, None)
             return merged
         except Exception:
             pass
