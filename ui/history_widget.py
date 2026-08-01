@@ -662,13 +662,13 @@ class HistoryWidget(QWidget):
         temp_order_match = re.search(r"单号:(\w+)", remark)
         temp_order_no = temp_order_match.group(1) if temp_order_match else record.get("sale_no", "")
 
-        self.lbl_header_title.setText(u"📋 取餐号：%s" % call_no)
+        self.lbl_header_title.setText(u"取餐号：%s" % call_no)
         self.lbl_order_no.setText(u"订单编号：%s" % temp_order_no)
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
         
         # 结账方式
         pm = record.get("payment_method", "")
-        pm_display = {"scan": "💳 主扫", "cash": "💵 现金", "qr": "📱 被扫"}
+        pm_display = {"scan": "主扫", "cash": "现金", "qr": "被扫"}
         self.lbl_payment_method.setText(u"结账方式：%s" % pm_display.get(pm, "未记录"))
         
         import json

@@ -165,9 +165,9 @@ class ReportWidget(QWidget):
         lbl_eq2.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_eq2)
 
-        self.lbl_pay_scan = self._add_receipt_row(mid_layout, u"💳 主扫：", u"¥ 0.00 (0笔)")
-        self.lbl_pay_cash = self._add_receipt_row(mid_layout, u"💵 现金：", u"¥ 0.00 (0笔)")
-        self.lbl_pay_qr = self._add_receipt_row(mid_layout, u"📱 被扫：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_scan = self._add_receipt_row(mid_layout, u"主扫：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_cash = self._add_receipt_row(mid_layout, u"现金：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_qr = self._add_receipt_row(mid_layout, u"被扫：", u"¥ 0.00 (0笔)")
         self.lbl_pay_total = self._add_receipt_row(mid_layout, u"合计", u"¥ 0.00", is_bold=True)
 
         mid_layout.addStretch()
