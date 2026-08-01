@@ -13,6 +13,14 @@ def main():
     print("      杨国福麻辣烫 · 独立称重与打印系统 — 免安装 EXE 打包工具")
     print("=" * 60)
 
+    # 0. 强制锁定 Windows 7 兼容的 Python 3.8 环境
+    target_python = r"G:\AI\anaconda3\envs\py38_win7\python.exe"
+    if os.path.exists(target_python) and sys.executable.lower() != target_python.lower():
+        print(f"[*] 发现您当前正在使用 Python {sys.version.split()[0]}")
+        print("[*] 为确保打包后的软件完美兼容店内 Windows 7 老系统，正在强行无缝切换至底层核心 3.8...")
+        print("=" * 60)
+        sys.exit(subprocess.call([target_python] + sys.argv))
+
     # 1. 检查并安装 PyInstaller
     try:
         import PyInstaller
