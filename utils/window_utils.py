@@ -6,6 +6,7 @@ import ctypes
 import os
 import sys
 import time
+import subprocess
 
 try:
     user32 = ctypes.windll.user32
@@ -14,28 +15,65 @@ except Exception:
 
 # 常用的官方收银系统可能出现的窗口标题关键词或类名
 OFFICIAL_WINDOW_TITLES = [
-    "杨国福", "收银系统", "POS", "官方收银", "店长端", "餐饮管理"
+    "杨国福", "收银系统", "POS", "官方收银", "店长端", "餐饮管理", "收银", "YGF"
+]
+
+# 官方收银系统的可执行进程名列表
+OFFICIAL_PROCESS_NAMES = [
+    "yangguofu.exe", "ygf-pos.exe", "ygf.exe", "pos.exe", "cashier.exe"
 ]
 
 
+def find_official_pids():
+    """通过系统进程列表精准获取官方收银软件的 PID 集合"""
+    pids = set()
+    try:
+        cmd = 'tasklist /NH /FO CSV'
+        output = subprocess.check_output(cmd, shell=True).decode('gbk', errors='ignore')
+        current_pid = os.getpid()
+        for line in output.splitlines():
+            line_lower = line.lower()
+            if 'python' in line_lower:
+                continue
+            for proc_name in OFFICIAL_PROCESS_NAMES:
+                if proc_name in line_lower and "uninstall" not in line_lower:
+                    parts = line.split('","')
+                    if len(parts) >= 2:
+                        try:
+                            pid_val = int(parts[1].replace('"', ''))
+                            if pid_val != current_pid:
+                                pids.add(pid_val)
+                        except ValueError:
+                            pass
+    except Exception as e:
+        print("[WindowUtils] 获取进程列表失败:", e)
+    return pids
+
+
 def find_official_window_handle():
-    """查找官方收银软件的窗口句柄 (HWND)"""
+    """查找官方收银软件的窗口句柄 (HWND) - 支持标题匹配 + 进程 PID 双重保险"""
     if not user32:
         return None
 
     found_hwnd = [None]
     current_pid = os.getpid()
+    official_pids = find_official_pids()
 
     def enum_windows_callback(hwnd, lparam):
         if not user32.IsWindowVisible(hwnd):
             return True
 
-        # 排除本进程的窗口
         pid = ctypes.c_ulong()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         if pid.value == current_pid:
             return True
 
+        # 策略 1：如果窗口所属 PID 命中官方进程列表，直接锁定！
+        if pid.value in official_pids:
+            found_hwnd[0] = hwnd
+            return False  # 停止遍历
+
+        # 策略 2：如果没有命中 PID，通过窗口标题关键词匹配
         length = user32.GetWindowTextLengthW(hwnd)
         if length == 0:
             return True
@@ -44,7 +82,6 @@ def find_official_window_handle():
         user32.GetWindowTextW(hwnd, buffer, length + 1)
         title = buffer.value
 
-        # 匹配关键字
         for kw in OFFICIAL_WINDOW_TITLES:
             if kw in title and "免安装" not in title and "辅助" not in title:
                 found_hwnd[0] = hwnd
@@ -67,9 +104,8 @@ def bring_official_to_front():
     hwnd = find_official_window_handle()
     if hwnd:
         try:
-            # 还原窗口（如果被最小化）
-            user32.ShowWindow(hwnd, 9)  # SW_RESTORE = 9
-            # 置顶窗口
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE = 9 还原窗口
+            user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE = 3 保持全屏
             user32.SetForegroundWindow(hwnd)
             return True
         except Exception as e:
