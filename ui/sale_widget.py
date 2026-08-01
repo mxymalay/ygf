@@ -83,7 +83,7 @@ class TasteSelectionDialog(QDialog):
         self.pref_btns = {}
         pref_box = QHBoxLayout()
         pref_box.setSpacing(8)
-        for p in [u"免蒜", u"免醋", u"打包"]:
+        for p in [u"免蒜", u"免醋"]:
             btn = QPushButton(p)
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
@@ -212,8 +212,9 @@ class TasteSelectionDialog(QDialog):
 class OrderItemCard(QFrame):
     """无边框极简 POS 风格订单细项卡片 (深浅主题自适应，支持选中高亮与点击选择)"""
     clicked = pyqtSignal(int)
+    takeout_clicked = pyqtSignal(int)
 
-    def __init__(self, index, title, subline, price_val, tag="", discount_rate=1.0, is_dark=True, is_active=False, parent=None):
+    def __init__(self, index, title, subline, price_val, tag="", discount_rate=1.0, is_dark=True, is_active=False, is_soup=False, parent=None):
         super().__init__(parent)
         self.index = index
         self.setObjectName("OrderItemCard")
@@ -278,11 +279,31 @@ class OrderItemCard(QFrame):
 
         layout.addLayout(left_vbox, stretch=1)
 
-        # 右侧：高亮价格
+        # 右侧：高亮价格与打包按钮
+        right_vbox = QVBoxLayout()
+        right_vbox.setContentsMargins(0, 0, 0, 0)
+        right_vbox.setSpacing(4)
+        
         lbl_price = QLabel(f"￥{price_val:.2f}")
         lbl_price.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_price.setStyleSheet("font-size: 18px; font-weight: 900; color: #EA580C; border: none; background: transparent;")
-        layout.addWidget(lbl_price)
+        right_vbox.addWidget(lbl_price)
+        
+        if is_soup:
+            btn_takeout = QPushButton("打包?")
+            btn_takeout.setCursor(Qt.PointingHandCursor)
+            btn_takeout.setStyleSheet(
+                "QPushButton { background: #047857; color: white; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 2px 6px; border: 1px solid #059669; }"
+                "QPushButton:hover { background: #059669; }"
+            )
+            btn_takeout.clicked.connect(self._on_takeout_click)
+            right_vbox.addWidget(btn_takeout, alignment=Qt.AlignRight)
+            
+        layout.addLayout(right_vbox)
+
+    def _on_takeout_click(self):
+        self.clicked.emit(self.index)
+        self.takeout_clicked.emit(self.index)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -842,31 +863,8 @@ class SaleWidget(QWidget):
         for r, c, key_id, title, sub, price, is_soup, is_box, is_skewer in menu_items_config:
             btn = MenuGridButton(key_id, title, sub, price, is_soup, is_box, is_skewer, self.is_dark_mode)
             btn.clicked.connect(lambda checked, b=btn: self._on_menu_click(b))
+            mg_grid.addWidget(btn, r, c)
             self.menu_buttons[key_id] = btn
-
-            if is_soup:
-                wrapper = QWidget()
-                wrapper_layout = QHBoxLayout(wrapper)
-                wrapper_layout.setContentsMargins(0, 0, 0, 0)
-                wrapper_layout.setSpacing(4)
-                
-                from PyQt5.QtWidgets import QSizePolicy
-                btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                wrapper_layout.addWidget(btn, stretch=3)
-                
-                btn_takeout = QPushButton("打包?")
-                btn_takeout.setCursor(Qt.PointingHandCursor)
-                btn_takeout.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                btn_takeout.setStyleSheet(
-                    "QPushButton { background: #047857; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; border: 1px solid #059669; }"
-                    "QPushButton:hover { background: #059669; }"
-                )
-                btn_takeout.clicked.connect(lambda checked, b=btn: self._on_menu_click(b, is_takeout=True))
-                wrapper_layout.addWidget(btn_takeout, stretch=1)
-                
-                mg_grid.addWidget(wrapper, r, c)
-            else:
-                mg_grid.addWidget(btn, r, c)
 
         right.addWidget(menu_group)
 
@@ -891,7 +889,7 @@ class SaleWidget(QWidget):
 
         self._update_price_display()
 
-    def _on_menu_click(self, btn: MenuGridButton, is_takeout=False):
+    def _on_menu_click(self, btn: MenuGridButton):
         """点击右侧菜单按钮"""
         unit_price = self.config.get("unit_price", 47.60)
         price_unit = self.config.get("price_unit", "per_jin")
@@ -904,11 +902,6 @@ class SaleWidget(QWidget):
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
-            if is_takeout:
-                dlg.selected_prefs.add("打包")
-                if "打包" in dlg.pref_btns:
-                    dlg.pref_btns["打包"].setChecked(True)
-            
             skip_flavor_popup = ("骨汤" not in soup_clean_name)
             
             w = self.current_weight
@@ -920,7 +913,7 @@ class SaleWidget(QWidget):
                 "type": "soup",
                 "key_id": btn.key_id,
                 "name": soup_clean_name,
-                "tag": dlg.get_tag_string() if (not skip_flavor_popup or is_takeout) else "",
+                "tag": "" if skip_flavor_popup else dlg.get_tag_string(),
                 "weight": w,
                 "base_price": b_price,
                 "price": b_price,
@@ -948,12 +941,6 @@ class SaleWidget(QWidget):
             if not skip_flavor_popup:
                 self._position_popup_at_widget(dlg, btn)
                 dlg.exec_()
-                
-            # 4. 如果是打包，自动增加一个打包盒
-            if is_takeout:
-                box_btn = self.menu_buttons.get("item_box")
-                if box_btn:
-                    self._on_menu_click(box_btn)
         else:
             item_entry = {
                 "type": "item",
@@ -977,6 +964,30 @@ class SaleWidget(QWidget):
         if 0 <= index < len(self.cart_items):
             self.selected_item_index = index
             self._update_price_display()
+
+    def _on_cart_item_takeout_click(self, index):
+        """在已选汤底卡片上点击了打包按钮"""
+        if 0 <= index < len(self.cart_items):
+            item = self.cart_items[index]
+            if item["type"] != "soup": return
+            
+            tag = item.get("tag", "")
+            tags = [p.strip() for p in tag.split("/") if p.strip()]
+            
+            if "打包" not in tags:
+                tags.append("打包")
+                item["tag"] = " / ".join(tags)
+                
+                # 自动增加一个打包盒
+                box_btn = self.menu_buttons.get("item_box")
+                if box_btn:
+                    self._on_menu_click(box_btn)
+                else:
+                    self._update_price_display()
+            else:
+                tags.remove("打包")
+                item["tag"] = " / ".join(tags)
+                self._update_price_display()
 
     def _position_popup_at_widget(self, dlg, target_widget):
         """将 气泡弹窗 精准安放在 target_widget 旁边/上方/下方，并严格防止超出屏幕边界"""
@@ -1277,9 +1288,11 @@ class SaleWidget(QWidget):
                 tag=item.get("tag", ""),
                 discount_rate=disc_rate,
                 is_dark=self.is_dark_mode,
-                is_active=is_selected
+                is_active=is_selected,
+                is_soup=(item["type"] == "soup")
             )
             card.clicked.connect(self._select_cart_item)
+            card.takeout_clicked.connect(self._on_cart_item_takeout_click)
             self.cart_layout.addWidget(card)
 
     def refresh_call_number_display(self):
