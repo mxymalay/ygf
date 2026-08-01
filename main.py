@@ -7,8 +7,8 @@ import os
 import time
 import subprocess
 
-# 确保项目根目录在 path 中
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 屏蔽 Qt 框架在控制台输出的 png 色彩警告与窗口尺寸适应性提示
+os.environ["QT_LOGGING_RULES"] = "qt.png=false;qt.qpa.window=false;*.warning=false"
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt
