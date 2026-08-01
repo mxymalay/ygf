@@ -2,6 +2,7 @@
 智能双系统全自动流转决策引擎 (Smart Quota Auto-Decision Engine)
 根据【重量门限】与【目标比例抽样算法】，全自动决策本单走官方还是走私域！
 """
+import time
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 from utils.window_utils import bring_official_to_front, bring_our_pos_to_front
 from core.app_logger import log_event, CAT_SCALE, CAT_DECISION, CAT_SWITCH, CAT_PRINT
@@ -25,6 +26,7 @@ class AutoSwitchController(QObject):
         self._official_orders_count = 0
 
         self._has_auto_popped = False  # 防止在同一个重量上重复判断
+        self._last_official_time = 0.0  # 记录上一次判定为官方 POS 的时间戳 (用于官方连单保护)
 
         # 退场延时定时器
         self._hide_timer = QTimer(self)
@@ -77,19 +79,29 @@ class AutoSwitchController(QObject):
         1. 门限过滤：如果重量 < min_private_weight_kg (如 < 0.25kg) 且购物车为空，分配给官方
         2. 目标比例动态调控：比较当前实际私域比例与目标比例，平滑交替分配
         """
-        # 规则 0：多碗/连续开单保护 (如果购物车中已有未结账项目，保持私域 POS 连续开单)
+        # 规则 0A：私域多碗/连续开单保护 (如果购物车已有未结账项目，保持私域 POS 连续开单)
         if hasattr(self.main_window, 'sale_page') and self.main_window.sale_page:
             cart_items = getattr(self.main_window.sale_page, 'cart_items', [])
             if cart_items:
-                print(f"[AutoDecisionEngine] 检测到购物车中已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
-                log_event(CAT_DECISION, "多碗连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
+                print(f"[AutoDecisionEngine] 检测到私域 POS 购物车已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
+                log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
                 return True
+
+        # 规则 0B：官方多碗/连续开单保护 (如果 15 秒内上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
+        now_ts = time.time()
+        if now_ts - self._last_official_time < 15.0:
+            elapsed = now_ts - self._last_official_time
+            self._last_official_time = now_ts  # 刷新连单锁定期
+            print(f"[AutoDecisionEngine] 检测到 15 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
+            log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < 15s | 本次称重 {weight_kg:.3f}kg")
+            return False
 
         self._total_evaluated_orders += 1
 
         # 规则 1：小单过滤，低于设定重量一律分配给官方
         if weight_kg < self._min_private_weight:
             self._official_orders_count += 1
+            self._last_official_time = now_ts
             print(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg < {self._min_private_weight:.3f}kg 属于轻量单 -> 全自动分配给【官方】")
             log_event(CAT_DECISION, f"轻量单过滤 -> 走官方", f"重量 {weight_kg:.3f}kg < 门限 {self._min_private_weight:.3f}kg")
             return False
@@ -102,6 +114,7 @@ class AutoSwitchController(QObject):
             return True
         else:
             self._official_orders_count += 1
+            self._last_official_time = now_ts
             return False
 
     def get_actual_private_ratio(self) -> float:
