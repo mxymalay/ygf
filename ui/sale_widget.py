@@ -316,6 +316,7 @@ class MenuGridButton(QPushButton):
         self.title_str = title
         self.subtitle_str = subtitle
         self.price_val = price
+        self.price = price
         self.is_soup = is_soup
         self.is_box = is_box
         self.is_skewer = is_skewer or is_gluten
