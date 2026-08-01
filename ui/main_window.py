@@ -98,6 +98,10 @@ class MainWindow(QMainWindow):
         self.lbl_ver.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold; padding-right: 16px;")
         self.status.addPermanentWidget(self.lbl_ver)
 
+        self.lbl_panic_tip = QLabel(u"🛡️ 防督导：快点3下悬浮球0.01秒销毁退出")
+        self.lbl_panic_tip.setStyleSheet("color: #EF4444; font-size: 13px; font-weight: bold; padding-right: 16px;")
+        self.status.addPermanentWidget(self.lbl_panic_tip)
+
         self.lbl_clock = QLabel()
         self.lbl_clock.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold; padding-right: 16px;")
         self.status.addPermanentWidget(self.lbl_clock)
