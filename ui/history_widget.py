@@ -228,11 +228,13 @@ class HistoryWidget(QWidget):
         btn_search.clicked.connect(self._on_query)
         search_row.addWidget(btn_search)
 
-        btn_sort = QPushButton(u"1↓")
-        btn_sort.setStyleSheet(
+        self.btn_sort = QPushButton(u"1↓")
+        self.btn_sort.setStyleSheet(
             "background: #EA580C; color: white; font-weight: bold; padding: 6px 10px; border-radius: 6px; border: none;"
         )
-        search_row.addWidget(btn_sort)
+        self.btn_sort.setCheckable(True)
+        self.btn_sort.clicked.connect(self._on_sort_clicked)
+        search_row.addWidget(self.btn_sort)
 
         left_col.addLayout(search_row)
 
@@ -249,20 +251,6 @@ class HistoryWidget(QWidget):
 
         self.scroll_orders.setWidget(self.order_list_container)
         left_col.addWidget(self.scroll_orders, stretch=1)
-
-        # (4) 底部翻页控制
-        left_page_row = QHBoxLayout()
-        btn_batch = QPushButton(u"批量操作")
-        btn_batch.setStyleSheet("background: #374151; color: white; padding: 6px 12px; border-radius: 6px; border: none;")
-        btn_prev_l = QPushButton(u"上一页")
-        btn_prev_l.setStyleSheet("background: #374151; color: white; padding: 6px 12px; border-radius: 6px; border: none;")
-        btn_next_l = QPushButton(u"下一页")
-        btn_next_l.setStyleSheet("background: #EA580C; color: white; font-weight: bold; padding: 6px 12px; border-radius: 6px; border: none;")
-
-        left_page_row.addWidget(btn_batch)
-        left_page_row.addWidget(btn_prev_l)
-        left_page_row.addWidget(btn_next_l)
-        left_col.addLayout(left_page_row)
 
         body_layout.addLayout(left_col, stretch=3)
 
@@ -418,7 +406,19 @@ class HistoryWidget(QWidget):
         else:
             self.records = raw_records
 
+        # 应用排序逻辑
+        is_asc = getattr(self, "btn_sort", None) and self.btn_sort.isChecked()
+        self.records.sort(key=lambda x: x.get("id", 0), reverse=not is_asc)
+
         self._render_order_list()
+
+    def _on_sort_clicked(self):
+        is_asc = getattr(self, "btn_sort", None) and self.btn_sort.isChecked()
+        if is_asc:
+            self.btn_sort.setText(u"1↑")
+        else:
+            self.btn_sort.setText(u"1↓")
+        self._on_query()
 
     def _render_order_list(self):
         # 清空已有卡片
