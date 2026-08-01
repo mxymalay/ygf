@@ -188,7 +188,7 @@ class CheckoutDialog(QDialog):
 
         sqb_text_col.addLayout(badge_row)
 
-        lbl_sqb_desc = QLabel(u"自动唤起收钱吧PC客户端，推送订单金额并出票")
+        lbl_sqb_desc = QLabel(u"电脑扫码：自动唤起收钱吧PC客户端，推送订单金额并出票")
         lbl_sqb_desc.setStyleSheet("font-size: 13px; color: #FFEDD5; border: none; background: transparent;")
         sqb_text_col.addWidget(lbl_sqb_desc)
 
@@ -208,7 +208,29 @@ class CheckoutDialog(QDialog):
         right_layout.addWidget(sqb_frame, stretch=1)
         self.pay_buttons.append(btn_sqb_overlay)
 
-        # ── 2. 底部 3 个精致小正方形 备选按键 ──
+        # ── 1.5 虚线分隔与说明提示 ──
+        div_box = QHBoxLayout()
+        div_box.setContentsMargins(0, 8, 0, 8)
+        div_box.setSpacing(10)
+
+        line_l = QFrame()
+        line_l.setFrameShape(QFrame.HLine)
+        line_l.setStyleSheet("border: none; border-top: 1px dashed #475569;")
+
+        lbl_sep_text = QLabel(u"--- 其它渠道 (跳过电脑助手·直接记账出票) ---")
+        lbl_sep_text.setStyleSheet("color: #94A3B8; font-size: 12px; font-weight: bold; border: none; background: transparent;")
+
+        line_r = QFrame()
+        line_r.setFrameShape(QFrame.HLine)
+        line_r.setStyleSheet("border: none; border-top: 1px dashed #475569;")
+
+        div_box.addWidget(line_l, stretch=1)
+        div_box.addWidget(lbl_sep_text)
+        div_box.addWidget(line_r, stretch=1)
+
+        right_layout.addLayout(div_box)
+
+        # ── 2. 底部 3 个精致小正方形 备选按键 (直接出票) ──
         grid_layout = QHBoxLayout()
         grid_layout.setSpacing(12)
 
