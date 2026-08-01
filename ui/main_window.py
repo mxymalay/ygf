@@ -177,7 +177,7 @@ class MainWindow(QMainWindow):
                 save_config(self.config)
                 
                 # 刷新各页面与窗口标题显示
-                self._update_window_title()
+                self.setWindowTitle(f"杨国福麻辣烫称重系统 - {branch_name}")
                 if hasattr(self, 'sale_page'):
                     self.sale_page.refresh_unit_price_info()
                 if hasattr(self, 'settings_page'):
