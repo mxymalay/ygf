@@ -510,7 +510,7 @@ def get_first_run_input(parent, title, message, default_price=1.00, default_bran
 
 
 class ReceiptPreviewDialog(QDialog):
-    """小票模拟预览与确认打票对话框 (含闪烁收款提醒 & 10 秒倒计时)"""
+    """小票模拟预览与确认打票对话框 (含闪烁收款提醒 & 10 秒倒计时，自适应各分辨率屏幕)"""
 
     def __init__(self, sale_data, countdown_sec=10, parent=None):
         super().__init__(parent)
@@ -529,32 +529,49 @@ class ReceiptPreviewDialog(QDialog):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.addWidget(card)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setContentsMargins(14, 14, 14, 14)
         card_layout.setSpacing(10)
 
-        # 0. 闪烁收款提醒 Banner
+        # 0. 顶部固定：闪烁收款提醒 Banner
         self.notice_banner = QLabel(u"⚠️ 请确认已通过其他工具完成收款！")
         self.notice_banner.setAlignment(Qt.AlignCenter)
         self.notice_banner.setStyleSheet(
-            "background: #DC2626; color: #FFFFFF; font-size: 15px; font-weight: 900; "
-            "padding: 10px; border-radius: 8px; border: none;"
+            "background: #DC2626; color: #FFFFFF; font-size: 14px; font-weight: 900; "
+            "padding: 8px; border-radius: 8px; border: none;"
         )
         card_layout.addWidget(self.notice_banner)
 
-        # 1. 模拟小票 Header: POS点餐 堂食
+        # 1. 中部滚动区域：模拟小票完整票面
+        from PyQt5.QtWidgets import QScrollArea, QWidget
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 6px; background: #1E293B; border-radius: 3px; }"
+            "QScrollBar::handle:vertical { background: #475569; border-radius: 3px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+        )
+
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("background: transparent;")
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setContentsMargins(4, 4, 4, 4)
+        scroll_layout.setSpacing(8)
+
+        # Header: POS点餐 堂食
         lbl_top_hdr = QLabel("POS点餐  堂食")
         lbl_top_hdr.setAlignment(Qt.AlignCenter)
-        lbl_top_hdr.setStyleSheet("font-size: 14px; font-weight: bold; color: #94A3B8; border: none;")
-        card_layout.addWidget(lbl_top_hdr)
+        lbl_top_hdr.setStyleSheet("font-size: 13px; font-weight: bold; color: #94A3B8; border: none;")
+        scroll_layout.addWidget(lbl_top_hdr)
 
         lbl_shop = QLabel(sale_data.get("shop_name", u"杨国福麻辣烫"))
         lbl_shop.setAlignment(Qt.AlignCenter)
-        lbl_shop.setStyleSheet("font-size: 20px; font-weight: 900; color: #F9FAFB; border: none;")
-        card_layout.addWidget(lbl_shop)
+        lbl_shop.setStyleSheet("font-size: 19px; font-weight: 900; color: #F9FAFB; border: none;")
+        scroll_layout.addWidget(lbl_shop)
 
         sub_title = sale_data.get("shop_subtitle", "")
         if not sub_title:
@@ -564,28 +581,28 @@ class ReceiptPreviewDialog(QDialog):
         lbl_sub = QLabel(sub_title)
         lbl_sub.setAlignment(Qt.AlignCenter)
         lbl_sub.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
-        card_layout.addWidget(lbl_sub)
+        scroll_layout.addWidget(lbl_sub)
 
         # 叫号大牌
         call_no_box = QFrame()
-        call_no_box.setStyleSheet("background: rgba(249, 115, 22, 0.15); border-radius: 10px; padding: 6px;")
+        call_no_box.setStyleSheet("background: rgba(249, 115, 22, 0.15); border-radius: 10px; padding: 4px;")
         cn_layout = QVBoxLayout(call_no_box)
         lbl_call = QLabel(f"取餐号: {sale_data.get('call_no', '050')}")
         lbl_call.setAlignment(Qt.AlignCenter)
-        lbl_call.setStyleSheet("font-size: 26px; font-weight: 900; color: #F97316; border: none;")
+        lbl_call.setStyleSheet("font-size: 24px; font-weight: 900; color: #F97316; border: none;")
         cn_layout.addWidget(lbl_call)
-        card_layout.addWidget(call_no_box)
+        scroll_layout.addWidget(call_no_box)
 
         # 虚线分隔
         line1 = QLabel("----------------------------------------")
         line1.setAlignment(Qt.AlignCenter)
         line1.setStyleSheet("color: #475569; font-family: monospace; border: none;")
-        card_layout.addWidget(line1)
+        scroll_layout.addWidget(line1)
 
         # 细项表头
         hdr_row = QLabel("菜品名                    规格  单价     数量   小计")
         hdr_row.setStyleSheet("font-size: 12px; font-weight: bold; color: #64748B; border: none;")
-        card_layout.addWidget(hdr_row)
+        scroll_layout.addWidget(hdr_row)
 
         # 商品明细列表
         items_layout = QVBoxLayout()
@@ -635,12 +652,12 @@ class ReceiptPreviewDialog(QDialog):
 
             items_layout.addLayout(item_box)
 
-        card_layout.addLayout(items_layout)
+        scroll_layout.addLayout(items_layout)
 
         line2 = QLabel("----------------------------------------")
         line2.setAlignment(Qt.AlignCenter)
         line2.setStyleSheet("color: #475569; font-family: monospace; border: none;")
-        card_layout.addWidget(line2)
+        scroll_layout.addWidget(line2)
 
         # 打印单据说明标语
         slip_info = f"🖨️ 打印单据：1张顾客单 + {m_count}张后厨制作单"
@@ -650,45 +667,45 @@ class ReceiptPreviewDialog(QDialog):
             "background: rgba(52, 211, 153, 0.12); color: #34D399; font-size: 13px; "
             "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
         )
-        card_layout.addWidget(lbl_slip_info)
+        scroll_layout.addWidget(lbl_slip_info)
 
-        # 金额与时间
+        # 金额
         total_p = sum(i.get("price", 0.0) for i in cart_items)
         lbl_total = QLabel(f"应收金额：￥{total_p:.2f}")
         lbl_total.setAlignment(Qt.AlignRight)
-        lbl_total.setStyleSheet("font-size: 22px; font-weight: 900; color: #34D399; border: none;")
-        card_layout.addWidget(lbl_total)
+        lbl_total.setStyleSheet("font-size: 20px; font-weight: 900; color: #34D399; border: none;")
+        scroll_layout.addWidget(lbl_total)
 
-        card_layout.addSpacing(10)
+        scroll_area.setWidget(scroll_widget)
+        card_layout.addWidget(scroll_area, stretch=1)
 
-        # 2. 底部操作按钮
+        # 2. 底部固定：操作按钮
         btn_box = QHBoxLayout()
-        btn_box.setSpacing(12)
+        btn_box.setSpacing(10)
 
         self.btn_cancel = QPushButton("取消打票")
         self.btn_cancel.setCursor(Qt.PointingHandCursor)
         self.btn_cancel.setStyleSheet(
-            "QPushButton { background: #334155; color: #F87171; font-weight: bold; font-size: 15px; "
-            "border-radius: 10px; padding: 12px 20px; border: 1px solid #7F1D1D; }"
+            "QPushButton { background: #334155; color: #F87171; font-weight: bold; font-size: 14px; "
+            "border-radius: 8px; padding: 10px 16px; border: 1px solid #7F1D1D; }"
             "QPushButton:hover { background: #7F1D1D; color: #FFFFFF; }"
         )
         self.btn_cancel.clicked.connect(self._on_cancel)
         btn_box.addWidget(self.btn_cancel, stretch=1)
 
-        self.btn_print = QPushButton(f"立即打票 ({self.countdown}s)")
+        self.btn_print = QPushButton(f"确认已收款并打票 ({self.countdown}s)")
         self.btn_print.setCursor(Qt.PointingHandCursor)
         self.btn_print.setStyleSheet(
-            "QPushButton { background: #EA580C; color: white; font-weight: bold; font-size: 15px; "
-            "border-radius: 10px; padding: 12px 24px; border: 1px solid #F97316; }"
+            "QPushButton { background: #EA580C; color: white; font-weight: bold; font-size: 14px; "
+            "border-radius: 8px; padding: 10px 20px; border: 1px solid #F97316; }"
             "QPushButton:hover { background: #F97316; }"
         )
         self.btn_print.clicked.connect(self._on_print_now)
         btn_box.addWidget(self.btn_print, stretch=2)
 
         card_layout.addLayout(btn_box)
-        self.resize(420, 520)
 
-        # 3. 定时器: 倒计时 Timer & 高亮闪烁 Timer
+        # 定时器: 倒计时 Timer & 高亮闪烁 Timer
         from PyQt5.QtCore import QTimer
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
@@ -704,13 +721,13 @@ class ReceiptPreviewDialog(QDialog):
         self._flash_flag = not self._flash_flag
         if self._flash_flag:
             self.notice_banner.setStyleSheet(
-                "background: #EF4444; color: #FFFFFF; font-size: 15px; font-weight: 900; "
-                "padding: 10px; border-radius: 8px; border: none;"
+                "background: #EF4444; color: #FFFFFF; font-size: 14px; font-weight: 900; "
+                "padding: 8px; border-radius: 8px; border: none;"
             )
         else:
             self.notice_banner.setStyleSheet(
-                "background: #7F1D1D; color: #FEF08A; font-size: 15px; font-weight: 900; "
-                "padding: 10px; border-radius: 8px; border: none;"
+                "background: #7F1D1D; color: #FEF08A; font-size: 14px; font-weight: 900; "
+                "padding: 8px; border-radius: 8px; border: none;"
             )
 
     def _stop_all_timers(self):
@@ -722,7 +739,7 @@ class ReceiptPreviewDialog(QDialog):
     def _tick(self):
         self.countdown -= 1
         if self.countdown > 0:
-            self.btn_print.setText(f"立即打票 ({self.countdown}s)")
+            self.btn_print.setText(f"确认已收款并打票 ({self.countdown}s)")
         else:
             self._stop_all_timers()
             self._on_print_now()
@@ -740,13 +757,20 @@ class ReceiptPreviewDialog(QDialog):
         if parent_w and hasattr(parent_w, 'window'):
             parent_w = parent_w.window()
         
+        # 适应小屏幕收银机（如 1024x768 / 1024x600）
+        screen_h = 768
         if parent_w:
+            screen_h = parent_w.height()
             try:
                 blur = QGraphicsBlurEffect(parent_w)
                 blur.setBlurRadius(42)
                 parent_w.setGraphicsEffect(blur)
             except Exception:
                 pass
+
+        max_dlg_h = min(540, max(400, screen_h - 70))
+        self.setFixedHeight(max_dlg_h)
+        self.setFixedWidth(440)
 
         try:
             return super().exec_()
