@@ -52,6 +52,13 @@ class Database:
         except sqlite3.OperationalError:
             pass
 
+        # 安全升级：尝试添加 payment_method 列 (结账方式：scan/cash/qr)
+        try:
+            conn.execute("ALTER TABLE sales ADD COLUMN payment_method TEXT DEFAULT ''")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
         conn.close()
 
     def generate_sale_no(self):
@@ -74,7 +81,7 @@ class Database:
 
         return "%s%03d" % (prefix, seq)
 
-    def insert_sale(self, weight_kg, unit_price, price_unit, total_price, remark="", cart_items_json=None):
+    def insert_sale(self, weight_kg, unit_price, price_unit, total_price, remark="", cart_items_json=None, payment_method=""):
         """插入一条销售记录，返回完整记录字典"""
         sale_no = self.generate_sale_no()
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -82,9 +89,9 @@ class Database:
         conn = self._get_conn()
         conn.execute(
             """INSERT INTO sales
-               (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json)
+               (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json, payment_method)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json, payment_method)
         )
         conn.commit()
 
@@ -94,6 +101,24 @@ class Database:
         conn.close()
 
         return dict(row)
+
+    def get_payment_stats_by_date(self, start_date, end_date=None):
+        """获取指定日期范围内按结账方式分组的统计"""
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if (end_date and hasattr(end_date, 'strftime')) else (str(end_date) if end_date else s_str)
+
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT COALESCE(payment_method, '') AS pm,
+                      COUNT(*) AS cnt,
+                      COALESCE(SUM(total_price), 0) AS amt
+               FROM sales
+               WHERE DATE(created_at) BETWEEN ? AND ?
+               GROUP BY pm""",
+            (s_str, e_str)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 
     def get_today_summary(self):
         """返回今日汇总：笔数、总重量、总金额"""

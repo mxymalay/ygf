@@ -79,8 +79,19 @@ class OrderCard(QFrame):
         lbl_status = QLabel(tag_text)
         lbl_status.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {tag_color}; border: 1px solid {tag_color}; border-radius: 4px; padding: 2px 6px; background: transparent;")
 
+        # 结账方式标签
+        pm = r.get("payment_method", "")
+        pm_labels = {"scan": "💳扫码", "cash": "💵现金", "qr": "📱码转"}
+        pm_colors = {"scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED"}
+        pm_text = pm_labels.get(pm, "")
+        pm_color = pm_colors.get(pm, "#6B7280")
+
         row1.addWidget(lbl_title)
         row1.addStretch()
+        if pm_text:
+            lbl_pm = QLabel(pm_text)
+            lbl_pm.setStyleSheet(f"font-size: 10px; font-weight: bold; color: white; background: {pm_color}; border-radius: 4px; padding: 2px 5px;")
+            row1.addWidget(lbl_pm)
         row1.addWidget(lbl_status)
         layout.addLayout(row1)
 
@@ -419,11 +430,14 @@ class HistoryWidget(QWidget):
         self.lbl_order_no.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
         self.lbl_create_time = QLabel(u"创建时间：---")
         self.lbl_create_time.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
+        self.lbl_payment_method = QLabel(u"结账方式：---")
+        self.lbl_payment_method.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
         self.lbl_remark_info = QLabel(u"备注信息：")
         self.lbl_remark_info.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none;")
 
         layout_oi.addWidget(self.lbl_order_no)
         layout_oi.addWidget(self.lbl_create_time)
+        layout_oi.addWidget(self.lbl_payment_method)
         layout_oi.addWidget(self.lbl_remark_info)
         bottom_cards_row.addWidget(card_order_info, stretch=1)
 
@@ -651,6 +665,11 @@ class HistoryWidget(QWidget):
         self.lbl_header_title.setText(u"📋 取餐号：%s" % call_no)
         self.lbl_order_no.setText(u"订单编号：%s" % temp_order_no)
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
+        
+        # 结账方式
+        pm = record.get("payment_method", "")
+        pm_display = {"scan": "💳 扫码机器付款", "cash": "💵 现金付款", "qr": "📱 收钱吧/二维码/转账"}
+        self.lbl_payment_method.setText(u"结账方式：%s" % pm_display.get(pm, "未记录"))
         
         import json
         tag_text = u"已支付"

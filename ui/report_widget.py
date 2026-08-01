@@ -156,7 +156,7 @@ class ReportWidget(QWidget):
         self.lbl_ref_cnt = self._add_receipt_row(mid_layout, u"退单数量：", u"0")
 
         # 收入明细 (总结)
-        lbl_sec_pay = QLabel(u"收入明细")
+        lbl_sec_pay = QLabel(u"结账方式明细")
         lbl_sec_pay.setStyleSheet("font-size: 15px; font-weight: bold; color: #111827; margin-top: 8px; border: none;")
         mid_layout.addWidget(lbl_sec_pay)
 
@@ -165,7 +165,10 @@ class ReportWidget(QWidget):
         lbl_eq2.setStyleSheet("color: #9CA3AF; border: none;")
         mid_layout.addWidget(lbl_eq2)
 
-        self.lbl_pay_total = self._add_receipt_row(mid_layout, u"总结", u"¥ 0.00", is_bold=True)
+        self.lbl_pay_scan = self._add_receipt_row(mid_layout, u"💳 扫码机器：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_cash = self._add_receipt_row(mid_layout, u"💵 现金付款：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_qr = self._add_receipt_row(mid_layout, u"📱 码转付款：", u"¥ 0.00 (0笔)")
+        self.lbl_pay_total = self._add_receipt_row(mid_layout, u"合计", u"¥ 0.00", is_bold=True)
 
         mid_layout.addStretch()
 
@@ -277,6 +280,20 @@ class ReportWidget(QWidget):
         self.lbl_cnt.setText("%d" % count)
         self.lbl_avg.setText("¥ %.2f" % avg)
         self.lbl_pay_total.setText("¥ %.2f" % a_sum)
+
+        # 结账方式明细
+        pay_stats = self.db.get_payment_stats_by_date(self.start_date_str, self.end_date_str)
+        pm_data = {}
+        for row in pay_stats:
+            pm_data[row.get("pm", "")] = {"cnt": row.get("cnt", 0), "amt": row.get("amt", 0.0)}
+
+        scan_d = pm_data.get("scan", {"cnt": 0, "amt": 0.0})
+        cash_d = pm_data.get("cash", {"cnt": 0, "amt": 0.0})
+        qr_d = pm_data.get("qr", {"cnt": 0, "amt": 0.0})
+
+        self.lbl_pay_scan.setText("¥ %.2f (%d笔)" % (scan_d["amt"], scan_d["cnt"]))
+        self.lbl_pay_cash.setText("¥ %.2f (%d笔)" % (cash_d["amt"], cash_d["cnt"]))
+        self.lbl_pay_qr.setText("¥ %.2f (%d笔)" % (qr_d["amt"], qr_d["cnt"]))
 
     def _on_print_click(self):
         stats = self.db.get_stats_by_date(self.start_date_str, self.end_date_str)

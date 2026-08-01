@@ -854,7 +854,7 @@ class SaleWidget(QWidget):
         self.btn_clear.clicked.connect(self._on_clear)
         btn_box.addWidget(self.btn_clear, stretch=1)
 
-        self.btn_print = QPushButton(u"确认已收款")
+        self.btn_print = QPushButton(u"去结账")
         self.btn_print.setObjectName("btn_print")
         self.btn_print.setCursor(Qt.PointingHandCursor)
         self.btn_print.clicked.connect(self._on_print)
@@ -1362,7 +1362,7 @@ class SaleWidget(QWidget):
         menu.exec_(self.btn_random_weight.mapToGlobal(pos))
 
     def _on_print(self):
-        """确认收款 -> 弹出模拟小票预览与 10s 倒计时 -> 确认/到期打票"""
+        """去结账 -> 弹出结账模态框（左侧小票 + 右侧付款方式按钮） -> 确认付款 -> 动画 -> 打票"""
         if not self.cart_items:
             show_warning(self, u"提示", u"请先点选汤底或附加项目加入开单列表！")
             return
@@ -1409,9 +1409,14 @@ class SaleWidget(QWidget):
             "remark": u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, call_no_str, items_summary)
         }
 
-        # 1. 弹出模拟小票框框 (含取消打票 / 立即打票 / 10s 倒计时)
-        dlg = ReceiptPreviewDialog(sale_data, countdown_sec=10, parent=self)
-        if dlg.exec_() == QDialog.Accepted:
+        # 1. 弹出结账模态框（左侧小票预览 + 右侧付款方式按钮）
+        from ui.checkout_dialog import CheckoutDialog
+        dlg = CheckoutDialog(sale_data, parent=self)
+        result = dlg.exec_()
+        
+        if result == QDialog.Accepted:
+            payment_method = dlg.selected_payment_method
+            
             # 2. 确认打票：正式消费叫号、记录数据库与驱动硬件打票
             actual_num = self.call_mgr.get_next_number()
             sale_data["call_no"] = "%02d" % actual_num
@@ -1425,7 +1430,8 @@ class SaleWidget(QWidget):
                 price_unit=price_unit,
                 total_price=total_price,
                 remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary),
-                cart_items_json=cart_items_json
+                cart_items_json=cart_items_json,
+                payment_method=payment_method
             )
 
             full_sale = dict(record)
