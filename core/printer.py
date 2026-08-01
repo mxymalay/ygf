@@ -166,22 +166,23 @@ class ReceiptPrinter:
         hdr_str = fmt_lr_30("菜品名", "数量")
         d += hdr_str.encode("gbk", errors="ignore")
         
-        # 5. 菜品名称 & 重量/数量
+        # 5. 菜品名称、重量与口味 (大字号加粗显示，方便后厨看单)
         name = item.get("name", "经典草本骨汤")
         weight_val = item.get("weight", sale.get("weight_kg", 0.0))
         tag = item.get("tag", "")
 
+        # 菜品名 & 数量大字号加粗
+        d += self.DOUBLE_HEIGHT + self.BOLD_ON
         d += (name + "\n").encode("gbk", errors="ignore")
         
         w_str = f"{weight_val:.3f}"
         val_str = fmt_lr_30("", w_str)
-        d += self.DOUBLE_HEIGHT + self.BOLD_ON
         d += val_str.encode("gbk", errors="ignore")
-        d += self.NORMAL_SIZE + self.BOLD_OFF
 
         if tag:
             d += f"  {tag}/\n".encode("gbk", errors="ignore")
 
+        d += self.NORMAL_SIZE + self.BOLD_OFF
         d += b'------------------------------\n'
 
         # 6. 打印时间
