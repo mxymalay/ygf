@@ -67,21 +67,12 @@ class OrderCard(QFrame):
                     elif "盒" in name:
                         has_box = True
                         
-                if has_soup and (has_drink or has_skewer):
-                    tag_text = u"🍲 丰盛套餐"
-                    tag_color = "#10B981" # Green
-                elif has_soup:
-                    tag_text = u"🍲 仅麻辣烫"
+                if has_soup:
+                    tag_text = u"🍲 含汤底"
                     tag_color = "#F59E0B" # Orange
-                elif has_drink and not has_skewer and not has_soup:
-                    tag_text = u"🥤 仅水饮"
+                else:
+                    tag_text = u"🥤 不含汤底"
                     tag_color = "#3B82F6" # Blue
-                elif has_skewer and not has_soup:
-                    tag_text = u"🍢 仅小吃"
-                    tag_color = "#8B5CF6" # Purple
-                elif has_box:
-                    tag_text = u"📦 打包物料"
-                    tag_color = "#9CA3AF" # Gray
         except Exception:
             pass
 
@@ -640,21 +631,12 @@ class HistoryWidget(QWidget):
                     elif "盒" in name:
                         has_box = True
                         
-                if has_soup and (has_drink or has_skewer):
-                    tag_text = u"🍲 丰盛套餐"
-                    tag_color = "#10B981" # Green
-                elif has_soup:
-                    tag_text = u"🍲 仅麻辣烫"
+                if has_soup:
+                    tag_text = u"🍲 含汤底"
                     tag_color = "#F59E0B" # Orange
-                elif has_drink and not has_skewer and not has_soup:
-                    tag_text = u"🥤 仅水饮"
+                else:
+                    tag_text = u"🥤 不含汤底"
                     tag_color = "#3B82F6" # Blue
-                elif has_skewer and not has_soup:
-                    tag_text = u"🍢 仅小吃"
-                    tag_color = "#8B5CF6" # Purple
-                elif has_box:
-                    tag_text = u"📦 打包物料"
-                    tag_color = "#9CA3AF" # Gray
         except Exception:
             pass
 
