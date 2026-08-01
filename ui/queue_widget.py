@@ -226,13 +226,24 @@ class QueueWidget(QWidget):
         cs_layout.setContentsMargins(16, 12, 16, 12)
         cs_layout.setSpacing(8)
 
+        radio_style = """
+            QRadioButton {
+                font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; spacing: 10px;
+            }
+            QRadioButton::indicator {
+                width: 20px; height: 20px; border-radius: 10px; border: 2px solid #64748B; background-color: #1E293B;
+            }
+            QRadioButton::indicator:hover {
+                border-color: #F97316; background-color: #334155;
+            }
+            QRadioButton::indicator:checked {
+                border: 2px solid #F97316; background-color: #EA580C;
+            }
+        """
+
         cs_header = QHBoxLayout()
         self.rb_smart = QRadioButton(u"模式一：智能时段避重 (推荐)")
-        self.rb_smart.setStyleSheet(
-            "QRadioButton { font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; }"
-            "QRadioButton::indicator { width: 18px; height: 18px; border: none; }"
-            "QRadioButton::indicator:checked { background-color: #EA580C; border-radius: 9px; }"
-        )
+        self.rb_smart.setStyleSheet(radio_style)
         self.mode_group.addButton(self.rb_smart, 1)
         cs_header.addWidget(self.rb_smart)
         cs_header.addStretch()
@@ -264,16 +275,12 @@ class QueueWidget(QWidget):
         cc_layout.setSpacing(10)
 
         self.rb_custom = QRadioButton(u"模式二：自定义范围叫号")
-        self.rb_custom.setStyleSheet(
-            "QRadioButton { font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; }"
-            "QRadioButton::indicator { width: 18px; height: 18px; border: none; }"
-            "QRadioButton::indicator:checked { background-color: #EA580C; border-radius: 9px; }"
-        )
+        self.rb_custom.setStyleSheet(radio_style)
         self.mode_group.addButton(self.rb_custom, 2)
         cc_layout.addWidget(self.rb_custom)
 
         c_inputs = QHBoxLayout()
-        c_inputs.setContentsMargins(24, 2, 0, 2)
+        c_inputs.setContentsMargins(30, 2, 0, 2)
 
         lbl_start = QLabel(u"起始号码：")
         lbl_start.setStyleSheet("font-size: 13px; color: #D1D5DB; border: none; background: transparent;")
@@ -303,11 +310,14 @@ class QueueWidget(QWidget):
         cc_layout.addLayout(c_inputs)
 
         c_opts = QHBoxLayout()
-        c_opts.setContentsMargins(24, 0, 0, 0)
+        c_opts.setContentsMargins(30, 0, 0, 0)
         self.chk_custom_seq = QCheckBox(u"按顺序依次递增叫号 (未勾选则在指定范围内随机叫号)")
-        self.chk_custom_seq.setStyleSheet(
-            "QCheckBox { font-size: 12px; color: #9CA3AF; border: none; background: transparent; }"
-        )
+        self.chk_custom_seq.setStyleSheet("""
+            QCheckBox { font-size: 12px; color: #9CA3AF; border: none; background: transparent; spacing: 8px; }
+            QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid #64748B; background-color: #1E293B; }
+            QCheckBox::indicator:hover { border-color: #F97316; }
+            QCheckBox::indicator:checked { border: 1.5px solid #F97316; background-color: #EA580C; }
+        """)
         c_opts.addWidget(self.chk_custom_seq)
         cc_layout.addLayout(c_opts)
 
@@ -321,16 +331,12 @@ class QueueWidget(QWidget):
         cm_layout.setSpacing(6)
 
         self.rb_manual = QRadioButton(u"模式三：传统手动模式")
-        self.rb_manual.setStyleSheet(
-            "QRadioButton { font-size: 15px; font-weight: bold; color: #F9FAFB; border: none; background: transparent; }"
-            "QRadioButton::indicator { width: 18px; height: 18px; border: none; }"
-            "QRadioButton::indicator:checked { background-color: #EA580C; border-radius: 9px; }"
-        )
+        self.rb_manual.setStyleSheet(radio_style)
         self.mode_group.addButton(self.rb_manual, 3)
         cm_layout.addWidget(self.rb_manual)
 
         lbl_m_desc = QLabel(u"每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
-        lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent; margin-left: 24px;")
+        lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent; margin-left: 30px;")
         cm_layout.addWidget(lbl_m_desc)
 
         mb_layout.addWidget(card_manual)
