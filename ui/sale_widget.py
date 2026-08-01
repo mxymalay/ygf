@@ -790,37 +790,44 @@ class SaleWidget(QWidget):
 
         special_soup_price = self.config.get("special_soup_price", self.config.get("soup_price_4", 25.00 if price_unit == "per_jin" else 50.00))
 
-        # 菜单配置：5款汤底 (第0-1行) + 打包盒 (第1行) + 油面筋 (第2行独占) + 1-10元饮料 (第3-5行)
+        # 菜单配置：
+        # 第 0 行：标准汤底类 (骨汤, 番茄汤, 麻辣拌)
+        # 第 1 行：精品汤底类 (另起一行: 菌汤, 金汤)
+        # 第 2 行：打包盒 (另起一行)
+        # 第 3 行：油面筋类 (另起一行: 0.5元, 1元)
+        # 第 4-6 行：1-10元饮料
         menu_items_config = [
             # 第 0 行：标准汤底类 (橙暖色)
             (0, 0, "soup_1", u"经典草本骨汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
             (0, 1, "soup_2", u"酸甜番茄汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
             (0, 2, "soup_3", u"石磨醇香麻辣拌", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
 
-            # 第 0-1 行：精品汤底类 (菌汤/金汤)
-            (0, 3, "soup_4", u"草本穹顶菌汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
-            (1, 0, "soup_5", u"草本酸辣金汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
-            (1, 1, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
+            # 第 1 行：精品汤底类 (另起一行: 菌汤/金汤)
+            (1, 0, "soup_4", u"草本穹顶菌汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
+            (1, 1, "soup_5", u"草本酸辣金汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
 
-            # 第 2 行：油面筋类 (另起一行，独占该行，典雅紫罗兰色)
-            (2, 0, "item_gluten_05", u"油面筋 0.5元", "¥ 0.50", 0.5, False, False, True),
-            (2, 1, "item_gluten_10", u"油面筋 1元", "¥ 1.00", 1.0, False, False, True),
+            # 第 2 行：打包盒 (另起一行)
+            (2, 0, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
 
-            # 第 3 行：1-4元饮料
-            (3, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
-            (3, 1, "item_2", u"2元饮料", "", 2.0, False, False, False),
-            (3, 2, "item_3", u"3元饮料", "", 3.0, False, False, False),
-            (3, 3, "item_4", u"4元饮料", "", 4.0, False, False, False),
+            # 第 3 行：油面筋类 (另起一行，典雅紫罗兰色)
+            (3, 0, "item_gluten_05", u"油面筋 0.5元", "¥ 0.50", 0.5, False, False, True),
+            (3, 1, "item_gluten_10", u"油面筋 1元", "¥ 1.00", 1.0, False, False, True),
 
-            # 第 4 行：5-8元饮料
-            (4, 0, "item_5", u"5元饮料", "", 5.0, False, False, False),
-            (4, 1, "item_6", u"6元饮料", "", 6.0, False, False, False),
-            (4, 2, "item_7", u"7元饮料", "", 7.0, False, False, False),
-            (4, 3, "item_8", u"8元饮料", "", 8.0, False, False, False),
+            # 第 4 行：1-4元饮料
+            (4, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
+            (4, 1, "item_2", u"2元饮料", "", 2.0, False, False, False),
+            (4, 2, "item_3", u"3元饮料", "", 3.0, False, False, False),
+            (4, 3, "item_4", u"4元饮料", "", 4.0, False, False, False),
 
-            # 第 5 行：9-10元饮料
-            (5, 0, "item_9", u"9元饮料", "", 9.0, False, False, False),
-            (5, 1, "item_10", u"10元饮料", "", 10.0, False, False, False),
+            # 第 5 行：5-8元饮料
+            (5, 0, "item_5", u"5元饮料", "", 5.0, False, False, False),
+            (5, 1, "item_6", u"6元饮料", "", 6.0, False, False, False),
+            (5, 2, "item_7", u"7元饮料", "", 7.0, False, False, False),
+            (5, 3, "item_8", u"8元饮料", "", 8.0, False, False, False),
+
+            # 第 6 行：9-10元饮料
+            (6, 0, "item_9", u"9元饮料", "", 9.0, False, False, False),
+            (6, 1, "item_10", u"10元饮料", "", 10.0, False, False, False),
         ]
 
         for r, c, key_id, title, sub, price, is_soup, is_box, is_gluten in menu_items_config:
