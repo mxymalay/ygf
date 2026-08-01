@@ -1136,6 +1136,14 @@ class SaleWidget(QWidget):
         total_items_count = len(self.cart_items)
         pages = self._compute_cart_pages()
         total_pages = len(pages)
+
+        # 自动定位：确保当前选中的卡片始终在当前可视页面内 (当卡片高度变化导致被挤到下一页时自动跟随跳转)
+        if 0 <= self.selected_item_index < total_items_count:
+            for p_idx, (s_idx, e_idx) in enumerate(pages):
+                if s_idx <= self.selected_item_index < e_idx:
+                    self.cart_page = p_idx
+                    break
+
         self.cart_page = min(max(0, self.cart_page), total_pages - 1)
 
         if hasattr(self, 'lbl_cart_page'):
