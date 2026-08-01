@@ -233,20 +233,34 @@ class LoginWindow(QDialog):
         self.check_widget.hide()
         check_layout = QVBoxLayout(self.check_widget)
         check_layout.setContentsMargins(0, 0, 0, 0)
-        check_layout.setSpacing(20)
-        
-        self.lbl_check1 = QLabel(u"⌛ 官方收银环境检测：等待中...")
-        self.lbl_check1.setStyleSheet("color: #9CA3AF; font-size: 14px;")
-        check_layout.addWidget(self.lbl_check1)
-        
-        self.lbl_check2 = QLabel(u"⌛ 打印机外设检测：等待中...")
-        self.lbl_check2.setStyleSheet("color: #9CA3AF; font-size: 14px;")
-        check_layout.addWidget(self.lbl_check2)
+        check_layout.setSpacing(12)
 
-        self.lbl_check3 = QLabel(u"⌛ 收钱吧串口联动检测：等待中...")
-        self.lbl_check3.setStyleSheet("color: #9CA3AF; font-size: 14px;")
-        check_layout.addWidget(self.lbl_check3)
-        
+        # 进度条
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #1E293B; border-radius: 3px; border: none;
+            }
+            QProgressBar::chunk {
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #38BDF8, stop:1 #818CF8);
+                border-radius: 3px;
+            }
+        """)
+        check_layout.addWidget(self.progress_bar)
+
+        # 三项卡片
+        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方收银运行环境")
+        self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"🖨️  热敏小票打印机外设")
+        self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"💳  收钱吧串口通信联动")
+
+        check_layout.addWidget(self.card1)
+        check_layout.addWidget(self.card2)
+        check_layout.addWidget(self.card3)
+
         card_layout.addWidget(self.check_widget)
         card_layout.addStretch()
         
@@ -285,6 +299,33 @@ class LoginWindow(QDialog):
         
         card_layout.addLayout(bottom_bar)
         main_layout.addWidget(self.card)
+
+    def _create_check_card(self, title_str):
+        card = QFrame()
+        card.setStyleSheet("""
+            QFrame {
+                background-color: #1E293B;
+                border-radius: 10px;
+                border: 1px solid #334155;
+            }
+        """)
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(16, 12, 16, 12)
+        
+        lbl_title = QLabel(title_str)
+        lbl_title.setStyleSheet("color: #F8FAFC; font-size: 14px; font-weight: bold; border: none;")
+        lay.addWidget(lbl_title)
+        lay.addStretch()
+        
+        lbl_badge = QLabel(u"等待检测")
+        lbl_badge.setStyleSheet("""
+            QLabel {
+                color: #94A3B8; background-color: #0F172A; font-size: 12px; font-weight: bold;
+                padding: 4px 10px; border-radius: 6px; border: 1px solid #334155;
+            }
+        """)
+        lay.addWidget(lbl_badge)
+        return card, lbl_title, lbl_badge
 
     def eventFilter(self, obj, event):
         from PyQt5.QtCore import QEvent
@@ -325,59 +366,65 @@ class LoginWindow(QDialog):
             self.lbl_err.setText(u"账号或密码错误，请重试！")
             
     def _check_official_software(self):
-        self.lbl_check1.setText(u"🔄 官方收银环境检测：正在检测...")
-        self.lbl_check1.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
-        QTimer.singleShot(150, self._do_check_official_software)
+        self.progress_bar.setValue(15)
+        self.lbl_badge1.setText(u"正在检测...")
+        self.lbl_badge1.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
+        QTimer.singleShot(250, self._do_check_official_software)
         
     def _do_check_official_software(self):
+        self.progress_bar.setValue(35)
         if check_ygf_official_running():
             self.official_ok = True
-            self.lbl_check1.setText(u"✔ 官方收银环境检测：通过")
-            self.lbl_check1.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
+            self.lbl_badge1.setText(u"✔ 运行正常")
+            self.lbl_badge1.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             self.official_ok = False
-            self.lbl_check1.setText(u"✖ 官方收银环境检测：未运行")
-            self.lbl_check1.setStyleSheet("color: #EF4444; font-size: 14px; font-weight: bold;")
+            self.lbl_badge1.setText(u"✖ 未运行")
+            self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
             self.hardware_warnings.append("官方收银软件未运行")
             
-        QTimer.singleShot(150, self._check_printer)
+        QTimer.singleShot(250, self._check_printer)
 
     def _check_printer(self):
-        self.lbl_check2.setText(u"🔄 打印机外设检测：正在检测...")
-        self.lbl_check2.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
-        QTimer.singleShot(150, self._do_check_printer)
+        self.progress_bar.setValue(50)
+        self.lbl_badge2.setText(u"正在检测...")
+        self.lbl_badge2.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
+        QTimer.singleShot(250, self._do_check_printer)
 
     def _do_check_printer(self):
+        self.progress_bar.setValue(70)
         printers = scan_printers()
         if printers:
-            self.lbl_check2.setText(u"✔ 打印机外设检测：通过")
-            self.lbl_check2.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
+            self.lbl_badge2.setText(u"✔ 设备就绪")
+            self.lbl_badge2.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
-            self.lbl_check2.setText(u"⚠️ 打印机外设检测：未连接")
-            self.lbl_check2.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
+            self.lbl_badge2.setText(u"⚠️ 未连接")
+            self.lbl_badge2.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
             self.hardware_warnings.append("打印机未连接")
         
-        QTimer.singleShot(150, self._check_shouqianba)
+        QTimer.singleShot(250, self._check_shouqianba)
 
     def _check_shouqianba(self):
-        self.lbl_check3.setText(u"🔄 收钱吧串口检测：正在检测...")
-        self.lbl_check3.setStyleSheet("color: #38BDF8; font-size: 14px; font-weight: bold;")
-        QTimer.singleShot(150, self._do_check_shouqianba)
+        self.progress_bar.setValue(85)
+        self.lbl_badge3.setText(u"正在检测...")
+        self.lbl_badge3.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
+        QTimer.singleShot(250, self._do_check_shouqianba)
 
     def _do_check_shouqianba(self):
+        self.progress_bar.setValue(100)
         from core.shouqianba_sender import test_shouqianba_port
         ok, msg = test_shouqianba_port(self.config)
         if ok:
-            self.lbl_check3.setText(u"✔ 收钱吧串口检测：通过")
-            self.lbl_check3.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold;")
+            self.lbl_badge3.setText(u"✔ 串口通畅")
+            self.lbl_badge3.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             port = self.config.get("shouqianba_port", "COM1")
-            self.lbl_check3.setText(f"⚠️ 收钱吧串口检测：{port} 未连通")
-            self.lbl_check3.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
+            self.lbl_badge3.setText(f"⚠️ {port} 未连通")
+            self.lbl_badge3.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
             self.hardware_warnings.append(f"收钱吧 {port} 未连通")
 
         if self.official_ok:
-            QTimer.singleShot(300, self.accept)
+            QTimer.singleShot(400, self.accept)
         else:
             self.btn_debug.show()
 
