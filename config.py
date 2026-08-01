@@ -45,6 +45,10 @@ DEFAULT_CONFIG = {
     "stable_count": 5,                  # 连续稳定次数才认为稳定
     "auto_start_enabled": True,         # 是否开启开机自启动
     "auto_start_delay": 8,              # 自启动延迟秒数
+    "auto_switch_enabled": True,        # 称重自动弹出/打单自动隐退
+    "floating_ball_enabled": True,      # 常驻悬浮切换球
+    "panic_hotkey": "F10",              # 紧急避险老板键
+    "auto_hide_delay_sec": 3,           # 出票后自动隐退延时(秒)
 
     # 收钱吧 PC收款助手设置
     "shouqianba_enabled": True,         # 开启收钱吧串口/快捷键自动推送

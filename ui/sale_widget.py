@@ -1554,6 +1554,10 @@ class SaleWidget(QWidget):
             if success:
                 self._on_clear()
                 self.refresh_call_number_display()
+                # 触发双系统自动退场倒计时
+                parent_mw = self.window()
+                if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
+                    parent_mw.switch_controller.on_receipt_printed()
             else:
                 err_detail = getattr(self.printer, 'last_error', '') or u"打印机名无效或硬件未连接"
                 show_warning(

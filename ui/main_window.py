@@ -102,6 +102,34 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold; padding-right: 16px;")
         self.status.addPermanentWidget(self.lbl_clock)
 
+        # 4. 智能双系统切换与老板键组件初始化
+        self._init_smart_switch_components()
+
+    def _init_smart_switch_components(self):
+        """初始化称重自动弹出、常驻触屏悬浮球以及全局老板键避险线程"""
+        try:
+            from core.switch_controller import AutoSwitchController
+            from ui.floating_ball import FloatingBall
+            from utils.panic_handler import GlobalHotKeyThread, execute_panic_exit
+
+            # A. 自动流转控制器
+            self.switch_controller = AutoSwitchController(self, self.config)
+            if hasattr(self.sale_page, 'scale') and self.sale_page.scale:
+                self.sale_page.scale.weight_updated.connect(self.switch_controller.on_weight_changed)
+
+            # B. 常驻触屏悬浮球
+            if self.config.get("floating_ball_enabled", True):
+                self.floating_ball = FloatingBall(self)
+                self.floating_ball.show()
+
+            # C. 全局老板键线程 (键盘 F10 备用)
+            panic_key = self.config.get("panic_hotkey", "F10")
+            self.panic_thread = GlobalHotKeyThread(hotkey_name=panic_key, parent=self)
+            self.panic_thread.panic_signal.connect(execute_panic_exit)
+            self.panic_thread.start()
+        except Exception as e:
+            print("[MainWindow] 初始化双系统智能组件异常:", e)
+
     def update_hardware_warnings(self, warnings: list):
         if not warnings:
             self.lbl_hw_status.setText(u"[√] 硬件设备连接良好")
