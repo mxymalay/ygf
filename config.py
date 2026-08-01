@@ -4,6 +4,9 @@
 import os
 import json
 
+# ─── 应用版本号 ───────────────────────────────────────
+APP_VERSION = "v2.1.0"
+
 # ─── 路径 ───────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")

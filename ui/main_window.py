@@ -34,8 +34,9 @@ class MainWindow(QMainWindow):
         self._setup_clock()
 
     def _init_window(self):
+        from config import APP_VERSION
         shop_name = self.config.get("shop_name", u"杨国福麻辣烫")
-        self.setWindowTitle(u"%s · 独立称重与小票打印系统" % shop_name)
+        self.setWindowTitle(u"%s · 独立称重与小票打印系统 %s" % (shop_name, APP_VERSION))
         self.setMinimumSize(960, 640)
         self.resize(1180, 760)
         self.setStyleSheet(DARK_STYLE)
@@ -84,6 +85,11 @@ class MainWindow(QMainWindow):
         # 3. 底部状态栏
         self.status = QStatusBar()
         self.setStatusBar(self.status)
+
+        from config import APP_VERSION
+        self.lbl_ver = QLabel(f"版本: {APP_VERSION}")
+        self.lbl_ver.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold; padding-right: 16px;")
+        self.status.addPermanentWidget(self.lbl_ver)
 
         self.lbl_clock = QLabel()
         self.lbl_clock.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold; padding-right: 16px;")
