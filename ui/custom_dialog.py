@@ -223,6 +223,105 @@ class ModernInputDialog(QDialog):
         self.accept()
 
 
+class ModernDoubleInputDialog(QDialog):
+    """现代风双精度浮点数输入对话框 (用于单价等金额输入)"""
+
+    def __init__(self, title, message, value=1.00, min_val=0.01, max_val=999.99, decimals=2, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+
+        self.input_value = value
+        self.confirmed = False
+
+        card = QFrame(self)
+        card.setObjectName("DialogCard")
+        card.setStyleSheet(
+            "QFrame#DialogCard { background: #1E293B; border-radius: 16px; "
+            "border: 1px solid #334155; }"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.addWidget(card)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(22, 22, 22, 22)
+        card_layout.setSpacing(16)
+
+        # 标题
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
+        card_layout.addWidget(lbl_title)
+
+        # 提示词
+        lbl_msg = QLabel(message)
+        lbl_msg.setWordWrap(True)
+        lbl_msg.setStyleSheet("font-size: 14px; color: #9CA3AF; border: none; background: transparent; line-height: 1.4;")
+        card_layout.addWidget(lbl_msg)
+
+        # 浮点输入框
+        from PyQt5.QtWidgets import QDoubleSpinBox
+        self.spin = QDoubleSpinBox()
+        self.spin.setRange(min_val, max_val)
+        self.spin.setDecimals(decimals)
+        self.spin.setValue(value)
+        self.spin.setSuffix(" 元/KG")
+        self.spin.setStyleSheet(
+            "QDoubleSpinBox { background: #0F172A; color: #10B981; font-size: 22px; font-weight: bold; "
+            "border: 2px solid #10B981; border-radius: 10px; padding: 8px 14px; font-family: 'Consolas', monospace; }"
+        )
+        card_layout.addWidget(self.spin)
+
+        card_layout.addSpacing(6)
+
+        # 按钮栏
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(10)
+        btn_box.addStretch()
+
+        btn_ok = QPushButton("保存单价并开始使用")
+        btn_ok.setCursor(Qt.PointingHandCursor)
+        btn_ok.setStyleSheet(
+            "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 15px; "
+            "border-radius: 10px; padding: 10px 24px; border: 1px solid #059669; }"
+            "QPushButton:hover { background: #059669; }"
+        )
+        btn_ok.clicked.connect(self._on_ok)
+        btn_box.addWidget(btn_ok)
+
+        card_layout.addLayout(btn_box)
+        self.resize(400, 250)
+
+    def _on_ok(self):
+        self.input_value = self.spin.value()
+        self.confirmed = True
+        self.accept()
+
+    def exec_(self):
+        parent_w = self.parent()
+        if parent_w and hasattr(parent_w, 'window'):
+            parent_w = parent_w.window()
+        
+        if parent_w:
+            try:
+                blur = QGraphicsBlurEffect(parent_w)
+                blur.setBlurRadius(42)
+                parent_w.setGraphicsEffect(blur)
+            except Exception:
+                pass
+
+        try:
+            return super().exec_()
+        finally:
+            if parent_w:
+                try:
+                    parent_w.setGraphicsEffect(None)
+                except Exception:
+                    pass
+
+
 # 便捷调用的封装函数
 def show_info(parent, title, message):
     dlg = ModernDialog(title, message, ModernDialog.TYPE_INFO, parent)
@@ -239,6 +338,11 @@ def show_question(parent, title, message) -> bool:
 
 def get_int_input(parent, title, message, value=1, min_val=1, max_val=9999):
     dlg = ModernInputDialog(title, message, value, min_val, max_val, parent)
+    res = dlg.exec_()
+    return dlg.input_value, (res == QDialog.Accepted)
+
+def get_price_input(parent, title, message, value=1.00, min_val=0.01, max_val=999.99):
+    dlg = ModernDoubleInputDialog(title, message, value, min_val, max_val, decimals=2, parent=parent)
     res = dlg.exec_()
     return dlg.input_value, (res == QDialog.Accepted)
 

@@ -33,10 +33,11 @@ DEFAULT_CONFIG = {
     "printer_serial_port": "COM4",
 
     # 业务设置
-    "unit_price": 32.00,                # 单价（元/斤 或 元/公斤）
-    "price_unit": "per_jin",            # "per_jin" | "per_kg"
+    "unit_price": 1.00,                 # 默认单价：1.00 元/kg
+    "price_unit": "per_kg",             # 默认按公斤计价
     "shop_name": "杨国福麻辣烫",
     "shop_subtitle": "杨国福(肥西水晶城店)",
+    "is_first_run": True,               # 首次使用初始化弹窗标记
 
     # 系统设置
     "auto_print": False,                # 称重稳定后自动打印
