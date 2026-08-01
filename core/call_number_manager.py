@@ -19,11 +19,18 @@ class CallNumberManager:
 
     def __init__(self, config):
         self.config = config
-        self._used_numbers = set()
-        self._last_time_slot = self._get_current_time_slot()
-        self._current_manual_no = 1
-        self._current_seq_no = None
+        self._used_numbers = set(self.config.get("call_used_numbers", []))
+        self._last_time_slot = self.config.get("call_last_slot", self._get_current_time_slot())
+        self._current_manual_no = self.config.get("call_manual_no", 1)
+        self._current_seq_no = self.config.get("call_seq_no", None)
         self._cached_next_number = None
+        
+    def _save_state(self):
+        self.config["call_used_numbers"] = list(self._used_numbers)
+        self.config["call_last_slot"] = self._last_time_slot
+        self.config["call_manual_no"] = self._current_manual_no
+        self.config["call_seq_no"] = self._current_seq_no
+        save_config(self.config)
 
     def _get_current_time_slot(self) -> str:
         """获取当前时间段：morning (5-12), afternoon (12-18), evening (18-5)"""
@@ -48,6 +55,7 @@ class CallNumberManager:
         self._used_numbers.clear()
         self._current_seq_no = None
         self._cached_next_number = None
+        self._save_state()
 
     def get_next_number(self) -> int:
         """根据当前模式产生下一个叫号 (正式消耗并标记为已用)"""
@@ -58,6 +66,7 @@ class CallNumberManager:
                 chosen = self._cached_next_number
                 self._used_numbers.add(chosen)
                 self._cached_next_number = None
+                self._save_state()
                 return chosen
             return self._gen_smart_number()
         elif mode == self.MODE_CUSTOM:
@@ -68,6 +77,7 @@ class CallNumberManager:
                     chosen = self._cached_next_number
                     self._used_numbers.add(chosen)
                     self._cached_next_number = None
+                    self._save_state()
                     return chosen
                 return self._gen_custom_number()
         else:
@@ -75,6 +85,7 @@ class CallNumberManager:
             num = self._current_manual_no
             self._current_manual_no += 1
             self._cached_next_number = None
+            self._save_state()
             return num
 
     def peek_next_number(self) -> int:
@@ -135,6 +146,7 @@ class CallNumberManager:
     def set_manual_number(self, val: int):
         self._current_manual_no = val
         self._cached_next_number = None
+        self._save_state()
 
     def _gen_smart_number(self) -> int:
         """智能避重模式生成"""
@@ -161,6 +173,7 @@ class CallNumberManager:
         chosen = random.choice(pool)
         self._used_numbers.add(chosen)
         self._cached_next_number = None
+        self._save_state()
         return chosen
 
     def _gen_custom_number(self) -> int:
@@ -179,6 +192,7 @@ class CallNumberManager:
             self._current_seq_no += 1
             if self._current_seq_no > high:
                 self._current_seq_no = low
+            self._save_state()
             return chosen
         else:
             pool = [n for n in range(low, high + 1) if n not in self._used_numbers]
