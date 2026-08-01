@@ -1550,6 +1550,8 @@ class SaleWidget(QWidget):
             full_sale = dict(record)
             full_sale.update(sale_data)
 
+            log_event(CAT_USER, f"点击付款结算", f"选择方式: {payment_method} | 应付: ¥{total_price:.2f}")
+
             try:
                 success = self.printer.print_receipt(full_sale)
             except Exception as e:
@@ -1557,7 +1559,7 @@ class SaleWidget(QWidget):
                 self.printer.last_error = str(e)
 
             if success:
-                log_event(CAT_USER, f"结账成功: 叫号#{sale_data['call_no']}", f"付款方式: {payment_method} | 总价: ¥{total_price:.2f} | {items_summary}")
+                log_event(CAT_PRINT, f"结账打单完成: 叫号#{sale_data['call_no']}", f"付款方式: {payment_method} | 实付: ¥{total_price:.2f} | {items_summary}")
                 self._on_clear()
                 self.refresh_call_number_display()
                 # 触发双系统自动退场倒计时
