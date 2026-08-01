@@ -224,11 +224,8 @@ class HistoryWidget(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(10)
 
-        # (1) 基础信息 Header
+        # (1) 基础信息 Header (已根据要求去掉 POS 机号等冗余信息)
         meta_row = QHBoxLayout()
-        lbl_meta = QLabel(u"POS机号：1    就餐人数：1    收银员：杨国福(肥西水晶城店)门店经理")
-        lbl_meta.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold; border: none;")
-        meta_row.addWidget(lbl_meta)
         meta_row.addStretch()
         right_col.addLayout(meta_row)
 
@@ -401,6 +398,7 @@ class HistoryWidget(QWidget):
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
         tot = record.get("total_price", 0.0)
         self.lbl_item_total.setText(u"商品金额：¥ %.2f" % tot)
+        self.lbl_discount_total.setText(u"折扣金额：¥ 0.00")
         self.lbl_final_total.setText(u"实收金额：¥ %.2f" % tot)
 
         # 渲染右侧商品列表
@@ -446,17 +444,36 @@ class HistoryWidget(QWidget):
 
                 lbl_qty.setStyleSheet("font-size: 14px; color: #D1D5DB; border: none;")
                 
-                if abs(disc_rate - 1.0) > 0.001:
-                    lbl_price = QLabel(f"<s>¥ {base_price * qty:.2f}</s>  <span style='color:#F59E0B;'>¥ {price:.2f}</span>")
-                else:
-                    lbl_price = QLabel("¥ %.2f" % price)
-                lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
-
                 row_main.addWidget(lbl_name)
                 row_main.addStretch()
                 row_main.addWidget(lbl_qty)
-                row_main.addSpacing(30)
-                row_main.addWidget(lbl_price)
+                
+                if abs(disc_rate - 1.0) > 0.001:
+                    rate_str = f"{disc_rate * 10:g}折"
+                    lbl_disc_rate = QLabel(f"({rate_str})")
+                    lbl_disc_rate.setStyleSheet("color: #F59E0B; border: none; font-size: 13px;")
+                    
+                    lbl_orig_price = QLabel(f"¥ {base_price * qty:.2f}")
+                    font = lbl_orig_price.font()
+                    font.setStrikeOut(True)
+                    lbl_orig_price.setFont(font)
+                    lbl_orig_price.setStyleSheet("color: #9CA3AF; border: none;")
+                    
+                    lbl_price = QLabel(f"¥ {price:.2f}")
+                    lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F59E0B; border: none;")
+
+                    row_main.addSpacing(10)
+                    row_main.addWidget(lbl_disc_rate)
+                    row_main.addSpacing(10)
+                    row_main.addWidget(lbl_orig_price)
+                    row_main.addSpacing(10)
+                    row_main.addWidget(lbl_price)
+                else:
+                    lbl_price = QLabel("¥ %.2f" % price)
+                    lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
+                    row_main.addSpacing(30)
+                    row_main.addWidget(lbl_price)
+
                 item_row.addLayout(row_main)
 
                 if tag and tag != "无":
@@ -467,6 +484,7 @@ class HistoryWidget(QWidget):
                 self.items_layout.addLayout(item_row)
             
             self.lbl_item_total.setText(u"商品金额：¥ %.2f" % original_total)
+            self.lbl_discount_total.setText(u"折扣金额：¥ %.2f" % (original_total - tot))
         else:
             # 兼容旧版本记录
             proj_match = re.search(r"项目:(.*)", remark)
