@@ -49,6 +49,7 @@ class TasteSelectionDialog(QDialog):
 
         self.selected_spice = ""
         self.selected_prefs = set()
+        self.extra_tags = set()
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(18, 26, 18, 18)
@@ -100,6 +101,7 @@ class TasteSelectionDialog(QDialog):
         """解析已有 tag 字符串 (如 '微辣 / 免蒜') 并恢复勾选状态"""
         self.selected_spice = ""
         self.selected_prefs.clear()
+        self.extra_tags.clear()
         for b in self.spicy_btns.values():
             b.setChecked(False)
         for b in self.pref_btns.values():
@@ -116,6 +118,8 @@ class TasteSelectionDialog(QDialog):
             elif p in self.pref_btns:
                 self.selected_prefs.add(p)
                 self.pref_btns[p].setChecked(True)
+            else:
+                self.extra_tags.add(p)
 
     def _select_spice(self, val):
         if self.selected_spice == val:
@@ -206,7 +210,9 @@ class TasteSelectionDialog(QDialog):
         if self.selected_spice:
             tags.append(self.selected_spice)
         tags.extend(sorted(list(self.selected_prefs)))
-        return "/".join(tags)
+        if hasattr(self, 'extra_tags') and self.extra_tags:
+            tags.extend(sorted(list(self.extra_tags)))
+        return " / ".join(tags)
 
 
 class OrderItemCard(QFrame):
