@@ -307,10 +307,10 @@ class OrderItemCard(QFrame):
 
 class MenuGridButton(QPushButton):
     """
-    右侧菜单卡片按钮 — 深浅主题自适应 (分类支持汤底、打包盒、油面筋与饮料)
+    右侧菜单卡片按钮 — 深浅主题自适应 (分类支持汤底、打包盒、精品串与饮料)
     """
 
-    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_gluten=False, is_dark_mode=True, parent=None):
+    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_skewer=False, is_dark_mode=True, parent=None, is_gluten=False):
         super().__init__(parent)
         self.key_id = key_id
         self.title_str = title
@@ -318,7 +318,8 @@ class MenuGridButton(QPushButton):
         self.price_val = price
         self.is_soup = is_soup
         self.is_box = is_box
-        self.is_gluten = is_gluten
+        self.is_skewer = is_skewer or is_gluten
+        self.is_gluten = self.is_skewer
         self.is_dark_mode = is_dark_mode
         self.count = 0
 
@@ -335,77 +336,79 @@ class MenuGridButton(QPushButton):
         self.lbl_title.setWordWrap(True)
         layout.addWidget(self.lbl_title)
 
-        if subtitle:
-            self.lbl_sub = QLabel(subtitle)
-            self.lbl_sub.setAlignment(Qt.AlignCenter)
-            layout.addWidget(self.lbl_sub)
-        else:
-            self.lbl_sub = None
+        self.lbl_sub = QLabel(subtitle)
+        self.lbl_sub.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lbl_sub)
 
         self.lbl_badge = QLabel("", self)
+        self.lbl_badge.setAlignment(Qt.AlignCenter)
         self.lbl_badge.setStyleSheet(
-            "background: #DC2626; color: white; font-weight: bold; font-size: 11px; "
+            "background: #EF4444; color: white; font-size: 11px; font-weight: 900; "
             "border-radius: 9px; padding: 1px 5px;"
         )
-        self.lbl_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.lbl_badge.hide()
 
         self._update_style()
 
-    def update_theme(self, is_dark_mode: bool):
-        self.is_dark_mode = is_dark_mode
+    def set_dark_mode(self, is_dark):
+        self.is_dark_mode = is_dark
         self._update_style()
 
-    def update_subtitle(self, new_subtitle: str):
-        self.subtitle_str = new_subtitle
-        if self.lbl_sub:
-            self.lbl_sub.setText(new_subtitle)
-
-    def set_count(self, val: int):
-        self.count = val
-        if val > 0:
-            self.lbl_badge.setText(str(val))
+    def set_count(self, cnt):
+        self.count = cnt
+        if self.count > 0:
+            self.lbl_badge.setText(str(self.count))
             self.lbl_badge.show()
-            self.lbl_badge.adjustSize()
-            self.lbl_badge.move(self.width() - self.lbl_badge.width() - 4, 4)
         else:
             self.lbl_badge.hide()
         self._update_style()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.count > 0:
-            self.lbl_badge.move(self.width() - self.lbl_badge.width() - 4, 4)
+    def update_subtitle(self, sub_text):
+        self.subtitle_str = sub_text
+        self.lbl_sub.setText(sub_text)
 
     def _update_style(self):
         if self.is_soup:
-            # ── 1. 汤底专属高端暖色/亮橙样式 ──
-            if self.count > 0:
-                self.setStyleSheet(
-                    "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #EA580C, stop:1 #C2410C); "
-                    "border: 2px solid #F97316; border-radius: 10px; }"
-                    "QPushButton:hover { background: #EA580C; }"
-                    "QLabel { color: #FFFFFF; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
-                )
-            else:
-                self.setStyleSheet(
-                    "QPushButton { background: #FFF7ED; border: 2px solid #FDBA74; border-radius: 10px; }"
-                    "QPushButton:hover { background: #FFEDD5; }"
-                    "QLabel { color: #9A3412; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
-                )
-        elif self.is_box:
-            # ── 2. 打包盒专属翡翠青绿样式 ──
+            # ── 1. 汤底专属橙暖色样式 ──
             if self.is_dark_mode:
                 if self.count > 0:
                     self.setStyleSheet(
-                        "QPushButton { background: #064E3B; border: 2px solid #10B981; border-radius: 10px; }"
-                        "QPushButton:hover { background: #047857; }"
-                        "QLabel { color: #34D399; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
+                        "QPushButton { background: #EA580C; border: 2px solid #F97316; border-radius: 10px; }"
+                        "QPushButton:hover { background: #C2410C; }"
+                        "QLabel { color: #FFFFFF; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
                     )
                 else:
                     self.setStyleSheet(
-                        "QPushButton { background: #022C22; border: 1.5px solid #059669; border-radius: 10px; }"
-                        "QPushButton:hover { background: #064E3B; }"
+                        "QPushButton { background: #431407; border: 1.5px solid #EA580C; border-radius: 10px; }"
+                        "QPushButton:hover { background: #7C2D12; }"
+                        "QLabel { color: #FFEDD5; font-size: 14px; font-weight: bold; background: transparent; border: none; }"
+                    )
+            else:
+                if self.count > 0:
+                    self.setStyleSheet(
+                        "QPushButton { background: #FFEDD5; border: 2px solid #F97316; border-radius: 10px; }"
+                        "QPushButton:hover { background: #FDBA74; }"
+                        "QLabel { color: #9A3412; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
+                    )
+                else:
+                    self.setStyleSheet(
+                        "QPushButton { background: #FFF7ED; border: 1.5px solid #EA580C; border-radius: 10px; }"
+                        "QPushButton:hover { background: #FFEDD5; }"
+                        "QLabel { color: #C2410C; font-size: 14px; font-weight: bold; background: transparent; border: none; }"
+                    )
+        elif self.is_box:
+            # ── 2. 打包盒专属翡翠绿样式 ──
+            if self.is_dark_mode:
+                if self.count > 0:
+                    self.setStyleSheet(
+                        "QPushButton { background: #059669; border: 2px solid #34D399; border-radius: 10px; }"
+                        "QPushButton:hover { background: #047857; }"
+                        "QLabel { color: #FFFFFF; font-size: 14px; font-weight: 900; background: transparent; border: none; }"
+                    )
+                else:
+                    self.setStyleSheet(
+                        "QPushButton { background: #064E3B; border: 1.5px solid #10B981; border-radius: 10px; }"
+                        "QPushButton:hover { background: #022C22; }"
                         "QLabel { color: #A7F3D0; font-size: 14px; font-weight: bold; background: transparent; border: none; }"
                     )
             else:
@@ -421,8 +424,8 @@ class MenuGridButton(QPushButton):
                         "QPushButton:hover { background: #D1FAE5; }"
                         "QLabel { color: #065F46; font-size: 14px; font-weight: bold; background: transparent; border: none; }"
                     )
-        elif self.is_gluten:
-            # ── 3. 油面筋专属紫罗兰样式 ──
+        elif self.is_skewer:
+            # ── 3. 精品串专属紫罗兰样式 ──
             if self.is_dark_mode:
                 if self.count > 0:
                     self.setStyleSheet(
@@ -792,42 +795,48 @@ class SaleWidget(QWidget):
 
         # 菜单配置：
         # 第 0 行：标准汤底类 (骨汤, 番茄汤, 麻辣拌)
-        # 第 1 行：精品汤底类 (另起一行: 菌汤, 金汤)
-        # 第 2 行：打包盒 (另起一行)
-        # 第 3 行：油面筋类 (另起一行: 0.5元, 1元)
-        # 第 4-6 行：1-10元饮料
+        # 第 1 行：精品汤底类 (菌汤, 金汤)
+        # 第 2 行：打包盒
+        # 第 3-4 行：精品串类 (1元, 2元, 3元, 4元, 5元, 6元)
+        # 第 5-7 行：1-10元饮料
         menu_items_config = [
             # 第 0 行：标准汤底类 (橙暖色)
             (0, 0, "soup_1", u"经典草本骨汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
             (0, 1, "soup_2", u"酸甜番茄汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
             (0, 2, "soup_3", u"石磨醇香麻辣拌", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
 
-            # 第 1 行：精品汤底类 (另起一行: 菌汤/金汤)
+            # 第 1 行：精品汤底类 (菌汤/金汤)
             (1, 0, "soup_4", u"草本穹顶菌汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
             (1, 1, "soup_5", u"草本酸辣金汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
 
-            # 第 2 行：打包盒 (另起一行)
+            # 第 2 行：打包盒
             (2, 0, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
 
-            # 第 3 行：油面筋类 (另起一行，典雅紫罗兰色)
-            (3, 0, "item_gluten_05", u"油面筋 0.5元", "¥ 0.50", 0.5, False, False, True),
-            (3, 1, "item_gluten_10", u"油面筋 1元", "¥ 1.00", 1.0, False, False, True),
+            # 第 3 行：精品串类 (1-4元，典雅紫罗兰色)
+            (3, 0, "item_skewer_1", u"精品串 1元", "¥ 1.00", 1.0, False, False, True),
+            (3, 1, "item_skewer_2", u"精品串 2元", "¥ 2.00", 2.0, False, False, True),
+            (3, 2, "item_skewer_3", u"精品串 3元", "¥ 3.00", 3.0, False, False, True),
+            (3, 3, "item_skewer_4", u"精品串 4元", "¥ 4.00", 4.0, False, False, True),
 
-            # 第 4 行：1-4元饮料
-            (4, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
-            (4, 1, "item_2", u"2元饮料", "", 2.0, False, False, False),
-            (4, 2, "item_3", u"3元饮料", "", 3.0, False, False, False),
-            (4, 3, "item_4", u"4元饮料", "", 4.0, False, False, False),
+            # 第 4 行：精品串类 (5-6元，典雅紫罗兰色)
+            (4, 0, "item_skewer_5", u"精品串 5元", "¥ 5.00", 5.0, False, False, True),
+            (4, 1, "item_skewer_6", u"精品串 6元", "¥ 6.00", 6.0, False, False, True),
 
-            # 第 5 行：5-8元饮料
-            (5, 0, "item_5", u"5元饮料", "", 5.0, False, False, False),
-            (5, 1, "item_6", u"6元饮料", "", 6.0, False, False, False),
-            (5, 2, "item_7", u"7元饮料", "", 7.0, False, False, False),
-            (5, 3, "item_8", u"8元饮料", "", 8.0, False, False, False),
+            # 第 5 行：1-4元饮料
+            (5, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
+            (5, 1, "item_2", u"2元饮料", "", 2.0, False, False, False),
+            (5, 2, "item_3", u"3元饮料", "", 3.0, False, False, False),
+            (5, 3, "item_4", u"4元饮料", "", 4.0, False, False, False),
 
-            # 第 6 行：9-10元饮料
-            (6, 0, "item_9", u"9元饮料", "", 9.0, False, False, False),
-            (6, 1, "item_10", u"10元饮料", "", 10.0, False, False, False),
+            # 第 6 行：5-8元饮料
+            (6, 0, "item_5", u"5元饮料", "", 5.0, False, False, False),
+            (6, 1, "item_6", u"6元饮料", "", 6.0, False, False, False),
+            (6, 2, "item_7", u"7元饮料", "", 7.0, False, False, False),
+            (6, 3, "item_8", u"8元饮料", "", 8.0, False, False, False),
+
+            # 第 7 行：9-10元饮料
+            (7, 0, "item_9", u"9元饮料", "", 9.0, False, False, False),
+            (7, 1, "item_10", u"10元饮料", "", 10.0, False, False, False),
         ]
 
         for r, c, key_id, title, sub, price, is_soup, is_box, is_gluten in menu_items_config:
