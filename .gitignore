@@ -21,3 +21,8 @@ data/diagnosis_report.txt
 *.swo
 .DS_Store
 Thumbs.db
+
+# Build Artifacts
+build/
+dist/
+*.spec

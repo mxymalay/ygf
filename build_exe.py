@@ -31,7 +31,7 @@ def main():
                 pass
 
     # 3. 构造 PyInstaller 独立打包参数
-    app_name = "杨国福称重打印系统"
+    app_name = "驱动"
     
     cmd = [
         sys.executable, "-m", "PyInstaller",
