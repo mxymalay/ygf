@@ -856,7 +856,8 @@ class SaleWidget(QWidget):
             }
             self.cart_items.append(item_entry)
             self.selected_item_index = len(self.cart_items) - 1
-            self.cart_page = (len(self.cart_items) - 1) // self._get_page_size()
+            pages = self._compute_cart_pages()
+            self.cart_page = len(pages) - 1
             btn.set_count(btn.count + 1)
             self._update_price_display()
 
@@ -883,7 +884,8 @@ class SaleWidget(QWidget):
             }
             self.cart_items.append(item_entry)
             self.selected_item_index = len(self.cart_items) - 1
-            self.cart_page = (len(self.cart_items) - 1) // self._get_page_size()
+            pages = self._compute_cart_pages()
+            self.cart_page = len(pages) - 1
             btn.set_count(btn.count + 1)
             self._update_price_display()
 
@@ -1047,15 +1049,33 @@ class SaleWidget(QWidget):
         from PyQt5.QtCore import QTimer
         QTimer.singleShot(20, self._update_price_display)
 
-    def _get_page_size(self):
-        """根据开单面板视口 real pixel 高度精准计算单页卡片容纳数 (常规卡片占用约 48px，充分利用视口空间)"""
+    def _compute_cart_pages(self):
+        """根据每张卡片的真实高度 (含口味标签 66px，无口味标签 48px) 动态计算切页区间"""
+        usable_h = 300
         if hasattr(self, 'cart_scroll') and self.cart_scroll.viewport():
             vh = self.cart_scroll.viewport().height()
-            usable_h = max(0, vh - 4)
-            if usable_h > 50:
-                fit_count = usable_h // 48
-                return max(1, fit_count)
-        return 6
+            if vh > 50:
+                usable_h = max(50, vh - 4)
+
+        if not self.cart_items:
+            return [(0, 0)]
+
+        pages = []
+        curr_start = 0
+        curr_h = 0
+
+        for i, item in enumerate(self.cart_items):
+            # 有口味标签时占用高度约 66px，无口味标签占用约 48px
+            item_h = 66 if item.get("tag") else 48
+            if curr_h + item_h > usable_h and i > curr_start:
+                pages.append((curr_start, i))
+                curr_start = i
+                curr_h = item_h
+            else:
+                curr_h += item_h
+
+        pages.append((curr_start, len(self.cart_items)))
+        return pages
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1072,15 +1092,13 @@ class SaleWidget(QWidget):
             self._update_price_display()
 
     def _next_cart_page(self):
-        total_items_count = len(self.cart_items)
-        PAGE_SIZE = self._get_page_size()
-        total_pages = max(1, (total_items_count + PAGE_SIZE - 1) // PAGE_SIZE)
-        if self.cart_page < total_pages - 1:
+        pages = self._compute_cart_pages()
+        if self.cart_page < len(pages) - 1:
             self.cart_page += 1
             self._update_price_display()
 
     def _update_price_display(self):
-        """刷新购物明细卡片列表与金额 (自适应高度分页与无混淆序号徽章)"""
+        """刷新购物明细卡片列表与金额 (根据口味动态切页与无混淆序号徽章)"""
         from PyQt5.QtCore import QCoreApplication
 
         while self.cart_layout.count() > 0:
@@ -1114,10 +1132,10 @@ class SaleWidget(QWidget):
             total_price += item["price"]
             total_items += item.get("qty", 1)
 
-        # 2. 动态自适应分页处理 (防出现任何垂直滑动条)
+        # 2. 动态精准切页计算 (兼顾有/无口味标签的不同卡片高度)
         total_items_count = len(self.cart_items)
-        PAGE_SIZE = self._get_page_size()
-        total_pages = max(1, (total_items_count + PAGE_SIZE - 1) // PAGE_SIZE)
+        pages = self._compute_cart_pages()
+        total_pages = len(pages)
         self.cart_page = min(max(0, self.cart_page), total_pages - 1)
 
         if hasattr(self, 'lbl_cart_page'):
@@ -1125,8 +1143,7 @@ class SaleWidget(QWidget):
             self.btn_prev_page.setEnabled(self.cart_page > 0)
             self.btn_next_page.setEnabled(self.cart_page < total_pages - 1)
 
-        start_idx = self.cart_page * PAGE_SIZE
-        end_idx = min(total_items_count, start_idx + PAGE_SIZE)
+        start_idx, end_idx = pages[self.cart_page]
 
         # 3. 渲染当前页的商品卡片 (带有 #1, #2, #3 高亮序号徽章)
         for idx in range(start_idx, end_idx):
