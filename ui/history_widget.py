@@ -40,9 +40,9 @@ class OrderCard(QFrame):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
 
-        # 第一行：POS点餐：050         已支付
+        # 第一行：取餐号：050         已支付
         row1 = QHBoxLayout()
-        lbl_title = QLabel(u"📋 POS点餐：%s" % call_no)
+        lbl_title = QLabel(u"📋 取餐号：%s" % call_no)
         lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
 
         lbl_status = QLabel(u"已支付")
@@ -175,7 +175,7 @@ class HistoryWidget(QWidget):
         header_bar.addSpacing(16)
 
         # 选中的订单标题
-        self.lbl_header_title = QLabel(u"📋 POS点餐：---")
+        self.lbl_header_title = QLabel(u"📋 取餐号：---")
         self.lbl_header_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #F9FAFB; border: none;")
         header_bar.addWidget(self.lbl_header_title)
 
@@ -342,20 +342,23 @@ class HistoryWidget(QWidget):
         right_action_row = QHBoxLayout()
         right_action_row.setSpacing(8)
 
-        btn_r_prev = QPushButton(u"上一页")
-        btn_r_prev.setStyleSheet("background: #EA580C; color: white; font-weight: bold; padding: 8px 16px; border-radius: 6px; border: none;")
-        btn_r_next = QPushButton(u"下一页")
-        btn_r_next.setStyleSheet("background: #EA580C; color: white; font-weight: bold; padding: 8px 16px; border-radius: 6px; border: none;")
-
-        right_action_row.addWidget(btn_r_prev)
-        right_action_row.addWidget(btn_r_next)
         right_action_row.addStretch()
 
-        btn_reprint = QPushButton(u"重打印")
-        btn_reprint.setStyleSheet("background: #EA580C; color: white; font-weight: 900; font-size: 15px; padding: 8px 24px; border-radius: 6px; border: none;")
-        btn_reprint.clicked.connect(self._on_reprint_click)
+        btn_reprint_customer = QPushButton(u"重打顾客单")
+        btn_reprint_customer.setStyleSheet("background: #374151; color: white; font-weight: bold; font-size: 14px; padding: 10px 20px; border-radius: 6px; border: none;")
+        btn_reprint_customer.clicked.connect(lambda checked=False: self._on_reprint_click("customer"))
 
-        right_action_row.addWidget(btn_reprint)
+        btn_reprint_kitchen = QPushButton(u"重打制作单")
+        btn_reprint_kitchen.setStyleSheet("background: #374151; color: white; font-weight: bold; font-size: 14px; padding: 10px 20px; border-radius: 6px; border: none;")
+        btn_reprint_kitchen.clicked.connect(lambda checked=False: self._on_reprint_click("kitchen"))
+
+        btn_reprint_all = QPushButton(u"全部重打")
+        btn_reprint_all.setStyleSheet("background: #EA580C; color: white; font-weight: 900; font-size: 15px; padding: 10px 24px; border-radius: 6px; border: none;")
+        btn_reprint_all.clicked.connect(lambda checked=False: self._on_reprint_click("all"))
+
+        right_action_row.addWidget(btn_reprint_customer)
+        right_action_row.addWidget(btn_reprint_kitchen)
+        right_action_row.addWidget(btn_reprint_all)
 
         right_col.addLayout(right_action_row)
 
@@ -450,7 +453,7 @@ class HistoryWidget(QWidget):
                 w.set_selected(w.record == record)
 
         if not record:
-            self.lbl_header_title.setText(u"📋 POS点餐：---")
+            self.lbl_header_title.setText(u"📋 取餐号：---")
             self.lbl_order_no.setText(u"订单编号：---")
             self.lbl_create_time.setText(u"创建时间：---")
             self.lbl_item_total.setText(u"商品金额：¥ 0.00")
@@ -466,7 +469,7 @@ class HistoryWidget(QWidget):
         temp_order_match = re.search(r"单号:(\w+)", remark)
         temp_order_no = temp_order_match.group(1) if temp_order_match else record.get("sale_no", "")
 
-        self.lbl_header_title.setText(u"📋 POS点餐：%s" % call_no)
+        self.lbl_header_title.setText(u"📋 取餐号：%s" % call_no)
         self.lbl_order_no.setText(u"订单编号：%s" % temp_order_no)
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
         tot = record.get("total_price", 0.0)
@@ -626,7 +629,7 @@ class HistoryWidget(QWidget):
         self.items_layout.addStretch()
 
     # ─── 操作按钮 ───
-    def _on_reprint_click(self):
+    def _on_reprint_click(self, ptype="all"):
         if not self.selected_record:
             from ui.custom_dialog import show_warning
             show_warning(self, u"提示", u"请先选择要补打小票的订单！")
@@ -640,6 +643,19 @@ class HistoryWidget(QWidget):
             temp_order_match = re.search(r"单号:(\w+)", remark)
             temp_order_no = temp_order_match.group(1) if temp_order_match else r.get("sale_no", "")
 
+            # 提取真实的订单列表数据以供打印，而不是随便塞一个占位符
+            import json
+            cart_items = []
+            cart_items_json = r.get("cart_items_json")
+            if cart_items_json:
+                try:
+                    cart_items = json.loads(cart_items_json)
+                except Exception:
+                    pass
+            if not cart_items:
+                # 兜底：如果找不到 JSON 记录就用占位符
+                cart_items = [{"name": u"重打印历史订单", "price": r.get("total_price", 0.0)}]
+
             sale_data = {
                 "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
                 "shop_subtitle": self.config.get("shop_subtitle", ""),
@@ -650,14 +666,14 @@ class HistoryWidget(QWidget):
                 "price_unit": r.get("price_unit", "per_jin"),
                 "total_price": r.get("total_price", 0.0),
                 "temp_order_no": temp_order_no,
-                "cart_items": [{"name": u"重打印订单", "price": r.get("total_price", 0.0)}],
+                "cart_items": cart_items,
                 "created_at": str(r.get("created_at", ""))
             }
 
-            success = self.printer.print_receipt(sale_data)
+            success = self.printer.print_receipt(sale_data, print_type=ptype)
             if success:
                 from ui.custom_dialog import show_info
-                show_info(self, u"打印成功", u"订单小票已成功重打印！")
+                show_info(self, u"打印成功", u"订单小票已成功重发至打印机！")
             else:
                 from ui.custom_dialog import show_warning
                 show_warning(self, u"打印失败", u"无法连接硬件打印机，请检查串口与电缆！")

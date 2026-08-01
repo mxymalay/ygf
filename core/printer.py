@@ -194,21 +194,21 @@ class ReceiptPrinter:
         d += self.FEED_LINES + self.CUT_PARTIAL
         return bytes(d)
 
-    def print_receipt(self, sale):
-        """全流程小票打印入口"""
-        customer_bytes = self._build_customer_receipt(sale)
-
-        cart_items = sale.get("cart_items", [])
-        malatang_items = [i for i in cart_items if (i.get("type") == "soup" or "weight" in i)]
+    def print_receipt(self, sale, print_type="all"):
+        """全流程小票打印入口, print_type: all | customer | kitchen"""
+        all_raw_data = bytearray()
         
-        kitchen_bytes_list = []
-        for idx, item in enumerate(malatang_items, start=1):
-            ks_bytes = self._build_kitchen_slip(sale, item, idx)
-            kitchen_bytes_list.append(ks_bytes)
+        if print_type in ("all", "customer"):
+            customer_bytes = self._build_customer_receipt(sale)
+            all_raw_data += customer_bytes
 
-        all_raw_data = bytearray(customer_bytes)
-        for kb in kitchen_bytes_list:
-            all_raw_data += kb
+        if print_type in ("all", "kitchen"):
+            cart_items = sale.get("cart_items", [])
+            malatang_items = [i for i in cart_items if (i.get("type") == "soup" or "weight" in i)]
+            
+            for idx, item in enumerate(malatang_items, start=1):
+                ks_bytes = self._build_kitchen_slip(sale, item, idx)
+                all_raw_data += ks_bytes
 
         pt = self.config.get("printer_type", "windows")
         if self.config.get("is_mock_mode", False):
