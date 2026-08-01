@@ -20,6 +20,7 @@ class OrderCard(QFrame):
 
     def __init__(self, record, is_selected=False, parent=None):
         super().__init__(parent)
+        self.setObjectName("OrderCard")
         self.record = record
         self.is_selected = is_selected
         self.setCursor(Qt.PointingHandCursor)
@@ -42,10 +43,10 @@ class OrderCard(QFrame):
         # 第一行：POS点餐：050 堂食         已支付
         row1 = QHBoxLayout()
         lbl_title = QLabel(u"📋 POS点餐：%s 堂食" % call_no)
-        lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none;")
+        lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
 
         lbl_status = QLabel(u"已支付")
-        lbl_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #EA580C; border: none;")
+        lbl_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #EA580C; border: none; background: transparent;")
 
         row1.addWidget(lbl_title)
         row1.addStretch()
@@ -55,10 +56,10 @@ class OrderCard(QFrame):
         # 第二行：2026-07-31 21:12:05     实收：¥ 38.83
         row2 = QHBoxLayout()
         lbl_time = QLabel(created_at)
-        lbl_time.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
+        lbl_time.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none; background: transparent;")
 
         lbl_amount = QLabel(u"实收：¥ %.2f" % r.get("total_price", 0.0))
-        lbl_amount.setStyleSheet("font-size: 13px; font-weight: bold; color: #D1D5DB; border: none;")
+        lbl_amount.setStyleSheet("font-size: 13px; font-weight: bold; color: #D1D5DB; border: none; background: transparent;")
 
         row2.addWidget(lbl_time)
         row2.addStretch()
@@ -74,12 +75,14 @@ class OrderCard(QFrame):
     def _update_style(self):
         if self.is_selected:
             self.setStyleSheet(
-                "QFrame { background: #1E293B; border: 2px solid #EA580C; border-radius: 8px; }"
+                "#OrderCard { background: #1E293B; border: 2px solid #EA580C; border-radius: 8px; }\n"
+                "#OrderCard QLabel { background: transparent; border: none; }"
             )
         else:
             self.setStyleSheet(
-                "QFrame { background: #111827; border: none; border-radius: 8px; }"
-                "QFrame:hover { background: #1F2937; }"
+                "#OrderCard { background: #111827; border: 1px solid transparent; border-radius: 8px; }\n"
+                "#OrderCard:hover { background: #1F2937; }\n"
+                "#OrderCard QLabel { background: transparent; border: none; }"
             )
 
 
