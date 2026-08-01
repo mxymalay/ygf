@@ -43,6 +43,8 @@ def main():
         # 用户点击退出或直接关闭窗口
         sys.exit(0)
 
+    config["is_mock_mode"] = getattr(login_dlg, 'is_mock_mode', False)
+
     # 2. 验证通过 (或选择跳过进入模拟调试)，打开主系统
     window = MainWindow(config)
     window.showMaximized()

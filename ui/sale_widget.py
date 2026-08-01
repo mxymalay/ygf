@@ -597,6 +597,30 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
+        # 模拟调试模式下显示的“🎲 随机重量”按键
+        self.btn_random_weight = QPushButton(u"🎲 随机重量")
+        self.btn_random_weight.setToolTip(u"点击随机生成测试重量，右键可精确设定")
+        self.btn_random_weight.setCursor(Qt.PointingHandCursor)
+        self.btn_random_weight.setFocusPolicy(Qt.NoFocus)
+        self.btn_random_weight.setStyleSheet("""
+            QPushButton {
+                background-color: #D97706; color: #FFFFFF; font-size: 13px; font-weight: bold;
+                padding: 5px 12px; border-radius: 6px; border: 1px solid #F59E0B; outline: none;
+            }
+            QPushButton:hover { background-color: #F59E0B; }
+            QPushButton:pressed { background-color: #B45309; }
+        """)
+        self.btn_random_weight.clicked.connect(self._on_random_weight_click)
+        self.btn_random_weight.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.btn_random_weight.customContextMenuRequested.connect(self._on_random_weight_menu)
+        led_layout.addWidget(self.btn_random_weight)
+
+        if self.config.get("is_mock_mode", False):
+            self.lbl_scale_status_icon.hide()
+            self.btn_random_weight.show()
+        else:
+            self.btn_random_weight.hide()
+
         self.lbl_weight = QLabel("00.000 kg")
         self.lbl_weight.setStyleSheet(
             "font-size: 36px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
@@ -1256,6 +1280,9 @@ class SaleWidget(QWidget):
 
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
+        if not connected or self.config.get("is_mock_mode", False):
+            self.lbl_scale_status_icon.hide()
+            self.btn_random_weight.show()
         if not connected:
             self.lbl_scale_status_icon.setText(u"✕")
             self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
@@ -1274,6 +1301,38 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setText(u"✕")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
+
+    def _on_random_weight_click(self):
+        weights = [0.320, 0.450, 0.580, 0.640, 0.760, 0.850, 0.980, 1.150]
+        w = random.choice(weights)
+        w = round(w + random.uniform(-0.02, 0.02), 3)
+        w = max(0.100, w)
+        self._on_weight_update(w)
+        self._on_weight_stable(w)
+
+    def _on_random_weight_menu(self, pos):
+        from PyQt5.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #1E293B; color: #F9FAFB; border: 1px solid #334155; border-radius: 6px; padding: 4px 0; }
+            QMenu::item { padding: 6px 20px; font-size: 13px; }
+            QMenu::item:selected { background-color: #EA580C; color: white; }
+        """)
+        
+        for preset in [0.300, 0.500, 0.800, 1.000, 1.200]:
+            act = menu.addAction(u"设置重量: %.3f kg" % preset)
+            act.triggered.connect(lambda checked, val=preset: (self._on_weight_update(val), self._on_weight_stable(val)))
+            
+        act_custom = menu.addAction(u"自定义输入克数...")
+        def ask_custom():
+            val, ok = get_int_input(self, u"自定义重量", u"请输入克数 (例: 500 表示 0.5kg):", 500, 1, 99999)
+            if ok:
+                w = round(val / 1000.0, 3)
+                self._on_weight_update(w)
+                self._on_weight_stable(w)
+        act_custom.triggered.connect(ask_custom)
+        
+        menu.exec_(self.btn_random_weight.mapToGlobal(pos))
 
     def _on_print(self):
         """确认收款 -> 弹出模拟小票预览与 10s 倒计时 -> 确认/到期打票"""

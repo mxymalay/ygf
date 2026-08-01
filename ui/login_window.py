@@ -45,10 +45,12 @@ class LoginWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(480, 560)
-        
+        self.is_mock_mode = False
         self._build_ui()
+
+    def _on_debug_click(self):
+        self.is_mock_mode = True
+        self.accept()
         
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -159,7 +161,7 @@ class LoginWindow(QDialog):
             QPushButton:hover { background-color: rgba(245, 158, 11, 0.1); }
             QPushButton:focus { outline: none; }
         """)
-        self.btn_debug.clicked.connect(self.accept)
+        self.btn_debug.clicked.connect(self._on_debug_click)
         check_layout.addWidget(self.btn_debug)
         
         card_layout.addWidget(self.check_widget)
