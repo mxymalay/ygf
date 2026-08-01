@@ -12,11 +12,13 @@ from PyQt5.QtGui import QColor, QFont
 
 
 # 结账方式常量
-PAYMENT_SCAN = "scan"       # 扫码机器付款
-PAYMENT_CASH = "cash"       # 现金付款
-PAYMENT_QR   = "qr"         # 收钱吧/二维码/转账
+PAYMENT_SQB  = "shouqianba"  # 收钱吧 PC 客户端自动调起
+PAYMENT_SCAN = "scan"        # 主扫
+PAYMENT_CASH = "cash"        # 现金
+PAYMENT_QR   = "qr"          # 被扫/静态码
 
 PAYMENT_LABELS = {
+    PAYMENT_SQB:  "收钱吧",
     PAYMENT_SCAN: "主扫",
     PAYMENT_CASH: "现金",
     PAYMENT_QR:   "被扫",
@@ -136,6 +138,8 @@ class CheckoutDialog(QDialog):
         # ════════════════════════════════════════════════════════════
         # 右侧：付款方式选择面板（仅按钮悬浮）
         # ════════════════════════════════════════════════════════════
+        # 右侧：顶部主入口【收钱吧】 + 底部 3 备选正方形网格
+        # ════════════════════════════════════════════════════════════
         right_frame = QFrame()
         right_frame.setObjectName("PaymentRight")
         right_frame.setStyleSheet(
@@ -147,80 +151,119 @@ class CheckoutDialog(QDialog):
         right_layout.setSpacing(16)
         right_layout.setAlignment(Qt.AlignCenter)
 
-        # ── 三个竖排精致付款按钮 ──
-        btn_configs = [
-            (PAYMENT_SCAN, u"💳", u"已主动收款", u"已通过POS/扫码终端主动扫码",
+        self.pay_buttons = []
+
+        # ── 1. 顶部最上方主要入口：收钱吧 自动调起支付 ──
+        sqb_frame = QFrame()
+        sqb_frame.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #C2410C, stop:1 #EA580C);
+                border-radius: 16px; border: 2px solid #F97316;
+            }
+        """)
+        sqb_layout = QHBoxLayout(sqb_frame)
+        sqb_layout.setContentsMargins(20, 18, 20, 18)
+        sqb_layout.setSpacing(14)
+
+        lbl_sqb_icon = QLabel(u"⚡")
+        lbl_sqb_icon.setStyleSheet("font-size: 38px; border: none; background: transparent; color: #FFEDD5;")
+        lbl_sqb_icon.setAlignment(Qt.AlignCenter)
+        sqb_layout.addWidget(lbl_sqb_icon)
+
+        sqb_text_col = QVBoxLayout()
+        sqb_text_col.setSpacing(4)
+        sqb_text_col.addStretch()
+
+        badge_row = QHBoxLayout()
+        badge_row.setSpacing(6)
+        lbl_sqb_title = QLabel(u"收钱吧 自动收款")
+        lbl_sqb_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
+        badge_row.addWidget(lbl_sqb_title)
+
+        lbl_badge = QLabel(u" 主推荐入口 ")
+        lbl_badge.setStyleSheet("background: #FEF08A; color: #854D0E; font-size: 11px; font-weight: 900; border-radius: 4px; padding: 2px 6px; border: none;")
+        badge_row.addWidget(lbl_badge)
+        badge_row.addStretch()
+
+        sqb_text_col.addLayout(badge_row)
+
+        lbl_sqb_desc = QLabel(u"自动唤起收钱吧PC客户端，推送订单金额并出票")
+        lbl_sqb_desc.setStyleSheet("font-size: 13px; color: #FFEDD5; border: none; background: transparent;")
+        sqb_text_col.addWidget(lbl_sqb_desc)
+
+        sqb_text_col.addStretch()
+        sqb_layout.addLayout(sqb_text_col, stretch=1)
+
+        btn_sqb_overlay = QPushButton("", sqb_frame)
+        btn_sqb_overlay.setCursor(Qt.PointingHandCursor)
+        btn_sqb_overlay.setStyleSheet("""
+            QPushButton { background: transparent; border: none; }
+            QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-radius: 16px; }
+            QPushButton:pressed { background: rgba(255, 255, 255, 0.22); border-radius: 16px; }
+        """)
+        btn_sqb_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_SQB))
+        sqb_frame.resizeEvent = lambda event, ob=btn_sqb_overlay, bf=sqb_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
+
+        right_layout.addWidget(sqb_frame, stretch=2)
+        self.pay_buttons.append(btn_sqb_overlay)
+
+        # ── 2. 底部 3 个缩小正方形 / grid 备选按键 ──
+        grid_layout = QHBoxLayout()
+        grid_layout.setSpacing(12)
+
+        sub_configs = [
+            (PAYMENT_SCAN, u"💳", u"主扫收款", u"POS主动扫码",
              "#064E3B", "#059669", "#10B981", "#A7F3D0"),
-            (PAYMENT_CASH, u"💵", u"已现金收款", u"已收到顾客现金",
+            (PAYMENT_CASH, u"💵", u"现金收款", u"收到顾客现金",
              "#1E3A5F", "#2563EB", "#3B82F6", "#93C5FD"),
-            (PAYMENT_QR,   u"📱", u"已被动收款", u"顾客已扫描收钱吧/微信/支付宝二维码",
+            (PAYMENT_QR,   u"📱", u"被扫/静态码", u"顾客扫二维码",
              "#4C1D95", "#7C3AED", "#8B5CF6", "#DDD6FE"),
         ]
 
-        self.pay_buttons = []
-        for method, icon, title, desc, bg_dark, bg_main, bg_hover, fg_accent in btn_configs:
-            btn_frame = QFrame()
-            btn_frame.setStyleSheet(f"""
+        for method, icon, title, desc, bg_dark, bg_main, bg_hover, fg_accent in sub_configs:
+            sub_frame = QFrame()
+            sub_frame.setStyleSheet(f"""
                 QFrame {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                         stop:0 {bg_dark}, stop:1 {bg_main});
                     border-radius: 14px; border: 1px solid {bg_hover};
                 }}
             """)
-            btn_layout = QHBoxLayout(btn_frame)
-            btn_layout.setContentsMargins(16, 14, 16, 14)
-            btn_layout.setSpacing(12)
+            sub_box = QVBoxLayout(sub_frame)
+            sub_box.setContentsMargins(10, 14, 10, 14)
+            sub_box.setSpacing(6)
+            sub_box.setAlignment(Qt.AlignCenter)
 
+            lbl_sub_icon = QLabel(icon)
+            lbl_sub_icon.setStyleSheet("font-size: 28px; border: none; background: transparent;")
+            lbl_sub_icon.setAlignment(Qt.AlignCenter)
+            sub_box.addWidget(lbl_sub_icon)
 
-            lbl_icon = QLabel(icon)
-            lbl_icon.setStyleSheet("font-size: 32px; border: none; background: transparent;")
-            lbl_icon.setAlignment(Qt.AlignCenter)
-            btn_layout.addWidget(lbl_icon)
+            lbl_sub_title = QLabel(title)
+            lbl_sub_title.setAlignment(Qt.AlignCenter)
+            lbl_sub_title.setStyleSheet(f"font-size: 16px; font-weight: 900; color: {fg_accent}; border: none; background: transparent;")
+            sub_box.addWidget(lbl_sub_title)
 
-            text_col = QVBoxLayout()
-            text_col.setSpacing(6)
-            text_col.addStretch()
+            lbl_sub_desc = QLabel(desc)
+            lbl_sub_desc.setAlignment(Qt.AlignCenter)
+            lbl_sub_desc.setStyleSheet("font-size: 11px; color: rgba(255,255,255,0.7); border: none; background: transparent;")
+            sub_box.addWidget(lbl_sub_desc)
 
-            lbl_btn_title = QLabel(title)
-            lbl_btn_title.setStyleSheet(
-                f"font-size: 24px; font-weight: 900; color: {fg_accent}; "
-                "border: none; background: transparent;"
-            )
-            text_col.addWidget(lbl_btn_title)
-
-            lbl_btn_desc = QLabel(desc)
-            lbl_btn_desc.setStyleSheet(
-                "font-size: 13px; color: rgba(255,255,255,0.65); "
-                "border: none; background: transparent;"
-            )
-            text_col.addWidget(lbl_btn_desc)
-
-            text_col.addStretch()
-            btn_layout.addLayout(text_col, stretch=1)
-
-            # 覆盖的透明按钮 (全区域可点击)
-            overlay_btn = QPushButton("", btn_frame)
-            overlay_btn.setCursor(Qt.PointingHandCursor)
-            overlay_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: none;
-                }}
-                QPushButton:hover {{
-                    background: rgba(255, 255, 255, 0.08);
-                    border-radius: 14px;
-                }}
-                QPushButton:pressed {{
-                    background: rgba(255, 255, 255, 0.15);
-                    border-radius: 14px;
-                }}
+            sub_overlay = QPushButton("", sub_frame)
+            sub_overlay.setCursor(Qt.PointingHandCursor)
+            sub_overlay.setStyleSheet("""
+                QPushButton { background: transparent; border: none; }
+                QPushButton:hover { background: rgba(255, 255, 255, 0.1); border-radius: 14px; }
+                QPushButton:pressed { background: rgba(255, 255, 255, 0.2); border-radius: 14px; }
             """)
-            overlay_btn.clicked.connect(lambda checked, m=method: self._on_payment_selected(m))
+            sub_overlay.clicked.connect(lambda checked, m=method: self._on_payment_selected(m))
+            sub_frame.resizeEvent = lambda event, ob=sub_overlay, bf=sub_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-            # 让覆盖按钮跟随 frame 大小
-            btn_frame.resizeEvent = lambda event, ob=overlay_btn, bf=btn_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
+            grid_layout.addWidget(sub_frame, stretch=1)
+            self.pay_buttons.append(sub_overlay)
 
-            right_layout.addWidget(btn_frame, stretch=1)
-            self.pay_buttons.append(overlay_btn)
+        right_layout.addLayout(grid_layout, stretch=2)
 
         root.addWidget(right_frame, stretch=3)
 
