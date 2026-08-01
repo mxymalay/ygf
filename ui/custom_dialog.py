@@ -394,8 +394,8 @@ class FirstRunInitDialog(QDialog):
         )
         card_layout.addWidget(self.spin)
 
-        # 字段 2: 精品汤底单价 (菌汤/金汤)
-        lbl_sp = QLabel("2. 本店精品汤底单价(菌汤/金汤) (元/KG)：")
+        # 字段 2: 精品汤底单价
+        lbl_sp = QLabel("2. 本店精品汤底单价 (元/KG)：")
         lbl_sp.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none; margin-top: 2px;")
         card_layout.addWidget(lbl_sp)
 

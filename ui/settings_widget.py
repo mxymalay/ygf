@@ -118,7 +118,7 @@ class SettingsWidget(QWidget):
         self.spin_default_price.setDecimals(2)
         bg.addWidget(self.spin_default_price, 3, 1)
 
-        bg.addWidget(QLabel(u"精品汤底单价(菌汤/金汤)："), 3, 2)
+        bg.addWidget(QLabel(u"精品汤底单价："), 3, 2)
         self.spin_special_price = QDoubleSpinBox()
         self.spin_special_price.setRange(0.01, 999.99)
         self.spin_special_price.setValue(self.config.get("special_soup_price", self.config.get("soup_price_4", 25.00)))

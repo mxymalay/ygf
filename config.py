@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
 
     # 业务设置
     "unit_price": 1.00,                 # 标准汤底单价：1.00 元/kg
-    "special_soup_price": 50.00,        # 精品汤底单价(菌汤/金汤)：50.00 元/kg
+    "special_soup_price": 50.00,        # 精品汤底单价：50.00 元/kg
     "price_unit": "per_kg",             # 默认按公斤计价
     "shop_name": "杨国福麻辣烫",
     "shop_subtitle": "杨国福(测试店)",
