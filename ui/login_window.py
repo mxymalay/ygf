@@ -3,7 +3,7 @@ import time
 import subprocess
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QWidget, QGraphicsDropShadowEffect, QSizePolicy
+    QWidget, QGraphicsDropShadowEffect, QSizePolicy, QProgressBar, QFrame
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
