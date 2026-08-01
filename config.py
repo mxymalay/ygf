@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     "unit_price": 1.00,                 # 默认单价：1.00 元/kg
     "price_unit": "per_kg",             # 默认按公斤计价
     "shop_name": "杨国福麻辣烫",
-    "shop_subtitle": "杨国福(肥西水晶城店)",
+    "shop_subtitle": "杨国福(测试店)",
     "is_first_run": True,               # 首次使用初始化弹窗标记
 
     # 系统设置

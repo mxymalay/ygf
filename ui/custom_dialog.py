@@ -322,6 +322,124 @@ class ModernDoubleInputDialog(QDialog):
                     pass
 
 
+class FirstRunInitDialog(QDialog):
+    """首次使用初始化对话框 (设置公斤单价与分店名称)"""
+
+    def __init__(self, title, message, default_price=1.00, default_branch="杨国福(测试店)", parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+
+        self.price_val = default_price
+        self.branch_val = default_branch
+        self.confirmed = False
+
+        card = QFrame(self)
+        card.setObjectName("DialogCard")
+        card.setStyleSheet(
+            "QFrame#DialogCard { background: #1E293B; border-radius: 16px; "
+            "border: 1px solid #334155; }"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.addWidget(card)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(22, 22, 22, 22)
+        card_layout.setSpacing(12)
+
+        # 标题
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
+        card_layout.addWidget(lbl_title)
+
+        # 提示词
+        lbl_msg = QLabel(message)
+        lbl_msg.setWordWrap(True)
+        lbl_msg.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none; background: transparent; line-height: 1.4;")
+        card_layout.addWidget(lbl_msg)
+
+        # 字段 1: 麻辣烫单价
+        lbl_p = QLabel("1. 本店麻辣烫单价 (元/KG)：")
+        lbl_p.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none;")
+        card_layout.addWidget(lbl_p)
+
+        from PyQt5.QtWidgets import QDoubleSpinBox, QLineEdit
+        self.spin = QDoubleSpinBox()
+        self.spin.setRange(0.01, 999.99)
+        self.spin.setDecimals(2)
+        self.spin.setValue(default_price)
+        self.spin.setSuffix(" 元/KG")
+        self.spin.setStyleSheet(
+            "QDoubleSpinBox { background: #0F172A; color: #10B981; font-size: 20px; font-weight: bold; "
+            "border: 2px solid #10B981; border-radius: 8px; padding: 6px 12px; font-family: 'Consolas', monospace; }"
+        )
+        card_layout.addWidget(self.spin)
+
+        # 字段 2: 分店名称 (修改括号内容)
+        lbl_b = QLabel("2. 本店分店名称 (请修改括号内门店名)：")
+        lbl_b.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none; margin-top: 4px;")
+        card_layout.addWidget(lbl_b)
+
+        self.txt_branch = QLineEdit(default_branch)
+        self.txt_branch.setPlaceholderText("例如：杨国福(肥西水晶城店)")
+        self.txt_branch.setStyleSheet(
+            "QLineEdit { background: #0F172A; color: #38BDF8; font-size: 15px; font-weight: bold; "
+            "border: 2px solid #0284C7; border-radius: 8px; padding: 8px 12px; }"
+        )
+        card_layout.addWidget(self.txt_branch)
+
+        card_layout.addSpacing(6)
+
+        # 按钮栏
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(10)
+        btn_box.addStretch()
+
+        btn_ok = QPushButton("保存初始化配置并开始使用")
+        btn_ok.setCursor(Qt.PointingHandCursor)
+        btn_ok.setStyleSheet(
+            "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 15px; "
+            "border-radius: 10px; padding: 10px 24px; border: 1px solid #059669; }"
+            "QPushButton:hover { background: #059669; }"
+        )
+        btn_ok.clicked.connect(self._on_ok)
+        btn_box.addWidget(btn_ok)
+
+        card_layout.addLayout(btn_box)
+        self.resize(440, 360)
+
+    def _on_ok(self):
+        self.price_val = self.spin.value()
+        self.branch_val = self.txt_branch.text().strip() or "杨国福(测试店)"
+        self.confirmed = True
+        self.accept()
+
+    def exec_(self):
+        parent_w = self.parent()
+        if parent_w and hasattr(parent_w, 'window'):
+            parent_w = parent_w.window()
+        
+        if parent_w:
+            try:
+                blur = QGraphicsBlurEffect(parent_w)
+                blur.setBlurRadius(42)
+                parent_w.setGraphicsEffect(blur)
+            except Exception:
+                pass
+
+        try:
+            return super().exec_()
+        finally:
+            if parent_w:
+                try:
+                    parent_w.setGraphicsEffect(None)
+                except Exception:
+                    pass
+
+
 # 便捷调用的封装函数
 def show_info(parent, title, message):
     dlg = ModernDialog(title, message, ModernDialog.TYPE_INFO, parent)
@@ -345,6 +463,11 @@ def get_price_input(parent, title, message, value=1.00, min_val=0.01, max_val=99
     dlg = ModernDoubleInputDialog(title, message, value, min_val, max_val, decimals=2, parent=parent)
     res = dlg.exec_()
     return dlg.input_value, (res == QDialog.Accepted)
+
+def get_first_run_input(parent, title, message, default_price=1.00, default_branch="杨国福(测试店)"):
+    dlg = FirstRunInitDialog(title, message, default_price, default_branch, parent=parent)
+    res = dlg.exec_()
+    return dlg.price_val, dlg.branch_val, (res == QDialog.Accepted)
 
 
 class ReceiptPreviewDialog(QDialog):

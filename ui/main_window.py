@@ -150,26 +150,34 @@ class MainWindow(QMainWindow):
             self.queue_page._load_settings()
 
     def _check_first_run_price(self):
-        """首次使用初始化弹窗，提示用户设定/修改公斤单价"""
+        """首次使用初始化弹窗，提示用户设定/修改公斤单价与分店名称"""
         if self.config.get("is_first_run", True):
-            from ui.custom_dialog import get_price_input
+            from ui.custom_dialog import get_first_run_input
             from config import save_config
-            price, ok = get_price_input(
+            price, branch_name, ok = get_first_run_input(
                 self,
                 title=u"👋 欢迎使用 - 首次初始化设置",
-                message=u"系统已切换为【默认按公斤 (KG) 称重计价】\n请确认或修改本店的麻辣烫单价 (元/KG)：",
-                value=self.config.get("unit_price", 1.00)
+                message=u"系统已切换为【默认按公斤 (KG) 称重计价】\n请设定本店的基础信息与计价单价：",
+                default_price=self.config.get("unit_price", 1.00),
+                default_branch=self.config.get("shop_subtitle", "杨国福(测试店)")
             )
             if ok:
                 self.config["unit_price"] = price
                 self.config["price_unit"] = "per_kg"
+                self.config["shop_subtitle"] = branch_name
                 self.config["is_first_run"] = False
                 save_config(self.config)
                 
+                # 刷新各页面显示
                 if hasattr(self, 'sale_page'):
                     self.sale_page.refresh_unit_price_info()
-                if hasattr(self, 'settings_page') and hasattr(self.settings_page, 'spin_default_price'):
-                    self.settings_page.spin_default_price.setValue(price)
+                if hasattr(self, 'settings_page'):
+                    if hasattr(self.settings_page, 'spin_default_price'):
+                        self.settings_page.spin_default_price.setValue(price)
+                    if hasattr(self.settings_page, 'txt_shop_subtitle'):
+                        self.settings_page.txt_shop_subtitle.setText(branch_name)
+                if hasattr(self, 'sidebar'):
+                    self.sidebar.set_sub_title(branch_name)
 
     def closeEvent(self, event):
         self.sale_page.cleanup()
