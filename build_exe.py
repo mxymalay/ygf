@@ -16,7 +16,7 @@ def main():
     # 1. 检查并安装 PyInstaller
     try:
         import PyInstaller
-        print("[✓] PyInstaller 已就绪")
+        print("[v] PyInstaller 已就绪")
     except ImportError:
         print("[!] 正在安装 PyInstaller 独立编译组件...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"])
@@ -37,7 +37,7 @@ def main():
         sys.executable, "-m", "PyInstaller",
         "--name=%s" % app_name,
         "--noconsole",          # 纯图形界面，不弹出黑色终端窗口
-        "--onedir",             # 生成绿色免安装软件包 (内置所有 Python 运行组件)
+        "--onefile",            # 生成纯单文件 EXE (无需携带任何子文件夹，单个文件即可运行)
         "--clean",
         "--hidden-import=win32print",
         "--hidden-import=win32api",
@@ -54,19 +54,17 @@ def main():
     res = subprocess.call(cmd)
 
     if res == 0:
-        dist_dir = os.path.join("dist", app_name)
-        data_dir = os.path.join(dist_dir, "data")
-        os.makedirs(data_dir, exist_ok=True)
+        dist_file = os.path.join("dist", "%s.exe" % app_name)
         
         print("\n" + "=" * 60)
-        print(" [v] 打包成功！可执行文件位于 dist/ 目录下。")
-        print(" [📁] 绿色版软件位置:")
-        print("      %s\\%s.exe" % (os.path.abspath(dist_dir), app_name))
+        print(" [v] 打包成功！单文件可执行程序位于 dist/ 目录下。")
+        print(" [Exe] 单文件程序位置:")
+        print("      %s" % os.path.abspath(dist_file))
         print("=" * 60)
-        print("💡 重要提示：")
-        print("   把 'dist\\%s' 整个文件夹打包压缩发送到任何新电脑或收银机上，" % app_name)
+        print("[!] 重要提示：")
+        print("   只需要把 'dist\\%s.exe' 这一个文件发送到任何新电脑或收银机上，" % app_name)
         print("   直接双击 '%s.exe' 即可直接启动运行！" % app_name)
-        print("   💥 目标收银机电脑【完全不需要安装 Python】或任何环境！")
+        print("   (!) 目标收银机电脑【完全不需要安装 Python】或任何环境！")
         print("=" * 60)
     else:
         print("\n[X] 打包失败，请检查编译日志！")

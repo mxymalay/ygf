@@ -7,8 +7,14 @@ import json
 # ─── 应用版本号 ───────────────────────────────────────
 APP_VERSION = "v1.0.0"
 
+import sys
+
 # ─── 路径 ───────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
