@@ -38,15 +38,16 @@ def main():
         save_config(config)
 
     # 1. 弹出登录与检测界面
-    login_dlg = LoginWindow()
+    login_dlg = LoginWindow(config)
     if login_dlg.exec_() != QDialog.Accepted:
         # 用户点击退出或直接关闭窗口
         sys.exit(0)
 
     config["is_mock_mode"] = getattr(login_dlg, 'is_mock_mode', False)
+    hw_warnings = getattr(login_dlg, 'hardware_warnings', [])
 
     # 2. 验证通过 (或选择跳过进入模拟调试)，打开主系统
-    window = MainWindow(config)
+    window = MainWindow(config, hardware_warnings=hw_warnings)
     window.showMaximized()
 
     sys.exit(app.exec_())

@@ -194,3 +194,37 @@ def send_shouqianba_amount(amount: float, config: dict):
     """
     t = threading.Thread(target=_do_send_amount, args=(amount, config), daemon=True)
     t.start()
+
+
+def test_shouqianba_port(config: dict):
+    """
+    自检测试：向配置的收钱吧串口发送数据测试连通性
+    返回 (is_ok: bool, message: str)
+    """
+    enabled = config.get("shouqianba_enabled", True)
+    if not enabled:
+        return False, "功能已禁用"
+
+    port = config.get("shouqianba_port", "COM1")
+    baudrate = int(config.get("shouqianba_baudrate", 2400))
+    fmt = config.get("shouqianba_format", "QA")
+
+    payload = "QA0.00\r\n" if fmt == "QA" else "0.00\r\n"
+
+    try:
+        ser = serial.Serial()
+        ser.port = port
+        ser.baudrate = baudrate
+        ser.timeout = 0.3
+        ser.write_timeout = 0.3
+        ser.rtscts = False
+        ser.dsrdtr = False
+
+        ser.open()
+        ser.dtr = True
+        ser.rts = True
+        ser.write(payload.encode("ascii"))
+        ser.close()
+        return True, f"端口 {port} ({baudrate}bps) 连通正常"
+    except Exception as e:
+        return False, f"端口 {port} 未连通"

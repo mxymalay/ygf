@@ -22,9 +22,10 @@ from ui.styles import DARK_STYLE, LIGHT_STYLE
 class MainWindow(QMainWindow):
     """应用主窗口"""
 
-    def __init__(self, config):
+    def __init__(self, config, hardware_warnings=None):
         super().__init__()
         self.config = config
+        self.hardware_warnings = hardware_warnings or []
         self.db = Database()
         self.call_mgr = CallNumberManager(config)
         self.is_dark_mode = True
@@ -95,6 +96,10 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
+        self.lbl_hw_status = QLabel()
+        self.status.addWidget(self.lbl_hw_status)
+        self.update_hardware_warnings(self.hardware_warnings)
+
         from config import APP_VERSION
         self.lbl_ver = QLabel(f"版本: {APP_VERSION}")
         self.lbl_ver.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: bold; padding-right: 16px;")
@@ -103,6 +108,15 @@ class MainWindow(QMainWindow):
         self.lbl_clock = QLabel()
         self.lbl_clock.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold; padding-right: 16px;")
         self.status.addPermanentWidget(self.lbl_clock)
+
+    def update_hardware_warnings(self, warnings: list):
+        if not warnings:
+            self.lbl_hw_status.setText(u"🟢 硬件设备连接良好")
+            self.lbl_hw_status.setStyleSheet("color: #10B981; font-size: 13px; font-weight: bold; padding-left: 12px;")
+        else:
+            warn_msg = " | ".join(warnings)
+            self.lbl_hw_status.setText(f"⚠️ 硬件告警: {warn_msg} (已启用软件应急备用通道)")
+            self.lbl_hw_status.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold; padding-left: 12px;")
 
 
 
