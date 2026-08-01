@@ -341,13 +341,14 @@ class FocusSelectLineEdit(QLineEdit):
 class FirstRunInitDialog(QDialog):
     """首次使用初始化对话框 (设置公斤单价与分店名称)"""
 
-    def __init__(self, title, message, default_price=1.00, default_branch="杨国福(测试店)", parent=None):
+    def __init__(self, title, message, default_price=1.00, default_special_price=50.00, default_branch="杨国福(测试店)", parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
         self.price_val = default_price
+        self.special_price_val = default_special_price
         self.branch_val = default_branch
         self.confirmed = False
 
@@ -364,7 +365,7 @@ class FirstRunInitDialog(QDialog):
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(22, 22, 22, 22)
-        card_layout.setSpacing(12)
+        card_layout.setSpacing(10)
 
         # 标题
         lbl_title = QLabel(title)
@@ -377,8 +378,8 @@ class FirstRunInitDialog(QDialog):
         lbl_msg.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none; background: transparent; line-height: 1.4;")
         card_layout.addWidget(lbl_msg)
 
-        # 字段 1: 麻辣烫单价
-        lbl_p = QLabel("1. 本店麻辣烫单价 (元/KG)：")
+        # 字段 1: 麻辣烫标准单价
+        lbl_p = QLabel("1. 本店标准麻辣烫单价 (元/KG)：")
         lbl_p.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none;")
         card_layout.addWidget(lbl_p)
 
@@ -393,9 +394,25 @@ class FirstRunInitDialog(QDialog):
         )
         card_layout.addWidget(self.spin)
 
-        # 字段 2: 分店名称 (锁定杨国福与括号，用户仅填写括号内容)
-        lbl_b = QLabel("2. 本店分店名称：")
-        lbl_b.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none; margin-top: 4px;")
+        # 字段 2: 精品汤底单价 (菌汤/金汤)
+        lbl_sp = QLabel("2. 本店精品汤底单价(菌汤/金汤) (元/KG)：")
+        lbl_sp.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none; margin-top: 2px;")
+        card_layout.addWidget(lbl_sp)
+
+        self.spin_special = FocusSelectDoubleSpinBox()
+        self.spin_special.setRange(0.01, 999.99)
+        self.spin_special.setDecimals(2)
+        self.spin_special.setValue(default_special_price)
+        self.spin_special.setSuffix(" 元/KG")
+        self.spin_special.setStyleSheet(
+            "QDoubleSpinBox { background: #0F172A; color: #F59E0B; font-size: 20px; font-weight: bold; "
+            "border: 2px solid #F59E0B; border-radius: 8px; padding: 6px 12px; font-family: 'Consolas', monospace; }"
+        )
+        card_layout.addWidget(self.spin_special)
+
+        # 字段 3: 分店名称 (锁定杨国福与括号，用户仅填写括号内容)
+        lbl_b = QLabel("3. 本店分店名称：")
+        lbl_b.setStyleSheet("font-size: 14px; font-weight: bold; color: #F3F4F6; border: none; margin-top: 2px;")
         card_layout.addWidget(lbl_b)
 
         branch_row = QHBoxLayout()
@@ -444,10 +461,11 @@ class FirstRunInitDialog(QDialog):
         btn_box.addWidget(btn_ok)
 
         card_layout.addLayout(btn_box)
-        self.resize(440, 360)
+        self.resize(460, 420)
 
     def _on_ok(self):
         self.price_val = self.spin.value()
+        self.special_price_val = self.spin_special.value()
         user_inner = self.txt_branch.text().strip()
         user_inner = user_inner.replace("杨国福", "").replace("(", "").replace(")", "").strip()
         if not user_inner:
@@ -503,10 +521,10 @@ def get_price_input(parent, title, message, value=1.00, min_val=0.01, max_val=99
     res = dlg.exec_()
     return dlg.input_value, (res == QDialog.Accepted)
 
-def get_first_run_input(parent, title, message, default_price=1.00, default_branch="杨国福(测试店)"):
-    dlg = FirstRunInitDialog(title, message, default_price, default_branch, parent=parent)
+def get_first_run_input(parent, title, message, default_price=1.00, default_special_price=50.00, default_branch="杨国福(测试店)"):
+    dlg = FirstRunInitDialog(title, message, default_price, default_special_price, default_branch, parent=parent)
     res = dlg.exec_()
-    return dlg.price_val, dlg.branch_val, (res == QDialog.Accepted)
+    return dlg.price_val, dlg.special_price_val, dlg.branch_val, (res == QDialog.Accepted)
 
 
 class ReceiptPreviewDialog(QDialog):

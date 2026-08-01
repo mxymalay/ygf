@@ -156,15 +156,17 @@ class MainWindow(QMainWindow):
         if self.config.get("is_first_run", True):
             from ui.custom_dialog import get_first_run_input
             from config import save_config
-            price, branch_name, ok = get_first_run_input(
+            price, special_price, branch_name, ok = get_first_run_input(
                 self,
                 title=u"👋 欢迎使用 - 首次初始化设置",
                 message=u"系统已切换为【默认按公斤 (KG) 称重计价】\n请设定本店的基础信息与计价单价：",
                 default_price=self.config.get("unit_price", 1.00),
+                default_special_price=self.config.get("special_soup_price", 50.00),
                 default_branch=self.config.get("shop_subtitle", "杨国福(测试店)")
             )
             if ok:
                 self.config["unit_price"] = price
+                self.config["special_soup_price"] = special_price
                 self.config["price_unit"] = "per_kg"
                 self.config["shop_subtitle"] = branch_name
                 self.config["is_first_run"] = False
@@ -177,6 +179,8 @@ class MainWindow(QMainWindow):
                 if hasattr(self, 'settings_page'):
                     if hasattr(self.settings_page, 'spin_default_price'):
                         self.settings_page.spin_default_price.setValue(price)
+                    if hasattr(self.settings_page, 'spin_special_price'):
+                        self.settings_page.spin_special_price.setValue(special_price)
                     if hasattr(self.settings_page, 'txt_sub'):
                         self.settings_page.txt_sub.setText(branch_name)
 
