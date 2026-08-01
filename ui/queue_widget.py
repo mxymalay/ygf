@@ -363,9 +363,7 @@ class QueueWidget(QWidget):
         # ══════════════════════════════════════════════════════════════
         # 模块 二：已用叫号池与防重监控 (Pool Status Monitor)
         # ══════════════════════════════════════════════════════════════
-        sec2_lbl = QLabel(u"二、已用取餐号池")
-        sec2_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #10B981; margin-top: 10px;")
-        layout.addWidget(sec2_lbl)
+
 
         pool_frame = QFrame()
         pool_frame.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; }")
