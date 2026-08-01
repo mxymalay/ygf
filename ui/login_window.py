@@ -39,6 +39,83 @@ def check_ygf_official_running() -> bool:
     return False
 
 
+class NumericKeypad(QWidget):
+    """虚拟触摸数字键盘 (4x4 包含 0-9, 00, ., 清空, 确定)"""
+
+    def __init__(self, on_key_press, on_clear, on_confirm, parent=None):
+        super().__init__(parent)
+        self.on_key_press = on_key_press
+        self.on_clear = on_clear
+        self.on_confirm = on_confirm
+        self._build_ui()
+
+    def _build_ui(self):
+        from PyQt5.QtWidgets import QGridLayout
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(8)
+
+        # 键盘按键布局数据
+        # (row, col, text, row_span, col_span, style_class)
+        buttons = [
+            (0, 0, "1", 1, 1, "num"),
+            (0, 1, "2", 1, 1, "num"),
+            (0, 2, "3", 1, 1, "num"),
+            (0, 3, u"清空", 1, 1, "clear"),
+
+            (1, 0, "4", 1, 1, "num"),
+            (1, 1, "5", 1, 1, "num"),
+            (1, 2, "6", 1, 1, "num"),
+            (1, 3, u"确定", 3, 1, "confirm"),
+
+            (2, 0, "7", 1, 1, "num"),
+            (2, 1, "8", 1, 1, "num"),
+            (2, 2, "9", 1, 1, "num"),
+
+            (3, 0, "0", 1, 1, "num"),
+            (3, 1, "00", 1, 1, "num"),
+            (3, 2, ".", 1, 1, "num"),
+        ]
+
+        for r, c, txt, r_span, c_span, btype in buttons:
+            btn = QPushButton(txt)
+            btn.setFocusPolicy(Qt.NoFocus)
+            btn.setCursor(Qt.PointingHandCursor)
+
+            if btype == "num":
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #1E293B; color: #F8FAFC; font-size: 18px; font-weight: bold;
+                        border: 1px solid #334155; border-radius: 10px; min-height: 44px;
+                    }
+                    QPushButton:hover { background-color: #334155; border-color: #475569; }
+                    QPushButton:pressed { background-color: #475569; }
+                """)
+                btn.clicked.connect(lambda _, t=txt: self.on_key_press(t))
+            elif btype == "clear":
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #334155; color: #F8FAFC; font-size: 15px; font-weight: bold;
+                        border: 1px solid #475569; border-radius: 10px; min-height: 44px;
+                    }
+                    QPushButton:hover { background-color: #475569; }
+                    QPushButton:pressed { background-color: #64748B; }
+                """)
+                btn.clicked.connect(self.on_clear)
+            elif btype == "confirm":
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #EA580C; color: #FFFFFF; font-size: 18px; font-weight: bold;
+                        border: none; border-radius: 10px;
+                    }
+                    QPushButton:hover { background-color: #C2410C; }
+                    QPushButton:pressed { background-color: #9A3412; }
+                """)
+                btn.clicked.connect(self.on_confirm)
+
+            grid.addWidget(btn, r, c, r_span, c_span)
+
+
 class LoginWindow(QDialog):
     """现代化登录界面与环境检测"""
     
@@ -47,6 +124,7 @@ class LoginWindow(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.is_mock_mode = False
+        self.active_input = None
         self._build_ui()
 
     def _on_debug_click(self):
@@ -55,7 +133,7 @@ class LoginWindow(QDialog):
         
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setContentsMargins(15, 15, 15, 15)
         
         self.card = QWidget()
         self.card.setObjectName("LoginCard")
@@ -76,55 +154,68 @@ class LoginWindow(QDialog):
         self.card.setGraphicsEffect(shadow)
         
         card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(40, 50, 40, 50)
-        card_layout.setSpacing(24)
+        card_layout.setContentsMargins(30, 35, 30, 35)
+        card_layout.setSpacing(16)
         
         # 标题区
         self.title_lbl = QLabel(u"Realtek 外设驱动配置向导")
         self.title_lbl.setAlignment(Qt.AlignCenter)
-        self.title_lbl.setStyleSheet("color: #F8FAFC; font-size: 26px; font-weight: 900; letter-spacing: 2px;")
+        self.title_lbl.setStyleSheet("color: #F8FAFC; font-size: 24px; font-weight: 900; letter-spacing: 1px;")
         card_layout.addWidget(self.title_lbl)
         
         self.sub_lbl = QLabel(u"Hardware Device Driver Setup Wizard")
         self.sub_lbl.setAlignment(Qt.AlignCenter)
-        self.sub_lbl.setStyleSheet("color: #64748B; font-size: 14px; margin-bottom: 20px;")
+        self.sub_lbl.setStyleSheet("color: #64748B; font-size: 13px; margin-bottom: 10px;")
         card_layout.addWidget(self.sub_lbl)
         
         # 输入表单区 (初始可见)
         self.form_widget = QWidget()
         form_layout = QVBoxLayout(self.form_widget)
         form_layout.setContentsMargins(0, 0, 0, 0)
-        form_layout.setSpacing(16)
+        form_layout.setSpacing(12)
         
         self.txt_user = QLineEdit("")
         self.txt_user.setPlaceholderText("请输入管理员账号")
         self.txt_user.setStyleSheet("""
             QLineEdit {
                 background-color: #1E293B; color: #F8FAFC; font-size: 16px; font-weight: bold;
-                padding: 14px 16px; border-radius: 12px; border: 2px solid #334155;
+                padding: 12px 14px; border-radius: 10px; border: 2px solid #334155;
             }
             QLineEdit:focus { border: 2px solid #38BDF8; }
         """)
+        self.txt_user.focusInEvent = lambda e: (QLineEdit.focusInEvent(self.txt_user, e), self._set_active_input(self.txt_user))
         form_layout.addWidget(self.txt_user)
         
         self.txt_pwd = QLineEdit("")
         self.txt_pwd.setPlaceholderText("请输入管理员密码")
         self.txt_pwd.setEchoMode(QLineEdit.Password)
         self.txt_pwd.setStyleSheet(self.txt_user.styleSheet())
+        self.txt_pwd.focusInEvent = lambda e: (QLineEdit.focusInEvent(self.txt_pwd, e), self._set_active_input(self.txt_pwd))
         form_layout.addWidget(self.txt_pwd)
+
+        # 默认选中账号输入框
+        self.active_input = self.txt_user
         
-        self.btn_login = QPushButton(u"验证权限并启动向导")
+        self.btn_login = QPushButton(u"确认登录")
         self.btn_login.setCursor(Qt.PointingHandCursor)
         self.btn_login.setStyleSheet("""
             QPushButton {
-                background-color: #EA580C; color: white; font-size: 18px; font-weight: bold;
-                padding: 14px 0; border-radius: 12px; border: none; margin-top: 10px;
+                background-color: #EA580C; color: white; font-size: 17px; font-weight: bold;
+                padding: 12px 0; border-radius: 10px; border: none; margin-top: 4px;
             }
             QPushButton:hover { background-color: #C2410C; }
             QPushButton:pressed { background-color: #9A3412; }
         """)
         self.btn_login.clicked.connect(self._on_login_click)
         form_layout.addWidget(self.btn_login)
+
+        # 数字触控键盘
+        self.keypad = NumericKeypad(
+            on_key_press=self._on_keypad_press,
+            on_clear=self._on_keypad_clear,
+            on_confirm=self._on_login_click
+        )
+        form_layout.addWidget(self.keypad)
         
         self.lbl_err = QLabel("")
         self.lbl_err.setAlignment(Qt.AlignCenter)
@@ -185,9 +276,21 @@ class LoginWindow(QDialog):
         bottom_bar.addWidget(self.btn_debug)
         
         card_layout.addLayout(bottom_bar)
-        
         main_layout.addWidget(self.card)
-        
+
+    def _set_active_input(self, widget):
+        self.active_input = widget
+
+    def _on_keypad_press(self, text):
+        if self.active_input and isinstance(self.active_input, QLineEdit):
+            self.active_input.insert(text)
+            self.active_input.setFocus()
+
+    def _on_keypad_clear(self):
+        if self.active_input and isinstance(self.active_input, QLineEdit):
+            self.active_input.clear()
+            self.active_input.setFocus()
+
     def _on_login_click(self):
         user = self.txt_user.text().strip()
         pwd = self.txt_pwd.text().strip()
