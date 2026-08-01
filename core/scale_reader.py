@@ -83,6 +83,7 @@ class ScaleReader(QObject):
         self._stable_threshold = config.get("stable_threshold", 0.01)
         self._stable_count = config.get("stable_count", 5)
 
+        self._locked_weight = -1.0
         self._ygf_serial_dir = r"C:\YANGGUOFU-POS\serial"
 
     def start(self):
@@ -108,6 +109,19 @@ class ScaleReader(QObject):
         self.stop()
         time.sleep(0.3)
         self.start()
+
+    def _apply_fluctuation_filter(self, w: float) -> float:
+        """
+        消除 0.01kg 范围内的读数跳动：
+        1. 初次或跳动超过 0.01kg，说明是真实重量改变（放上/拿走），重新锁定。
+        2. 如果在 0.01kg 范围内跳动，取较大的值并锁定，不再向下跳动。
+        """
+        if self._locked_weight < 0 or abs(w - self._locked_weight) > 0.01:
+            self._locked_weight = w
+        else:
+            if w > self._locked_weight:
+                self._locked_weight = w
+        return self._locked_weight
 
     def _run_loop(self):
         """主循环 — 绑定官方系统串口日志读取"""
@@ -181,8 +195,9 @@ class ScaleReader(QObject):
                 lines = content.strip().splitlines()
                 found_new = False
                 for line in reversed(lines[-50:]):
-                    w = self._parse_ygf_log_line(line)
-                    if w is not None:
+                    raw_w = self._parse_ygf_log_line(line)
+                    if raw_w is not None:
+                        w = self._apply_fluctuation_filter(raw_w)
                         self.weight_updated.emit(w)
                         self._check_stability(w)
                         last_weight = w
