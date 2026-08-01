@@ -895,7 +895,7 @@ class SaleWidget(QWidget):
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
-            skip_flavor_popup = ("番茄汤" in soup_clean_name or "麻辣拌" in soup_clean_name)
+            skip_flavor_popup = ("骨汤" not in soup_clean_name)
             
             w = self.current_weight
             soup_unit_price = btn.price if (btn.price > 0) else unit_price
