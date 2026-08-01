@@ -17,9 +17,9 @@ PAYMENT_CASH = "cash"       # 现金付款
 PAYMENT_QR   = "qr"         # 收钱吧/二维码/转账
 
 PAYMENT_LABELS = {
-    PAYMENT_SCAN: "扫码机器付款",
-    PAYMENT_CASH: "现金付款",
-    PAYMENT_QR:   "收钱吧/二维码/转账",
+    PAYMENT_SCAN: "主扫",
+    PAYMENT_CASH: "现金",
+    PAYMENT_QR:   "被扫",
 }
 
 
@@ -131,11 +131,11 @@ class CheckoutDialog(QDialog):
 
         # ── 三个竖排精致付款按钮 ──
         btn_configs = [
-            (PAYMENT_SCAN, u"💳", u"扫码机器付款", u"已通过POS刷卡/扫码终端付款",
+            (PAYMENT_SCAN, u"💳", u"主扫", u"已通过POS/扫码终端主动扫码",
              "#064E3B", "#059669", "#10B981", "#A7F3D0"),
-            (PAYMENT_CASH, u"💵", u"现金付款", u"已收到顾客现金",
+            (PAYMENT_CASH, u"💵", u"现金", u"已收到顾客现金",
              "#1E3A5F", "#2563EB", "#3B82F6", "#93C5FD"),
-            (PAYMENT_QR,   u"📱", u"收钱吧/二维码/转账", u"已通过微信/支付宝/转账收款",
+            (PAYMENT_QR,   u"📱", u"被扫", u"顾客已扫描收钱吧/微信/支付宝二维码",
              "#4C1D95", "#7C3AED", "#8B5CF6", "#DDD6FE"),
         ]
 
