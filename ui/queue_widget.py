@@ -204,10 +204,16 @@ class QueueWidget(QWidget):
         layout.addLayout(header_layout)
 
         # 模式选择下拉框
+        mode_box = QFrame()
+        mode_box.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; }")
+        mb_layout = QVBoxLayout(mode_box)
+        mb_layout.setContentsMargins(16, 16, 16, 16)
+        mb_layout.setSpacing(14)
+        
         from PyQt5.QtWidgets import QComboBox, QStackedWidget
         mode_select_layout = QHBoxLayout()
         lbl_ms = QLabel(u"当前模式：")
-        lbl_ms.setStyleSheet("font-size: 14px; font-weight: bold; color: #D1D5DB;")
+        lbl_ms.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none; background: transparent;")
         mode_select_layout.addWidget(lbl_ms)
         
         self.cmb_mode = QComboBox()
@@ -216,9 +222,22 @@ class QueueWidget(QWidget):
             u"模式二：自定义范围叫号",
             u"模式三：传统手动模式"
         ])
-        self.cmb_mode.setStyleSheet("QComboBox { font-size: 14px; padding: 6px; border-radius: 6px; background: #334155; color: white; border: 1px solid #475569; } QComboBox::drop-down { border: none; }")
-        mode_select_layout.addWidget(self.cmb_mode, stretch=1)
+        self.cmb_mode.setStyleSheet("""
+            QComboBox { 
+                font-size: 15px; font-weight: bold; padding: 8px 16px; 
+                border-radius: 8px; background: #0F172A; color: #F9FAFB; border: 1px solid #334155; 
+            }
+            QComboBox::drop-down { border: none; }
+        """)
+        mode_select_layout.addWidget(self.cmb_mode)
+        mode_select_layout.addStretch()
         mb_layout.addLayout(mode_select_layout)
+        
+        # 分割线
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("border: none; background: #334155; max-height: 1px; margin: 6px 0;")
+        mb_layout.addWidget(line)
         
         self.stack_mode = QStackedWidget()
         self.stack_mode.setStyleSheet("background: transparent;")
@@ -228,7 +247,7 @@ class QueueWidget(QWidget):
 
         # ── 模式一：智能避重 ──
         card_smart = QFrame()
-        card_smart.setStyleSheet("QFrame { background-color: #0F172A; border-radius: 8px; }")
+        card_smart.setStyleSheet("QFrame { background: transparent; border: none; }")
         cs_layout = QVBoxLayout(card_smart)
         cs_layout.setContentsMargins(16, 12, 16, 12)
         cs_layout.setSpacing(8)
@@ -260,7 +279,7 @@ class QueueWidget(QWidget):
 
         # ── 模式二：自定义范围 ──
         card_custom = QFrame()
-        card_custom.setStyleSheet("QFrame { background-color: #0F172A; border-radius: 8px; }")
+        card_custom.setStyleSheet("QFrame { background: transparent; border: none; }")
         cc_layout = QVBoxLayout(card_custom)
         cc_layout.setContentsMargins(16, 12, 16, 12)
         cc_layout.setSpacing(10)
@@ -315,7 +334,7 @@ class QueueWidget(QWidget):
 
         # ── 模式三：手动指定 ──
         card_manual = QFrame()
-        card_manual.setStyleSheet("QFrame { background-color: #0F172A; border-radius: 8px; }")
+        card_manual.setStyleSheet("QFrame { background: transparent; border: none; }")
         cm_layout = QVBoxLayout(card_manual)
         cm_layout.setContentsMargins(16, 12, 16, 12)
         cm_layout.setSpacing(6)
