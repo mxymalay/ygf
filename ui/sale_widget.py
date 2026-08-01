@@ -1447,14 +1447,13 @@ class SaleWidget(QWidget):
             if success:
                 self._on_clear()
                 self.refresh_call_number_display()
-                if is_mock:
-                    show_info(
-                        self,
-                        u"模拟打印完成",
-                        u"【模拟调试模式】小票及后厨制作单已发送模拟打印！\n\n"
-                        f"叫号牌：#{sale_data['call_no']} | 实收金额：¥{total_price:.2f}\n"
-                        u"（消费数据已安全保存至本地数据库）"
-                    )
+                # 显示轻量出票成功动画
+                from ui.checkout_dialog import ReceiptFlyToast, PAYMENT_LABELS
+                pm_label = PAYMENT_LABELS.get(payment_method, "")
+                toast = ReceiptFlyToast(pm_label, parent=self)
+                toast.show()
+                # 保持引用，防止 GC 回收
+                self._fly_toast = toast
             else:
                 err_detail = getattr(self.printer, 'last_error', '') or u"打印机名无效或硬件未连接"
                 show_warning(
