@@ -71,8 +71,8 @@ class OrderCard(QFrame):
                     tag_text = u"🍲 含汤底"
                     tag_color = "#F59E0B" # Orange
                 else:
-                    tag_text = u"🥤 不含汤底"
-                    tag_color = "#3B82F6" # Blue
+                    tag_text = u"不含汤底"
+                    tag_color = "#6B7280" # Gray
         except Exception:
             pass
 
@@ -635,8 +635,8 @@ class HistoryWidget(QWidget):
                     tag_text = u"🍲 含汤底"
                     tag_color = "#F59E0B" # Orange
                 else:
-                    tag_text = u"🥤 不含汤底"
-                    tag_color = "#3B82F6" # Blue
+                    tag_text = u"不含汤底"
+                    tag_color = "#6B7280" # Gray
         except Exception:
             pass
 
