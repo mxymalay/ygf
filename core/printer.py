@@ -13,8 +13,8 @@ def str_w(s: str) -> int:
     return sum(2 if ord(ch) > 127 else 1 for ch in s)
 
 
-def fmt_lr_30(left: str, right: str, width: int = 30) -> str:
-    """在 30 列宽度内左右两侧对齐字符串"""
+def fmt_lr_48(left: str, right: str, width: int = 48) -> str:
+    """在 48 列宽度内左右两侧对齐字符串 (适配 80mm 宽幅热敏纸)"""
     lw = str_w(left)
     rw = str_w(right)
     pad = max(1, width - lw - rw)
@@ -51,7 +51,7 @@ class ReceiptPrinter:
         d += self.ALIGN_CENTER + self.BOLD_ON
         d += "POS点餐 堂食\n".encode("gbk", errors="ignore")
         d += self.NORMAL_SIZE + self.BOLD_OFF
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 2. 店名 & 门店名称
         shop_name = sale.get("shop_name", "杨国福麻辣烫")
@@ -69,17 +69,17 @@ class ReceiptPrinter:
 
         # 3. 取餐号：95
         call_no = sale.get("call_no", "001")
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
         d += self.ALIGN_LEFT + self.DOUBLE_SIZE + self.BOLD_ON
         d += ("取餐号：%s\n" % call_no).encode("gbk", errors="ignore")
         d += self.NORMAL_SIZE + self.BOLD_OFF
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 4. 表头 (精确 30 列)
         # "菜品名   规格  单价  数量 小计" -> Width: 30
         d += self.ALIGN_LEFT
-        d += "菜品名   规格  单价  数量 小计\n".encode("gbk", errors="ignore")
-        d += b'------------------------------\n'
+        d += "菜品名                    规格  单价  数量  小计\n".encode("gbk", errors="ignore")
+        d += b'------------------------------------------------\n'
 
         # 5. 菜品列表
         cart_items = sale.get("cart_items", [])
@@ -99,8 +99,9 @@ class ReceiptPrinter:
                 unit_price = item.get("unit_price", sale.get("unit_price", 47.60))
                 sub_total = item.get("price", 0.0)
                 
-                # 精确 30 列明细行: "        KG  47.60 0.770  36.65"
-                line_str = f"        KG  {unit_price:5.2f} {weight_val:5.3f}  {sub_total:5.2f}\n"
+                # 精确 48 列明细行，利用 fmt_lr_48 右对齐
+                right_str = f"  KG  {unit_price:5.2f} {weight_val:5.3f}  {sub_total:6.2f}"
+                line_str = fmt_lr_48("", right_str)
                 d += line_str.encode("gbk", errors="ignore")
                 
                 if tag:
@@ -114,21 +115,22 @@ class ReceiptPrinter:
                 if len(unit_label) > 1:
                     unit_label = unit_label[:1]
                 
-                line_str = f"        {unit_label}   {unit_price:5.2f}     {qty:1d}  {sub_total:5.2f}\n"
+                right_str = f"  {unit_label}  {unit_price:5.2f}   {qty:3d}  {sub_total:6.2f}"
+                line_str = fmt_lr_48("", right_str)
                 d += line_str.encode("gbk", errors="ignore")
                 if tag:
                     d += f"  {tag}/\n".encode("gbk", errors="ignore")
 
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 6. 合计与应收 (严格右对齐 30 列)
         total_p = sale.get("total_price", 0.0)
-        tot_str = fmt_lr_30("消费合计", f"{total_p:.2f}")
+        tot_str = fmt_lr_48("消费合计", f"{total_p:.2f}")
         d += tot_str.encode("gbk", errors="ignore")
-        d += b'------------------------------\n'
-        ys_str = fmt_lr_30("应收", f"{total_p:.2f}")
+        d += b'------------------------------------------------\n'
+        ys_str = fmt_lr_48("应收", f"{total_p:.2f}")
         d += ys_str.encode("gbk", errors="ignore")
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 7. 打印时间
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -145,7 +147,7 @@ class ReceiptPrinter:
         d += self.ALIGN_CENTER + self.BOLD_ON + self.DOUBLE_HEIGHT
         d += "制作单-堂食\n".encode("gbk", errors="ignore")
         d += self.NORMAL_SIZE + self.BOLD_OFF
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 2. 取餐号：95 - 1
         call_no = sale.get("call_no", "001")
@@ -154,16 +156,16 @@ class ReceiptPrinter:
         d += self.ALIGN_LEFT + self.DOUBLE_SIZE + self.BOLD_ON
         d += ("取餐号：%s\n" % call_no_full).encode("gbk", errors="ignore")
         d += self.NORMAL_SIZE + self.BOLD_OFF
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 3. 渠道与下单时间
         created_at = sale.get("created_at", time.strftime("%Y-%m-%d %H:%M:%S"))
         d += "渠道：POS点餐\n".encode("gbk", errors="ignore")
         d += ("下单时间：%s\n" % created_at).encode("gbk", errors="ignore")
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
-        # 4. 表头 (精确 30 列)
-        hdr_str = fmt_lr_30("菜品名", "数量")
+        # 4. 表头 (精确 48 列)
+        hdr_str = fmt_lr_48("菜品名", "数量")
         d += hdr_str.encode("gbk", errors="ignore")
         
         # 5. 菜品名称、重量与口味 (大字号加粗显示，方便后厨看单)
@@ -176,14 +178,14 @@ class ReceiptPrinter:
         d += (name + "\n").encode("gbk", errors="ignore")
         
         w_str = f"{weight_val:.3f}"
-        val_str = fmt_lr_30("", w_str)
+        val_str = fmt_lr_48("", w_str)
         d += val_str.encode("gbk", errors="ignore")
 
         if tag:
             d += f"  {tag}/\n".encode("gbk", errors="ignore")
 
         d += self.NORMAL_SIZE + self.BOLD_OFF
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 6. 打印时间
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -227,7 +229,7 @@ class ReceiptPrinter:
         d += self.ALIGN_CENTER + self.BOLD_ON + self.DOUBLE_HEIGHT
         d += "交班小结\n".encode("gbk", errors="ignore")
         d += self.NORMAL_SIZE + self.BOLD_OFF
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 2. 门店与时间
         shop_sub = self.config.get("shop_subtitle", "杨国福(肥西水晶城店)")
@@ -237,33 +239,33 @@ class ReceiptPrinter:
         d += (shop_sub + "\n").encode("gbk", errors="ignore")
         date_str = report_data.get("date_str", time.strftime("%Y-%m-%d"))
         d += ("开始时间：%s\n" % date_str).encode("gbk", errors="ignore")
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 3. 销售汇总
         d += self.BOLD_ON
         d += "销售汇总\n".encode("gbk", errors="ignore")
         d += self.BOLD_OFF
-        d += b'==============================\n'
+        d += b'================================================\n'
 
         rev_amt = report_data.get("amount_sum", 0.0)
         count = report_data.get("count", 0)
         avg = rev_amt / count if count > 0 else 0.0
 
-        d += fmt_lr_30("营业收入：", "¥ %.2f" % rev_amt).encode("gbk", errors="ignore") + b"\n"
-        d += fmt_lr_30("订单数量：", "%d" % count).encode("gbk", errors="ignore") + b"\n"
-        d += fmt_lr_30("客单价：", "¥ %.2f" % avg).encode("gbk", errors="ignore") + b"\n"
-        d += fmt_lr_30("退单金额：", "¥ 0.00").encode("gbk", errors="ignore") + b"\n"
-        d += fmt_lr_30("退单数量：", "0").encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("营业收入：", "¥ %.2f" % rev_amt).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("订单数量：", "%d" % count).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("客单价：", "¥ %.2f" % avg).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("退单金额：", "¥ 0.00").encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("退单数量：", "0").encode("gbk", errors="ignore") + b"\n"
 
         # 4. 收入明细 (总结)
         d += self.BOLD_ON
         d += "收入明细\n".encode("gbk", errors="ignore")
         d += self.BOLD_OFF
-        d += b'==============================\n'
+        d += b'================================================\n'
         d += self.BOLD_ON
-        d += fmt_lr_30("总结", "¥ %.2f" % rev_amt).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("总结", "¥ %.2f" % rev_amt).encode("gbk", errors="ignore") + b"\n"
         d += self.BOLD_OFF
-        d += b'------------------------------\n'
+        d += b'------------------------------------------------\n'
 
         # 5. 打印时间
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
