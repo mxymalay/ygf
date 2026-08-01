@@ -194,14 +194,9 @@ class LoginWindow(QDialog):
         if user == "002" and pwd == "002":
             self.form_widget.hide()
             
-            # 取消伪装，显示真实标题 (从配置读取店名)
-            config = load_config()
-            shop_name = config.get("shop_subtitle", u"未配置门店")
-            if not shop_name:
-                shop_name = config.get("shop_name", u"未配置门店")
-            
-            self.title_lbl.setText(u"%s POS辅助系统" % shop_name)
-            self.sub_lbl.setText(u"YGF POS Auxiliary System Environment Check")
+            # 取消伪装，显示真实标题
+            self.title_lbl.setText(u"POS辅助系统")
+            self.sub_lbl.setText(u"POS Auxiliary System Environment Check")
             self.btn_close.setText(u"退出系统")
             
             self.check_widget.show()
