@@ -168,9 +168,26 @@ class QueueWidget(QWidget):
 
         main_layout.addWidget(card_manual)
 
+        # ── 5. 当前已用叫号池状态 ──
+        pool_frame = QFrame()
+        pool_frame.setStyleSheet("QFrame { background-color: #1E293B; border: none; border-radius: 12px; }")
+        pf_layout = QVBoxLayout(pool_frame)
+        pf_layout.setContentsMargins(20, 16, 20, 16)
+        
+        lbl_p_title = QLabel("当前已使用号码池 (防止重复池)：")
+        lbl_p_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
+        pf_layout.addWidget(lbl_p_title)
+        
+        self.lbl_used_pool = QLabel("暂无数据")
+        self.lbl_used_pool.setWordWrap(True)
+        self.lbl_used_pool.setStyleSheet("font-size: 13px; color: #34D399; font-family: monospace; border: none; background: transparent;")
+        pf_layout.addWidget(self.lbl_used_pool)
+        
+        main_layout.addWidget(pool_frame)
+
         main_layout.addStretch()
 
-        # ── 5. 底部控制操作栏 ──
+        # ── 6. 底部控制操作栏 ──
         bottom_bar = QHBoxLayout()
         bottom_bar.setSpacing(14)
 
@@ -194,6 +211,20 @@ class QueueWidget(QWidget):
 
         bottom_bar.addStretch()
         main_layout.addLayout(bottom_bar)
+
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_pool_display()
+
+    def refresh_pool_display(self):
+        used = self.call_mgr._used_numbers
+        if not used:
+            self.lbl_used_pool.setText("暂无已使用号码，池子是空的。\n(注：叫号池保存在系统内存中，每天重新打开软件时，或者切换营业时段时，均会自动重置。)")
+        else:
+            sorted_used = sorted(list(used))
+            txt = ", ".join(str(x) for x in sorted_used)
+            self.lbl_used_pool.setText(txt + "\n\n(注：叫号池保存在系统内存中，每天重新打开软件时，或者切换营业时段时，均会自动重置。)")
 
     def _load_settings(self):
         mode = self.config.get("call_mode", CallNumberManager.MODE_SMART)
@@ -223,6 +254,7 @@ class QueueWidget(QWidget):
 
         save_config(self.config)
         self.call_mgr.reset_pool()
+        self.refresh_pool_display()
 
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"叫号模式设置已成功更新并生效！")
@@ -230,5 +262,6 @@ class QueueWidget(QWidget):
     def _reset_pool(self):
         from ui.custom_dialog import show_info
         self.call_mgr.reset_pool()
+        self.refresh_pool_display()
         show_info(self, u"提示", u"已成功清空重置叫号历史记录池！")
 
