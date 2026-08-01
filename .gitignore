@@ -10,7 +10,6 @@ ENV/
 
 # Database & Data logs
 data/sales.db
-data/settings.json
 data/*.log
 data/diagnosis_report.txt
 
