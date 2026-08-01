@@ -231,17 +231,17 @@ QStatusBar {{
     font-size: 13px;
 }}
 
-/* ─── 日历控件 (消除星期表头白条) ─────────────── */
+/* ─── 日历控件 (完整深色/浅色主题适配，彻底消除星期表头白条) ─────────────── */
 QCalendarWidget {{
     background-color: {c['bg_card']};
     color: {c['text_primary']};
-    border: none;
-    border-radius: 12px;
+    border: 1px solid #334155;
+    border-radius: 10px;
 }}
 
 QCalendarWidget QWidget#qt_calendar_navigationbar {{
     background-color: {c['bg_secondary']};
-    border: none;
+    border-bottom: 1px solid #334155;
     min-height: 42px;
 }}
 
@@ -249,25 +249,49 @@ QCalendarWidget QToolButton {{
     color: {c['text_primary']};
     background-color: transparent;
     font-weight: bold;
-    font-size: 15px;
+    font-size: 14px;
     border-radius: 6px;
     padding: 4px 8px;
+    margin: 2px;
 }}
 
 QCalendarWidget QToolButton:hover {{
     background-color: {c['bg_card_active']};
 }}
 
-QCalendarWidget QTableView QHeaderView::section {{
-    background-color: {c['bg_card']};
+QCalendarWidget QToolButton::menu-indicator {{
+    image: none;
+    width: 0px;
+}}
+
+/* 星期表头 (周一~周日) 解决原生 Windows 白条与灰色背景 */
+QCalendarWidget QHeaderView {{
+    background-color: {c['bg_secondary']};
+    border: none;
+}}
+
+QCalendarWidget QHeaderView::section {{
+    background-color: {c['bg_secondary']};
     color: {c['text_secondary']};
     font-weight: bold;
+    font-size: 12px;
     border: none;
+    border-bottom: 1px solid #334155;
     padding: 6px 0px;
 }}
 
+QCalendarWidget QTableView {{
+    background-color: {c['bg_card']};
+    color: {c['text_primary']};
+    selection-background-color: {c['accent_orange']};
+    selection-color: #FFFFFF;
+    border: none;
+    outline: none;
+    gridline-color: #334155;
+}}
+
 QCalendarWidget QAbstractItemView {{
-    background-color: {c['bg_primary']};
+    background-color: {c['bg_card']};
     color: {c['text_primary']};
     selection-background-color: {c['accent_orange']};
     selection-color: #FFFFFF;
@@ -276,8 +300,25 @@ QCalendarWidget QAbstractItemView {{
 }}
 
 QCalendarWidget QAbstractItemView:enabled {{
-    background-color: {c['bg_primary']};
+    background-color: {c['bg_card']};
     color: {c['text_primary']};
+}}
+
+QCalendarWidget QAbstractItemView:disabled {{
+    color: #64748B;
+}}
+
+QCalendarWidget QMenu {{
+    background-color: {c['bg_secondary']};
+    color: {c['text_primary']};
+    border: 1px solid #334155;
+}}
+
+QCalendarWidget QSpinBox {{
+    background-color: {c['bg_secondary']};
+    color: {c['text_primary']};
+    border: 1px solid #334155;
+    border-radius: 4px;
 }}
 """
 
