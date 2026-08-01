@@ -31,16 +31,16 @@ CAT_DISPLAY = {
     CAT_SYSTEM:  "💻 系统",
 }
 
-# 分类颜色样式
+# 分类颜色样式 (高对比度色彩体系)
 CAT_COLORS = {
-    CAT_ORDER:    ("#EC4899", "#831843"),  # pink
-    CAT_USER:     ("#FBBF24", "#78350F"),  # amber
-    CAT_SCALE:    ("#34D399", "#064E3B"),  # emerald
-    CAT_PRINT:    ("#38BDF8", "#0C4A6E"),  # sky
-    CAT_DECISION: ("#A78BFA", "#4C1D95"),  # violet
-    CAT_SWITCH:   ("#FB923C", "#7C2D12"),  # orange
-    CAT_PANIC:    ("#F87171", "#7F1D1D"),  # red
-    CAT_SYSTEM:   ("#94A3B8", "#1E293B"),  # slate
+    CAT_ORDER:    ("#F43F5E", "#4C0519"),  # 玫瑰红 (Rose Red)
+    CAT_USER:     ("#2DD4BF", "#134E4A"),  # 青青绿/青碧色 (Teal/Cyan) - 区别于系统的橘黄
+    CAT_SCALE:    ("#34D399", "#064E3B"),  # 翡翠绿 (Emerald Green)
+    CAT_PRINT:    ("#38BDF8", "#0C4A6E"),  # 天蓝色 (Sky Blue)
+    CAT_DECISION: ("#C084FC", "#3B0764"),  # 丁香紫 (Purple/Violet)
+    CAT_SWITCH:   ("#FBBF24", "#451A03"),  # 亮琥珀黄 (Amber Yellow)
+    CAT_PANIC:    ("#EF4444", "#450A0A"),  # 警示红 (Bright Red)
+    CAT_SYSTEM:   ("#94A3B8", "#1E293B"),  # 板岩灰 (Slate Gray)
 }
 
 
