@@ -250,7 +250,7 @@ class HistoryWidget(QWidget):
         pay_layout.addWidget(lbl_pay_title)
 
         self.pay_info_row = QHBoxLayout()
-        self.lbl_pay_type = QLabel(u"微信:")
+        self.lbl_pay_type = QLabel(u"支付金额:")
         self.lbl_pay_type.setStyleSheet("color: #9CA3AF; font-size: 14px; border: none;")
         self.lbl_pay_val = QLabel(u"¥ 0.00")
         self.lbl_pay_val.setStyleSheet("color: #F9FAFB; font-size: 14px; font-weight: bold; border: none;")
