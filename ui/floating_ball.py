@@ -85,11 +85,12 @@ class FloatingBall(QWidget):
         rect_title = QRect(0, 5, 88, 20)
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        sub_text = u"三连击销毁"
-        font_sub = QFont("Microsoft YaHei", 8, QFont.Normal)
+        sub_text = u"长按或连点可退出"
+        font_sub = QFont("Microsoft YaHei", 7, QFont.Normal)
+        font_sub.setPixelSize(10)
         painter.setFont(font_sub)
         painter.setPen(QColor(229, 231, 235, 220))
-        rect_sub = QRect(0, 25, 88, 18)
+        rect_sub = QRect(0, 26, 88, 18)
         painter.drawText(rect_sub, Qt.AlignCenter, sub_text)
 
     def mousePressEvent(self, event):
