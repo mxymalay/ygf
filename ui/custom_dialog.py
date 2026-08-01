@@ -279,24 +279,32 @@ class ReceiptPreviewDialog(QDialog):
         )
         card_layout.addWidget(self.notice_banner)
 
-        # 1. 模拟小票 Header
+        # 1. 模拟小票 Header: POS点餐 堂食
+        lbl_top_hdr = QLabel("POS点餐  堂食")
+        lbl_top_hdr.setAlignment(Qt.AlignCenter)
+        lbl_top_hdr.setStyleSheet("font-size: 14px; font-weight: bold; color: #94A3B8; border: none;")
+        card_layout.addWidget(lbl_top_hdr)
+
         lbl_shop = QLabel(sale_data.get("shop_name", u"杨国福麻辣烫"))
         lbl_shop.setAlignment(Qt.AlignCenter)
         lbl_shop.setStyleSheet("font-size: 20px; font-weight: 900; color: #F9FAFB; border: none;")
         card_layout.addWidget(lbl_shop)
 
         sub_title = sale_data.get("shop_subtitle", "")
-        if sub_title:
-            lbl_sub = QLabel(sub_title)
-            lbl_sub.setAlignment(Qt.AlignCenter)
-            lbl_sub.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
-            card_layout.addWidget(lbl_sub)
+        if not sub_title:
+            sub_title = u"门店名称：杨国福(肥西水晶城店)"
+        elif not sub_title.startswith(u"门店名称："):
+            sub_title = u"门店名称：" + sub_title
+        lbl_sub = QLabel(sub_title)
+        lbl_sub.setAlignment(Qt.AlignCenter)
+        lbl_sub.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
+        card_layout.addWidget(lbl_sub)
 
         # 叫号大牌
         call_no_box = QFrame()
         call_no_box.setStyleSheet("background: rgba(249, 115, 22, 0.15); border-radius: 10px; padding: 6px;")
         cn_layout = QVBoxLayout(call_no_box)
-        lbl_call = QLabel(f"取餐叫号: #{sale_data.get('call_no', '01')}")
+        lbl_call = QLabel(f"取餐号: {sale_data.get('call_no', '050')}")
         lbl_call.setAlignment(Qt.AlignCenter)
         lbl_call.setStyleSheet("font-size: 26px; font-weight: 900; color: #F97316; border: none;")
         cn_layout.addWidget(lbl_call)
@@ -308,28 +316,58 @@ class ReceiptPreviewDialog(QDialog):
         line1.setStyleSheet("color: #475569; font-family: monospace; border: none;")
         card_layout.addWidget(line1)
 
-        # 商品明细
+        # 细项表头
+        hdr_row = QLabel("菜品名                    规格  单价     数量   小计")
+        hdr_row.setStyleSheet("font-size: 12px; font-weight: bold; color: #64748B; border: none;")
+        card_layout.addWidget(hdr_row)
+
+        # 商品明细列表
         items_layout = QVBoxLayout()
-        items_layout.setSpacing(4)
-        for item in sale_data.get("cart_items", []):
-            item_row = QHBoxLayout()
-            name_str = item["name"]
+        items_layout.setSpacing(6)
+        cart_items = sale_data.get("cart_items", [])
+        m_count = 0
+
+        for item in cart_items:
+            is_soup = (item.get("type") == "soup" or "weight" in item)
+            name_str = item.get("name", u"经典草本骨汤(KG)(KG)")
             tag_str = item.get("tag", "")
+
+            item_box = QVBoxLayout()
+            item_box.setSpacing(2)
+
+            if is_soup:
+                m_count += 1
+                title_lbl = QLabel(f"【制{m_count}】{name_str}")
+                title_lbl.setStyleSheet("font-size: 14px; font-weight: 900; color: #F8FAFC; border: none;")
+                item_box.addWidget(title_lbl)
+
+                w_val = item.get("weight", sale_data.get("weight_kg", 0.0))
+                p_val = item.get("unit_price", sale_data.get("unit_price", 47.60))
+                sub_total = item.get("price", 0.0)
+                detail_str = f"                      KG   {p_val:.2f}   {w_val:.3f}   {sub_total:.2f}"
+                lbl_detail = QLabel(detail_str)
+                lbl_detail.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
+                item_box.addWidget(lbl_detail)
+            else:
+                title_lbl = QLabel(name_str)
+                title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #E2E8F0; border: none;")
+                item_box.addWidget(title_lbl)
+
+                qty = item.get("qty", 1)
+                unit_label = item.get("unit", "份")
+                base_p = item.get("base_price", item.get("price", 0.0) / max(1, qty))
+                sub_total = item.get("price", 0.0)
+                detail_str = f"                      {unit_label}   {base_p:.2f}   {qty}   {sub_total:.2f}"
+                lbl_detail = QLabel(detail_str)
+                lbl_detail.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
+                item_box.addWidget(lbl_detail)
+
             if tag_str:
-                name_str += f" ({tag_str})"
-            
-            lbl_name = QLabel(name_str)
-            lbl_name.setStyleSheet("font-size: 14px; font-weight: bold; color: #E2E8F0; border: none;")
-            
-            qty = item.get("qty", 1)
-            price_val = item.get("price", 0.0)
-            lbl_price = QLabel(f"x{qty}  ￥{price_val:.2f}")
-            lbl_price.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            lbl_price.setStyleSheet("font-size: 14px; font-weight: bold; color: #F59E0B; border: none;")
-            
-            item_row.addWidget(lbl_name, stretch=1)
-            item_row.addWidget(lbl_price)
-            items_layout.addLayout(item_row)
+                lbl_tag = QLabel(f"   {tag_str}/")
+                lbl_tag.setStyleSheet("font-size: 12px; color: #34D399; font-weight: bold; border: none;")
+                item_box.addWidget(lbl_tag)
+
+            items_layout.addLayout(item_box)
 
         card_layout.addLayout(items_layout)
 
@@ -338,9 +376,19 @@ class ReceiptPreviewDialog(QDialog):
         line2.setStyleSheet("color: #475569; font-family: monospace; border: none;")
         card_layout.addWidget(line2)
 
+        # 打印单据说明标语
+        slip_info = f"🖨️ 打印单据：1张顾客单 + {m_count}张后厨制作单"
+        lbl_slip_info = QLabel(slip_info)
+        lbl_slip_info.setAlignment(Qt.AlignCenter)
+        lbl_slip_info.setStyleSheet(
+            "background: rgba(52, 211, 153, 0.12); color: #34D399; font-size: 13px; "
+            "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
+        )
+        card_layout.addWidget(lbl_slip_info)
+
         # 金额与时间
-        total_p = sum(i.get("price", 0.0) for i in sale_data.get("cart_items", []))
-        lbl_total = QLabel(f"实收金额：￥{total_p:.2f}")
+        total_p = sum(i.get("price", 0.0) for i in cart_items)
+        lbl_total = QLabel(f"应收金额：￥{total_p:.2f}")
         lbl_total.setAlignment(Qt.AlignRight)
         lbl_total.setStyleSheet("font-size: 22px; font-weight: 900; color: #34D399; border: none;")
         card_layout.addWidget(lbl_total)
