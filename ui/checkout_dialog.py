@@ -42,14 +42,21 @@ class CheckoutDialog(QDialog):
         self.outer = QFrame(self)
         self.outer.setObjectName("CheckoutOuter")
         self.outer.setStyleSheet(
-            "#CheckoutOuter { background: rgba(0, 0, 0, 1); border: none; }"
+            "#CheckoutOuter { background: rgba(0, 0, 0, 0.01); border: none; }"
         )
 
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(self.outer)
 
-        root = QHBoxLayout(self.outer)
+        wrapper_layout = QHBoxLayout(self.outer)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.inner_container = QWidget()
+        self.inner_container.setStyleSheet("background: transparent;")
+        wrapper_layout.addWidget(self.inner_container, alignment=Qt.AlignCenter)
+
+        root = QHBoxLayout(self.inner_container)
         root.setContentsMargins(30, 20, 30, 20)
         root.setSpacing(40)
 
@@ -121,7 +128,7 @@ class CheckoutDialog(QDialog):
         right_frame = QFrame()
         right_frame.setObjectName("PaymentRight")
         right_frame.setStyleSheet(
-            "#PaymentRight { background: rgba(0, 0, 0, 1); border: none; }"
+            "#PaymentRight { background: transparent; border: none; }"
         )
         self.right_panel = right_frame
         right_layout = QVBoxLayout(right_frame)
@@ -382,7 +389,7 @@ class CheckoutDialog(QDialog):
     def mousePressEvent(self, event):
         # 如果点击了空白处（没有点到小票或按钮），则取消结账
         child = self.childAt(event.pos())
-        if not child or child == self.outer or child == self.right_panel:
+        if not child or child == self.outer or child == self.inner_container or child == self.right_panel:
             self.reject()
         else:
             super().mousePressEvent(event)
@@ -409,7 +416,8 @@ class CheckoutDialog(QDialog):
 
         dlg_h = min(600, max(440, screen_h - 60))
         dlg_w = min(780, max(600, screen_w - 200))
-        self.setFixedSize(dlg_w, dlg_h)
+        self.inner_container.setFixedSize(dlg_w, dlg_h)
+        self.setFixedSize(screen_w, screen_h)
 
         try:
             return super().exec_()
