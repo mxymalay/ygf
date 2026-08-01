@@ -388,6 +388,21 @@ class CheckoutDialog(QDialog):
         """用户点击付款方式 → 立即发送打印指令，同时触发飞出动画"""
         self.selected_payment_method = method
         
+        # 如果点击的是【收钱吧】，则在此时主动唤起并推送金额
+        if method == PAYMENT_SQB:
+            try:
+                from core.shouqianba_sender import send_shouqianba_amount
+                total_amt = self.sale_data.get("total_price", 0.0)
+                cfg = self.sale_data.get("config", {})
+                parent_w = self.parent()
+                if parent_w and hasattr(parent_w, 'window'):
+                    parent_w = parent_w.window()
+                if not cfg and parent_w and hasattr(parent_w, 'config'):
+                    cfg = parent_w.config
+                send_shouqianba_amount(total_amt, cfg)
+            except Exception as e:
+                print(f"[CheckoutDialog] 调起收钱吧金额异常: {e}")
+
         # 禁用所有按钮，防止重复点击
         for btn in self.pay_buttons:
             btn.setEnabled(False)
@@ -453,17 +468,6 @@ class CheckoutDialog(QDialog):
         parent_w = self.parent()
         if parent_w and hasattr(parent_w, 'window'):
             parent_w = parent_w.window()
-
-        # 向收钱吧自动推送本次结账金额
-        try:
-            from core.shouqianba_sender import send_shouqianba_amount
-            total_amt = self.sale_data.get("total_price", 0.0)
-            cfg = self.sale_data.get("config", {})
-            if not cfg and hasattr(parent_w, 'config'):
-                cfg = parent_w.config
-            send_shouqianba_amount(total_amt, cfg)
-        except Exception as e:
-            print(f"[CheckoutDialog] 推送收钱吧金额异常: {e}")
 
         screen_h = 768
         screen_w = 1024
