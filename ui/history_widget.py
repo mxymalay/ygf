@@ -45,8 +45,48 @@ class OrderCard(QFrame):
         lbl_title = QLabel(u"📋 取餐号：%s" % call_no)
         lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F9FAFB; border: none; background: transparent;")
 
-        lbl_status = QLabel(u"已支付")
-        lbl_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #EA580C; border: none; background: transparent;")
+        import json
+        tag_text = u"已支付"
+        tag_color = "#6B7280"
+        try:
+            items = json.loads(r.get("cart_items_json", "[]"))
+            if items:
+                has_soup = False
+                has_drink = False
+                has_skewer = False
+                has_box = False
+                for item in items:
+                    name = item.get("name", "")
+                    itype = item.get("type", "")
+                    if itype == "soup" or "汤" in name or "拌" in name:
+                        has_soup = True
+                    elif "饮料" in name or "水" in name or "茶" in name:
+                        has_drink = True
+                    elif "串" in name:
+                        has_skewer = True
+                    elif "盒" in name:
+                        has_box = True
+                        
+                if has_soup and (has_drink or has_skewer):
+                    tag_text = u"🍲 丰盛套餐"
+                    tag_color = "#10B981" # Green
+                elif has_soup:
+                    tag_text = u"🍲 仅麻辣烫"
+                    tag_color = "#F59E0B" # Orange
+                elif has_drink and not has_skewer and not has_soup:
+                    tag_text = u"🥤 仅水饮"
+                    tag_color = "#3B82F6" # Blue
+                elif has_skewer and not has_soup:
+                    tag_text = u"🍢 仅小吃"
+                    tag_color = "#8B5CF6" # Purple
+                elif has_box:
+                    tag_text = u"📦 打包物料"
+                    tag_color = "#9CA3AF" # Gray
+        except Exception:
+            pass
+
+        lbl_status = QLabel(tag_text)
+        lbl_status.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {tag_color}; border: none; background: transparent;")
 
         row1.addWidget(lbl_title)
         row1.addStretch()
@@ -577,6 +617,49 @@ class HistoryWidget(QWidget):
         self.lbl_header_title.setText(u"📋 取餐号：%s" % call_no)
         self.lbl_order_no.setText(u"订单编号：%s" % temp_order_no)
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
+        
+        import json
+        tag_text = u"已支付"
+        tag_color = "#6B7280"
+        try:
+            items = json.loads(record.get("cart_items_json", "[]"))
+            if items:
+                has_soup = False
+                has_drink = False
+                has_skewer = False
+                has_box = False
+                for item in items:
+                    name = item.get("name", "")
+                    itype = item.get("type", "")
+                    if itype == "soup" or "汤" in name or "拌" in name:
+                        has_soup = True
+                    elif "饮料" in name or "水" in name or "茶" in name:
+                        has_drink = True
+                    elif "串" in name:
+                        has_skewer = True
+                    elif "盒" in name:
+                        has_box = True
+                        
+                if has_soup and (has_drink or has_skewer):
+                    tag_text = u"🍲 丰盛套餐"
+                    tag_color = "#10B981" # Green
+                elif has_soup:
+                    tag_text = u"🍲 仅麻辣烫"
+                    tag_color = "#F59E0B" # Orange
+                elif has_drink and not has_skewer and not has_soup:
+                    tag_text = u"🥤 仅水饮"
+                    tag_color = "#3B82F6" # Blue
+                elif has_skewer and not has_soup:
+                    tag_text = u"🍢 仅小吃"
+                    tag_color = "#8B5CF6" # Purple
+                elif has_box:
+                    tag_text = u"📦 打包物料"
+                    tag_color = "#9CA3AF" # Gray
+        except Exception:
+            pass
+
+        self.lbl_header_status.setText(tag_text)
+        self.lbl_header_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {tag_color}; border: none;")
         tot = record.get("total_price", 0.0)
         self.lbl_item_total.setText(u"商品金额：¥ %.2f" % tot)
         self.lbl_discount_total.setText(u"折扣金额：¥ 0.00")
