@@ -73,6 +73,13 @@ class SettingsWidget(QWidget):
         self.config = config
         self._build_ui()
 
+    def _style_save_btn(self, btn):
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(
+            "QPushButton { background: #10B981; color: white; font-weight: bold; padding: 8px 16px; border-radius: 6px; border: none; font-size: 14px; }"
+            "QPushButton:hover { background: #059669; }"
+        )
+
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -149,6 +156,11 @@ class SettingsWidget(QWidget):
         self.spin_net_port.setValue(self.config.get("printer_port", 9100))
         pg.addWidget(self.spin_net_port, 2, 3)
 
+        btn_save_printer = QPushButton(u"保存打印机设置")
+        self._style_save_btn(btn_save_printer)
+        btn_save_printer.clicked.connect(self._on_save_printer)
+        pg.addWidget(btn_save_printer, 3, 0, 1, 4, Qt.AlignRight)
+
         layout.addWidget(printer_group)
 
         # ── 业务与计价设置 ──
@@ -194,6 +206,11 @@ class SettingsWidget(QWidget):
         self.spin_special_price.setDecimals(2)
         bg.addWidget(self.spin_special_price, 4, 3)
 
+        btn_save_biz = QPushButton(u"保存店铺与计价设置")
+        self._style_save_btn(btn_save_biz)
+        btn_save_biz.clicked.connect(self._on_save_biz)
+        bg.addWidget(btn_save_biz, 5, 0, 1, 4, Qt.AlignRight)
+
         layout.addWidget(biz_group)
 
         # ── 系统运行设置 ──
@@ -215,6 +232,11 @@ class SettingsWidget(QWidget):
         self.spin_auto_start_delay.setToolTip(u"设置软件随系统开机后静默等待的秒数，用于等待网卡和串口驱动加载完毕。")
         self.spin_auto_start_delay.setValue(self.config.get("auto_start_delay", 8))
         syg.addWidget(self.spin_auto_start_delay, 1, 1, 1, 2)
+
+        btn_save_sys = QPushButton(u"保存运行设置")
+        self._style_save_btn(btn_save_sys)
+        btn_save_sys.clicked.connect(self._on_save_sys)
+        syg.addWidget(btn_save_sys, 2, 0, 1, 4, Qt.AlignRight)
 
         layout.addWidget(sys_group)
 
@@ -282,6 +304,11 @@ class SettingsWidget(QWidget):
 
         sg.addLayout(hk_box, 4, 1, 1, 2)
 
+        btn_save_sqb = QPushButton(u"保存收钱吧设置")
+        self._style_save_btn(btn_save_sqb)
+        btn_save_sqb.clicked.connect(self._on_save_sqb)
+        sg.addWidget(btn_save_sqb, 5, 0, 1, 4, Qt.AlignRight)
+
         layout.addWidget(sqb_group)
 
         # ── 危险操作区 ──
@@ -306,24 +333,6 @@ class SettingsWidget(QWidget):
         dg_layout.addWidget(btn_reset)
         
         layout.addWidget(danger_group)
-
-        # ── 保存按钮 ──
-        btn_bar = QHBoxLayout()
-        btn_bar.addStretch()
-
-        btn_save = QPushButton(u"保存设置")
-        btn_save.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "stop:0 #2ecc71, stop:1 #27ae60);"
-            "color: white; font-size: 18px; font-weight: bold;"
-            "padding: 14px 48px; border-radius: 10px; border: none;"
-            "min-height: 48px;"
-        )
-        btn_save.clicked.connect(self._on_save)
-        btn_bar.addWidget(btn_save)
-
-        btn_bar.addStretch()
-        layout.addLayout(btn_bar)
 
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
@@ -358,23 +367,46 @@ class SettingsWidget(QWidget):
             self.cmb_printer_name.setCurrentText(cur)
 
     # ─── 保存设置 ──────────────────────────────────
-    def _on_save(self):
+    def _on_save_printer(self):
         pt_text = self.cmb_printer_type.currentText()
         self.config["printer_type"] = pt_text.split(" - ")[0].strip()
         self.config["printer_name"] = self.cmb_printer_name.currentText()
         self.config["printer_ip"] = self.txt_ip.text()
         self.config["printer_port"] = self.spin_net_port.value()
+        save_config(self.config)
+        from ui.custom_dialog import show_info
+        show_info(self, u"保存成功", u"打印机设置已保存！")
 
+    def _on_save_biz(self):
         self.config["shop_name"] = self.txt_shop.text()
         self.config["shop_subtitle"] = self.txt_sub.text()
         self.config["receipt_footer"] = self.txt_footer.text()
-
         pu_text = self.cmb_unit.currentText()
         self.config["price_unit"] = pu_text.split(" - ")[0].strip()
         self.config["unit_price"] = self.spin_default_price.value()
         self.config["special_soup_price"] = self.spin_special_price.value()
+        save_config(self.config)
+        # 触发主界面单价刷新
+        parent_mw = self.window()
+        if hasattr(parent_mw, 'sale_page'):
+            parent_mw.sale_page.refresh_unit_price_info()
+        from ui.custom_dialog import show_info
+        show_info(self, u"保存成功", u"店铺与计价设置已保存！")
 
-        # 保存收钱吧配置
+    def _on_save_sys(self):
+        self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
+        self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
+        save_config(self.config)
+        # 立即应用自动启动配置
+        from utils.system_utils import apply_auto_start_settings
+        apply_auto_start_settings(
+            self.config["auto_start_enabled"], 
+            self.config["auto_start_delay"]
+        )
+        from ui.custom_dialog import show_info
+        show_info(self, u"保存成功", u"系统运行设置已保存！")
+
+    def _on_save_sqb(self):
         self.config["shouqianba_enabled"] = (self.cmb_sqb_enable.currentIndex() == 0)
         self.config["shouqianba_port"] = self.cmb_sqb_port.currentText().strip()
         try:
@@ -384,27 +416,9 @@ class SettingsWidget(QWidget):
         fmt_text = self.cmb_sqb_fmt.currentText()
         self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
         self.config["shouqianba_hotkey"] = self.txt_sqb_hotkey.text().strip()
-
-        # 保存自启动配置
-        self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
-        self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
-
         save_config(self.config)
-
-        # 立即应用自动启动配置 (动态更新注册表)
-        from utils.system_utils import apply_auto_start_settings
-        apply_auto_start_settings(
-            self.config["auto_start_enabled"], 
-            self.config["auto_start_delay"]
-        )
-
-        # 触发主界面单价刷新
-        parent_mw = self.window()
-        if hasattr(parent_mw, 'sale_page'):
-            parent_mw.sale_page.refresh_unit_price_info()
-
         from ui.custom_dialog import show_info
-        show_info(self, u"保存成功", u"系统设置已成功保存！")
+        show_info(self, u"保存成功", u"收钱吧设置已保存！")
 
     def _on_reset(self):
         """重置软件（危险操作）"""
