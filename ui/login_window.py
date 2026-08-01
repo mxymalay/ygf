@@ -149,25 +149,15 @@ class LoginWindow(QDialog):
         self.lbl_detail.setStyleSheet("color: #9CA3AF; font-size: 13px;")
         check_layout.addWidget(self.lbl_detail)
         
-        self.btn_debug = QPushButton(u"跳过检测 (模拟调试模式)")
-        self.btn_debug.setFocusPolicy(Qt.NoFocus)
-        self.btn_debug.hide()
-        self.btn_debug.setCursor(Qt.PointingHandCursor)
-        self.btn_debug.setStyleSheet("""
-            QPushButton {
-                background-color: transparent; color: #F59E0B; font-size: 15px; font-weight: bold;
-                padding: 14px 0; border-radius: 12px; border: 2px solid #F59E0B; margin-top: 20px; outline: none;
-            }
-            QPushButton:hover { background-color: rgba(245, 158, 11, 0.1); }
-            QPushButton:focus { outline: none; }
-        """)
-        self.btn_debug.clicked.connect(self._on_debug_click)
-        check_layout.addWidget(self.btn_debug)
-        
         card_layout.addWidget(self.check_widget)
         card_layout.addStretch()
         
-        # 退出按钮
+        # 底部按键组 (取消安装 & 跳过检测)
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setContentsMargins(0, 0, 0, 0)
+        bottom_bar.setSpacing(24)
+        bottom_bar.setAlignment(Qt.AlignCenter)
+        
         btn_close = QPushButton(u"取消安装")
         btn_close.setFocusPolicy(Qt.NoFocus)
         btn_close.setCursor(Qt.PointingHandCursor)
@@ -179,7 +169,23 @@ class LoginWindow(QDialog):
             QPushButton:focus { outline: none; border: none; }
         """)
         btn_close.clicked.connect(self.reject)
-        card_layout.addWidget(btn_close)
+        bottom_bar.addWidget(btn_close)
+        
+        self.btn_debug = QPushButton(u"跳过检测 (模拟调试模式)")
+        self.btn_debug.setFocusPolicy(Qt.NoFocus)
+        self.btn_debug.hide()
+        self.btn_debug.setCursor(Qt.PointingHandCursor)
+        self.btn_debug.setStyleSheet("""
+            QPushButton {
+                color: #64748B; background: transparent; border: none; font-size: 14px; font-weight: bold; outline: none;
+            }
+            QPushButton:hover { color: #F59E0B; }
+            QPushButton:focus { outline: none; border: none; }
+        """)
+        self.btn_debug.clicked.connect(self._on_debug_click)
+        bottom_bar.addWidget(self.btn_debug)
+        
+        card_layout.addLayout(bottom_bar)
         
         main_layout.addWidget(self.card)
         
