@@ -93,14 +93,7 @@ class FlowLayout(QLayout):
 class NumberBall(QWidget):
     """双色球/彩票风格 3D 炫彩数字球球 (使用 QPainter 抗锯齿真圆绘制，彻底消除黑框)"""
 
-    BALL_PALETTES = [
-        # (c_start, c_mid, c_end, border_color)
-        ("#FF8787", "#EF4444", "#991B1B", "#FCA5A5"),  # 0: 红球 (双色球红球)
-        ("#60A5FA", "#2563EB", "#1E3A8A", "#93C5FD"),  # 1: 蓝球 (双色球蓝球)
-        ("#FBBF24", "#F59E0B", "#92400E", "#FDE68A"),  # 2: 琥珀金球
-        ("#34D399", "#059669", "#064E3B", "#A7F3D0"),  # 3: 翡翠绿球
-        ("#C084FC", "#9333EA", "#581C87", "#E9D5FF"),  # 4: 紫晶球
-    ]
+    # 取消固定色板，改用动态 HSV 颜色生成
 
     def __init__(self, number: int, parent=None):
         super().__init__(parent)
@@ -124,15 +117,19 @@ class NumberBall(QWidget):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.TextAntialiasing, True)
 
-        palette = self.BALL_PALETTES[self.number % len(self.BALL_PALETTES)]
-        c_start, c_mid, c_end, c_border = palette
+        # 使用动态 HSV 颜色空间，让相邻数字颜色相近（每增加1，色相增加4度，90个数字循环一次彩虹色）
+        h = (self.number * 4) % 360
+        c_start = QColor.fromHsv(h, 120, 255)   # 较亮、饱和度较低（反光点）
+        c_mid = QColor.fromHsv(h, 200, 230)     # 中间主色
+        c_end = QColor.fromHsv(h, 255, 150)     # 暗部，高饱和、低亮度
+        c_border = QColor.fromHsv(h, 80, 255)   # 边框色，极亮
 
         # 1. 3D 径向渐变球体 (焦点在左上方 11, 11)
         radial = QRadialGradient(15, 15, 24)
         radial.setFocalPoint(11, 11)
-        radial.setColorAt(0.0, QColor(c_start))
-        radial.setColorAt(0.4, QColor(c_mid))
-        radial.setColorAt(1.0, QColor(c_end))
+        radial.setColorAt(0.0, c_start)
+        radial.setColorAt(0.4, c_mid)
+        radial.setColorAt(1.0, c_end)
 
         painter.setBrush(QBrush(radial))
 
@@ -140,7 +137,7 @@ class NumberBall(QWidget):
         if self.is_hovered:
             pen = QPen(QColor("#FFFFFF"), 2.2)
         else:
-            pen = QPen(QColor(c_border), 1.5)
+            pen = QPen(c_border, 1.5)
         painter.setPen(pen)
 
         # 绘制抗锯齿正圆 (半径 18px)
