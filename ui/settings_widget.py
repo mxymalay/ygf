@@ -144,6 +144,29 @@ class SettingsWidget(QWidget):
 
         layout.addWidget(biz_group)
 
+        # ── 危险操作区 ──
+        danger_group = QGroupBox(u"危险操作 (Danger Zone)")
+        danger_group.setStyleSheet("""
+            QGroupBox { border: 1px solid #DC2626; color: #DC2626; }
+            QGroupBox::title { color: #DC2626; }
+        """)
+        dg_layout = QHBoxLayout(danger_group)
+        
+        lbl_danger = QLabel(u"⚠️ 警告：重置软件将清空所有配置和历史销售数据库，不可恢复！")
+        lbl_danger.setStyleSheet("color: #F87171; font-size: 13px;")
+        dg_layout.addWidget(lbl_danger, stretch=1)
+        
+        btn_reset = QPushButton(u"重置软件数据")
+        btn_reset.setCursor(Qt.PointingHandCursor)
+        btn_reset.setStyleSheet(
+            "QPushButton { background: #DC2626; color: white; font-weight: bold; padding: 10px 20px; border-radius: 6px; border: none; }"
+            "QPushButton:hover { background: #B91C1C; }"
+        )
+        btn_reset.clicked.connect(self._on_reset)
+        dg_layout.addWidget(btn_reset)
+        
+        layout.addWidget(danger_group)
+
         # ── 保存按钮 ──
         btn_bar = QHBoxLayout()
         btn_bar.addStretch()
@@ -201,3 +224,60 @@ class SettingsWidget(QWidget):
 
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"系统设置已成功保存！")
+
+    def _on_reset(self):
+        """重置软件（危险操作）"""
+        # 第一重确认
+        r1 = QMessageBox.warning(
+            self, u"严重警告", 
+            u"您正在进行危险操作！\n这将会清除所有的本地设置以及所有的历史订单数据！\n您确定要继续吗？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if r1 != QMessageBox.Yes:
+            return
+
+        # 第二重确认
+        r2 = QMessageBox.warning(
+            self, u"最后警告", 
+            u"数据一旦删除将【永远无法恢复】。\n您真的确定要删除数据库和配置文件吗？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if r2 != QMessageBox.Yes:
+            return
+        
+        # 第三重确认
+        r3 = QMessageBox.critical(
+            self, u"最终确认", 
+            u"这是最后一次确认机会。\n点击 Yes 将立即清除数据并关闭软件！",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if r3 != QMessageBox.Yes:
+            return
+        
+        try:
+            import os
+            from config import DB_PATH, CONFIG_FILE
+            
+            # 删除数据库
+            if os.path.exists(DB_PATH):
+                try:
+                    os.remove(DB_PATH)
+                except Exception as e:
+                    print(f"Failed to remove DB: {e}")
+                    
+            # 删除配置文件
+            if os.path.exists(CONFIG_FILE):
+                try:
+                    os.remove(CONFIG_FILE)
+                except Exception as e:
+                    print(f"Failed to remove config: {e}")
+            
+            QMessageBox.information(
+                self, u"重置成功", 
+                u"软件已成功重置所有数据！\n程序即将关闭，请手动重新打开以生成全新的环境。"
+            )
+            from PyQt5.QtWidgets import QApplication
+            QApplication.quit()
+            
+        except Exception as e:
+            QMessageBox.critical(self, u"重置失败", f"重置过程中出现意外错误:\n{e}")
