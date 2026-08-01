@@ -100,8 +100,6 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setStyleSheet("color: #9CA3AF; font-size: 13px; font-weight: bold; padding-right: 16px;")
         self.status.addPermanentWidget(self.lbl_clock)
 
-        self.status.showMessage(u" ● 系统运行正常  |  官方称重日志实时同步模式  |  智能避重叫号引擎就绪")
-
 
 
     def _on_auto_update(self):
