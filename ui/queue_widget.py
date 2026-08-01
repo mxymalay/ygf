@@ -207,13 +207,14 @@ class QueueWidget(QWidget):
         mb_layout.setContentsMargins(16, 16, 16, 16)
         mb_layout.setSpacing(14)
         
-        from PyQt5.QtWidgets import QComboBox, QStackedWidget
+        from PyQt5.QtWidgets import QComboBox, QStackedWidget, QStyledItemDelegate
         mode_select_layout = QHBoxLayout()
-        lbl_ms = QLabel(u"当前模式：")
-        lbl_ms.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none; background: transparent;")
+        lbl_ms = QLabel(u"取餐号模式：")
+        lbl_ms.setStyleSheet("font-size: 15px; font-weight: bold; color: #F8FAFC; border: none; background: transparent;")
         mode_select_layout.addWidget(lbl_ms)
         
         self.cmb_mode = QComboBox()
+        self.cmb_mode.setItemDelegate(QStyledItemDelegate())
         self.cmb_mode.addItems([
             u"模式一：智能时段避重 (推荐)",
             u"模式二：自定义范围叫号",
@@ -221,10 +222,30 @@ class QueueWidget(QWidget):
         ])
         self.cmb_mode.setStyleSheet("""
             QComboBox { 
-                font-size: 15px; font-weight: bold; padding: 8px 16px; 
-                border-radius: 8px; background: #0F172A; color: #F9FAFB; border: 1px solid #334155; 
+                font-size: 15px; font-weight: bold; padding: 10px 18px; 
+                border-radius: 8px; background: #0F172A; color: #F8FAFC; border: 1px solid #334155;
+                min-width: 260px;
             }
-            QComboBox::drop-down { border: none; }
+            QComboBox::drop-down { 
+                border: none; 
+                width: 30px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0F172A;
+                color: #F8FAFC;
+                selection-background-color: #EA580C;
+                selection-color: #FFFFFF;
+                font-size: 15px;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 6px;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 46px;
+                padding: 8px 14px;
+                border-radius: 6px;
+            }
         """)
         mode_select_layout.addWidget(self.cmb_mode)
         mode_select_layout.addStretch()
@@ -233,7 +254,7 @@ class QueueWidget(QWidget):
         # 分割线
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("border: none; background: #334155; max-height: 1px; margin: 6px 0;")
+        line.setStyleSheet("border: none; background: #334155; max-height: 1px; margin: 4px 0;")
         mb_layout.addWidget(line)
         
         self.stack_mode = QStackedWidget()
@@ -244,53 +265,54 @@ class QueueWidget(QWidget):
 
         # ── 模式一：智能避重 ──
         card_smart = QFrame()
-        card_smart.setStyleSheet("QFrame { background: transparent; border: none; }")
+        card_smart.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }")
         cs_layout = QVBoxLayout(card_smart)
-        cs_layout.setContentsMargins(0, 0, 0, 0)
+        cs_layout.setContentsMargins(16, 14, 16, 14)
         cs_layout.setSpacing(8)
 
         lbl_s_desc = QLabel(
-            u"根据营业时段自动分段生成随机避重号牌：\n"
+            u"💡 机制说明：根据营业时段自动分段生成随机避重号牌\n"
             u"  • 上午 (05:00 - 12:00)：50 - 100 之间随机叫号\n"
             u"  • 下午 (12:00 - 18:00)：100 - 200 之间随机叫号\n"
             u"  • 晚上 (18:00 - 05:00)：200 - 300 之间随机叫号"
         )
-        lbl_s_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent; line-height: 1.5;")
+        lbl_s_desc.setStyleSheet("color: #94A3B8; font-size: 13px; border: none; background: transparent; line-height: 1.6;")
         cs_layout.addWidget(lbl_s_desc)
 
         self.stack_mode.addWidget(card_smart)
 
         # ── 模式二：自定义范围 ──
         card_custom = QFrame()
-        card_custom.setStyleSheet("QFrame { background: transparent; border: none; }")
+        card_custom.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }")
         cc_layout = QVBoxLayout(card_custom)
-        cc_layout.setContentsMargins(0, 0, 0, 0)
-        cc_layout.setSpacing(10)
+        cc_layout.setContentsMargins(16, 14, 16, 14)
+        cc_layout.setSpacing(12)
 
         c_inputs = QHBoxLayout()
-        c_inputs.setContentsMargins(0, 2, 0, 2)
+        c_inputs.setContentsMargins(0, 0, 0, 0)
+        c_inputs.setSpacing(10)
 
         lbl_start = QLabel(u"起始号码：")
-        lbl_start.setStyleSheet("font-size: 13px; color: #D1D5DB; border: none; background: transparent;")
+        lbl_start.setStyleSheet("font-size: 13px; color: #E2E8F0; border: none; background: transparent;")
         c_inputs.addWidget(lbl_start)
 
         self.spin_start = QSpinBox()
         self.spin_start.setRange(1, 9999)
         self.spin_start.setStyleSheet(
-            "QSpinBox { background-color: #1E293B; color: #F9FAFB; font-size: 13px; font-weight: bold; "
-            "padding: 5px 10px; border-radius: 6px; border: 1px solid #334155; min-width: 70px; }"
+            "QSpinBox { background-color: #1E293B; color: #F8FAFC; font-size: 14px; font-weight: bold; "
+            "padding: 6px 12px; border-radius: 6px; border: 1px solid #475569; min-width: 80px; }"
         )
         c_inputs.addWidget(self.spin_start)
 
         lbl_to = QLabel(u"  至  结束号码：")
-        lbl_to.setStyleSheet("font-size: 13px; color: #D1D5DB; border: none; background: transparent;")
+        lbl_to.setStyleSheet("font-size: 13px; color: #E2E8F0; border: none; background: transparent;")
         c_inputs.addWidget(lbl_to)
 
         self.spin_end = QSpinBox()
         self.spin_end.setRange(1, 9999)
         self.spin_end.setStyleSheet(
-            "QSpinBox { background-color: #1E293B; color: #F9FAFB; font-size: 13px; font-weight: bold; "
-            "padding: 5px 10px; border-radius: 6px; border: 1px solid #334155; min-width: 70px; }"
+            "QSpinBox { background-color: #1E293B; color: #F8FAFC; font-size: 14px; font-weight: bold; "
+            "padding: 6px 12px; border-radius: 6px; border: 1px solid #475569; min-width: 80px; }"
         )
         c_inputs.addWidget(self.spin_end)
         c_inputs.addStretch()
@@ -301,8 +323,8 @@ class QueueWidget(QWidget):
         c_opts.setContentsMargins(0, 0, 0, 0)
         self.chk_custom_seq = QCheckBox(u"按顺序依次递增叫号 (未勾选则在指定范围内随机叫号)")
         self.chk_custom_seq.setStyleSheet("""
-            QCheckBox { font-size: 12px; color: #9CA3AF; border: none; background: transparent; spacing: 8px; }
-            QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid #64748B; background-color: #1E293B; }
+            QCheckBox { font-size: 13px; color: #94A3B8; border: none; background: transparent; spacing: 8px; }
+            QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid #64748B; background-color: #1E293B; }
             QCheckBox::indicator:hover { border-color: #F97316; }
             QCheckBox::indicator:checked { border: 1.5px solid #F97316; background-color: #EA580C; }
         """)
@@ -313,13 +335,13 @@ class QueueWidget(QWidget):
 
         # ── 模式三：手动指定 ──
         card_manual = QFrame()
-        card_manual.setStyleSheet("QFrame { background: transparent; border: none; }")
+        card_manual.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }")
         cm_layout = QVBoxLayout(card_manual)
-        cm_layout.setContentsMargins(0, 0, 0, 0)
+        cm_layout.setContentsMargins(16, 14, 16, 14)
         cm_layout.setSpacing(6)
 
-        lbl_m_desc = QLabel(u"每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
-        lbl_m_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent;")
+        lbl_m_desc = QLabel(u"💡 机制说明：每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
+        lbl_m_desc.setStyleSheet("color: #94A3B8; font-size: 13px; border: none; background: transparent; line-height: 1.6;")
         cm_layout.addWidget(lbl_m_desc)
 
         self.stack_mode.addWidget(card_manual)
