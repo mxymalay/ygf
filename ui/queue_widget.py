@@ -102,12 +102,9 @@ class QueueWidget(QWidget):
         cs_layout.addLayout(cs_header)
 
         lbl_s_desc = QLabel(
-            u"根据营业时段自动分段生成随机避重号牌：
-"
-            u"  • 上午 (05:00 - 12:00)：50 - 100 之间随机叫号
-"
-            u"  • 下午 (12:00 - 18:00)：100 - 200 之间随机叫号
-"
+            u"根据营业时段自动分段生成随机避重号牌：\n"
+            u"  • 上午 (05:00 - 12:00)：50 - 100 之间随机叫号\n"
+            u"  • 下午 (12:00 - 18:00)：100 - 200 之间随机叫号\n"
             u"  • 晚上 (18:00 - 05:00)：200 - 300 之间随机叫号"
         )
         lbl_s_desc.setStyleSheet("color: #9CA3AF; font-size: 12px; border: none; background: transparent; line-height: 1.5;")
@@ -258,17 +255,14 @@ class QueueWidget(QWidget):
         used = self.call_mgr._used_numbers
         if not used:
             self.lbl_used_pool.setText(
-                u"暂无已使用号码，号码池为空。
-"
+                u"暂无已使用号码，号码池为空。\n"
                 u"(注：叫号池已开启本地安全持久化，软件重启/故障关机均不会重复号；跨营业时段时会自动重置。)"
             )
         else:
             sorted_used = sorted(list(used))
             txt = ", ".join(str(x) for x in sorted_used)
             self.lbl_used_pool.setText(
-                f"{txt}
-
-"
+                f"{txt}\n\n"
                 u"(注：叫号池已开启本地安全持久化，软件重启/故障关机均不会重复号；跨营业时段时会自动重置。)"
             )
 
