@@ -31,16 +31,16 @@ CAT_DISPLAY = {
     CAT_SYSTEM:  "💻 系统",
 }
 
-# 分类颜色样式 (高对比度色彩体系)
+# 8大分类独立光谱色彩体系 (互不重叠，极高识别度)
 CAT_COLORS = {
-    CAT_ORDER:    ("#F43F5E", "#4C0519"),  # 玫瑰红 (Rose Red)
-    CAT_USER:     ("#2DD4BF", "#134E4A"),  # 青青绿/青碧色 (Teal/Cyan) - 区别于系统的橘黄
-    CAT_SCALE:    ("#34D399", "#064E3B"),  # 翡翠绿 (Emerald Green)
-    CAT_PRINT:    ("#38BDF8", "#0C4A6E"),  # 天蓝色 (Sky Blue)
-    CAT_DECISION: ("#C084FC", "#3B0764"),  # 丁香紫 (Purple/Violet)
-    CAT_SWITCH:   ("#FBBF24", "#451A03"),  # 亮琥珀黄 (Amber Yellow)
-    CAT_PANIC:    ("#EF4444", "#450A0A"),  # 警示红 (Bright Red)
-    CAT_SYSTEM:   ("#94A3B8", "#1E293B"),  # 板岩灰 (Slate Gray)
+    CAT_ORDER:    ("#F43F5E", "#4C0519"),  # 1. 💰 订单交易 -> 玫瑰洋红 (Rose Magenta)
+    CAT_USER:     ("#06B6D4", "#164E63"),  # 2. 👤 用户操作 -> 青蓝/青碧 (Bright Cyan)
+    CAT_SCALE:    ("#10B981", "#064E3B"),  # 3. ⚖️ 称重     -> 翡翠绿   (Emerald Green)
+    CAT_PRINT:    ("#3B82F6", "#1E3A8A"),  # 4. 🖨️ 小票打印 -> 宝蓝色   (Royal Blue)
+    CAT_DECISION: ("#A855F7", "#581C87"),  # 5. 🤖 智能决策 -> 亮紫色   (Vibrant Purple)
+    CAT_SWITCH:   ("#FF781F", "#7C2D12"),  # 6. 🔄 系统切换 -> 鲜橙色   (Bright Orange)
+    CAT_PANIC:    ("#EF4444", "#450A0A"),  # 7. 🛡️ 避险     -> 大红色   (Crimson Red)
+    CAT_SYSTEM:   ("#94A3B8", "#334155"),  # 8. 💻 系统     -> 冷钛灰   (Slate Gray)
 }
 
 
