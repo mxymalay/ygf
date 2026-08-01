@@ -101,11 +101,7 @@ class SettingsWidget(QWidget):
         self.txt_sub.setPlaceholderText(u"例如：杨国福(肥西水晶城店)")
         bg.addWidget(self.txt_sub, 1, 1, 1, 2)
 
-        bg.addWidget(QLabel(u"小票底部："), 2, 0)
-        self.txt_footer = QLineEdit(self.config.get("receipt_footer", u"谢谢惠顾！欢迎下次光临"))
-        bg.addWidget(self.txt_footer, 2, 1, 1, 2)
-
-        bg.addWidget(QLabel(u"计价方式："), 3, 0)
+        bg.addWidget(QLabel(u"计价方式："), 2, 0)
         self.cmb_unit = QComboBox()
         self.cmb_unit.addItems(["per_jin - 按斤计价", "per_kg - 按公斤计价"])
         pu = self.config.get("price_unit", "per_jin")
@@ -113,14 +109,14 @@ class SettingsWidget(QWidget):
             if self.cmb_unit.itemText(i).startswith(pu):
                 self.cmb_unit.setCurrentIndex(i)
                 break
-        bg.addWidget(self.cmb_unit, 3, 1, 1, 2)
+        bg.addWidget(self.cmb_unit, 2, 1, 1, 2)
 
-        bg.addWidget(QLabel(u"麻辣烫单价："), 4, 0)
+        bg.addWidget(QLabel(u"麻辣烫单价："), 3, 0)
         self.spin_default_price = QDoubleSpinBox()
         self.spin_default_price.setRange(0.01, 999.99)
         self.spin_default_price.setValue(self.config.get("unit_price", 32.00))
         self.spin_default_price.setDecimals(2)
-        bg.addWidget(self.spin_default_price, 4, 1)
+        bg.addWidget(self.spin_default_price, 3, 1)
 
         layout.addWidget(biz_group)
 
@@ -165,7 +161,6 @@ class SettingsWidget(QWidget):
 
         self.config["shop_name"] = self.txt_shop.text()
         self.config["shop_subtitle"] = self.txt_sub.text()
-        self.config["receipt_footer"] = self.txt_footer.text()
 
         pu_text = self.cmb_unit.currentText()
         self.config["price_unit"] = pu_text.split(" - ")[0].strip()

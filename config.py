@@ -34,7 +34,6 @@ DEFAULT_CONFIG = {
     "price_unit": "per_jin",            # "per_jin" | "per_kg"
     "shop_name": "杨国福麻辣烫",
     "shop_subtitle": "杨国福(肥西水晶城店)",
-    "receipt_footer": "谢谢惠顾！欢迎下次光临",
 
     # 系统设置
     "auto_print": False,                # 称重稳定后自动打印
