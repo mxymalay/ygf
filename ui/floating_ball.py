@@ -1,11 +1,10 @@
 """
-纯触屏优化版 - 桌面常驻半透明悬浮球组件 (Touch-Friendly Floating Toggle Ball)
-针对专用于纯触摸屏收银机设计：
-- 精密 Paint 渐变排版，极致高颜值
-- 单触 (Single Tap): 0.1秒极速切换 官方系统 ↔ 私域 POS
-- 连触 3 下 (Triple Tap): 实时倒数提示，0.01秒触发防督导紧急销毁
-- 长触 (Long Press 1.2s): 0.01秒触发防督导紧急销毁
-- 拖拽 (Touch Drag): 任意指尖顺滑拖拽悬浮球
+纯触屏高颜值胶囊型悬浮球 (Capsule Floating Toggle Badge)
+采用 iOS 灵动岛 / 微信悬浮窗流线型胶囊设计：
+- 宽度 88px, 高度 50px，圆角 25px
+- 彻底解决圆球顶部/底部文字溢出问题
+- 单触 (Single Tap): 极速切换 官方系统 ↔ 私域 POS
+- 连触 3 下 (Triple Tap): 0.01秒防督导紧急销毁
 """
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
@@ -16,7 +15,7 @@ from utils.panic_handler import execute_panic_exit
 
 
 class FloatingBall(QWidget):
-    """纯触屏高颜值悬浮球 — 精密绘制防督导按钮"""
+    """纯触屏高颜值胶囊悬浮徽章"""
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
@@ -32,13 +31,13 @@ class FloatingBall(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # 固定 68x68 黄金尺寸
-        self.setFixedSize(68, 68)
+        # 88x50 黄金比例胶囊尺寸 (彻底消除文字溢出)
+        self.setFixedSize(88, 50)
 
         # 移动到屏幕右上角默认位置
         from PyQt5.QtWidgets import QApplication
         screen = QApplication.primaryScreen().geometry()
-        self.move(screen.width() - 90, 110)
+        self.move(screen.width() - 110, 110)
 
         self._drag_pos = QPoint()
         self._is_dragging = False
@@ -61,47 +60,42 @@ class FloatingBall(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
 
-        # 1. 渐变背景与边框选择
+        # 1. 渐变背景与微光边框
         if self._is_long_press_progress or self._tap_count >= 2:
-            bg_color1 = QColor(239, 68, 68)   # 红色紧急防督导避险状态
-            bg_color2 = QColor(185, 28, 28)
+            bg_color1 = QColor(239, 68, 68, 245)   # 红色警报避险
+            bg_color2 = QColor(185, 28, 28, 245)
             border_color = QColor(254, 202, 202)
         elif self._tap_count == 1:
-            bg_color1 = QColor(249, 115, 22)  # 橙色连击提示状态
-            bg_color2 = QColor(194, 65, 12)
+            bg_color1 = QColor(249, 115, 22, 240)  # 橙色连击提示
+            bg_color2 = QColor(194, 65, 12, 240)
             border_color = QColor(253, 186, 116)
         elif self.is_our_pos_active:
-            bg_color1 = QColor(16, 185, 129)  # 翡翠绿 (私域 POS)
-            bg_color2 = QColor(5, 150, 105)
+            bg_color1 = QColor(16, 185, 129, 230)  # 翡翠绿 (私域 POS)
+            bg_color2 = QColor(5, 150, 105, 230)
             border_color = QColor(110, 231, 183)
         else:
-            bg_color1 = QColor(59, 130, 246)  # 宝蓝色 (官方系统)
-            bg_color2 = QColor(29, 78, 216)
+            bg_color1 = QColor(37, 99, 235, 230)   # 宝蓝色 (官方系统)
+            bg_color2 = QColor(29, 78, 216, 230)
             border_color = QColor(147, 197, 253)
 
-        grad = QLinearGradient(0, 0, 0, 68)
+        grad = QLinearGradient(0, 0, 0, 50)
         grad.setColorAt(0.0, bg_color1)
         grad.setColorAt(1.0, bg_color2)
 
-        # 绘制背景底圈
+        # 绘制流线型胶囊圆角矩形 (r=24)
         painter.setBrush(QBrush(grad))
-        painter.setPen(QPen(border_color, 2))
-        painter.drawEllipse(2, 2, 64, 64)
+        painter.setPen(QPen(border_color, 1.5))
+        painter.drawRoundedRect(1, 1, 86, 48, 24, 24)
 
-        # 2. 精密排版绘制文字
-        # 标题 (私域 POS / 官方系统)
+        # 2. 精致两行居中文字 (宽度 88 充足，绝不溢出)
         title_text = u"私域 POS" if self.is_our_pos_active else u"官方系统"
         font_title = QFont("Microsoft YaHei", 9, QFont.Bold)
         painter.setFont(font_title)
         painter.setPen(QColor(255, 255, 255))
-        rect_title = QRect(0, 10, 68, 20)
+        rect_title = QRect(0, 5, 88, 20)
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        # 中间精致半透明分割线
-        painter.setPen(QPen(QColor(255, 255, 255, 90), 1))
-        painter.drawLine(14, 33, 54, 33)
-
-        # 副标题 (防督导手势指引与实时连击倒数)
+        # 副标题 (防督导提示与倒数)
         if self._tap_count == 1:
             sub_text = u"再点2次销毁"
             sub_color = QColor(254, 240, 138)
@@ -112,13 +106,13 @@ class FloatingBall(QWidget):
             sub_text = u"销毁退出中"
             sub_color = QColor(255, 255, 255)
         else:
-            sub_text = u"三连击销毁"
-            sub_color = QColor(229, 231, 235)
+            sub_text = u"快点3下销毁"
+            sub_color = QColor(229, 231, 235, 220)
 
         font_sub = QFont("Microsoft YaHei", 8, QFont.Bold if self._tap_count > 0 else QFont.Normal)
         painter.setFont(font_sub)
         painter.setPen(sub_color)
-        rect_sub = QRect(0, 36, 68, 20)
+        rect_sub = QRect(0, 25, 88, 18)
         painter.drawText(rect_sub, Qt.AlignCenter, sub_text)
 
     def mousePressEvent(self, event):
