@@ -105,7 +105,7 @@ class ReceiptPrinter:
                 d += line_str.encode("gbk", errors="ignore")
                 
                 if tag:
-                    d += f"  {tag}/\n".encode("gbk", errors="ignore")
+                    d += f"  {tag}\n".encode("gbk", errors="ignore")
             else:
                 d += (name + "\n").encode("gbk", errors="ignore")
                 qty = item.get("qty", 1)
@@ -119,7 +119,7 @@ class ReceiptPrinter:
                 line_str = fmt_lr_48("", right_str)
                 d += line_str.encode("gbk", errors="ignore")
                 if tag:
-                    d += f"  {tag}/\n".encode("gbk", errors="ignore")
+                    d += f"  {tag}\n".encode("gbk", errors="ignore")
 
         d += b'------------------------------------------------\n'
 
@@ -182,7 +182,7 @@ class ReceiptPrinter:
         d += val_str.encode("gbk", errors="ignore")
 
         if tag:
-            d += f"  {tag}/\n".encode("gbk", errors="ignore")
+            d += f"  {tag}\n".encode("gbk", errors="ignore")
 
         d += self.NORMAL_SIZE + self.BOLD_OFF
         d += b'------------------------------------------------\n'

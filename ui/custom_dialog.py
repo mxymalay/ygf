@@ -601,10 +601,24 @@ class ReceiptPreviewDialog(QDialog):
         line1.setStyleSheet("color: #475569; font-family: monospace; border: none;")
         scroll_layout.addWidget(line1)
 
-        # 细项表头
-        hdr_row = QLabel("菜品名                    规格  单价     数量   小计")
-        hdr_row.setStyleSheet("font-size: 12px; font-weight: bold; color: #64748B; border: none;")
-        scroll_layout.addWidget(hdr_row)
+        # 细项表头 (使用 Flex 弹性布局实现绝对垂直对齐)
+        hdr_w = QWidget()
+        hdr_w.setStyleSheet("background: transparent; border: none;")
+        hdr_l = QHBoxLayout(hdr_w)
+        hdr_l.setContentsMargins(0,0,0,0)
+        
+        l_name = QLabel("菜品名")
+        l_name.setStyleSheet("font-size: 12px; font-weight: bold; color: #64748B;")
+        hdr_l.addWidget(l_name, stretch=1)
+        
+        for t in ["规格", "单价", "数量", "小计"]:
+            l = QLabel(t)
+            l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            l.setStyleSheet("font-size: 12px; font-weight: bold; color: #64748B;")
+            l.setFixedWidth(45)
+            hdr_l.addWidget(l)
+            
+        scroll_layout.addWidget(hdr_w)
 
         # 商品明细列表
         items_layout = QVBoxLayout()
@@ -629,10 +643,18 @@ class ReceiptPreviewDialog(QDialog):
                 w_val = item.get("weight", sale_data.get("weight_kg", 0.0))
                 p_val = item.get("unit_price", sale_data.get("unit_price", 47.60))
                 sub_total = item.get("price", 0.0)
-                detail_str = f"                      KG   {p_val:.2f}   {w_val:.3f}   {sub_total:.2f}"
-                lbl_detail = QLabel(detail_str)
-                lbl_detail.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
-                item_box.addWidget(lbl_detail)
+                
+                det_w = QWidget()
+                det_l = QHBoxLayout(det_w)
+                det_l.setContentsMargins(0,0,0,0)
+                det_l.addStretch(1)
+                for t in ["KG", f"{p_val:.2f}", f"{w_val:.3f}", f"{sub_total:.2f}"]:
+                    l = QLabel(t)
+                    l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    l.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
+                    l.setFixedWidth(45)
+                    det_l.addWidget(l)
+                item_box.addWidget(det_w)
             else:
                 title_lbl = QLabel(name_str)
                 title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #E2E8F0; border: none;")
@@ -642,13 +664,21 @@ class ReceiptPreviewDialog(QDialog):
                 unit_label = item.get("unit", "份")
                 base_p = item.get("base_price", item.get("price", 0.0) / max(1, qty))
                 sub_total = item.get("price", 0.0)
-                detail_str = f"                      {unit_label}   {base_p:.2f}   {qty}   {sub_total:.2f}"
-                lbl_detail = QLabel(detail_str)
-                lbl_detail.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
-                item_box.addWidget(lbl_detail)
+                
+                det_w = QWidget()
+                det_l = QHBoxLayout(det_w)
+                det_l.setContentsMargins(0,0,0,0)
+                det_l.addStretch(1)
+                for t in [unit_label, f"{base_p:.2f}", f"{qty}", f"{sub_total:.2f}"]:
+                    l = QLabel(t)
+                    l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    l.setStyleSheet("font-size: 13px; color: #F59E0B; font-family: monospace; border: none;")
+                    l.setFixedWidth(45)
+                    det_l.addWidget(l)
+                item_box.addWidget(det_w)
 
             if tag_str:
-                lbl_tag = QLabel(f"   {tag_str}/")
+                lbl_tag = QLabel(f"  {tag_str}")
                 lbl_tag.setStyleSheet("font-size: 12px; color: #34D399; font-weight: bold; border: none;")
                 item_box.addWidget(lbl_tag)
 
