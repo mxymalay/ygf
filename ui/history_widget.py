@@ -237,9 +237,23 @@ class HistoryWidget(QWidget):
 
         self.cbo_search_type = QComboBox()
         self.cbo_search_type.addItems([u"取餐号", u"订单号"])
-        self.cbo_search_type.setStyleSheet(
-            "QComboBox { background: #1F2937; color: white; padding: 6px 12px; border: none; border-radius: 6px; }"
-        )
+        cbo_search_style = """
+            QComboBox { background: #1F2937; color: white; padding: 6px 12px; border: none; border-radius: 6px; outline: none; }
+            QComboBox::drop-down { border: none; width: 24px; }
+            QComboBox QAbstractItemView {
+                background-color: #1F2937;
+                color: #F9FAFB;
+                selection-background-color: #EA580C;
+                outline: none;
+                border: 1px solid #374151;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 36px;
+            }
+        """
+        self.cbo_search_type.setStyleSheet(cbo_search_style)
+        import PyQt5.QtWidgets as QtWidgets
+        self.cbo_search_type.setItemDelegate(QtWidgets.QStyledItemDelegate())
         search_row.addWidget(self.cbo_search_type)
 
         self.txt_search = QLineEdit()
