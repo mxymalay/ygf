@@ -105,6 +105,16 @@ class CheckoutDialog(QDialog):
         scroll.setWidget(scroll_widget)
         tc_layout.addWidget(scroll, stretch=1)
 
+        # 固定的底部合计（不随滚动条滚动）
+        self._add_sep(tc_layout)
+        
+        cart_items = sale_data.get("cart_items", [])
+        total_p = sum(i.get("price", 0.0) for i in cart_items)
+        lbl_total = QLabel(f"应收金额：￥{total_p:.2f}")
+        lbl_total.setAlignment(Qt.AlignRight)
+        lbl_total.setStyleSheet("font-size: 26px; font-weight: bold; color: #059669; border: none;")
+        tc_layout.addWidget(lbl_total)
+
         left_layout.addWidget(ticket_card, stretch=1)
 
         # 底部打印数量提示
@@ -322,14 +332,6 @@ class CheckoutDialog(QDialog):
 
             layout.addLayout(item_box)
 
-        self._add_sep(layout)
-
-        # 合计金额
-        total_p = sum(i.get("price", 0.0) for i in cart_items)
-        lbl_total = QLabel(f"应收金额：￥{total_p:.2f}")
-        lbl_total.setAlignment(Qt.AlignRight)
-        lbl_total.setStyleSheet("font-size: 20px; font-weight: 900; color: #059669; border: none;")
-        layout.addWidget(lbl_total)
 
     def _add_sep(self, layout):
         lbl = QLabel("----------------------------------------")
