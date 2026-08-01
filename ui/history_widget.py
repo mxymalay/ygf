@@ -175,6 +175,32 @@ class HistoryWidget(QWidget):
 
         header_bar.addLayout(date_layout)
 
+        # 快捷操作按钮
+        quick_date_layout = QHBoxLayout()
+        quick_date_layout.setSpacing(8)
+        
+        quick_btn_style = """
+            QPushButton { background: #374151; color: white; font-weight: bold; font-size: 14px; padding: 8px 12px; border-radius: 6px; border: none; }
+        """
+        
+        self.btn_today = QPushButton(u"今天")
+        self.btn_today.setStyleSheet(quick_btn_style)
+        self.btn_today.clicked.connect(lambda: self._set_quick_date(0))
+        
+        self.btn_yesterday = QPushButton(u"昨天")
+        self.btn_yesterday.setStyleSheet(quick_btn_style)
+        self.btn_yesterday.clicked.connect(lambda: self._set_quick_date(-1))
+        
+        self.btn_day_before = QPushButton(u"前天")
+        self.btn_day_before.setStyleSheet(quick_btn_style)
+        self.btn_day_before.clicked.connect(lambda: self._set_quick_date(-2))
+        
+        quick_date_layout.addWidget(self.btn_today)
+        quick_date_layout.addWidget(self.btn_yesterday)
+        quick_date_layout.addWidget(self.btn_day_before)
+
+        header_bar.addLayout(quick_date_layout)
+
         header_bar.addSpacing(16)
 
         # 选中的订单标题
@@ -377,6 +403,24 @@ class HistoryWidget(QWidget):
         main_layout.addLayout(body_layout, stretch=1)
 
     # ─── 数据查询与加载 ───
+    def _set_quick_date(self, days_offset):
+        target = QDate.currentDate().addDays(days_offset)
+        
+        self.cbo_year.blockSignals(True)
+        self.cbo_month.blockSignals(True)
+        self.cbo_day.blockSignals(True)
+        
+        self.cbo_year.setCurrentText(f"{target.year()}年")
+        self.cbo_month.setCurrentText(f"{target.month():02d}月")
+        self._update_days()
+        self.cbo_day.setCurrentText(f"{target.day():02d}日")
+        
+        self.cbo_year.blockSignals(False)
+        self.cbo_month.blockSignals(False)
+        self.cbo_day.blockSignals(False)
+        
+        self._on_query()
+
     def _update_days(self):
         y = self.cbo_year.currentData()
         m = self.cbo_month.currentData()
