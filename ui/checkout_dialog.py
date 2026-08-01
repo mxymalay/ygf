@@ -554,40 +554,44 @@ class CheckoutDialog(QDialog):
             self.reject()
 
     def _start_fly_animation(self):
-        """小票飞出动画，同时右侧面板淡出，快速自动 accept"""
+        """结账完成动画：需打印订单向上飞出，免打印订单直接原地渐隐"""
+        cart_items = self.sale_data.get("cart_items", [])
+        has_soup = any(item.get("type") == "soup" or "weight" in item for item in cart_items)
+
         self.opacity_effect = QGraphicsOpacityEffect(self.receipt_container)
         self.receipt_container.setGraphicsEffect(self.opacity_effect)
 
-        # 向上飞出位移
-        self.pos_anim = QPropertyAnimation(self.receipt_container, b"pos")
-        self.pos_anim.setDuration(800)
-        start_pos = self.receipt_container.pos()
-        end_pos = QPoint(start_pos.x(), start_pos.y() - 250)
-        self.pos_anim.setStartValue(start_pos)
-        self.pos_anim.setEndValue(end_pos)
-        self.pos_anim.setEasingCurve(QEasingCurve.InBack)
-
         # 渐隐透明度 (左侧小票)
         self.opa_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.opa_anim.setDuration(800)
+        self.opa_anim.setDuration(400 if not has_soup else 800)
         self.opa_anim.setStartValue(1.0)
         self.opa_anim.setEndValue(0.0)
-        self.opa_anim.setEasingCurve(QEasingCurve.InCubic)
+        self.opa_anim.setEasingCurve(QEasingCurve.OutCubic if not has_soup else QEasingCurve.InCubic)
+        self.opa_anim.start()
 
-        # 右侧面板快速淡出
+        if has_soup:
+            # 只有需打印的订单才触发【向上出票】位移动画
+            self.pos_anim = QPropertyAnimation(self.receipt_container, b"pos")
+            self.pos_anim.setDuration(800)
+            start_pos = self.receipt_container.pos()
+            end_pos = QPoint(start_pos.x(), start_pos.y() - 250)
+            self.pos_anim.setStartValue(start_pos)
+            self.pos_anim.setEndValue(end_pos)
+            self.pos_anim.setEasingCurve(QEasingCurve.InBack)
+            self.pos_anim.start()
+
+        # 右侧面板淡出
         self.right_opacity = QGraphicsOpacityEffect(self.right_panel)
         self.right_panel.setGraphicsEffect(self.right_opacity)
         self.right_opa_anim = QPropertyAnimation(self.right_opacity, b"opacity")
         self.right_opa_anim.setDuration(400)
         self.right_opa_anim.setStartValue(1.0)
         self.right_opa_anim.setEndValue(0.0)
-
-        self.pos_anim.start()
-        self.opa_anim.start()
         self.right_opa_anim.start()
 
         # 动画结束后自动关闭模态框
-        QTimer.singleShot(900, self.accept)
+        close_delay = 450 if not has_soup else 900
+        QTimer.singleShot(close_delay, self.accept)
 
     def mousePressEvent(self, event):
         # 如果点击了空白处（没有点到小票或按钮），则取消结账
