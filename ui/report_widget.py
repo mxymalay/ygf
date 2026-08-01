@@ -22,7 +22,8 @@ class ReportWidget(QWidget):
         self.db = db
         self.printer = printer
         self.config = config or {}
-        self.selected_date_str = date.today().strftime("%Y-%m-%d")
+        self.start_date_str = date.today().strftime("%Y-%m-%d")
+        self.end_date_str = self.start_date_str
 
         self._build_ui()
         self.reload_report()
@@ -44,7 +45,7 @@ class ReportWidget(QWidget):
 
         header_bar.addStretch()
 
-        self.lbl_header_date = QLabel(self.selected_date_str)
+        self.lbl_header_date = QLabel(self.start_date_str)
         self.lbl_header_date.setStyleSheet("font-size: 16px; font-weight: bold; color: #F9FAFB; border: none;")
         header_bar.addWidget(self.lbl_header_date)
 
@@ -72,6 +73,32 @@ class ReportWidget(QWidget):
         fix_calendar_header_style(self.calendar)
         self.calendar.selectionChanged.connect(self._on_date_changed)
         left_col.addWidget(self.calendar)
+        
+        # 快捷按钮布局
+        quick_btn_style = """
+            QPushButton { background: #374151; color: white; font-weight: bold; font-size: 13px; padding: 8px; border-radius: 6px; border: none; }
+            QPushButton:hover { background: #4B5563; }
+        """
+        quick_grid = QGridLayout()
+        quick_grid.setSpacing(6)
+        
+        btn_configs = [
+            [(u"今天", "today"), (u"昨天", "yesterday"), (u"前天", "day_before")],
+            [(u"本周", "this_week"), (u"上周", "last_week"), None],
+            [(u"本月", "this_month"), (u"上月", "last_month"), None],
+            [(u"本年", "this_year"), (u"去年", "last_year"), None],
+            [(u"7天", "7_days"), (u"30天", "30_days"), (u"365天", "365_days")]
+        ]
+        
+        for row, row_items in enumerate(btn_configs):
+            for col, item in enumerate(row_items):
+                if item:
+                    btn = QPushButton(item[0])
+                    btn.setStyleSheet(quick_btn_style)
+                    btn.clicked.connect(lambda checked, cmd=item[1]: self._set_date_range(cmd))
+                    quick_grid.addWidget(btn, row, col)
+                    
+        left_col.addLayout(quick_grid)
         left_col.addStretch()
 
         body_layout.addLayout(left_col, stretch=3)
@@ -99,7 +126,7 @@ class ReportWidget(QWidget):
         # 头部门店元数据
         self.lbl_shop_name = QLabel(u"门店名称：杨国福(肥西水晶城店)")
         self.lbl_shop_name.setStyleSheet("color: #374151; font-size: 13px; border: none;")
-        self.lbl_start_time = QLabel(u"开始时间：%s" % self.selected_date_str)
+        self.lbl_start_time = QLabel(u"统计时间：%s" % self.start_date_str)
         self.lbl_start_time.setStyleSheet("color: #374151; font-size: 13px; border: none;")
 
         mid_layout.addWidget(self.lbl_shop_name)
@@ -168,15 +195,74 @@ class ReportWidget(QWidget):
         layout.addLayout(row)
         return lbl_v
 
+    def _set_date_range(self, cmd):
+        from datetime import date, timedelta
+        import calendar
+        today = date.today()
+        
+        if cmd == "today":
+            start_d = today
+            end_d = today
+        elif cmd == "yesterday":
+            start_d = today - timedelta(days=1)
+            end_d = start_d
+        elif cmd == "day_before":
+            start_d = today - timedelta(days=2)
+            end_d = start_d
+        elif cmd == "this_week":
+            start_d = today - timedelta(days=today.weekday())
+            end_d = start_d + timedelta(days=6)
+        elif cmd == "last_week":
+            end_d = today - timedelta(days=today.weekday() + 1)
+            start_d = end_d - timedelta(days=6)
+        elif cmd == "this_month":
+            start_d = today.replace(day=1)
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            end_d = today.replace(day=last_day)
+        elif cmd == "last_month":
+            first_day = today.replace(day=1)
+            end_d = first_day - timedelta(days=1)
+            start_d = end_d.replace(day=1)
+        elif cmd == "this_year":
+            start_d = today.replace(month=1, day=1)
+            end_d = today.replace(month=12, day=31)
+        elif cmd == "last_year":
+            start_d = today.replace(year=today.year-1, month=1, day=1)
+            end_d = today.replace(year=today.year-1, month=12, day=31)
+        elif cmd == "7_days":
+            end_d = today
+            start_d = today - timedelta(days=6)
+        elif cmd == "30_days":
+            end_d = today
+            start_d = today - timedelta(days=29)
+        elif cmd == "365_days":
+            end_d = today
+            start_d = today - timedelta(days=364)
+        else:
+            return
+            
+        self.start_date_str = start_d.strftime("%Y-%m-%d")
+        self.end_date_str = end_d.strftime("%Y-%m-%d")
+        
+        if self.start_date_str == self.end_date_str:
+            self.lbl_header_date.setText(self.start_date_str)
+            self.lbl_start_time.setText(u"统计时间：%s" % self.start_date_str)
+        else:
+            self.lbl_header_date.setText(f"{self.start_date_str} ~ {self.end_date_str}")
+            self.lbl_start_time.setText(u"统计时间：%s ~ %s" % (self.start_date_str, self.end_date_str))
+            
+        self._load_data()
+
     def _on_date_changed(self):
         qd = self.calendar.selectedDate()
-        self.selected_date_str = qd.toString("yyyy-MM-dd")
-        self.lbl_header_date.setText(self.selected_date_str)
-        self.lbl_start_time.setText(u"开始时间：%s" % self.selected_date_str)
+        self.start_date_str = qd.toString("yyyy-MM-dd")
+        self.end_date_str = self.start_date_str
+        self.lbl_header_date.setText(self.start_date_str)
+        self.lbl_start_time.setText(u"统计时间：%s" % self.start_date_str)
         self._load_data()
 
     def _load_data(self):
-        stats = self.db.get_stats_by_date(self.selected_date_str, self.selected_date_str)
+        stats = self.db.get_stats_by_date(self.start_date_str, self.end_date_str)
         count = stats.get("count", 0)
         a_sum = stats.get("amount_sum", 0.0)
         avg = a_sum / count if count > 0 else 0.0
@@ -187,8 +273,8 @@ class ReportWidget(QWidget):
         self.lbl_pay_total.setText("¥ %.2f" % a_sum)
 
     def _on_print_click(self):
-        stats = self.db.get_stats_by_date(self.selected_date_str, self.selected_date_str)
-        stats["date_str"] = self.selected_date_str
+        stats = self.db.get_stats_by_date(self.start_date_str, self.end_date_str)
+        stats["date_str"] = self.start_date_str if self.start_date_str == self.end_date_str else f"{self.start_date_str} to {self.end_date_str}"
         if self.printer:
             if hasattr(self.printer, "print_shift_report"):
                 self.printer.print_shift_report(stats)
