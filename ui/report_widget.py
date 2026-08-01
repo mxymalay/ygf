@@ -86,7 +86,7 @@ class ReportWidget(QWidget):
         mid_layout.setSpacing(10)
 
         # 票据标题
-        lbl_ticket_title = QLabel(u"交班小结")
+        lbl_ticket_title = QLabel(u"营业汇总报表")
         lbl_ticket_title.setAlignment(Qt.AlignCenter)
         lbl_ticket_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #111827; border: none;")
         mid_layout.addWidget(lbl_ticket_title)
@@ -196,15 +196,15 @@ class ReportWidget(QWidget):
                 rev_amt = float(self.lbl_rev.text().replace("¥", "").strip())
                 ticket_data = {
                     "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
-                    "call_no": "SHIFT",
+                    "call_no": "REPORT",
                     "weight_kg": 0.0,
                     "unit_price": 0.0,
                     "total_price": rev_amt,
-                    "temp_order_no": "SHIFT-" + datetime.now().strftime("%Y%m%d%H%M"),
-                    "cart_items": [{"name": u"交班小结报表", "price": rev_amt}],
+                    "temp_order_no": "REP-" + datetime.now().strftime("%Y%m%d%H%M"),
+                    "cart_items": [{"name": u"营业汇总报表", "price": rev_amt}],
                     "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
                 self.printer.print_receipt(ticket_data)
 
         from ui.custom_dialog import show_info
-        show_info(self, u"打印成功", u"营业小结报表已发送至打印机！")
+        show_info(self, u"打印成功", u"营业汇总报表已成功发送至打印机！")

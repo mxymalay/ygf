@@ -230,13 +230,13 @@ class ReceiptPrinter:
         return False
 
     def _build_shift_report(self, report_data):
-        """构建【交班小结】ESC/POS 票据 (符合店铺规范，严格 30 列排版)"""
+        """构建【营业汇总报表】ESC/POS 票据 (符合店铺规范，严格 30 列排版)"""
         d = bytearray()
         d += self.INIT
 
         # 1. 标题
         d += self.ALIGN_CENTER + self.BOLD_ON + self.DOUBLE_HEIGHT
-        d += "交班小结\n".encode("gbk", errors="ignore")
+        d += "营业汇总报表\n".encode("gbk", errors="ignore")
         d += self.NORMAL_SIZE + self.BOLD_OFF
         d += b'------------------------------------------------\n'
 
@@ -283,9 +283,9 @@ class ReceiptPrinter:
         return bytes(d)
 
     def print_shift_report(self, report_data):
-        """交班小结报表打印入口"""
+        """营业汇总报表打印入口"""
         if self.config.get("is_mock_mode", False):
-            print("[模拟调试模式] 已完成交班小结模拟打票！")
+            print("[模拟调试模式] 已完成营业汇总报表模拟打票！")
             return True
 
         raw_data = self._build_shift_report(report_data)
