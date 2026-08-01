@@ -230,6 +230,55 @@ QStatusBar {{
     border: none;
     font-size: 13px;
 }}
+
+/* ─── 日历控件 (消除星期表头白条) ─────────────── */
+QCalendarWidget {{
+    background-color: {c['bg_card']};
+    color: {c['text_primary']};
+    border: none;
+    border-radius: 12px;
+}}
+
+QCalendarWidget QWidget#qt_calendar_navigationbar {{
+    background-color: {c['bg_secondary']};
+    border: none;
+    min-height: 42px;
+}}
+
+QCalendarWidget QToolButton {{
+    color: {c['text_primary']};
+    background-color: transparent;
+    font-weight: bold;
+    font-size: 15px;
+    border-radius: 6px;
+    padding: 4px 8px;
+}}
+
+QCalendarWidget QToolButton:hover {{
+    background-color: {c['bg_card_active']};
+}}
+
+QCalendarWidget QTableView QHeaderView::section {{
+    background-color: {c['bg_card']};
+    color: {c['text_secondary']};
+    font-weight: bold;
+    border: none;
+    padding: 6px 0px;
+}}
+
+QCalendarWidget QAbstractItemView {{
+    background-color: {c['bg_primary']};
+    color: {c['text_primary']};
+    selection-background-color: {c['accent_orange']};
+    selection-color: #FFFFFF;
+    border: none;
+    outline: none;
+}}
+
+QCalendarWidget QAbstractItemView:enabled {{
+    background-color: {c['bg_primary']};
+    color: {c['text_primary']};
+}}
 """
 
 DARK_STYLE = build_qss(DARK_COLORS)

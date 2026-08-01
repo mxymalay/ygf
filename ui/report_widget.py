@@ -68,11 +68,6 @@ class ReportWidget(QWidget):
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
-        self.calendar.setStyleSheet(
-            "QCalendarWidget { background: #1E293B; color: #F9FAFB; border: none; border-radius: 8px; }"
-            "QCalendarWidget QWidget#qt_calendar_navigationbar { background: #111827; border: none; }"
-            "QCalendarWidget QAbstractItemView { selection-background-color: #EA580C; selection-color: white; border: none; }"
-        )
         self.calendar.selectionChanged.connect(self._on_date_changed)
         left_col.addWidget(self.calendar)
         left_col.addStretch()
