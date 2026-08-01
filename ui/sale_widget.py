@@ -272,18 +272,19 @@ class OrderItemCard(QFrame):
             
             btn_takeout = QPushButton(btn_text)
             btn_takeout.setCursor(Qt.PointingHandCursor)
+            btn_takeout.setFixedHeight(20)
             if is_takeout:
                 btn_takeout.setStyleSheet(
-                    "QPushButton { background: transparent; color: #F59E0B; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 1px 6px; border: 1px dashed #F59E0B; }"
+                    "QPushButton { background: transparent; color: #F59E0B; font-weight: bold; font-size: 11px; border-radius: 4px; padding: 0px 4px; margin: 0px; border: 1px dashed #F59E0B; }"
                     "QPushButton:hover { background: rgba(245, 158, 11, 0.1); }"
                 )
             else:
                 btn_takeout.setStyleSheet(
-                    "QPushButton { background: transparent; color: #9CA3AF; font-weight: bold; font-size: 12px; border-radius: 4px; padding: 1px 6px; border: 1px dashed #475569; }"
+                    "QPushButton { background: transparent; color: #9CA3AF; font-weight: bold; font-size: 11px; border-radius: 4px; padding: 0px 4px; margin: 0px; border: 1px dashed #475569; }"
                     "QPushButton:hover { border: 1px dashed #F59E0B; color: #F59E0B; }"
                 )
             btn_takeout.clicked.connect(self._on_takeout_click)
-            title_row.addWidget(btn_takeout)
+            title_row.addWidget(btn_takeout, alignment=Qt.AlignVCenter)
 
         title_row.addStretch()
         left_vbox.addLayout(title_row)
