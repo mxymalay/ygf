@@ -837,6 +837,8 @@ class SaleWidget(QWidget):
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
+            skip_flavor_popup = ("番茄汤" in soup_clean_name or "麻辣拌" in soup_clean_name)
+            
             w = self.current_weight
             b_price = calculate_price(w, unit_price, price_unit)
             
@@ -845,7 +847,7 @@ class SaleWidget(QWidget):
                 "type": "soup",
                 "key_id": btn.key_id,
                 "name": soup_clean_name,
-                "tag": dlg.get_tag_string(),
+                "tag": "" if skip_flavor_popup else dlg.get_tag_string(),
                 "weight": w,
                 "base_price": b_price,
                 "price": b_price,
@@ -869,9 +871,10 @@ class SaleWidget(QWidget):
 
             dlg.flavor_changed.connect(update_flavor)
 
-            # 3. 智能精准定位气泡弹窗在当前按键旁边/下方，且严格防越界
-            self._position_popup_at_widget(dlg, btn)
-            dlg.exec_()
+            # 3. 智能精准定位气泡弹窗在当前按键旁边/下方，且严格防越界 (特定汤底免打扰)
+            if not skip_flavor_popup:
+                self._position_popup_at_widget(dlg, btn)
+                dlg.exec_()
         else:
             item_entry = {
                 "type": "item",
