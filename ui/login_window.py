@@ -170,7 +170,7 @@ class LoginWindow(QDialog):
         self.official_ok = False
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(600, 780)
+        self.setFixedSize(580, 680)
         self.is_mock_mode = False
         self.active_input = None
         self._build_ui()

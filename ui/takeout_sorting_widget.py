@@ -180,8 +180,8 @@ class TakeoutSortingWidget(QWidget):
         self.table.setHorizontalHeaderItem(3, item_hdr3)
 
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(48)
-        self.table.setMinimumHeight(240)
+        self.table.verticalHeader().setDefaultSectionSize(52)
+        self.table.setMinimumHeight(420)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 75)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
@@ -389,7 +389,7 @@ class TakeoutSortingWidget(QWidget):
 
         self.txt_preview = QTextEdit()
         self.txt_preview.setReadOnly(True)
-        self.txt_preview.setFixedHeight(320)  # 320px 宽大高度展示全张小票
+        self.txt_preview.setFixedHeight(240)  # 240px 大高度下置小票预览
         self.txt_preview.setStyleSheet(
             "QTextEdit { background: #0F172A; color: #34D399; font-family: 'Consolas', monospace; "
             "font-size: 13px; font-weight: bold; border: 1.5px solid #059669; border-radius: 8px; padding: 10px; }"
