@@ -1544,6 +1544,15 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setText(u"✔")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
+        
+        # 称重稳定且预计价格低于15元时，弹出提醒
+        if weight_kg > 0.005:
+            unit_price = self.config.get("unit_price", 47.60)
+            price_unit = self.config.get("price_unit", "per_jin")
+            from core.calculator import calculate_price
+            expected_price = calculate_price(weight_kg, unit_price, price_unit)
+            if expected_price < 15.0:
+                self._show_toast(u"温馨提示：此麻辣烫预计称重低于15元。")
 
     @pyqtSlot(str)
     def _on_error(self, msg):
