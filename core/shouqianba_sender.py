@@ -34,16 +34,86 @@ for i in range(10):
     VK_MAPPING[str(i)] = 0x30 + i
 
 
+def _find_shouqianba_hwnd():
+    """查找收钱吧主窗口句柄"""
+    try:
+        user32 = ctypes.windll.user32
+        target_hwnd = [None]
+
+        def foreach_window(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buf = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buf, length + 1)
+                    title = buf.value
+                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba"]):
+                        target_hwnd[0] = hwnd
+                        return False
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
+        return target_hwnd[0]
+    except Exception:
+        return None
+
+
 def send_hotkey(hotkey_str: str):
-    """底层物理 SendInput 按键驱动 (支持 Shift+Q, TAB 等所有唤起热键)"""
+    """模拟键盘发送快捷键 - 优先精准发送到收钱吧窗口，降级才用全局广播"""
     if not hotkey_str:
         return False
     try:
-        import keyboard
-        hotkey_clean = hotkey_str.strip().lower()
-        keyboard.send(hotkey_clean)
-        print(f"[快捷键唤起] 成功物理 SendInput 发送: {hotkey_str}")
-        return True
+        user32 = ctypes.windll.user32
+        parts = [p.strip().upper() for p in hotkey_str.split("+") if p.strip()]
+        vk_codes = [VK_MAPPING[p] for p in parts if p in VK_MAPPING]
+
+        if not vk_codes:
+            return False
+
+        KEYEVENTF_KEYUP = 0x0002
+        WM_KEYDOWN = 0x0100
+        WM_KEYUP = 0x0101
+        WM_SYSKEYDOWN = 0x0104
+        WM_SYSKEYUP = 0x0105
+
+        # 尝试精准定向发送到收钱吧窗口
+        sqb_hwnd = _find_shouqianba_hwnd()
+
+        if sqb_hwnd:
+            # 使用 PostMessage 精准向目标窗口发送按键，不干扰全局键鼠
+            for vk in vk_codes:
+                scan_code = user32.MapVirtualKeyW(vk, 0)
+                lParam_down = (1 | (scan_code << 16))
+                user32.PostMessageW(sqb_hwnd, WM_KEYDOWN, vk, lParam_down)
+                time.sleep(0.02)
+
+            time.sleep(0.05)
+
+            for vk in reversed(vk_codes):
+                scan_code = user32.MapVirtualKeyW(vk, 0)
+                lParam_up = (1 | (scan_code << 16) | (3 << 30))
+                user32.PostMessageW(sqb_hwnd, WM_KEYUP, vk, lParam_up)
+                time.sleep(0.02)
+
+            print(f"[快捷键唤起] 精准定向发送快捷键到收钱吧窗口: {hotkey_str}")
+            return True
+        else:
+            # 降级：收钱吧窗口未找到时，使用全局 keybd_event（仅在万不得已时）
+            for vk in vk_codes:
+                scan_code = user32.MapVirtualKeyW(vk, 0)
+                user32.keybd_event(vk, scan_code, 0, 0)
+                time.sleep(0.02)
+
+            time.sleep(0.05)
+
+            for vk in reversed(vk_codes):
+                scan_code = user32.MapVirtualKeyW(vk, 0)
+                user32.keybd_event(vk, scan_code, KEYEVENTF_KEYUP, 0)
+                time.sleep(0.02)
+
+            print(f"[快捷键唤起] 降级全局广播快捷键(未找到收钱吧窗口): {hotkey_str}")
+            return True
     except Exception as e:
         logger.warning(f"发送快捷键 {hotkey_str} 异常: {e}")
         return False
@@ -326,12 +396,6 @@ def check_shouqianba_payment_success() -> bool:
         logger.warning(f"检测收钱吧成功窗口异常: {e}")
         return False
 
-        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
-        return found_success[0]
-    except Exception as e:
-        logger.warning(f"检测收钱吧成功窗口异常: {e}")
-        return False
-
 
 def _do_send_amount(amount: float, config: dict):
     """后台子线程多通道推送逻辑"""
@@ -382,23 +446,22 @@ def _do_send_amount(amount: float, config: dict):
     # 等待 0.15 秒，确保收钱吧后台已处理完串口数据
     time.sleep(0.15)
 
-    # 如果是归零/重置清空 (amount <= 0)，只静默向串口发送 0.00 冲刷缓存，不触发唤起
+    # 如果是归零/重置清空 (amount <= 0)，只静默向串口发送 0.00 冲刷缓存，不触发快捷键唤起和窗口置顶
     if amount <= 0.0:
         print("[收钱吧串口] 已完成静默 0.00 金额重置，隐藏前台唤起。")
         return
 
-    # 1. 模拟唤起快捷键 (由 SendInput 级驱动，不触发中英文输入法切换)
+    # 2. 自动模拟发送快捷键 (再调出收钱吧界面)
     hotkey = config.get("shouqianba_hotkey", "Shift+Q")
     if hotkey:
         send_hotkey(hotkey)
 
-    # 2. 强制将收钱吧窗口置顶前台
+    # 3. 自动尝试将收钱吧窗口置顶前台
     bring_shouqianba_to_front()
-
-    # 3. 必须延迟 0.6 秒 (配合收钱吧 V4.0.4 渲染与焦点激活时间)
+    
+    # 4. 解决 USB标准模式 下扫码枪误扫入金额栏的问题
+    # 置顶后延迟0.6秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
     time.sleep(0.6)
-
-    # 4. 精准发送 TAB 键 (光标强行跳到扫码框)
     send_hotkey("TAB")
 
 
@@ -484,7 +547,19 @@ def _barcode_checker_loop():
         if len(_barcode_buffer) >= 10 and (now - _last_key_time) > 0.1:
             logger.info(f"[扫码补偿] 检测到支付宝碰一碰极速输入({len(_barcode_buffer)}位): {_barcode_buffer}，自动补充 Enter")
             _barcode_buffer = ""  # 清空防止重复触发
-            send_hotkey("ENTER")
+            # 精准向收钱吧窗口发送 Enter，不干扰全局键鼠
+            sqb_hwnd = _find_shouqianba_hwnd()
+            if sqb_hwnd:
+                user32 = ctypes.windll.user32
+                VK_RETURN = 0x0D
+                scan = user32.MapVirtualKeyW(VK_RETURN, 0)
+                user32.PostMessageW(sqb_hwnd, 0x0100, VK_RETURN, (1 | (scan << 16)))
+                time.sleep(0.02)
+                user32.PostMessageW(sqb_hwnd, 0x0101, VK_RETURN, (1 | (scan << 16) | (3 << 30)))
+                print("[扫码补偿] 精准向收钱吧窗口补发 Enter")
+            else:
+                # 降级：全局发送（仅在收钱吧窗口找不到时）
+                send_hotkey("ENTER")
 
 try:
     keyboard.on_press(_global_key_listener)
