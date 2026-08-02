@@ -186,6 +186,14 @@ class SwitchSettingsWidget(QWidget):
         lbl_w_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_w_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_w_tip)
+
+        self.sp_max_daily_limit = TouchDoubleSpinBox(0.0, 0.0, 999999.0, 100.0, " 元")
+        lay1.addRow(QLabel(u"当日累计收款上限:"), self.sp_max_daily_limit)
+
+        lbl_limit_tip = QLabel(u"场景说明：设置今日私域本POS累计收款金额上限。当今日收款达到/超过此金额时，全自动停止切换为本POS，分配给官方收银。0 元表示不限制。")
+        lbl_limit_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_limit_tip.setWordWrap(True)
+        lay1.addRow(QLabel(), lbl_limit_tip)
         form_vlayout.addWidget(grp1)
 
         # --- 场景 2：连续收银防打断 ---
@@ -397,6 +405,7 @@ class SwitchSettingsWidget(QWidget):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
         self.sp_ratio.setValue(int(self.config.get("private_ratio_percent", 70)))
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
+        self.sp_max_daily_limit.setValue(float(self.config.get("max_daily_revenue_limit", 0.0)))
         self.sp_min_valid_weight.setValue(float(self.config.get("min_valid_weight_kg", 0.08)))
         self.sp_surge_correction.setValue(float(self.config.get("surge_correction_weight_kg", 0.15)))
         
@@ -411,6 +420,7 @@ class SwitchSettingsWidget(QWidget):
         new_enabled = self.chk_enabled.isChecked()
         new_ratio = self.sp_ratio.value()
         new_weight = self.sp_weight.value()
+        new_max_daily_limit = self.sp_max_daily_limit.value()
         new_min_valid = self.sp_min_valid_weight.value()
         new_surge = self.sp_surge_correction.value()
         new_official_lock = self.sp_official_lock.value()
@@ -423,6 +433,7 @@ class SwitchSettingsWidget(QWidget):
         self.config["auto_switch_enabled"] = new_enabled
         self.config["private_ratio_percent"] = new_ratio
         self.config["min_private_weight_kg"] = new_weight
+        self.config["max_daily_revenue_limit"] = new_max_daily_limit
         self.config["min_valid_weight_kg"] = new_min_valid
         self.config["surge_correction_weight_kg"] = new_surge
         self.config["official_lock_sec"] = new_official_lock
@@ -436,7 +447,8 @@ class SwitchSettingsWidget(QWidget):
         # 3. 记录日志
         detail = (f"开关: {'开' if new_enabled else '关'} | "
                   f"截留比: {new_ratio}% | "
-                  f"门限: {new_weight:.2f}kg (起漂{new_min_valid:.2f}, 剧增{new_surge:.2f}) | "
+                  f"门限: {new_weight:.2f}kg | 当日上限: {new_max_daily_limit:.2f}元 | "
+                  f"防抖(起漂{new_min_valid:.2f}, 剧增{new_surge:.2f}) | "
                   f"锁: 官{new_official_lock}s, 离{new_zeroing_unlock}s, 私{new_private_lock}s, 手{new_manual_override}s | "
                   f"隐退: {new_delay}s")
         log_event(CAT_SYSTEM, "全自动分流算法所有参数被修改", detail)

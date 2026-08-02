@@ -545,16 +545,6 @@ class SettingsWidget(QWidget):
             self.cmb_floating_ball.setCurrentIndex(1)
         grid.addWidget(self.cmb_floating_ball, 2, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"当日累计收款上限："), 3, 0)
-        self.spin_max_daily_limit = QDoubleSpinBox()
-        self.spin_max_daily_limit.setRange(0.0, 999999.00)
-        self.spin_max_daily_limit.setSingleStep(100.0)
-        self.spin_max_daily_limit.setDecimals(2)
-        self.spin_max_daily_limit.setSuffix(u" 元 (0表示不限制)")
-        self.spin_max_daily_limit.setToolTip(u"设置今日私域本POS累计收款金额上限。当今日收款总额达到或超过此金额时，称重自动切换将停止切回本POS，自动分配给官方收银。设置为 0 表示无限制。")
-        self.spin_max_daily_limit.setValue(float(self.config.get("max_daily_revenue_limit", 0.0)))
-        grid.addWidget(self.spin_max_daily_limit, 3, 1, 1, 2)
-
         layout.addLayout(grid)
 
         btn_save_sys = QPushButton(u"💾 保存系统设置")
@@ -805,7 +795,6 @@ class SettingsWidget(QWidget):
         self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
         self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
         self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
-        self.config["max_daily_revenue_limit"] = self.spin_max_daily_limit.value()
         save_config(self.config)
 
         from utils.system_utils import apply_auto_start_settings
