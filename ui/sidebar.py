@@ -117,15 +117,21 @@ class SideNavBar(QWidget):
         layout.addWidget(item_queue)
         self._items.append(item_queue)
 
-        # 4: 系统设置
-        item_settings = SideNavItem(u"⚙", u"系统设置", 4)
-        item_settings.clicked.connect(lambda: self._select_page(4))
+        # 4: 切换算法
+        item_switch = SideNavItem(u"🤖", u"切换算法", 4)
+        item_switch.clicked.connect(lambda: self._select_page(4))
+        layout.addWidget(item_switch)
+        self._items.append(item_switch)
+
+        # 5: 系统设置
+        item_settings = SideNavItem(u"⚙", u"系统设置", 5)
+        item_settings.clicked.connect(lambda: self._select_page(5))
         layout.addWidget(item_settings)
         self._items.append(item_settings)
 
-        # 5: 日志信息
-        item_log = SideNavItem(u"📋", u"日志信息", 5)
-        item_log.clicked.connect(lambda: self._select_page(5))
+        # 6: 日志信息
+        item_log = SideNavItem(u"📋", u"日志信息", 6)
+        item_log.clicked.connect(lambda: self._select_page(6))
         layout.addWidget(item_log)
         self._items.append(item_log)
 

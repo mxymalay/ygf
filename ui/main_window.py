@@ -17,6 +17,7 @@ from ui.report_widget import ReportWidget
 from ui.queue_widget import QueueWidget
 from ui.settings_widget import SettingsWidget
 from ui.log_widget import LogWidget
+from ui.switch_settings_widget import SwitchSettingsWidget
 from ui.styles import DARK_STYLE, LIGHT_STYLE
 
 
@@ -79,11 +80,15 @@ class MainWindow(QMainWindow):
         self.queue_page = QueueWidget(self.config, self.call_mgr)
         self.stack.addWidget(self.queue_page)
 
-        # 页面 4: 系统设置
+        # 页面 4: 切换算法设置
+        self.switch_settings_page = SwitchSettingsWidget(self.config)
+        self.stack.addWidget(self.switch_settings_page)
+
+        # 页面 5: 系统设置
         self.settings_page = SettingsWidget(self.config)
         self.stack.addWidget(self.settings_page)
 
-        # 页面 5: 运营日志
+        # 页面 6: 运营日志
         self.log_page = LogWidget()
         self.stack.addWidget(self.log_page)
 
