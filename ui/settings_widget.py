@@ -126,17 +126,59 @@ class SettingsWidget(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # ── 称重服务状态说明 ──
-        scale_info_group = QGroupBox(u"称重服务说明")
-        sig_layout = QVBoxLayout(scale_info_group)
-        sig_layout.setContentsMargins(20, 30, 20, 20)
-        lbl_info = QLabel(
-            u"● 本系统已自动绑定【杨国福官方收银系统】称重服务。\n"
-            u"● 无需手动配置串口号或波特率，启动官方收银软件后即可自动无缝读取电子秤重量。"
-        )
-        lbl_info.setStyleSheet("color: #34D399; font-size: 14px; line-height: 1.5; padding: 4px;")
-        sig_layout.addWidget(lbl_info)
-        layout.addWidget(scale_info_group)
+        # ── 称重数据源设置 ──
+        scale_group = QGroupBox(u"称重数据源设置")
+        scg = QGridLayout(scale_group)
+        scg.setContentsMargins(20, 30, 20, 20)
+        scg.setSpacing(12)
+
+        scg.addWidget(QLabel(u"数据来源："), 0, 0)
+        self.cmb_scale_source = QComboBox()
+        self.cmb_scale_source.addItems([
+            u"official - 官方收银系统 (OCR读取日志)",
+            u"com - 串口直连电子秤 (COM口)"
+        ])
+        source = self.config.get("scale_source", "official")
+        if source == "com":
+            self.cmb_scale_source.setCurrentIndex(1)
+        self.cmb_scale_source.currentIndexChanged.connect(self._on_scale_source_changed)
+        scg.addWidget(self.cmb_scale_source, 0, 1, 1, 2)
+
+        # COM口配置 (仅串口模式可见)
+        self.lbl_scale_port = QLabel(u"秤串口 (COM)：")
+        scg.addWidget(self.lbl_scale_port, 1, 0)
+        self.cmb_scale_port = QComboBox()
+        self.cmb_scale_port.setEditable(True)
+        self._refresh_scale_com_ports()
+        scg.addWidget(self.cmb_scale_port, 1, 1)
+
+        self.btn_refresh_scale_ports = QPushButton(u"扫描COM口")
+        self.btn_refresh_scale_ports.clicked.connect(self._refresh_scale_com_ports)
+        scg.addWidget(self.btn_refresh_scale_ports, 1, 2)
+
+        self.lbl_scale_baud = QLabel(u"波特率：")
+        scg.addWidget(self.lbl_scale_baud, 2, 0)
+        self.cmb_scale_baud = QComboBox()
+        self.cmb_scale_baud.addItems(["2400", "4800", "9600", "19200", "38400", "115200"])
+        cur_baud = str(self.config.get("scale_baudrate", 9600))
+        self.cmb_scale_baud.setCurrentText(cur_baud)
+        scg.addWidget(self.cmb_scale_baud, 2, 1, 1, 2)
+
+        # 提示信息
+        self.lbl_scale_hint = QLabel("")
+        self.lbl_scale_hint.setWordWrap(True)
+        self.lbl_scale_hint.setStyleSheet("color: #94A3B8; font-size: 12px; padding: 4px;")
+        scg.addWidget(self.lbl_scale_hint, 3, 0, 1, 3)
+
+        btn_save_scale = QPushButton(u"保存称重设置 (需重启)")
+        self._style_save_btn(btn_save_scale)
+        btn_save_scale.clicked.connect(self._on_save_scale)
+        scg.addWidget(btn_save_scale, 4, 0, 1, 3, Qt.AlignRight)
+
+        layout.addWidget(scale_group)
+
+        # 初始化显示/隐藏
+        self._on_scale_source_changed(self.cmb_scale_source.currentIndex())
 
         # ── 打印机设置 ──
         printer_group = QGroupBox(u"小票打印机设置")
@@ -458,6 +500,55 @@ class SettingsWidget(QWidget):
 
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"系统运行与智能切换设置已保存！")
+
+    def _on_scale_source_changed(self, index):
+        """切换称重数据源时，显示/隐藏COM口配置"""
+        is_com = (index == 1)
+        self.lbl_scale_port.setVisible(is_com)
+        self.cmb_scale_port.setVisible(is_com)
+        self.btn_refresh_scale_ports.setVisible(is_com)
+        self.lbl_scale_baud.setVisible(is_com)
+        self.cmb_scale_baud.setVisible(is_com)
+        if is_com:
+            self.lbl_scale_hint.setText(
+                u"串口模式：直接连接电子秤的COM口读取重量数据，无需启动官方收银软件。\n"
+                u"请确认秤的串口线已正确连接，并选择对应的COM端口和波特率。"
+            )
+        else:
+            self.lbl_scale_hint.setText(
+                u"官方模式：自动从杨国福官方收银系统的串口日志中实时读取重量，需先启动官方收银软件。"
+            )
+
+    def _refresh_scale_com_ports(self):
+        """扫描可用COM端口 (称重秤专用)"""
+        self.cmb_scale_port.clear()
+        try:
+            import serial.tools.list_ports
+            ports = [p.device for p in serial.tools.list_ports.comports()]
+        except Exception:
+            ports = []
+        all_ports = [f"COM{i}" for i in range(1, 13)]
+        for p in ports:
+            if p not in all_ports:
+                all_ports.append(p)
+        for p in sorted(all_ports, key=lambda x: int(x.replace("COM", "")) if x.startswith("COM") and x[3:].isdigit() else 99):
+            self.cmb_scale_port.addItem(p)
+        cur = self.config.get("scale_port", "COM2")
+        if cur:
+            self.cmb_scale_port.setCurrentText(cur)
+
+    def _on_save_scale(self):
+        """保存称重数据源设置"""
+        source_text = self.cmb_scale_source.currentText()
+        self.config["scale_source"] = source_text.split(" - ")[0].strip()
+        self.config["scale_port"] = self.cmb_scale_port.currentText().strip()
+        try:
+            self.config["scale_baudrate"] = int(self.cmb_scale_baud.currentText().strip())
+        except Exception:
+            self.config["scale_baudrate"] = 9600
+        save_config(self.config)
+        from ui.custom_dialog import show_info
+        show_info(self, u"保存成功", u"称重数据源设置已保存！\n切换数据源需要重启软件才能生效。")
 
     def _on_save_sqb(self):
         self.config["shouqianba_enabled"] = (self.cmb_sqb_enable.currentIndex() == 0)

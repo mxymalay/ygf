@@ -124,7 +124,15 @@ class ScaleReader(QObject):
         return self._locked_weight
 
     def _run_loop(self):
-        """主循环 — 绑定官方系统串口日志读取"""
+        """主循环 — 根据配置选择数据源"""
+        source = self.config.get("scale_source", "official")
+        if source == "com":
+            self._run_loop_com()
+        else:
+            self._run_loop_official()
+
+    def _run_loop_official(self):
+        """官方系统串口日志读取模式"""
         while self._running:
             active_log = self._find_active_ygf_log()
             if active_log:
@@ -132,6 +140,84 @@ class ScaleReader(QObject):
             else:
                 self.status_changed.emit(False, "● 警告：检测到【官方收银软件】已被关闭，请先打开官方软件！")
                 time.sleep(1.5)
+
+    def _run_loop_com(self):
+        """COM串口直连电子秤读取模式"""
+        import serial
+        port = self.config.get("scale_port", "COM2")
+        baudrate = int(self.config.get("scale_baudrate", 9600))
+        
+        self.status_changed.emit(False, "● 正在连接串口 %s ..." % port)
+        
+        while self._running:
+            try:
+                self._serial = serial.Serial(
+                    port=port,
+                    baudrate=baudrate,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    timeout=1.0
+                )
+                self.status_changed.emit(True, "● 已连接串口秤 %s (波特率 %d)" % (port, baudrate))
+                
+                buffer = ""
+                while self._running:
+                    try:
+                        data = self._serial.read(64)
+                        if data:
+                            buffer += data.decode("ascii", errors="ignore")
+                            # 按换行符拆分，尝试解析每一行
+                            while "\n" in buffer:
+                                line, buffer = buffer.split("\n", 1)
+                                line = line.strip()
+                                if line:
+                                    w = self._parse_com_weight(line)
+                                    if w is not None:
+                                        w = self._apply_fluctuation_filter(w)
+                                        self.weight_updated.emit(w)
+                                        self._check_stability(w)
+                                        self.status_changed.emit(
+                                            True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
+                                        )
+                    except serial.SerialException:
+                        break
+                    except Exception:
+                        time.sleep(0.1)
+                        
+            except Exception as e:
+                self.status_changed.emit(False, "● 串口 %s 连接失败: %s" % (port, str(e)))
+                time.sleep(2.0)
+            finally:
+                if self._serial:
+                    try:
+                        self._serial.close()
+                    except Exception:
+                        pass
+                    self._serial = None
+
+    def _parse_com_weight(self, line: str):
+        """
+        从串口原始数据行中解析重量值。
+        支持常见电子秤协议格式:
+        - 纯数字: "0.350" or "+0.350" or "-0.350"
+        - 带前缀: "ST,GS,+  0.350kg" (寺冈/大华/顶尖等)
+        - DI_BAO格式: "read - 000.350"
+        """
+        if not line:
+            return None
+        
+        # 尝试常见格式
+        m = re.search(r'([+-]?\s*\d{1,5}\.\d{1,4})', line)
+        if m:
+            try:
+                val = float(m.group(1).replace(" ", ""))
+                if val > 50:
+                    val = val / 1000.0
+                return round(abs(val), 3)
+            except Exception:
+                pass
+        return None
 
     def _find_active_ygf_log(self) -> str:
         """扫描 C:\\YANGGUOFU-POS\\serial 目录下最新更新的日志文件"""
@@ -225,3 +311,4 @@ class ScaleReader(QObject):
             if (max_w - min_w) < self._stable_threshold:
                 avg_weight = sum(self._last_weights) / len(self._last_weights)
                 self.weight_stable.emit(round(avg_weight, 3))
+

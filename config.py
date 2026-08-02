@@ -58,6 +58,11 @@ DEFAULT_CONFIG = {
     "shouqianba_baudrate": 2400,        # 波特率
     "shouqianba_format": "QA",          # 解析规则: "QA" (QA12.50\r\n) 或 "FLOAT" (12.50\r\n)
     "shouqianba_hotkey": "F12",         # 收钱吧唤起快捷键
+
+    # 称重数据源设置
+    "scale_source": "official",         # 数据源: "official" = 官方收银系统OCR读取, "com" = 串口直连电子秤
+    "scale_port": "COM2",              # 电子秤串口号
+    "scale_baudrate": 9600,            # 电子秤波特率
 }
 
 
@@ -78,8 +83,6 @@ def load_config() -> dict:
                 saved = json.load(f)
             merged = {**base_defaults, **saved}
             merged.pop("simulation_mode", None)  # 移除旧字段
-            for k in ["scale_model", "scale_port", "scale_baudrate", "scale_bytesize", "scale_parity", "scale_stopbits"]:
-                merged.pop(k, None)
             return merged
         except Exception:
             pass
