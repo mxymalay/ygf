@@ -889,12 +889,15 @@ class SettingsWidget(QWidget):
             self.btn_test_scale_com.setVisible(is_com)
         if is_com:
             self.lbl_scale_hint.setText(
-                u"串口模式：直接连接电子秤的COM口读取重量数据，无需启动官方收银软件。\n"
-                u"请确认秤的串口线已正确连接，并选择对应的COM端口和波特率。"
+                u"💡 串口直连模式 (脱机/单独使用时)：\n"
+                u"• 直接通过 pyserial 监听物理 COM 端口读取重量，无需启动官方软件。\n"
+                u"• ⚠️ 注意：Windows 串口为独占性硬件，若官方软件已打开并占用 COM1，普通虚拟串口 Pair 无法转发物理硬件数据，需用「串口分流软件」；如需同时使用，推荐直接切回【官方模式】！"
             )
         else:
             self.lbl_scale_hint.setText(
-                u"官方模式：自动从杨国福官方收银系统的串口日志中实时读取重量，需先启动官方收银软件。"
+                u"💡 官方模式 (推荐·零配置·无冲突)：\n"
+                u"• 当官方收银软件占用 COM1 读秤时，本系统会自动无锁共享读取官方串口数据日志。\n"
+                u"• 零冲突、零延迟！完全不需要配置任何虚拟串口 Pair (如 COM1 <-> COM2)，开箱即用。"
             )
 
     def _test_scale_com(self):
