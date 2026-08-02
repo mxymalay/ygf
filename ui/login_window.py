@@ -295,12 +295,14 @@ class LoginWindow(QDialog):
         """)
         check_layout.addWidget(self.progress_bar)
 
-        # 三项卡片
-        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  数据源 (官方或串口)")
+        # 四项独立卡片 (官方 POS 与 COM 秤串口分开检测)
+        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方 POS 收银系统")
+        self.card1_sub, self.lbl_title1_sub, self.lbl_badge1_sub = self._create_check_card(u"⚖️  COM 电子秤串口数据源")
         self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"🖨️  热敏小票打印机外设")
         self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"💳  收钱吧串口通信联动")
 
         check_layout.addWidget(self.card1)
+        check_layout.addWidget(self.card1_sub)
         check_layout.addWidget(self.card2)
         check_layout.addWidget(self.card3)
 
@@ -412,25 +414,37 @@ class LoginWindow(QDialog):
         self.progress_bar.setValue(15)
         self.lbl_badge1.setText(u"正在检测...")
         self.lbl_badge1.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
+        self.lbl_badge1_sub.setText(u"正在检测...")
+        self.lbl_badge1_sub.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
         QTimer.singleShot(250, self._do_check_official_software)
         
     def _do_check_official_software(self):
         self.progress_bar.setValue(35)
         official_running = check_ygf_official_running()
-        
-        # 同时按已验证的 DIBAL 查询协议检测私有 POS 的秤端口。
-        # 不能被动 read：ACS-G315 收到 '$' 后才返回重量。
         scale_ok = check_dibal_scale_connection(self.config)
 
-        if official_running or scale_ok:
-            self.official_ok = True
-            msg = u"✔ 官方连通" if official_running else u"✔ 秤连通"
-            self.lbl_badge1.setText(msg)
+        # 1. 官方 POS 运行状态指示
+        if official_running:
+            self.lbl_badge1.setText(u"✔ 官方 POS 运行中")
             self.lbl_badge1.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
-            self.official_ok = False
-            self.lbl_badge1.setText(u"✖ 源断开")
+            self.lbl_badge1.setText(u"✖ 官方 POS 未运行")
             self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
+
+        # 2. COM 电子秤串口连接指示
+        port = self.config.get("scale_port", "COM3")
+        if scale_ok:
+            self.lbl_badge1_sub.setText(f"✔ {port} 秤连通")
+            self.lbl_badge1_sub.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
+        else:
+            self.lbl_badge1_sub.setText(f"✖ {port} 秤未连通")
+            self.lbl_badge1_sub.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
+
+        # 3. 准入判决：官方 POS 运行 或 COM 秤串口连通 任意满足其一即可准入进入系统
+        if official_running or scale_ok:
+            self.official_ok = True
+        else:
+            self.official_ok = False
             self.hardware_warnings.append("官方收银未运行且称重串口检测失败")
             
         QTimer.singleShot(250, self._check_printer)
