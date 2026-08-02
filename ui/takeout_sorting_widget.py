@@ -352,6 +352,7 @@ class TakeoutSortingWidget(QWidget):
         main_layout.addWidget(pv_card)
 
         # 2. 设置布局外层为 scroll_area
+        scroll_area.setWidget(scroll_content)
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(scroll_area)
@@ -382,9 +383,14 @@ class TakeoutSortingWidget(QWidget):
             import win32print
             default_p = win32print.GetDefaultPrinter()
             actual_name = printer_name if printer_name else default_p
-            self.lbl_printer.setText(f"监听打印机: {actual_name}")
+            if hasattr(self, 'lbl_printer'):
+                self.lbl_printer.setText(f"监听打印机: {actual_name}")
         except Exception:
-            self.lbl_printer.setText(f"监听打印机: {printer_name or '默认打印机'}")
+            try:
+                if hasattr(self, 'lbl_printer'):
+                    self.lbl_printer.setText(f"监听打印机: {printer_name or '默认打印机'}")
+            except Exception:
+                pass
 
     def _load_table_data(self):
         self.table.setRowCount(0)
