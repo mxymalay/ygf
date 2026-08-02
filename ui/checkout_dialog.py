@@ -217,6 +217,52 @@ class CheckoutDialog(QDialog):
         right_layout.addWidget(sqb_frame, stretch=1)
         self.pay_buttons.append(btn_sqb_overlay)
 
+        # ── 1.2 中间主要入口：现金收款 ──
+        cash_frame = QFrame()
+        cash_frame.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #1E3A8A, stop:1 #2563EB);
+                border-radius: 16px; border: 2px solid #3B82F6;
+            }
+        """)
+        cash_layout = QHBoxLayout(cash_frame)
+        cash_layout.setContentsMargins(20, 18, 20, 18)
+        cash_layout.setSpacing(14)
+
+        lbl_cash_icon = QLabel(u"💵")
+        lbl_cash_icon.setStyleSheet("font-size: 38px; border: none; background: transparent; color: #DBEAFE;")
+        lbl_cash_icon.setAlignment(Qt.AlignCenter)
+        cash_layout.addWidget(lbl_cash_icon)
+
+        cash_text_col = QVBoxLayout()
+        cash_text_col.setSpacing(4)
+        cash_text_col.addStretch()
+
+        lbl_cash_title = QLabel(u"现金收款")
+        lbl_cash_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
+        cash_text_col.addWidget(lbl_cash_title)
+
+        lbl_cash_desc = QLabel(u"弹出计算器及自动找零")
+        lbl_cash_desc.setStyleSheet("font-size: 13px; color: #DBEAFE; border: none; background: transparent;")
+        cash_text_col.addWidget(lbl_cash_desc)
+
+        cash_text_col.addStretch()
+        cash_layout.addLayout(cash_text_col, stretch=1)
+
+        btn_cash_overlay = QPushButton("", cash_frame)
+        btn_cash_overlay.setCursor(Qt.PointingHandCursor)
+        btn_cash_overlay.setStyleSheet("""
+            QPushButton { background: transparent; border: none; }
+            QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-radius: 16px; }
+            QPushButton:pressed { background: rgba(255, 255, 255, 0.22); border-radius: 16px; }
+        """)
+        btn_cash_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_CASH))
+        cash_frame.resizeEvent = lambda event, ob=btn_cash_overlay, bf=cash_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
+
+        right_layout.addWidget(cash_frame, stretch=1)
+        self.pay_buttons.append(btn_cash_overlay)
+
         # ── 1.5 虚线分隔与说明提示 ──
         div_box = QHBoxLayout()
         div_box.setContentsMargins(0, 8, 0, 8)
@@ -246,8 +292,6 @@ class CheckoutDialog(QDialog):
         sub_configs = [
             (PAYMENT_SCAN, u"💳", u"手持机器", u"手持POS刷卡",
              "#064E3B", "#059669", "#10B981", "#A7F3D0"),
-            (PAYMENT_CASH, u"💵", u"现金收款", u"收到顾客现金",
-             "#1E3A5F", "#2563EB", "#3B82F6", "#93C5FD"),
             (PAYMENT_QR,   u"📱", u"被扫/静态码", u"顾客扫二维码",
              "#4C1D95", "#7C3AED", "#8B5CF6", "#DDD6FE"),
         ]
