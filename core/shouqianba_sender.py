@@ -35,7 +35,7 @@ for i in range(10):
 
 
 def send_hotkey(hotkey_str: str):
-    """模拟键盘发送快捷键 (例如 F12, Ctrl+F12, Alt+S 等)"""
+    """瞬间并发模拟键盘快捷键 (零延迟激发，避免 Shift 独按触发出法切换)"""
     if not hotkey_str:
         return False
     try:
@@ -48,21 +48,19 @@ def send_hotkey(hotkey_str: str):
 
         KEYEVENTF_KEYUP = 0x0002
 
-        # 按下所有组合键
+        # 瞬间并发按下所有修饰键与字母键 (零 time.sleep 间隔)
         for vk in vk_codes:
             scan_code = user32.MapVirtualKeyW(vk, 0)
             user32.keybd_event(vk, scan_code, 0, 0)
-            time.sleep(0.02)
 
-        time.sleep(0.05)
+        time.sleep(0.01)
 
-        # 逆序释放键
+        # 瞬间释放所有按键
         for vk in reversed(vk_codes):
             scan_code = user32.MapVirtualKeyW(vk, 0)
             user32.keybd_event(vk, scan_code, KEYEVENTF_KEYUP, 0)
-            time.sleep(0.02)
 
-        print(f"[快捷键唤起] 成功模拟发送收钱吧快捷键: {hotkey_str}")
+        print(f"[快捷键唤起] 瞬间唤起收钱吧: {hotkey_str}")
         return True
     except Exception as e:
         logger.warning(f"发送快捷键 {hotkey_str} 异常: {e}")
@@ -407,8 +405,14 @@ def _do_send_amount(amount: float, config: dict):
         print("[收钱吧串口] 已完成静默 0.00 金额重置，隐藏前台唤起。")
         return
 
-    # 静默使用 Win32 原生 API 唤起收钱吧窗口置顶 (不强发 Shift+Q 和 TAB 全局快捷键，防止打扰用户正常操作及切输入法)
-    bring_shouqianba_to_front()
+    # 1. 优先使用 Win32 原生 API 唤起置顶
+    if not bring_shouqianba_to_front():
+        # 2. 若收钱吧隐藏在系统右下角托盘中，瞬间触发快捷键唤起 (零延迟，彻底杜绝切输入法与干扰)
+        hotkey = config.get("shouqianba_hotkey", "Shift+Q")
+        if hotkey:
+            send_hotkey(hotkey)
+            time.sleep(0.05)
+            bring_shouqianba_to_front()
 
 
 def send_shouqianba_amount(amount: float, config: dict):
