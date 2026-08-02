@@ -549,11 +549,16 @@ class ModernSelectDialog(QDialog):
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         container = QFrame()
+        container.setObjectName("SelectContainer")
         container.setStyleSheet("""
-            QFrame {
+            #SelectContainer {
                 background-color: #1E293B;
                 border-radius: 16px;
                 border: 2px solid #38BDF8;
+            }
+            QLabel {
+                border: none;
+                background: transparent;
             }
         """)
         c_layout = QVBoxLayout(container)
@@ -561,15 +566,16 @@ class ModernSelectDialog(QDialog):
         c_layout.setSpacing(14)
 
         t_lbl = QLabel(f"🔍 {title}")
-        t_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; background: transparent;")
+        t_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none; background: transparent;")
         c_layout.addWidget(t_lbl)
 
         m_lbl = QLabel(message)
         m_lbl.setWordWrap(True)
-        m_lbl.setStyleSheet("font-size: 13px; color: #94A3B8; background: transparent; line-height: 1.4;")
+        m_lbl.setStyleSheet("font-size: 13px; color: #94A3B8; border: none; background: transparent; line-height: 1.4;")
         c_layout.addWidget(m_lbl)
 
         self.list_widget = QListWidget()
+        self.list_widget.setFocusPolicy(Qt.NoFocus)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background-color: #0F172A;
@@ -579,11 +585,14 @@ class ModernSelectDialog(QDialog):
                 color: #F8FAFC;
                 font-size: 14px;
                 font-weight: bold;
+                outline: none;
             }
             QListWidget::item {
                 padding: 10px 14px;
                 border-radius: 6px;
                 margin-bottom: 4px;
+                border: none;
+                outline: none;
             }
             QListWidget::item:hover {
                 background-color: #334155;
@@ -592,6 +601,25 @@ class ModernSelectDialog(QDialog):
             QListWidget::item:selected {
                 background-color: #0284C7;
                 color: #FFFFFF;
+                border: none;
+                outline: none;
+            }
+            QScrollBar:vertical {
+                background: #0F172A;
+                width: 8px;
+                border-radius: 4px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #334155;
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #38BDF8;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
         """)
         self.list_widget.doubleClicked.connect(self._on_confirm)
@@ -612,10 +640,11 @@ class ModernSelectDialog(QDialog):
 
         btn_cancel = QPushButton(u"取消")
         btn_cancel.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setFocusPolicy(Qt.NoFocus)
         btn_cancel.setStyleSheet("""
             QPushButton {
                 background-color: #334155; color: #94A3B8; border: 1px solid #475569;
-                border-radius: 8px; padding: 10px 20px; font-weight: bold; font-size: 14px;
+                border-radius: 8px; padding: 10px 20px; font-weight: bold; font-size: 14px; outline: none;
             }
             QPushButton:hover { background-color: #475569; color: #F8FAFC; }
         """)
@@ -623,10 +652,11 @@ class ModernSelectDialog(QDialog):
 
         btn_confirm = QPushButton(u"确定选择")
         btn_confirm.setCursor(Qt.PointingHandCursor)
+        btn_confirm.setFocusPolicy(Qt.NoFocus)
         btn_confirm.setStyleSheet("""
             QPushButton {
                 background-color: #0284C7; color: #FFFFFF; border: none;
-                border-radius: 8px; padding: 10px 24px; font-weight: bold; font-size: 14px;
+                border-radius: 8px; padding: 10px 24px; font-weight: bold; font-size: 14px; outline: none;
             }
             QPushButton:hover { background-color: #0369A1; }
         """)
