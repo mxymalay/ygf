@@ -3,11 +3,11 @@
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QCheckBox, QFormLayout, QFrame, QMessageBox, QScrollArea
+    QCheckBox, QFormLayout, QFrame, QMessageBox, QScrollArea, QGroupBox, QTextEdit
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from config import save_config
-from core.app_logger import log_event, CAT_SYSTEM
+from core.app_logger import log_event, CAT_SYSTEM, read_logs, CAT_DECISION, CAT_SWITCH, CAT_PANIC
 
 
 class TouchSpinBox(QWidget):
@@ -62,7 +62,6 @@ class TouchSpinBox(QWidget):
         return self._value
         
     def setValue(self, val):
-        # For floating point precision issues, we use round if it's float
         if isinstance(self.step, float):
             self._value = round(max(self.min_val, min(self.max_val, val)), 3)
         else:
@@ -91,20 +90,41 @@ class SwitchSettingsWidget(QWidget):
         self.config = config
         self._build_ui()
         self._load_config()
+        
+        # 定时刷新日志 (仅当页面可见时)
+        self.log_timer = QTimer(self)
+        self.log_timer.setInterval(2000)
+        self.log_timer.timeout.connect(self._refresh_logs)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_logs()
+        self.log_timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.log_timer.stop()
 
     def _build_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(40, 20, 40, 20)
-        root.setSpacing(15)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(30, 20, 30, 20)
+        root.setSpacing(20)
 
+        # ==========================================
+        # 左侧：配置项 (占 60% 宽度)
+        # ==========================================
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
         # 标题区
         lbl_title = QLabel(u"🤖 全自动分流算法设置")
         lbl_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #F8FAFC;")
-        root.addWidget(lbl_title)
+        left_layout.addWidget(lbl_title)
 
         lbl_sub = QLabel(u"触屏专用：使用加减号控制核心算法门限参数，禁止鼠标滑动产生误操作。")
         lbl_sub.setStyleSheet("font-size: 14px; color: #94A3B8; margin-bottom: 10px;")
-        root.addWidget(lbl_sub)
+        left_layout.addWidget(lbl_sub)
 
         # 核心滚动区
         scroll = QScrollArea()
@@ -117,15 +137,14 @@ class SwitchSettingsWidget(QWidget):
             QScrollBar::handle:vertical {
                 background: #334155; border-radius: 6px;
             }
-        """)
-
-        form_frame = QFrame()
-        form_frame.setObjectName("formFrame")
-        form_frame.setStyleSheet("""
-            #formFrame {
-                background-color: #1E293B;
-                border-radius: 12px;
-                border: 1px solid #334155;
+            QGroupBox {
+                background-color: #1E293B; border-radius: 12px; border: 1px solid #334155;
+                margin-top: 24px; padding-top: 24px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin; subcontrol-position: top left;
+                padding: 4px 12px; color: #38BDF8; font-size: 16px; font-weight: bold;
+                background-color: #0F172A; border-radius: 8px; border: 1px solid #334155;
             }
             QLabel {
                 font-size: 15px; color: #E2E8F0; font-weight: bold; border: none; background: transparent;
@@ -137,91 +156,171 @@ class SwitchSettingsWidget(QWidget):
                 width: 24px; height: 24px;
             }
         """)
+
+        form_container = QWidget()
+        form_vlayout = QVBoxLayout(form_container)
+        form_vlayout.setContentsMargins(10, 10, 20, 20)
+        form_vlayout.setSpacing(20)
+
+        # --- 场景 1：总控与智能过滤 ---
+        grp1 = QGroupBox(u"场景一：总控与轻量单过滤 (Routing & Filtering)")
+        lay1 = QFormLayout(grp1)
+        lay1.setContentsMargins(20, 30, 20, 20)
+        lay1.setSpacing(16)
         
-        form_layout = QFormLayout(form_frame)
-        form_layout.setContentsMargins(30, 30, 30, 30)
-        form_layout.setSpacing(24)
-
-        # 1. 开关
-        self.chk_enabled = QCheckBox(u"开启智能自动分流 (若关闭，则需要手动控制悬浮球切换)")
-        form_layout.addRow(QLabel(u"系统总控开关:"), self.chk_enabled)
-
-        # 2. 目标私域比例
+        self.chk_enabled = QCheckBox(u"开启智能自动分流 (若关闭，则需要手动控制悬浮球)")
+        lay1.addRow(QLabel(u"系统总控开关:"), self.chk_enabled)
+        
         self.sp_ratio = TouchSpinBox(70, 0, 100, 5, " %")
-        form_layout.addRow(QLabel(u"目标私域截留比例:"), self.sp_ratio)
-
-        # 3. 门限过滤
+        lay1.addRow(QLabel(u"目标私域截留比例:"), self.sp_ratio)
+        
         self.sp_weight = TouchDoubleSpinBox(0.25, 0.00, 5.00, 0.05, " kg")
-        form_layout.addRow(QLabel(u"轻量小单自动切回门限:"), self.sp_weight)
+        lay1.addRow(QLabel(u"轻量小单切回门限:"), self.sp_weight)
         
-        lbl_weight_tip = QLabel(u"低于该重量的单子一律判定为小单/加菜，自动分配给官方收银机。")
-        lbl_weight_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
-        form_layout.addRow(QLabel(), lbl_weight_tip)
+        lbl_w_tip = QLabel(u"场景说明：低于该重量的一律判定为小单/加菜，自动分配给官方收银机。")
+        lbl_w_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lay1.addRow(QLabel(), lbl_w_tip)
+        form_vlayout.addWidget(grp1)
 
-        # 3.1 称重起漂过滤门限
-        self.sp_min_valid_weight = TouchDoubleSpinBox(0.08, 0.01, 0.50, 0.01, " kg")
-        form_layout.addRow(QLabel(u"最低有效称重(防空秤抖动):"), self.sp_min_valid_weight)
-
-        # 3.2 剧增防抖修正门限
-        self.sp_surge_correction = TouchDoubleSpinBox(0.15, 0.05, 1.00, 0.05, " kg")
-        form_layout.addRow(QLabel(u"手放碗剧增防抖修正门限:"), self.sp_surge_correction)
-
-        # 4. 官方界面连单锁定 (60s)
+        # --- 场景 2：连续收银防打断 ---
+        grp2 = QGroupBox(u"场景二：连续收银与防打断保护 (Anti-Interruption)")
+        lay2 = QFormLayout(grp2)
+        lay2.setContentsMargins(20, 30, 20, 20)
+        lay2.setSpacing(16)
+        
         self.sp_official_lock = TouchSpinBox(60, 0, 300, 5, " 秒")
-        form_layout.addRow(QLabel(u"官方界面连单保护时长:"), self.sp_official_lock)
+        lay2.addRow(QLabel(u"官方界面连单保护:"), self.sp_official_lock)
+        lbl_o_tip = QLabel(u"场景说明：一单刚分配给官方，此时间内就算来了大单也继续走官方，防止弹窗打断店员。")
+        lbl_o_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lay2.addRow(QLabel(), lbl_o_tip)
 
-        # 5. 称重归零解锁判定 (5s)
         self.sp_zeroing_unlock = TouchSpinBox(5, 1, 60, 1, " 秒")
-        form_layout.addRow(QLabel(u"称重归零离场解锁判定:"), self.sp_zeroing_unlock)
-        
-        lbl_zeroing_tip = QLabel(u"当秤上重量归零并保持该时长后，自动解除上方设定的官方连单保护锁。")
-        lbl_zeroing_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
-        form_layout.addRow(QLabel(), lbl_zeroing_tip)
+        lay2.addRow(QLabel(u"称重归零离场解锁:"), self.sp_zeroing_unlock)
+        lbl_z_tip = QLabel(u"场景说明：顾客端走碗，秤归零保持该时长后，自动解除上述连单保护，重新开始评判。")
+        lbl_z_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lay2.addRow(QLabel(), lbl_z_tip)
 
-        # 6. 私域死锁超时 (300s)
         self.sp_private_lock = TouchSpinBox(300, 10, 3600, 10, " 秒")
-        form_layout.addRow(QLabel(u"私域购物车超时清理:"), self.sp_private_lock)
-        
-        lbl_private_tip = QLabel(u"若私域购物车有菜品但长期未结账超过此时长，自动清空以释放连单锁。")
-        lbl_private_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
-        form_layout.addRow(QLabel(), lbl_private_tip)
+        lay2.addRow(QLabel(u"私域死单超时清理:"), self.sp_private_lock)
+        lbl_p_tip = QLabel(u"场景说明：顾客不要了/忘记结账导致购物车一直有菜，超时后自动清空释放锁。")
+        lbl_p_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lay2.addRow(QLabel(), lbl_p_tip)
+        form_vlayout.addWidget(grp2)
 
-        # 6.5 手动干预保护
+        # --- 场景 3：异常抖动与人工干预 ---
+        grp3 = QGroupBox(u"场景三：秤具抖动与人工最高优先级 (Manual Override)")
+        lay3 = QFormLayout(grp3)
+        lay3.setContentsMargins(20, 30, 20, 20)
+        lay3.setSpacing(16)
+        
+        self.sp_min_valid_weight = TouchDoubleSpinBox(0.08, 0.01, 0.50, 0.01, " kg")
+        lay3.addRow(QLabel(u"起漂过滤门限:"), self.sp_min_valid_weight)
+        
+        self.sp_surge_correction = TouchDoubleSpinBox(0.15, 0.05, 1.00, 0.05, " kg")
+        lay3.addRow(QLabel(u"放碗剧增防抖门限:"), self.sp_surge_correction)
+        
         self.sp_manual_override_lock = TouchSpinBox(30, 5, 120, 5, " 秒")
-        form_layout.addRow(QLabel(u"手动点击悬浮球强制锁定:"), self.sp_manual_override_lock)
+        lay3.addRow(QLabel(u"悬浮球手动强锁定:"), self.sp_manual_override_lock)
+        lbl_m_tip = QLabel(u"场景说明：只要店员手点悬浮球切屏，该时长内算法绝对静默，100% 尊重人工。")
+        lbl_m_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lay3.addRow(QLabel(), lbl_m_tip)
+        form_vlayout.addWidget(grp3)
+
+        # --- 场景 4：订单收尾 ---
+        grp4 = QGroupBox(u"场景四：结账收尾动作 (Order Finalization)")
+        lay4 = QFormLayout(grp4)
+        lay4.setContentsMargins(20, 30, 20, 20)
+        lay4.setSpacing(16)
         
-        lbl_manual_tip = QLabel(u"店员点击悬浮球切屏后，该时长内算法完全静默，100% 尊重店员选择。")
-        lbl_manual_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
-        form_layout.addRow(QLabel(), lbl_manual_tip)
-
-        # 7. 延时隐退
         self.sp_delay = TouchSpinBox(3, 0, 30, 1, " 秒")
-        form_layout.addRow(QLabel(u"结账出票后自动隐退延时:"), self.sp_delay)
+        lay4.addRow(QLabel(u"结账出票后隐退延时:"), self.sp_delay)
+        form_vlayout.addWidget(grp4)
 
-        scroll.setWidget(form_frame)
-        root.addWidget(scroll, stretch=1)
+        scroll.setWidget(form_container)
+        left_layout.addWidget(scroll, stretch=1)
 
-        # 底部按钮区
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-
-        self.btn_save = QPushButton(u"💾 保存算法参数")
+        # 底部保存按钮
+        self.btn_save = QPushButton(u"💾 保存并立即生效")
         self.btn_save.setFixedHeight(50)
-        self.btn_save.setMinimumWidth(200)
         self.btn_save.setCursor(Qt.PointingHandCursor)
         self.btn_save.setStyleSheet("""
             QPushButton {
                 background-color: #0284C7; color: white;
-                font-size: 16px; font-weight: bold;
-                border-radius: 8px; border: none;
+                font-size: 16px; font-weight: bold; border-radius: 8px; border: none;
             }
             QPushButton:hover { background-color: #0369A1; }
             QPushButton:pressed { background-color: #075985; }
         """)
         self.btn_save.clicked.connect(self._on_save)
-        btn_layout.addWidget(self.btn_save)
+        left_layout.addWidget(self.btn_save)
 
-        root.addLayout(btn_layout)
+        # ==========================================
+        # 右侧：实时日志监控 (占 40% 宽度)
+        # ==========================================
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(10, 0, 0, 0)
+        right_layout.setSpacing(10)
+
+        lbl_log_title = QLabel(u"📡 算法实时追踪 (自动刷新)")
+        lbl_log_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
+        right_layout.addWidget(lbl_log_title)
+
+        lbl_log_sub = QLabel(u"仅过滤显示: 决策引擎 / 界面切屏 / 紧急避险")
+        lbl_log_sub.setStyleSheet("font-size: 13px; color: #64748B;")
+        right_layout.addWidget(lbl_log_sub)
+
+        self.txt_logs = QTextEdit()
+        self.txt_logs.setReadOnly(True)
+        self.txt_logs.setStyleSheet("""
+            QTextEdit {
+                background-color: #0F172A; color: #F8FAFC; font-size: 13px; font-family: monospace;
+                border: 1px solid #334155; border-radius: 8px; padding: 10px;
+            }
+        """)
+        right_layout.addWidget(self.txt_logs, stretch=1)
+
+        # 添加左右面板到根布局 (比例 3:2)
+        root.addWidget(left_panel, 6)
+        root.addWidget(right_panel, 4)
+
+    def _refresh_logs(self):
+        """拉取日志，并仅筛选 决策、切换、避险"""
+        all_logs = read_logs(limit=300) # 取最近300条，因为要过滤
+        filtered = [L for L in all_logs if L.get("cat") in (CAT_DECISION, CAT_SWITCH, CAT_PANIC)]
+        # 取最近 40 条展示
+        filtered = filtered[:40]
+        # 由于日志是按时间倒序（最新的在最前），我们反转一下，让最新的在底部
+        filtered.reverse()
+
+        html = ""
+        for entry in filtered:
+            cat = entry.get("cat")
+            msg = entry.get("msg", "")
+            detail = entry.get("detail", "")
+            ts = entry.get("ts", "")[-8:] # 只取时间部分 HH:MM:SS
+
+            color = "#94A3B8"
+            if cat == CAT_DECISION: color = "#A855F7"
+            elif cat == CAT_SWITCH: color = "#FF781F"
+            elif cat == CAT_PANIC: color = "#EF4444"
+
+            html += f"<div style='margin-bottom: 8px;'>"
+            html += f"<span style='color: #475569;'>[{ts}]</span> "
+            html += f"<b style='color: {color};'>[{cat}]</b> "
+            html += f"<span style='color: #E2E8F0;'>{msg}</span><br>"
+            if detail:
+                html += f"<span style='color: #94A3B8; font-size: 12px;'> - {detail}</span>"
+            html += f"</div>"
+
+        # 记住滚动条位置
+        scrollbar = self.txt_logs.verticalScrollBar()
+        is_at_bottom = scrollbar.value() == scrollbar.maximum()
+
+        self.txt_logs.setHtml(html)
+
+        if is_at_bottom:
+            scrollbar.setValue(scrollbar.maximum())
 
     def _load_config(self):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
@@ -281,3 +380,4 @@ class SwitchSettingsWidget(QWidget):
             )
 
         QMessageBox.information(self, u"保存成功", u"分流算法参数已保存并立即生效！")
+        self._refresh_logs() # 手动触发一次
