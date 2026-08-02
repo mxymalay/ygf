@@ -375,15 +375,24 @@ class TouchItemDelegate(QStyledItemDelegate):
         return size
 
 def apply_touch_combo_style(combo, item_height=48):
-    """为 QComboBox 强行应用触屏优化的列表渲染机制"""
+    """为 QComboBox 强行应用触屏优化的列表渲染机制
+    
+    关键: combobox-popup: 0 禁用 Windows 原生弹出菜单，
+    否则系统原生菜单会完全无视 Qt 的样式表和委托。
+    """
     if not combo:
         return
     from PyQt5.QtWidgets import QListView
-    # 替换底层 View 摆脱系统限制
+
+    # 1. 在 QComboBox 自身上设置 combobox-popup: 0
+    #    这是 Windows 下最关键的一步！它禁用原生弹出菜单，
+    #    让 Qt 自己绘制下拉列表，从而让后续的 view/delegate 生效。
+    existing = combo.styleSheet()
+    if "combobox-popup" not in existing:
+        combo.setStyleSheet(existing + "\nQComboBox { combobox-popup: 0; }")
+
+    # 2. 替换底层 View
     view = QListView()
-    view.setUniformItemSizes(True)  # 强制统一尺寸，避免由于未加载完导致的高度重置
-    
-    # 强制在底层控件上应用 QSS，防止外层 stylesheet 被 Windows 原生 Theme 穿透覆盖
     view.setStyleSheet("""
         QListView {
             background-color: #1E293B;
@@ -395,10 +404,13 @@ def apply_touch_combo_style(combo, item_height=48):
         }
         QListView::item {
             min-height: %dpx;
-            padding: 4px 12px;
+            padding: 6px 12px;
         }
     """ % item_height)
-    
     combo.setView(view)
-    # 注入强制高度的委托
+
+    # 3. 注入强制高度的委托
     combo.setItemDelegate(TouchItemDelegate(height=item_height, parent=combo))
+
+    # 4. 限制最大可见项数，避免超长列表
+    combo.setMaxVisibleItems(10)
