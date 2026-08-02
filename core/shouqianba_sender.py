@@ -192,7 +192,8 @@ def bring_shouqianba_to_front():
 
                 user32.BringWindowToTop(hwnd)
                 user32.SetForegroundWindow(hwnd)
-                user32.SetFocus(hwnd)
+                # 不对顶层窗口调用 SetFocus：收钱吧真正接收扫码的通常是
+                # 子控件，强行把焦点设到顶层会丢掉这个子控件焦点。
                 # SetForegroundWindow 没有抛异常也不表示成功；必须实际核验。
                 is_foreground = (user32.GetForegroundWindow() == hwnd)
                 if is_foreground:
@@ -208,6 +209,50 @@ def bring_shouqianba_to_front():
     except Exception as e:
         logger.warning(f"强行唤起收钱吧窗口失败: {e}")
     return False
+
+
+def send_tab_to_shouqianba_focus() -> bool:
+    """向收钱吧当前获得焦点的子控件定向发送一次 Tab。
+
+    全局 keybd_event 在收钱吧的收款窗口中可能被其窗口层截获，导致 Tab
+    落在本 POS。这里通过 AttachThreadInput 取得目标线程的焦点控件，再向
+    该控件投递真实的按下/抬起消息。
+    """
+    hwnd = _find_shouqianba_hwnd()
+    if not hwnd:
+        return False
+
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        current_thread = kernel32.GetCurrentThreadId()
+        target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+        attached = False
+        try:
+            if target_thread and target_thread != current_thread:
+                attached = bool(user32.AttachThreadInput(
+                    current_thread, target_thread, True
+                ))
+
+            focus_hwnd = user32.GetFocus()
+            recipient = focus_hwnd if focus_hwnd and user32.IsWindow(focus_hwnd) else hwnd
+            vk_tab = VK_MAPPING["TAB"]
+            scan_code = user32.MapVirtualKeyW(vk_tab, 0)
+            key_down_lparam = 1 | (scan_code << 16)
+            key_up_lparam = key_down_lparam | (1 << 30) | (1 << 31)
+            down_ok = user32.PostMessageW(recipient, 0x0100, vk_tab, key_down_lparam)
+            up_ok = user32.PostMessageW(recipient, 0x0101, vk_tab, key_up_lparam)
+            if down_ok and up_ok:
+                logger.info("已向收钱吧焦点控件 %s 定向发送 Tab", recipient)
+                print("[收钱吧焦点] 已向收钱吧输入控件定向发送 Tab")
+                return True
+            return False
+        finally:
+            if attached:
+                user32.AttachThreadInput(current_thread, target_thread, False)
+    except Exception as e:
+        logger.warning(f"向收钱吧焦点控件发送 Tab 失败: {e}")
+        return False
 
 
 # 初始化全局 RapidOCR 算法引擎 (单例只加载一次，15ms 超高速文字识别)
@@ -484,11 +529,10 @@ def _do_send_amount(amount: float, config: dict):
     time.sleep(0.9)
     if bring_shouqianba_to_front():
         time.sleep(0.12)
-        if send_hotkey("TAB"):
-            logger.info("收钱吧收款界面已重新置前，已发送 Tab 至扫码栏")
-            print("[收钱吧焦点] 收款界面已置前，已发送 Tab")
+        if send_tab_to_shouqianba_focus():
+            logger.info("收钱吧收款界面已重新置前，已向焦点控件发送 Tab")
         else:
-            logger.warning("收钱吧窗口已找到，但 Tab 注入失败")
+            logger.warning("收钱吧窗口已找到，但定向 Tab 投递失败")
     else:
         logger.warning("快捷键后未找到收钱吧窗口，未发送 Tab 以免影响其他程序")
 
