@@ -57,6 +57,7 @@ def main():
         "--noconsole",          # 纯图形界面，不弹出黑色终端窗口
         "--onefile",            # 生成纯单文件 EXE (无需携带任何子文件夹，单个文件即可运行)
         "--clean",
+        "--uac-admin",          # 强制请求管理员权限 (解决UIPI隔离导致无法控制收钱吧的问题)
         "--hidden-import=win32print",
         "--hidden-import=win32api",
         "--hidden-import=win32gui",
