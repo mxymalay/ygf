@@ -375,42 +375,47 @@ class TouchItemDelegate(QStyledItemDelegate):
         return size
 
 def apply_touch_combo_style(combo, item_height=48):
-    """为 QComboBox 强行应用触屏优化的列表渲染机制
+    """为 QComboBox 强行应用触屏优化（参照 queue_widget 已验证可用的模式）
     
-    关键: combobox-popup: 0 禁用 Windows 原生弹出菜单，
-    否则系统原生菜单会完全无视 Qt 的样式表和委托。
+    核心: 把完整样式直接设在 combo 自身上，不依赖父容器继承。
+    combobox-popup: 0 禁用 Windows 原生弹出菜单。
     """
     if not combo:
         return
-    from PyQt5.QtWidgets import QListView
+    from PyQt5.QtWidgets import QStyledItemDelegate
 
-    # 1. 在 QComboBox 自身上设置 combobox-popup: 0
-    #    这是 Windows 下最关键的一步！它禁用原生弹出菜单，
-    #    让 Qt 自己绘制下拉列表，从而让后续的 view/delegate 生效。
-    existing = combo.styleSheet()
-    if "combobox-popup" not in existing:
-        combo.setStyleSheet(existing + "\nQComboBox { combobox-popup: 0; }")
-
-    # 2. 替换底层 View
-    view = QListView()
-    view.setStyleSheet("""
-        QListView {
+    # 直接在 combo 上设置完整样式（和 queue_widget 一模一样的写法）
+    combo.setStyleSheet("""
+        QComboBox {
+            combobox-popup: 0;
+            background-color: #0F172A; color: #F8FAFC;
+            border: 1px solid #334155; border-radius: 6px;
+            padding: 6px 10px; font-size: 14px;
+        }
+        QComboBox:focus {
+            border: 1px solid #38BDF8;
+        }
+        QComboBox::drop-down {
+            border: none; width: 24px;
+        }
+        QComboBox QAbstractItemView {
             background-color: #1E293B;
             color: #F8FAFC;
             selection-background-color: #38BDF8;
-            outline: none;
+            selection-color: #FFFFFF;
+            font-size: 14px;
             border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 4px;
+            outline: none;
+        }
+        QComboBox QAbstractItemView::item {
+            min-height: %dpx;
+            padding: 8px 14px;
             border-radius: 4px;
         }
-        QListView::item {
-            min-height: %dpx;
-            padding: 6px 12px;
-        }
     """ % item_height)
-    combo.setView(view)
 
-    # 3. 注入强制高度的委托
-    combo.setItemDelegate(TouchItemDelegate(height=item_height, parent=combo))
-
-    # 4. 限制最大可见项数，避免超长列表
+    # 和 queue_widget 一样，设置 QStyledItemDelegate
+    combo.setItemDelegate(QStyledItemDelegate())
     combo.setMaxVisibleItems(10)
