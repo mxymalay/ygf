@@ -200,12 +200,17 @@ class ScaleReader(QObject):
                                                 True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
                                             )
                         else:
-                            # 若 0.8s 内未收到数据，说明该电子秤为【问答查询式】(如迪宝 ACS-G315)，定期主动发送查询命令
+                            # 若 0.8s 内未收到数据，说明该电子秤为【问答查询式】(如迪宝 ACS-G315)，组合轮询唤醒命令
                             now = time.time()
                             if now - last_poll_time > 0.8:
                                 last_poll_time = now
                                 try:
+                                    # 尝试迪宝ACS-G315所有常见问答轮询命令
                                     self._serial.write(b"W\r\n")
+                                    self._serial.write(b"\x05")
+                                    self._serial.write(b"\x0201\x03")
+                                    self._serial.write(b"01\r\n")
+                                    self._serial.write(b"R\r\n")
                                 except Exception:
                                     pass
                     except serial.SerialException:
@@ -286,13 +291,30 @@ class ScaleReader(QObject):
         return None
 
     def _parse_ygf_log_line(self, line: str):
-        """从日志行中提取重量: 例如 '[Sat Aug 01...] DI_BAO read - 000.350'"""
+        """从日志行中提取重量: 例如 '["00.350","00.350",...] --- 6' 或 '[Sat Aug 01...] DI_BAO read - 000.350'"""
         if not line:
             return None
 
+        # 匹配 JSON 数组格式: ["00.000","00.350","00.350",...]
+        matches = re.findall(r'"([+-]?\d{1,5}\.\d{1,4})"', line)
+        if matches:
+            # 如果有多个数值，优先选取非零有效重量；若全为零则取第一个
+            valid_vals = []
+            for item in matches:
+                try:
+                    v = float(item)
+                    if v > 50:
+                        v = v / 1000.0
+                    v = round(abs(v), 3)
+                    valid_vals.append(v)
+                except Exception:
+                    pass
+            if valid_vals:
+                non_zeros = [v for v in valid_vals if v > 0.001]
+                return non_zeros[0] if non_zeros else valid_vals[0]
+
+        # 单值正则匹配
         m = re.search(r'read\s*-\s*([+-]?\d{1,5}\.\d{1,4})', line, re.IGNORECASE)
-        if not m:
-            m = re.search(r'"([+-]?\d{1,5}\.\d{1,4})"', line)
         if not m:
             m = re.search(r'-\s*([+-]?\d{1,5}\.\d{1,4})', line)
         if not m:
