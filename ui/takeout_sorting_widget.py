@@ -404,6 +404,12 @@ class TakeoutSortingWidget(QWidget):
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(scroll_area)
 
+        # 3. 全局触控下拉框统一美化 (借鉴系统设置，完美适配触屏与高亮盲操)
+        from ui.styles import apply_touch_combo_style
+        for combo in self.findChildren(QComboBox):
+            apply_touch_combo_style(combo, item_height=48)
+            combo.wheelEvent = lambda event, w=combo: event.ignore()
+
     def _check_official_pos_status(self):
         try:
             hwnd = find_official_window_handle()
