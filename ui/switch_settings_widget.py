@@ -1,5 +1,6 @@
 """
 自动切换算法设置页面 (Auto Switch Algorithm Settings)
+包含：全自动分流参数调节 + 右侧算法实时追踪 (支持每页 20 条分页)
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -85,9 +86,16 @@ class TouchDoubleSpinBox(TouchSpinBox):
 
 
 class SwitchSettingsWidget(QWidget):
+
+    LOG_PAGE_SIZE = 20
+
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
         self.config = config
+        self.filtered_algo_logs = []
+        self.log_current_page = 1
+        self.total_log_pages = 1
+
         self._build_ui()
         self._load_config()
         
@@ -121,8 +129,6 @@ class SwitchSettingsWidget(QWidget):
         lbl_title = QLabel(u"全自动分流算法设置")
         lbl_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #F8FAFC;")
         left_layout.addWidget(lbl_title)
-
-
 
         # 核心滚动区
         scroll = QScrollArea()
@@ -244,7 +250,7 @@ class SwitchSettingsWidget(QWidget):
         left_layout.addWidget(scroll, stretch=1)
 
         # 底部保存按钮
-        self.btn_save = QPushButton(u"保存")
+        self.btn_save = QPushButton(u"💾 保存算法设置")
         self.btn_save.setFixedHeight(50)
         self.btn_save.setCursor(Qt.PointingHandCursor)
         self.btn_save.setStyleSheet("""
@@ -259,18 +265,16 @@ class SwitchSettingsWidget(QWidget):
         left_layout.addWidget(self.btn_save)
 
         # ==========================================
-        # 右侧：实时日志监控 (占 40% 宽度)
+        # 右侧：实时日志监控 (占 40% 宽度，带分页)
         # ==========================================
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(10, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        lbl_log_title = QLabel(u"算法实时追踪 (自动刷新)")
+        lbl_log_title = QLabel(u"📡 算法实时追踪 (自动刷新)")
         lbl_log_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
         right_layout.addWidget(lbl_log_title)
-
-
 
         self.txt_logs = QTextEdit()
         self.txt_logs.setReadOnly(True)
@@ -282,19 +286,79 @@ class SwitchSettingsWidget(QWidget):
         """)
         right_layout.addWidget(self.txt_logs, stretch=1)
 
-        # 添加左右面板到根布局 (比例 3:2)
+        # ── 右侧底部分页控制栏 ──
+        log_paging_bar = QHBoxLayout()
+        log_paging_bar.setContentsMargins(0, 4, 0, 0)
+        log_paging_bar.setSpacing(8)
+
+        self.btn_log_prev = QPushButton(u"◀ 上一页")
+        self.btn_log_prev.setFixedHeight(34)
+        self.btn_log_prev.setCursor(Qt.PointingHandCursor)
+        self.btn_log_prev.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B; color: #F8FAFC; font-size: 13px; font-weight: bold;
+                padding: 4px 14px; border-radius: 6px; border: 1px solid #334155;
+            }
+            QPushButton:hover { background-color: #334155; color: #38BDF8; border-color: #38BDF8; }
+            QPushButton:disabled { background-color: #0F172A; color: #475569; border-color: #1E293B; }
+        """)
+        self.btn_log_prev.clicked.connect(self._prev_log_page)
+        log_paging_bar.addWidget(self.btn_log_prev)
+
+        self.lbl_log_page = QLabel(u"第 1 / 1 页 (共 0 条)")
+        self.lbl_log_page.setAlignment(Qt.AlignCenter)
+        self.lbl_log_page.setStyleSheet("color: #94A3B8; font-size: 12px; font-weight: bold;")
+        log_paging_bar.addWidget(self.lbl_log_page, stretch=1)
+
+        self.btn_log_next = QPushButton(u"下一页 ▶")
+        self.btn_log_next.setFixedHeight(34)
+        self.btn_log_next.setCursor(Qt.PointingHandCursor)
+        self.btn_log_next.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B; color: #F8FAFC; font-size: 13px; font-weight: bold;
+                padding: 4px 14px; border-radius: 6px; border: 1px solid #334155;
+            }
+            QPushButton:hover { background-color: #334155; color: #38BDF8; border-color: #38BDF8; }
+            QPushButton:disabled { background-color: #0F172A; color: #475569; border-color: #1E293B; }
+        """)
+        self.btn_log_next.clicked.connect(self._next_log_page)
+        log_paging_bar.addWidget(self.btn_log_next)
+
+        right_layout.addLayout(log_paging_bar)
+
+        # 添加左右面板到根布局 (比例 6:4)
         root.addWidget(left_panel, 6)
         root.addWidget(right_panel, 4)
 
     def _refresh_logs(self):
-        """拉取日志，并仅筛选 决策、切换、避险"""
-        all_logs = read_logs(limit=300) # 取最近300条，因为要过滤
-        filtered = [L for L in all_logs if L.get("cat") in (CAT_DECISION, CAT_SWITCH, CAT_PANIC)]
-        # 取最近 40 条展示
-        filtered = filtered[:40]
+        """拉取日志，仅筛选 决策、切换、避险"""
+        all_logs = read_logs(limit=2000)
+        self.filtered_algo_logs = [L for L in all_logs if L.get("cat") in (CAT_DECISION, CAT_SWITCH, CAT_PANIC)]
+        self._render_log_page()
+
+    def _render_log_page(self):
+        """仅渲染当前页面的 20 条算法日志，消除卡顿"""
+        total = len(self.filtered_algo_logs)
+        self.total_log_pages = max(1, (total + self.LOG_PAGE_SIZE - 1) // self.LOG_PAGE_SIZE)
+
+        if self.log_current_page > self.total_log_pages:
+            self.log_current_page = self.total_log_pages
+        if self.log_current_page < 1:
+            self.log_current_page = 1
+
+        if not self.filtered_algo_logs:
+            self.txt_logs.setHtml("<div style='color: #475569; text-align: center; margin-top: 40px; font-weight: bold;'>暂无算法追踪日志</div>")
+            self.lbl_log_page.setText("第 0 / 0 页")
+            self.btn_log_prev.setEnabled(False)
+            self.btn_log_next.setEnabled(False)
+            return
+
+        start_idx = (self.log_current_page - 1) * self.LOG_PAGE_SIZE
+        end_idx = min(start_idx + self.LOG_PAGE_SIZE, total)
+        page_entries = self.filtered_algo_logs[start_idx:end_idx]
 
         html = ""
-        for entry in filtered:
+        for entry in page_entries:
             cat = entry.get("cat")
             msg = entry.get("msg", "")
             detail = entry.get("detail", "")
@@ -305,7 +369,7 @@ class SwitchSettingsWidget(QWidget):
             elif cat == CAT_SWITCH: color = "#FF781F"
             elif cat == CAT_PANIC: color = "#EF4444"
 
-            html += f"<div style='margin-bottom: 8px;'>"
+            html += f"<div style='margin-bottom: 8px; border-bottom: 1px dashed #1E293B; padding-bottom: 6px;'>"
             html += f"<span style='color: #475569;'>[{ts}]</span> "
             html += f"<b style='color: {color};'>[{cat}]</b> "
             html += f"<span style='color: #E2E8F0;'>{msg}</span><br>"
@@ -314,6 +378,20 @@ class SwitchSettingsWidget(QWidget):
             html += f"</div>"
 
         self.txt_logs.setHtml(html)
+        self.lbl_log_page.setText(f"第 {self.log_current_page} / {self.total_log_pages} 页 · 共 {total} 条")
+
+        self.btn_log_prev.setEnabled(self.log_current_page > 1)
+        self.btn_log_next.setEnabled(self.log_current_page < self.total_log_pages)
+
+    def _prev_log_page(self):
+        if self.log_current_page > 1:
+            self.log_current_page -= 1
+            self._render_log_page()
+
+    def _next_log_page(self):
+        if self.log_current_page < self.total_log_pages:
+            self.log_current_page += 1
+            self._render_log_page()
 
     def _load_config(self):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
