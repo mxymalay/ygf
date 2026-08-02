@@ -220,6 +220,11 @@ def _do_send_amount(amount: float, config: dict):
     # 等待 0.15 秒，确保收钱吧后台已处理完串口数据
     time.sleep(0.15)
 
+    # 如果是归零/重置清空 (amount <= 0)，只静默向串口发送 0.00 冲刷缓存，不触发快捷键唤起和窗口置顶
+    if amount <= 0.0:
+        print("[收钱吧串口] 已完成静默 0.00 金额重置，隐藏前台唤起。")
+        return
+
     # 2. 自动模拟发送快捷键 (再调出收钱吧界面)
     hotkey = config.get("shouqianba_hotkey", "Shift+Q")
     if hotkey:
