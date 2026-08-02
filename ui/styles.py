@@ -374,44 +374,40 @@ class TouchItemDelegate(QStyledItemDelegate):
         size.setHeight(max(size.height(), self._item_height))
         return size
 
-def apply_touch_combo_style(combo, item_height=48):
+def apply_touch_combo_style(combo, item_height=56):
     """为 QComboBox 强行应用触屏优化
     
-    经测试: 在当前 Windows + Qt 环境下, CSS min-height 完全无效,
+    经测试: CSS min-height 在 Windows Qt 下无效,
     只有自定义 delegate 的 sizeHint 才能控制选项高度。
+    注意顺序: stylesheet → view → delegate, 防止 Qt 重置。
     """
     if not combo:
         return
     from PyQt5.QtWidgets import QListView
 
-    # 1. 替换为 QListView（脱离原生渲染）
-    view = QListView()
-    view.setStyleSheet("""
-        QListView {
-            background-color: #1E293B;
-            color: #F8FAFC;
-            selection-background-color: #38BDF8;
-            outline: none;
-            border: 1px solid #334155;
-        }
-    """)
-    combo.setView(view)
-
-    # 2. 注入自定义 sizeHint delegate（这是唯一能控制高度的方式）
-    combo.setItemDelegate(TouchItemDelegate(height=item_height, parent=combo))
-
-    # 3. 设置 combo 自身的基础样式
+    # 1. 先设 combo 自身样式（在替换 view 之前）
     combo.setStyleSheet("""
         QComboBox {
             background-color: #0F172A; color: #F8FAFC;
             border: 1px solid #334155; border-radius: 6px;
             padding: 6px 10px; font-size: 14px;
         }
-        QComboBox:focus {
-            border: 1px solid #38BDF8;
-        }
-        QComboBox::drop-down {
-            border: none; width: 24px;
+        QComboBox:focus { border: 1px solid #38BDF8; }
+        QComboBox::drop-down { border: none; width: 24px; }
+    """)
+
+    # 2. 创建 view, 把 delegate 设在 view 上（不是 combo 上）
+    delegate = TouchItemDelegate(height=item_height, parent=combo)
+    view = QListView()
+    view.setItemDelegate(delegate)
+    view.setStyleSheet("""
+        QListView {
+            background-color: #1E293B; color: #F8FAFC;
+            selection-background-color: #38BDF8;
+            outline: none; border: 1px solid #334155;
         }
     """)
+
+    # 3. 最后才替换 view
+    combo.setView(view)
     combo.setMaxVisibleItems(10)
