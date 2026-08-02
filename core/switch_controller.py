@@ -22,6 +22,7 @@ class AutoSwitchController(QObject):
         self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))  # 默认 0.25kg
         self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
         self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
+        self._private_lock_sec = float(self.config.get("private_lock_sec", 300.0))  # 默认私域购物车5分钟超时
 
         self._total_evaluated_orders = 0
         self._private_orders_count = 0
@@ -32,6 +33,7 @@ class AutoSwitchController(QObject):
         self._manual_override_until = 0.0  # 店员手动干预锁定期 (防止称重自动抢抓焦点)
         self._zero_start_time = 0.0  # 记录归零起始时间戳
         self._last_popped_weight = 0.0  # 记录上次触发决策时的重量 (用于重量剧增二次更正)
+        self._last_private_time = 0.0  # 记录上一次私域动作的时间戳 (用于私域购物车死锁超时)
         self._current_is_private = False
 
         # 退场延时定时器
@@ -73,6 +75,7 @@ class AutoSwitchController(QObject):
                 self._current_is_private = is_private_turn
 
                 if is_private_turn:
+                    self._last_private_time = time.time()  # 刷新私域活动时间
                     # 决策分配给【私域 POS】 -> 自动将本系统弹出最前
                     bring_our_pos_to_front(self.main_window)
                     self._update_floating_ball_status(is_private=True, reason="智能算法选择: 本单走私域")
@@ -115,15 +118,25 @@ class AutoSwitchController(QObject):
         2. 目标比例动态调控：比较当前实际私域比例与目标比例，平滑交替分配
         """
         # 规则 0A：私域多碗/连续开单保护 (如果购物车已有未结账项目，保持私域 POS 连续开单)
+        now_ts = time.time()
         if hasattr(self.main_window, 'sale_page') and self.main_window.sale_page:
             cart_items = getattr(self.main_window.sale_page, 'cart_items', [])
             if cart_items:
-                print(f"[AutoDecisionEngine] 检测到私域 POS 购物车已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
-                log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
-                return True
+                if now_ts - self._last_private_time < self._private_lock_sec:
+                    self._last_private_time = now_ts  # 刷新私域连单锁定期
+                    print(f"[AutoDecisionEngine] 检测到私域 POS 购物车已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
+                    log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
+                    return True
+                else:
+                    # 购物车超时未结账，自动清空防止死锁
+                    print(f"[AutoDecisionEngine] 私域购物车超时 {self._private_lock_sec} 秒未结账，自动清空释放锁！")
+                    log_event(CAT_DECISION, "私域超时死锁清理", f"超过 {self._private_lock_sec}s 未结账，自动清空购物车")
+                    try:
+                        self.main_window.sale_page._on_clear()
+                    except Exception as e:
+                        print(f"清空购物车失败: {e}")
 
         # 规则 0B：官方多碗/连续开单保护 (如果上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
-        now_ts = time.time()
         if now_ts - self._last_official_time < self._official_lock_sec:
             elapsed = now_ts - self._last_official_time
             self._last_official_time = now_ts  # 刷新连单锁定期
@@ -198,3 +211,4 @@ class AutoSwitchController(QObject):
         self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))
         self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
         self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
+        self._private_lock_sec = float(self.config.get("private_lock_sec", 300.0))

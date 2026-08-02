@@ -101,7 +101,17 @@ class SwitchSettingsWidget(QWidget):
         lbl_zeroing_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
         form_layout.addRow(QLabel(), lbl_zeroing_tip)
 
-        # 6. 延时隐退
+        # 6. 私域死锁超时 (300s)
+        self.sp_private_lock = QSpinBox()
+        self.sp_private_lock.setRange(10, 3600)
+        self.sp_private_lock.setSuffix(u" 秒")
+        form_layout.addRow(QLabel(u"私域购物车超时清理:"), self.sp_private_lock)
+        
+        lbl_private_tip = QLabel(u"若私域购物车有菜品但长期未结账超过此时长，自动清空以释放连单锁。")
+        lbl_private_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
+        form_layout.addRow(QLabel(), lbl_private_tip)
+
+        # 7. 延时隐退
         self.sp_delay = QSpinBox()
         self.sp_delay.setRange(0, 30)
         self.sp_delay.setSuffix(u" 秒")
@@ -138,6 +148,7 @@ class SwitchSettingsWidget(QWidget):
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
         self.sp_official_lock.setValue(int(self.config.get("official_lock_sec", 60)))
         self.sp_zeroing_unlock.setValue(int(self.config.get("zeroing_unlock_sec", 5)))
+        self.sp_private_lock.setValue(int(self.config.get("private_lock_sec", 300)))
         self.sp_delay.setValue(int(self.config.get("auto_hide_delay_sec", 3)))
 
     def _on_save(self):
@@ -147,6 +158,7 @@ class SwitchSettingsWidget(QWidget):
         new_weight = self.sp_weight.value()
         new_official_lock = self.sp_official_lock.value()
         new_zeroing_unlock = self.sp_zeroing_unlock.value()
+        new_private_lock = self.sp_private_lock.value()
         new_delay = self.sp_delay.value()
 
         # 2. 更新 config
@@ -155,6 +167,7 @@ class SwitchSettingsWidget(QWidget):
         self.config["min_private_weight_kg"] = new_weight
         self.config["official_lock_sec"] = new_official_lock
         self.config["zeroing_unlock_sec"] = new_zeroing_unlock
+        self.config["private_lock_sec"] = new_private_lock
         self.config["auto_hide_delay_sec"] = new_delay
         
         save_config(self.config)
@@ -165,6 +178,7 @@ class SwitchSettingsWidget(QWidget):
                   f"门限: {new_weight:.2f}kg | "
                   f"官方锁: {new_official_lock}s | "
                   f"离场判定: {new_zeroing_unlock}s | "
+                  f"私域清理: {new_private_lock}s | "
                   f"隐退延时: {new_delay}s")
         log_event(CAT_SYSTEM, "全自动分流算法参数被修改", detail)
 
