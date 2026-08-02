@@ -809,7 +809,7 @@ class SettingsWidget(QWidget):
                 u"官方模式：自动从杨国福官方收银系统的串口日志中实时读取重量，需先启动官方收银软件。"
             )
 
-    def _refresh_scale_com_ports(self):
+    def _refresh_scale_com_ports(self, show_toast=False):
         """扫描可用COM端口 (称重秤专用)"""
         self.cmb_scale_port.clear()
         active_ports = []
@@ -838,8 +838,15 @@ class SettingsWidget(QWidget):
                 self.lbl_scale_hint.setText(u"扫描完成！检测到活跃端口: %s" % ", ".join(active_ports))
                 self.lbl_scale_hint.setStyleSheet("color: #34D399; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
             else:
-                self.lbl_scale_hint.setText(u"扫描完成，未检测到任何活跃的COM端口。请检查串口线是否连接。")
+                self.lbl_scale_hint.setText(u"扫描完成，未检测到任何活跃的COM端口。已列出默认COM1-COM12。")
                 self.lbl_scale_hint.setStyleSheet("color: #FBBF24; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
+
+        if show_toast:
+            from ui.custom_dialog import show_info
+            if active_ports:
+                show_info(self, u"串口扫描成功", f"成功检测到 {len(active_ports)} 个活跃物理串口：\n" + ", ".join(active_ports))
+            else:
+                show_info(self, u"串口扫描提示", u"未检测到任何活跃物理串口，已列出默认端口列表 COM1 ~ COM12。")
 
     def _on_save_scale(self):
         """保存称重数据源设置"""
