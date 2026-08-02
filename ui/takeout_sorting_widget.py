@@ -143,20 +143,52 @@ class TakeoutSortingWidget(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels([u"排序", u"分类名称", u"匹配关键字 (逗号分隔)", u"顺序调整"])
+        
+        item_hdr0 = QTableWidgetItem(u"排序")
+        item_hdr0.setTextAlignment(Qt.AlignCenter)
+        self.table.setHorizontalHeaderItem(0, item_hdr0)
+
+        item_hdr1 = QTableWidgetItem(u"分类名称")
+        item_hdr1.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.table.setHorizontalHeaderItem(1, item_hdr1)
+
+        item_hdr2 = QTableWidgetItem(u"匹配关键字 (逗号分隔)")
+        item_hdr2.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.table.setHorizontalHeaderItem(2, item_hdr2)
+
+        item_hdr3 = QTableWidgetItem(u"顺序调整")
+        item_hdr3.setTextAlignment(Qt.AlignCenter)
+        self.table.setHorizontalHeaderItem(3, item_hdr3)
+
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(48)
         self.table.setMinimumHeight(240)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 70)
+        self.table.setColumnWidth(0, 80)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.table.setColumnWidth(1, 220)
+        self.table.setColumnWidth(1, 230)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
         self.table.setColumnWidth(3, 170)
         self.table.setStyleSheet("""
-            QTableWidget { background-color: #0F172A; border: 1px solid #334155; border-radius: 8px; color: #F8FAFC; gridline-color: #1E293B; font-size: 14px; }
-            QHeaderView::section { background-color: #1E293B; color: #94A3B8; font-weight: bold; border: 1px solid #334155; padding: 8px; font-size: 13px; }
+            QTableWidget {
+                background-color: #0F172A;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                color: #F8FAFC;
+                gridline-color: #1E293B;
+                font-size: 14px;
+                outline: none;
+            }
+            QHeaderView::section {
+                background-color: #1E293B;
+                color: #94A3B8;
+                font-weight: bold;
+                border-bottom: 1px solid #334155;
+                border-right: 1px solid #1E293B;
+                padding: 8px 12px;
+                font-size: 13px;
+            }
         """)
         tc_lay.addWidget(self.table)
         self.tabs.addTab(tab_categories, u"📋 菜品分类排序与关键字")
@@ -400,13 +432,41 @@ class TakeoutSortingWidget(QWidget):
             self.table.setItem(r, 0, item_seq)
 
             txt_name = QLineEdit(cat.get("name", ""))
-            txt_name.setStyleSheet("QLineEdit { background: #0F172A; color: #F8FAFC; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; font-size: 14px; font-weight: bold; }")
+            txt_name.setStyleSheet("""
+                QLineEdit {
+                    background: transparent;
+                    color: #F8FAFC;
+                    border: none;
+                    padding: 0px 12px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QLineEdit:focus {
+                    background: #1E293B;
+                    border-bottom: 2px solid #38BDF8;
+                    border-radius: 2px;
+                }
+            """)
             txt_name.editingFinished.connect(self._auto_save_categories)
             self.table.setCellWidget(r, 1, txt_name)
 
             kw_str = ", ".join(cat.get("keywords", []))
             txt_kw = QLineEdit(kw_str)
-            txt_kw.setStyleSheet("QLineEdit { background: #0F172A; color: #38BDF8; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; font-size: 13px; font-weight: bold; }")
+            txt_kw.setStyleSheet("""
+                QLineEdit {
+                    background: transparent;
+                    color: #38BDF8;
+                    border: none;
+                    padding: 0px 12px;
+                    font-size: 13px;
+                    font-weight: bold;
+                }
+                QLineEdit:focus {
+                    background: #1E293B;
+                    border-bottom: 2px solid #38BDF8;
+                    border-radius: 2px;
+                }
+            """)
             txt_kw.editingFinished.connect(self._auto_save_categories)
             self.table.setCellWidget(r, 2, txt_kw)
 
