@@ -114,6 +114,11 @@ class SettingsWidget(QWidget):
             }
             QComboBox QAbstractItemView {
                 background-color: #1E293B; color: #F8FAFC; selection-background-color: #38BDF8;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 44px;
+                padding: 4px 12px;
             }
             QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
                 background-color: #1E293B; border: 1px solid #334155; border-radius: 2px; width: 20px;
