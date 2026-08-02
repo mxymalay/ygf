@@ -618,7 +618,16 @@ class CheckoutDialog(QDialog):
             if check_shouqianba_payment_success():
                 auto_check_timer.stop()
                 print("[CheckoutDialog] 🎯 成功自动侦测到【收钱吧】支付成功窗口！无痛自动完成结账并打印出票！")
-                confirm_dialog.accept()
+                lbl_icon.setText(u"✅ 收钱吧到账成功！自动结账打票中...")
+                lbl_icon.setStyleSheet("font-size: 24px; font-weight: 900; color: #10B981; border: none; background: transparent;")
+                cd_outer.setStyleSheet("""
+                    QFrame {
+                        background: #1E293B;
+                        border-radius: 20px;
+                        border: 2px solid #10B981;
+                    }
+                """)
+                QTimer.singleShot(400, confirm_dialog.accept)
 
         auto_check_timer.timeout.connect(_on_auto_detect_sqb)
         auto_check_timer.start()
