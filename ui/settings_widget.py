@@ -129,6 +129,7 @@ class SettingsWidget(QWidget):
         # ── 称重服务状态说明 ──
         scale_info_group = QGroupBox(u"称重服务说明")
         sig_layout = QVBoxLayout(scale_info_group)
+        sig_layout.setContentsMargins(20, 30, 20, 20)
         lbl_info = QLabel(
             u"● 本系统已自动绑定【杨国福官方收银系统】称重服务。\n"
             u"● 无需手动配置串口号或波特率，启动官方收银软件后即可自动无缝读取电子秤重量。"
@@ -140,6 +141,7 @@ class SettingsWidget(QWidget):
         # ── 打印机设置 ──
         printer_group = QGroupBox(u"小票打印机设置")
         pg = QGridLayout(printer_group)
+        pg.setContentsMargins(20, 30, 20, 20)
         pg.setSpacing(12)
 
         pg.addWidget(QLabel(u"打印方式："), 0, 0)
@@ -186,6 +188,7 @@ class SettingsWidget(QWidget):
         # ── 业务与计价设置 ──
         biz_group = QGroupBox(u"店铺与计价设置")
         bg = QGridLayout(biz_group)
+        bg.setContentsMargins(20, 30, 20, 20)
         bg.setSpacing(12)
 
         bg.addWidget(QLabel(u"店名："), 0, 0)
@@ -236,6 +239,7 @@ class SettingsWidget(QWidget):
         # ── 系统运行设置 ──
         sys_group = QGroupBox(u"系统运行设置 (双系统无缝流转与悬浮球)")
         syg = QGridLayout(sys_group)
+        syg.setContentsMargins(20, 30, 20, 20)
         syg.setSpacing(12)
 
         syg.addWidget(QLabel(u"开机自启动："), 0, 0)
@@ -270,6 +274,7 @@ class SettingsWidget(QWidget):
         # ── 收钱吧 PC收款助手设置 ──
         sqb_group = QGroupBox(u"收钱吧 PC收款助手设置")
         sg = QGridLayout(sqb_group)
+        sg.setContentsMargins(20, 30, 20, 20)
         sg.setSpacing(12)
 
         sg.addWidget(QLabel(u"自动推送金额："), 0, 0)
