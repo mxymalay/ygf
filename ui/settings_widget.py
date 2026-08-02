@@ -329,20 +329,20 @@ class SettingsWidget(QWidget):
         grid.addWidget(self.cmb_scale_source, 0, 1, 1, 2)
 
         # COM口配置 (仅串口模式可见)
-        self.lbl_scale_port = self._make_label(u"秤串口 (COM)：")
+        self.lbl_scale_port = self._make_label(u"秤串口 (COM端口)：")
         grid.addWidget(self.lbl_scale_port, 1, 0)
         self.cmb_scale_port = QComboBox()
         self.cmb_scale_port.setEditable(True)
         self._refresh_scale_com_ports()
         grid.addWidget(self.cmb_scale_port, 1, 1)
 
-        self.btn_refresh_scale_ports = QPushButton(u"🔄 扫描COM口")
+        self.btn_refresh_scale_ports = QPushButton(u"🔄 扫描COM端口")
         self.btn_refresh_scale_ports.setCursor(Qt.PointingHandCursor)
         self.btn_refresh_scale_ports.setStyleSheet("""
             QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
             QPushButton:hover { background: #38BDF8; color: #0F172A; }
         """)
-        self.btn_refresh_scale_ports.clicked.connect(self._refresh_scale_com_ports)
+        self.btn_refresh_scale_ports.clicked.connect(lambda: self._refresh_scale_com_ports(show_toast=True))
         grid.addWidget(self.btn_refresh_scale_ports, 1, 2)
 
         self.lbl_scale_baud = self._make_label(u"波特率：")
