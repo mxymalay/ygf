@@ -123,8 +123,8 @@ class SettingsWidget(QWidget):
         card.setObjectName("SettingCard")
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(32, 28, 32, 32)
-        card_layout.setSpacing(24)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(18)
 
         # 头部标题
         header_box = QVBoxLayout()
@@ -159,7 +159,7 @@ class SettingsWidget(QWidget):
         # 左侧导航栏 (Left Sidebar)
         # ════════════════════════════════════════════════════════════
         sidebar = QFrame()
-        sidebar.setFixedWidth(240)
+        sidebar.setFixedWidth(190)
         sidebar.setStyleSheet("""
             QFrame#SettingsSidebar {
                 background-color: #0F172A;
@@ -292,12 +292,13 @@ class SettingsWidget(QWidget):
         """将卡片包裹在滚动区域中，防止低分辨率挤压"""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: #0B1120; }")
         
         wrapper = QWidget()
         wrapper.setStyleSheet("background: transparent;")
         wrapper_layout = QVBoxLayout(wrapper)
-        wrapper_layout.setContentsMargins(40, 36, 40, 36)
+        wrapper_layout.setContentsMargins(20, 20, 20, 20)
         wrapper_layout.addWidget(card_widget)
         wrapper_layout.addStretch()
 
@@ -439,14 +440,22 @@ class SettingsWidget(QWidget):
         grid.addWidget(btn_rp, 1, 2)
 
         grid.addWidget(self._make_label(u"网络 IP："), 2, 0)
+        
+        net_box = QHBoxLayout()
+        net_box.setSpacing(10)
         self.txt_ip = QLineEdit(self.config.get("printer_ip", "192.168.1.100"))
-        grid.addWidget(self.txt_ip, 2, 1)
+        net_box.addWidget(self.txt_ip, stretch=2)
 
-        grid.addWidget(self._make_label(u"端口："), 2, 2)
+        lbl_port = self._make_label(u"端口：")
+        lbl_port.setStyleSheet("color: #94A3B8; font-size: 14px; font-weight: 600; background: transparent; padding-left: 8px; padding-right: 4px;")
+        net_box.addWidget(lbl_port)
+
         self.spin_net_port = QSpinBox()
         self.spin_net_port.setRange(1, 65535)
         self.spin_net_port.setValue(self.config.get("printer_port", 9100))
-        grid.addWidget(self.spin_net_port, 2, 3)
+        net_box.addWidget(self.spin_net_port, stretch=1)
+
+        grid.addLayout(net_box, 2, 1, 1, 2)
 
         layout.addLayout(grid)
 
