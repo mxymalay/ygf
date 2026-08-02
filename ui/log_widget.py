@@ -115,9 +115,7 @@ class LogWidget(QWidget):
         lbl_title.setStyleSheet("color: #F8FAFC; font-size: 22px; font-weight: 900; letter-spacing: 1px;")
         header.addWidget(lbl_title)
 
-        lbl_sub = QLabel(u"记录称重、打印、智能决策、系统切换等所有关键事件  ·  自动保留 3 天")
-        lbl_sub.setStyleSheet("color: #64748B; font-size: 13px; padding-left: 12px;")
-        header.addWidget(lbl_sub)
+
         header.addStretch()
         root.addLayout(header)
 

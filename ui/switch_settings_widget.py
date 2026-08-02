@@ -122,9 +122,7 @@ class SwitchSettingsWidget(QWidget):
         lbl_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #F8FAFC;")
         left_layout.addWidget(lbl_title)
 
-        lbl_sub = QLabel(u"触屏专用：使用加减号控制核心算法门限参数，禁止鼠标滑动产生误操作。")
-        lbl_sub.setStyleSheet("font-size: 14px; color: #94A3B8; margin-bottom: 10px;")
-        left_layout.addWidget(lbl_sub)
+
 
         # 核心滚动区
         scroll = QScrollArea()
@@ -272,9 +270,7 @@ class SwitchSettingsWidget(QWidget):
         lbl_log_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
         right_layout.addWidget(lbl_log_title)
 
-        lbl_log_sub = QLabel(u"仅过滤显示: 决策引擎 / 界面切屏 / 紧急避险")
-        lbl_log_sub.setStyleSheet("font-size: 13px; color: #64748B;")
-        right_layout.addWidget(lbl_log_sub)
+
 
         self.txt_logs = QTextEdit()
         self.txt_logs.setReadOnly(True)
