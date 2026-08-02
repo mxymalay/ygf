@@ -33,14 +33,15 @@ class SwitchSettingsWidget(QWidget):
 
         # 表单区
         form_frame = QFrame()
+        form_frame.setObjectName("formFrame")
         form_frame.setStyleSheet("""
-            QFrame {
+            #formFrame {
                 background-color: #1E293B;
                 border-radius: 12px;
                 border: 1px solid #334155;
             }
             QLabel {
-                font-size: 15px; color: #E2E8F0; font-weight: bold;
+                font-size: 15px; color: #E2E8F0; font-weight: bold; border: none; background: transparent;
             }
             QSpinBox, QDoubleSpinBox {
                 background-color: #0F172A; color: #F8FAFC;
@@ -82,7 +83,7 @@ class SwitchSettingsWidget(QWidget):
         
         lbl_weight_tip = QLabel(u"低于该重量的单子一律判定为小单/加菜，自动分配给官方收银机。")
         lbl_weight_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
-        form_layout.addRow(QLabel(""), lbl_weight_tip)
+        form_layout.addRow(QLabel(), lbl_weight_tip)
 
         # 4. 延时隐退
         self.sp_delay = QSpinBox()
