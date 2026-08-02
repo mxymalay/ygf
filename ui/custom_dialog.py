@@ -13,6 +13,7 @@ class ModernDialog(QDialog):
 
     TYPE_INFO = "info"
     TYPE_WARNING = "warning"
+    TYPE_ERROR = "error"
     TYPE_QUESTION = "question"
 
     def __init__(self, title, message, dialog_type=TYPE_INFO, parent=None):
@@ -46,6 +47,9 @@ class ModernDialog(QDialog):
         icon_lbl = QLabel()
         if dialog_type == self.TYPE_WARNING:
             icon_lbl.setText("⚠️")
+            icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
+        elif dialog_type == self.TYPE_ERROR:
+            icon_lbl.setText("❌")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
         elif dialog_type == self.TYPE_QUESTION:
             icon_lbl.setText("❓")
@@ -504,6 +508,10 @@ def show_info(parent, title, message):
 
 def show_warning(parent, title, message):
     dlg = ModernDialog(title, message, ModernDialog.TYPE_WARNING, parent)
+    dlg.exec_()
+
+def show_error(parent, title, message):
+    dlg = ModernDialog(title, message, ModernDialog.TYPE_ERROR, parent)
     dlg.exec_()
 
 def show_question(parent, title, message) -> bool:
