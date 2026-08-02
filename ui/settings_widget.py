@@ -220,19 +220,19 @@ class SettingsWidget(QWidget):
         self.spin_default_price.setRange(0.01, 999.99)
         self.spin_default_price.setValue(self.config.get("unit_price", 47.60))
         self.spin_default_price.setDecimals(2)
-        bg.addWidget(self.spin_default_price, 4, 1)
+        bg.addWidget(self.spin_default_price, 4, 1, 1, 2)
 
-        bg.addWidget(QLabel(u"精品汤底单价："), 4, 2)
+        bg.addWidget(QLabel(u"精品汤底单价："), 5, 0)
         self.spin_special_price = QDoubleSpinBox()
         self.spin_special_price.setRange(0.01, 999.99)
         self.spin_special_price.setValue(self.config.get("special_soup_price", 50.00))
         self.spin_special_price.setDecimals(2)
-        bg.addWidget(self.spin_special_price, 4, 3)
+        bg.addWidget(self.spin_special_price, 5, 1, 1, 2)
 
         btn_save_biz = QPushButton(u"保存店铺与计价设置")
         self._style_save_btn(btn_save_biz)
         btn_save_biz.clicked.connect(self._on_save_biz)
-        bg.addWidget(btn_save_biz, 5, 0, 1, 4, Qt.AlignRight)
+        bg.addWidget(btn_save_biz, 6, 0, 1, 4, Qt.AlignRight)
 
         layout.addWidget(biz_group)
 
