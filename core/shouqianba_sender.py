@@ -189,8 +189,8 @@ def _do_send_amount(amount: float, config: dict):
     bring_shouqianba_to_front()
     
     # 4. 解决 USB标准模式 下扫码枪误扫入金额栏的问题
-    # 置顶后延迟0.15秒，模拟按下一次 Tab 键，强行让光标从“金额栏”跳跃到“扫码栏”
-    time.sleep(0.15)
+    # 置顶后延迟0.6秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
+    time.sleep(0.6)
     send_hotkey("TAB")
 
 
