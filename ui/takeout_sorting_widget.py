@@ -130,16 +130,35 @@ class TakeoutSortingWidget(QWidget):
 
         tbl_hdr.addStretch()
 
+        lbl_mm = QLabel(u"🔍 关键词匹配算法:")
+        lbl_mm.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
+        tbl_hdr.addWidget(lbl_mm)
+
+        self.cmb_match_mode = QComboBox()
+        self.cmb_match_mode.addItems([
+            u"模糊包含匹配 (推荐，例: 填'牛'可配'肥牛/牛肉')",
+            u"全字精准匹配 (菜品全名必须与关键字完全一致)"
+        ])
+        saved_mode = self.config.get("takeout_match_mode", "contains")
+        self.cmb_match_mode.setCurrentIndex(0 if saved_mode == "contains" else 1)
+        self.cmb_match_mode.setStyleSheet("QComboBox { background: #0F172A; color: #38BDF8; font-weight: bold; border: 1px solid #334155; padding: 5px; border-radius: 4px; }")
+        self.cmb_match_mode.currentIndexChanged.connect(self._auto_save_categories)
+        tbl_hdr.addWidget(self.cmb_match_mode)
+
         btn_add_cat = QPushButton(u"+ 添加新分类")
         btn_add_cat.setCursor(Qt.PointingHandCursor)
         btn_add_cat.setStyleSheet(
             "QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 12px; "
-            "border-radius: 6px; padding: 5px 12px; border: none; }"
+            "border-radius: 6px; padding: 5px 14px; border: none; }"
             "QPushButton:hover { background: #0369A1; }"
         )
         btn_add_cat.clicked.connect(self._on_add_category)
         tbl_hdr.addWidget(btn_add_cat)
         tc_lay.addLayout(tbl_hdr)
+
+        lbl_hint = QLabel(u"💡 提示：关键字分隔使用逗号。系统已自动脱去全角/半角空格、序号 (1.) 及数量后缀 (x2)，避免因空格导致漏匹配。")
+        lbl_hint.setStyleSheet("color: #64748B; font-size: 12px; border: none;")
+        tc_lay.addWidget(lbl_hint)
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
@@ -156,7 +175,7 @@ class TakeoutSortingWidget(QWidget):
         item_hdr2.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.table.setHorizontalHeaderItem(2, item_hdr2)
 
-        item_hdr3 = QTableWidgetItem(u"顺序调整")
+        item_hdr3 = QTableWidgetItem(u"顺序调整与操作")
         item_hdr3.setTextAlignment(Qt.AlignCenter)
         self.table.setHorizontalHeaderItem(3, item_hdr3)
 
@@ -164,12 +183,12 @@ class TakeoutSortingWidget(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(48)
         self.table.setMinimumHeight(240)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 80)
+        self.table.setColumnWidth(0, 75)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 230)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table.setColumnWidth(3, 170)
+        self.table.setColumnWidth(3, 230)
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #0F172A;
@@ -489,6 +508,12 @@ class TakeoutSortingWidget(QWidget):
             btn_down.clicked.connect(lambda _, row=r: self._move_row(row, 1))
             btn_l.addWidget(btn_down)
 
+            btn_del = QPushButton(u"🗑️ 删除")
+            btn_del.setCursor(Qt.PointingHandCursor)
+            btn_del.setStyleSheet("QPushButton { background: #7F1D1D; color: #FCA5A5; font-size: 12px; font-weight: bold; padding: 6px 10px; border-radius: 4px; border: 1px solid #991B1B; } QPushButton:hover { background: #991B1B; }")
+            btn_del.clicked.connect(lambda _, row=r: self._on_delete_category(row))
+            btn_l.addWidget(btn_del)
+
             self.table.setCellWidget(r, 3, btn_w)
 
     def _move_row(self, row, direction):
@@ -497,6 +522,14 @@ class TakeoutSortingWidget(QWidget):
             self.categories[row], self.categories[target] = self.categories[target], self.categories[row]
             self._load_table_data()
             self._auto_save_categories()
+
+    def _on_delete_category(self, row):
+        if len(self.categories) <= 1:
+            show_warning(self, u"无法删除", u"列表中必须保留至少一个菜品分类！")
+            return
+        del self.categories[row]
+        self._load_table_data()
+        self._auto_save_categories()
 
     def _on_add_category(self):
         new_cat = {
@@ -523,6 +556,8 @@ class TakeoutSortingWidget(QWidget):
             })
         self.categories = updated
         self.config["takeout_categories"] = updated
+        mode_idx = self.cmb_match_mode.currentIndex()
+        self.config["takeout_match_mode"] = "contains" if mode_idx == 0 else "exact"
         save_config(self.config)
 
     def _auto_save_format_settings(self):

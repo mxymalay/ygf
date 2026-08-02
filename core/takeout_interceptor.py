@@ -34,14 +34,41 @@ DEFAULT_CATEGORIES = [
 ]
 
 
-def classify_item(item_name: str, custom_categories: list = None) -> str:
-    """根据菜品名关键词识别分类"""
+def clean_dish_name(raw_name: str) -> str:
+    """清理菜品名称中的序号、数量、价格与全半角空格，以便精准匹配关键字"""
+    # 1. 剔除前导序号 (如 1. 2. #1)
+    s = re.sub(r"^\d+[\.\、\s]*", "", raw_name)
+    # 2. 剔除数量后缀 (如 x 2, ×1, 2份)
+    s = re.sub(r"[xX*×]\s*\d+|\d+\s*份", "", s)
+    # 3. 剔除价格 (￥30.00)
+    s = re.sub(r"￥\s*\d+(\.\d+)?", "", s)
+    # 4. 剔除所有全角/半角空格、换行符
+    s = re.sub(r"\s+", "", s)
+    return s.lower()
+
+
+def classify_item(item_name: str, custom_categories: list = None, match_mode: str = "contains") -> str:
+    """
+    根据菜品名关键词识别分类
+    - 自动清理全半角空格、序号、数量后缀
+    - match_mode: 'contains' (部分/模糊包含匹配), 'exact' (全字精确匹配)
+    """
     cats = custom_categories if (custom_categories and isinstance(custom_categories, list)) else DEFAULT_CATEGORIES
+    clean_name = clean_dish_name(item_name)
+
     for cat in cats:
         for kw in cat.get("keywords", []):
-            if kw in item_name:
-                return cat.get("id", "veg")
-    return "veg"
+            # 自动过滤关键字中的多余空格
+            clean_kw = re.sub(r"\s+", "", str(kw)).lower()
+            if not clean_kw:
+                continue
+            if match_mode == "exact":
+                if clean_kw == clean_name:
+                    return cat.get("id", "veg")
+            else:  # contains
+                if clean_kw in clean_name:
+                    return cat.get("id", "veg")
+    return "other"
 
 
 def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
@@ -55,6 +82,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     show_order_time = opts.get("show_order_time", True)
     show_full_order_id = opts.get("show_full_order_id", False)
     show_preorder_alert = opts.get("show_preorder_alert", True)
+    match_mode = opts.get("takeout_match_mode", "contains")
     custom_categories = opts.get("custom_categories", DEFAULT_CATEGORIES)
 
     is_meituan = "美团外卖" in raw_text or "美团" in raw_text
@@ -108,7 +136,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
         if not show_prices:
             formatted_line = re.sub(r"￥\s*\d+(\.\d+)?", "", formatted_line).strip()
 
-        cat_id = classify_item(line, custom_categories)
+        cat_id = classify_item(line, custom_categories, match_mode=match_mode)
         if cat_id in categorized_items:
             categorized_items[cat_id].append(formatted_line)
         else:
