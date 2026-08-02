@@ -141,8 +141,78 @@ def bring_shouqianba_to_front():
     return False
 
 
+def _analyze_sqb_window_image_success(hwnd) -> bool:
+    """视觉色彩图像深度分析：精准判别收钱吧 V4.0.4 成功绿顶/失败红顶/支付中状态"""
+    try:
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance()
+        if not app:
+            return False
+        screen = QApplication.primaryScreen()
+        if not screen:
+            return False
+
+        pixmap = screen.grabWindow(hwnd)
+        if pixmap.isNull() or pixmap.width() < 120 or pixmap.height() < 120:
+            return False
+
+        qimg = pixmap.toImage()
+        w = qimg.width()
+        h = qimg.height()
+
+        # 1. 采样顶部 25% 区域背景颜色 (Header Region)
+        header_h = int(h * 0.25)
+        green_count = 0
+        red_count = 0
+        total_samples = 0
+
+        for x in range(10, w - 10, 6):
+            for y in range(10, header_h - 5, 6):
+                pixel = qimg.pixelColor(x, y)
+                r, g, b = pixel.red(), pixel.green(), pixel.blue()
+                total_samples += 1
+                if g > r + 30 and g > b + 30 and g > 100:
+                    green_count += 1
+                elif r > g + 40 and r > b + 40 and r > 140:
+                    red_count += 1
+
+        if total_samples == 0:
+            return False
+
+        green_ratio = green_count / total_samples
+        red_ratio = red_count / total_samples
+
+        # 如果顶部是红色 (截图2 支付失败)，肯定不是成功
+        if red_ratio > 0.35:
+            return False
+
+        # 如果顶部是绿色 (截图1 支付成功 或 截图3 支付中)
+        if green_ratio > 0.35:
+            # 2. 进一步采样底部 35% 区域，检测是否有绿色“打印小票”按钮 (截图1 专有特征)
+            button_y_start = int(h * 0.65)
+            button_green_count = 0
+            button_samples = 0
+            for bx in range(int(w * 0.2), int(w * 0.8), 4):
+                for by in range(button_y_start, h - 10, 4):
+                    bp = qimg.pixelColor(bx, by)
+                    br, bg, bb = bp.red(), bp.green(), bp.blue()
+                    button_samples += 1
+                    if bg > br + 30 and bg > bb + 30 and bg > 100:
+                        button_green_count += 1
+
+            if button_samples > 0:
+                btn_ratio = button_green_count / button_samples
+                if btn_ratio > 0.05:
+                    print(f"[视觉算法] 🎯 精准命中收钱吧 V4.0.4【绿色顶部 + 绿色打印小票按钮】(比例 {btn_ratio:.2f})！判定支付成功！")
+                    return True
+
+    except Exception as e:
+        logger.warning(f"视觉分析收钱吧窗口异常: {e}")
+    return False
+
+
 def check_shouqianba_payment_success() -> bool:
-    """全面深度检测：精准识别【收钱吧 PC版 V4.0.4】支付成功弹窗 (支持子控件与WM_GETTEXT抓取)"""
+    """双引擎侦测：Win32底层文本 + 视觉图像色彩精准识别【收钱吧 PC版 V4.0.4】支付成功弹窗"""
     import sys
     if sys.platform != "win32":
         return False
@@ -150,9 +220,8 @@ def check_shouqianba_payment_success() -> bool:
         user32 = ctypes.windll.user32
         found_success = [False]
 
-        # 匹配成功关键字 (收钱吧 V4.0.4 特征：顶部“支付成功”、底部“打印小票”)
+        # 1. 匹配 Win32 文本关键字
         success_keywords = ["支付成功", "收款成功", "交易成功", "收钱吧到账", "打印小票"]
-        # 严格排除失败/等待状态 (避免在“支付失败”、“支付中，请稍后”时误判)
         fail_keywords = ["支付失败", "交易失败", "支付中", "输入密码", "倒计时", "EP99"]
 
         WM_GETTEXT = 0x000D
@@ -161,10 +230,8 @@ def check_shouqianba_payment_success() -> bool:
         def evaluate_text(text: str) -> bool:
             if not text:
                 return False
-            # 如果包含失败或支付中，必定不是成功
             if any(fk in text for fk in fail_keywords):
                 return False
-            # 如果包含成功特征
             if any(sk in text for sk in success_keywords):
                 return True
             return False
@@ -181,7 +248,7 @@ def check_shouqianba_payment_success() -> bool:
             return ""
 
         def check_hwnd(h) -> bool:
-            # 1. API: GetWindowTextW
+            # Win32 文本检测
             l = user32.GetWindowTextLengthW(h)
             if l > 0:
                 buf = ctypes.create_unicode_buffer(l + 1)
@@ -190,7 +257,6 @@ def check_shouqianba_payment_success() -> bool:
                 if evaluate_text(txt):
                     return True
 
-            # 2. API: WM_GETTEXT
             wm_txt = get_wm_text(h)
             if evaluate_text(wm_txt):
                 return True
@@ -208,15 +274,32 @@ def check_shouqianba_payment_success() -> bool:
 
         def foreach_window(hwnd, lParam):
             if user32.IsWindowVisible(hwnd):
-                # 检查主窗口文本
+                # 引擎 1：Win32 文本
                 if check_hwnd(hwnd):
                     found_success[0] = True
                     return False
-                # 深入枚举主窗口下的所有子控件 (Child Windows)
                 user32.EnumChildWindows(hwnd, child_proc, 0)
                 if found_success[0]:
                     return False
+
+                # 引擎 2：视觉图像色彩特征 (专治自绘UI/Chromium/Qt渲染的无文本句柄窗口)
+                rect = ctypes.wintypes.RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                # 收钱吧结果弹窗尺寸一般在 200~800 像素之间
+                if 200 <= w <= 900 and 200 <= h <= 900:
+                    if _analyze_sqb_window_image_success(hwnd):
+                        found_success[0] = True
+                        return False
+
             return True
+
+        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
+        return found_success[0]
+    except Exception as e:
+        logger.warning(f"检测收钱吧成功窗口异常: {e}")
+        return False
 
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
         return found_success[0]
