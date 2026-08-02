@@ -406,13 +406,18 @@ def _do_send_amount(amount: float, config: dict):
         return
 
     # 1. 优先使用 Win32 原生 API 唤起置顶
-    if not bring_shouqianba_to_front():
-        # 2. 若收钱吧隐藏在系统右下角托盘中，瞬间触发快捷键唤起 (零延迟，彻底杜绝切输入法与干扰)
+    opened = bring_shouqianba_to_front()
+    if not opened:
+        # 2. 若收钱吧隐藏在系统右下角托盘中，瞬间触发快捷键唤起
         hotkey = config.get("shouqianba_hotkey", "Shift+Q")
         if hotkey:
             send_hotkey(hotkey)
-            time.sleep(0.05)
+            time.sleep(0.08)
             bring_shouqianba_to_front()
+
+    # 3. 唤起置顶后，向收钱吧精准发送 TAB 键 (将光标自动跳转到【扫码框】)
+    time.sleep(0.15)
+    send_hotkey("TAB")
 
 
 def send_shouqianba_amount(amount: float, config: dict):
