@@ -551,52 +551,53 @@ class CheckoutDialog(QDialog):
         dialog_layout = QHBoxLayout(mask_frame)
         dialog_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 变窄精致迷你确认卡片 (420px)
+        # 极简高瘦迷你确认卡片 (330px 窄款 + 增加高度)
         cd_outer = QFrame()
-        cd_outer.setFixedWidth(420)
+        cd_outer.setFixedWidth(330)
+        cd_outer.setMinimumHeight(170)
         cd_outer.setStyleSheet("""
             QFrame {
                 background: #1E293B;
-                border-radius: 16px;
+                border-radius: 18px;
                 border: 2px solid #F97316;
             }
         """)
         dialog_layout.addWidget(cd_outer, alignment=Qt.AlignCenter)
 
         box = QVBoxLayout(cd_outer)
-        box.setContentsMargins(20, 18, 20, 18)
-        box.setSpacing(14)
+        box.setContentsMargins(18, 30, 18, 30)
+        box.setSpacing(22)
 
         lbl_icon = QLabel(u"⚡ 请确认收钱吧收款状态")
         lbl_icon.setAlignment(Qt.AlignCenter)
-        lbl_icon.setStyleSheet("font-size: 17px; font-weight: 900; color: #F97316; border: none; background: transparent;")
+        lbl_icon.setStyleSheet("font-size: 16px; font-weight: 900; color: #F97316; border: none; background: transparent;")
         box.addWidget(lbl_icon)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(12)
+        btn_row.setSpacing(10)
 
-        btn_cancel = QPushButton(u"❌ 点错了 / 未到账")
+        btn_cancel = QPushButton(u"❌ 未到账 / 退回")
         btn_cancel.setCursor(Qt.PointingHandCursor)
         btn_cancel.setFocusPolicy(Qt.NoFocus)
         btn_cancel.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444);
-                color: #FFFFFF; font-size: 14px; font-weight: bold;
-                border-radius: 10px; padding: 12px 10px; border: none; outline: none;
+                color: #FFFFFF; font-size: 13px; font-weight: bold;
+                border-radius: 10px; padding: 15px 6px; border: none; outline: none;
             }
             QPushButton:hover { background: #EF4444; }
         """)
         btn_cancel.clicked.connect(confirm_dialog.reject)
         btn_row.addWidget(btn_cancel, stretch=1)
 
-        btn_ok = QPushButton(u"✅ 已听到收钱吧到账")
+        btn_ok = QPushButton(u"✅ 确认已到账")
         btn_ok.setCursor(Qt.PointingHandCursor)
         btn_ok.setFocusPolicy(Qt.NoFocus)
         btn_ok.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10B981);
-                color: #FFFFFF; font-size: 14px; font-weight: bold;
-                border-radius: 10px; padding: 12px 10px; border: none; outline: none;
+                color: #FFFFFF; font-size: 13px; font-weight: bold;
+                border-radius: 10px; padding: 15px 6px; border: none; outline: none;
             }
             QPushButton:hover { background: #10B981; }
         """)
