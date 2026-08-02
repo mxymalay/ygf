@@ -5,7 +5,7 @@ POS 现代极简风格统一弹窗组件 (去系统原生框、圆角、无缝�
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSpinBox,
-    QGraphicsBlurEffect
+    QGraphicsBlurEffect, QListWidget
 )
 
 class ModernDialog(QDialog):
@@ -533,6 +533,126 @@ def get_first_run_input(parent, title, message, default_price=47.60, default_spe
     dlg = FirstRunInitDialog(title, message, default_price, default_special_price, default_branch, parent=parent)
     res = dlg.exec_()
     return dlg.price_val, dlg.special_price_val, dlg.branch_val, (res == QDialog.Accepted)
+
+
+class ModernSelectDialog(QDialog):
+    """现代极简风格通用单选选择弹窗 (用于COM串口与打印机扫描后弹窗交互选择)"""
+    def __init__(self, title: str, message: str, items: list, current_item: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.resize(460, 360)
+        self.selected_item = current_item if current_item in items else (items[0] if items else "")
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        container = QFrame()
+        container.setStyleSheet("""
+            QFrame {
+                background-color: #1E293B;
+                border-radius: 16px;
+                border: 2px solid #38BDF8;
+            }
+        """)
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(24, 20, 24, 20)
+        c_layout.setSpacing(14)
+
+        t_lbl = QLabel(f"🔍 {title}")
+        t_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; background: transparent;")
+        c_layout.addWidget(t_lbl)
+
+        m_lbl = QLabel(message)
+        m_lbl.setWordWrap(True)
+        m_lbl.setStyleSheet("font-size: 13px; color: #94A3B8; background: transparent; line-height: 1.4;")
+        c_layout.addWidget(m_lbl)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                background-color: #0F172A;
+                border: 1px solid #334155;
+                border-radius: 10px;
+                padding: 6px;
+                color: #F8FAFC;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QListWidget::item {
+                padding: 10px 14px;
+                border-radius: 6px;
+                margin-bottom: 4px;
+            }
+            QListWidget::item:hover {
+                background-color: #334155;
+                color: #38BDF8;
+            }
+            QListWidget::item:selected {
+                background-color: #0284C7;
+                color: #FFFFFF;
+            }
+        """)
+        self.list_widget.doubleClicked.connect(self._on_confirm)
+
+        for item in items:
+            self.list_widget.addItem(str(item))
+
+        matching_items = self.list_widget.findItems(str(self.selected_item), Qt.MatchExactly)
+        if matching_items:
+            self.list_widget.setCurrentItem(matching_items[0])
+        elif self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+        c_layout.addWidget(self.list_widget, stretch=1)
+
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        btn_cancel = QPushButton(u"取消")
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #334155; color: #94A3B8; border: 1px solid #475569;
+                border-radius: 8px; padding: 10px 20px; font-weight: bold; font-size: 14px;
+            }
+            QPushButton:hover { background-color: #475569; color: #F8FAFC; }
+        """)
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_confirm = QPushButton(u"确定选择")
+        btn_confirm.setCursor(Qt.PointingHandCursor)
+        btn_confirm.setStyleSheet("""
+            QPushButton {
+                background-color: #0284C7; color: #FFFFFF; border: none;
+                border-radius: 8px; padding: 10px 24px; font-weight: bold; font-size: 14px;
+            }
+            QPushButton:hover { background-color: #0369A1; }
+        """)
+        btn_confirm.clicked.connect(self._on_confirm)
+
+        btn_box.addStretch()
+        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_confirm)
+
+        c_layout.addLayout(btn_box)
+        main_layout.addWidget(container)
+
+    def _on_confirm(self):
+        curr = self.list_widget.currentItem()
+        if curr:
+            self.selected_item = curr.text()
+        self.accept()
+
+
+def show_item_selection(parent, title: str, message: str, items: list, current_item: str = ""):
+    """弹窗展示可选项列表并允许用户直接点击选择返回"""
+    dlg = ModernSelectDialog(title, message, items, current_item, parent)
+    res = dlg.exec_()
+    if res == QDialog.Accepted:
+        return dlg.selected_item, True
+    return "", False
 
 
 class ReceiptPreviewDialog(QDialog):

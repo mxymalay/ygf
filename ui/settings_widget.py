@@ -786,11 +786,17 @@ class SettingsWidget(QWidget):
             self.cmb_sqb_port.setCurrentText(cur)
 
         if show_toast:
-            from ui.custom_dialog import show_info
+            from ui.custom_dialog import show_info, show_item_selection
             if ports:
-                show_info(self, u"扫描成功", f"检测到 {len(ports)} 个活跃COM端口：\n" + ", ".join(ports))
+                selected_port, ok = show_item_selection(
+                    self, u"选择收钱吧串口", 
+                    f"成功检测到 {len(ports)} 个活跃物理串口！请直接点击要启用的串口：", 
+                    ports, self.cmb_sqb_port.currentText()
+                )
+                if ok and selected_port:
+                    self.cmb_sqb_port.setCurrentText(selected_port)
             else:
-                show_info(self, u"扫描提示", u"未检测到物理串口，已列出默认端口列表COM1-COM12。")
+                show_info(self, u"扫描提示", u"未检测到可用物理串口，已更新默认端口列表 COM1 ~ COM12。")
 
     # ─── 刷新打印机列表 ──────────────────────────────
     def _refresh_printers(self, show_toast=False):
@@ -806,9 +812,18 @@ class SettingsWidget(QWidget):
                     break
 
         if show_toast:
-            from ui.custom_dialog import show_info
+            from ui.custom_dialog import show_info, show_item_selection
             if printers:
-                show_info(self, u"打印机扫描成功", f"成功检测到 {len(printers)} 台系统打印机：\n\n" + "\n".join(f"• {p}" for p in printers))
+                selected_printer, ok = show_item_selection(
+                    self, u"选择小票打印机", 
+                    f"成功检测到 {len(printers)} 台系统已安装打印机！请直接点击选择要使用的打印机：", 
+                    printers, self.cmb_printer_name.currentText()
+                )
+                if ok and selected_printer:
+                    for i in range(self.cmb_printer_name.count()):
+                        if self.cmb_printer_name.itemText(i) == selected_printer:
+                            self.cmb_printer_name.setCurrentIndex(i)
+                            break
             else:
                 show_info(self, u"打印机扫描提示", u"未检测到任何本地已安装的 Windows 打印机，请检查驱动是否已安装。")
 
@@ -1003,11 +1018,20 @@ class SettingsWidget(QWidget):
                     self.cmb_scale_port.setCurrentIndex(i)
                     break
         if show_toast:
-            from ui.custom_dialog import show_info
+            from ui.custom_dialog import show_info, show_item_selection
             if active_ports:
-                show_info(self, u"串口扫描成功", f"成功检测到 {len(active_ports)} 个活跃物理串口：\n" + ", ".join(active_ports))
+                selected_port, ok = show_item_selection(
+                    self, u"选择电子秤串口", 
+                    f"成功检测到 {len(active_ports)} 个活跃物理串口！请直接点击选择要连接的电子秤串口：", 
+                    active_ports, self.cmb_scale_port.currentText().split("[")[0].strip()
+                )
+                if ok and selected_port:
+                    for i in range(self.cmb_scale_port.count()):
+                        if self.cmb_scale_port.itemText(i).startswith(selected_port):
+                            self.cmb_scale_port.setCurrentIndex(i)
+                            break
             else:
-                show_info(self, u"串口扫描提示", u"未检测到任何活跃物理串口，已列出默认端口列表 COM1 ~ COM12。")
+                show_info(self, u"串口扫描提示", u"未检测到任何活跃物理串口，已更新默认端口列表 COM1 ~ COM12。")
 
     def _on_save_scale(self):
         """保存称重数据源设置"""
