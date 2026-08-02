@@ -214,7 +214,7 @@ class CheckoutDialog(QDialog):
         btn_sqb_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_SQB))
         sqb_frame.resizeEvent = lambda event, ob=btn_sqb_overlay, bf=sqb_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-        right_layout.addWidget(sqb_frame, stretch=1)
+        right_layout.addWidget(sqb_frame, stretch=4)
         self.pay_buttons.append(btn_sqb_overlay)
 
         # ── 1.2 中间主要入口：现金收款 ──
@@ -260,7 +260,7 @@ class CheckoutDialog(QDialog):
         btn_cash_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_CASH))
         cash_frame.resizeEvent = lambda event, ob=btn_cash_overlay, bf=cash_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-        right_layout.addWidget(cash_frame, stretch=1)
+        right_layout.addWidget(cash_frame, stretch=3)
         self.pay_buttons.append(btn_cash_overlay)
 
         # ── 1.5 虚线分隔与说明提示 ──

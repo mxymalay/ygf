@@ -201,12 +201,8 @@ class CashCalculatorDialog(QDialog):
             pass
             
         if val < self.total_amount:
-            from PyQt5.QtWidgets import QMessageBox
-            msg = QMessageBox(self)
-            msg.setWindowTitle(u"提示")
-            msg.setText(u"实收金额小于应收金额！")
-            msg.setStyleSheet("QLabel{color:black; font-size:16px;}")
-            msg.exec_()
+            from ui.custom_dialog import show_warning
+            show_warning(self, u"提示", u"实收金额小于应收金额！")
             return
             
         if self.on_confirm:
