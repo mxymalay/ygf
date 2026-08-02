@@ -899,14 +899,14 @@ class SettingsWidget(QWidget):
         if is_com:
             self.lbl_scale_hint.setText(
                 u"💡 串口直连模式 (脱机/单独使用时)：\n"
-                u"• 直接通过 pyserial 监听物理 COM 端口读取重量，无需启动官方软件。\n"
-                u"• ⚠️ 注意：Windows 串口为独占性硬件，若官方软件已打开并占用 COM1，普通虚拟串口 Pair 无法转发物理硬件数据，需用「串口分流软件」；如需同时使用，推荐直接切回【官方模式】！"
+                u"• DIBAL ACS-G315 已验证参数：9600、8N1；程序每 200ms 发送 $ 查询重量。\n"
+                u"• 使用分流给私有 POS 的端口（建议 COM3），可与官方 POS 的 COM2 同时运行。"
             )
         else:
             self.lbl_scale_hint.setText(
                 u"💡 官方模式 (推荐·零配置·无冲突)：\n"
-                u"• 当官方收银软件占用 COM1 读秤时，本系统会自动无锁共享读取官方串口数据日志。\n"
-                u"• 零冲突、零延迟！完全不需要配置任何虚拟串口 Pair (如 COM1 <-> COM2)，开箱即用。"
+                u"• 从官方收银软件生成的串口日志读取重量，官方软件必须保持运行。\n"
+                u"• 若需要私有 POS 单独或并行读取，请切换为上方的 COM 串口直连模式。"
             )
 
     def _test_scale_com(self):
@@ -920,6 +920,7 @@ class SettingsWidget(QWidget):
 
         from ui.custom_dialog import show_info, show_error, show_warning
         import time
+        import serial
 
         # 若后台已存在运行中的称重线程独占此端口，先暂时挂起以防端口占用报错
         parent_mw = self.window()
@@ -937,10 +938,14 @@ class SettingsWidget(QWidget):
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0.8
+                timeout=0.05,
+                write_timeout=0.5,
+                xonxoff=False,
+                rtscts=False,
+                dsrdtr=False,
             )
             ser.dtr = True
-            ser.rts = True
+            ser.rts = False
         except Exception as e:
             if active_scale:
                 active_scale.start()
@@ -953,43 +958,39 @@ class SettingsWidget(QWidget):
             )
             return
 
-        # 尝试读取数据帧 2 秒 (循环发送探针命令)
+        # 按官方 POS 已验证的 ACS-G315 协议测试：每 200ms 发送 '$' (0x24)。
         try:
             start_t = time.time()
-            received_data = ""
+            received_data = bytearray()
             weight_val = None
-            probe_cmds = [b"\x05", b"01\r\n", b"W\r\n", b"\x0201\x03", b"R\r\n"]
-            cmd_idx = 0
+            next_poll_time = time.monotonic()
+            temp_reader = None
 
             while time.time() - start_t < 2.0:
-                # 干净地发送单条探针命令
-                try:
-                    ser.write(probe_cmds[cmd_idx % len(probe_cmds)])
+                if time.monotonic() >= next_poll_time:
+                    ser.write(b"$")
                     ser.flush()
-                    cmd_idx += 1
-                except Exception:
-                    pass
+                    next_poll_time = time.monotonic() + 0.2
 
-                time.sleep(0.15)
-                data = ser.read(128)
+                data = ser.read(ser.in_waiting or 1)
                 if data:
-                    received_data += data.decode("ascii", errors="ignore")
-                    if "\r" in received_data or "\n" in received_data or "[" in received_data:
-                        lines = received_data.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                    received_data.extend(data)
+                    if b"\r" in received_data or b"\n" in received_data:
+                        text = received_data.decode("ascii", errors="ignore")
+                        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
                         for line in lines:
                             line = line.strip()
                             if line:
                                 from core.scale_reader import ScaleReader
-                                temp_reader = ScaleReader(self.config)
+                                if temp_reader is None:
+                                    temp_reader = ScaleReader(self.config)
                                 w = temp_reader._parse_com_weight(line)
-                                if w is None:
-                                    w = temp_reader._parse_ygf_log_line(line)
                                 if w is not None:
                                     weight_val = w
                                     break
                         if weight_val is not None:
                             break
-                time.sleep(0.05)
+                time.sleep(0.01)
 
             ser.close()
 
@@ -1006,16 +1007,16 @@ class SettingsWidget(QWidget):
                 show_warning(
                     self, u"数据未匹配",
                     f"⚠️ 已成功连通端口【{port}】并接收到数据，但未能解析为标准重量格式：\n\n"
-                    f"原始接收数据: \"{received_data[:100]}\"\n\n"
+                    f"原始接收数据: \"{received_data.decode('ascii', errors='replace')[:100]}\"\n\n"
                     u"建议检查波特率或电子秤通信协议。"
                 )
             else:
                 show_warning(
                     self, u"未接收到数据",
-                    f"⚠️ 已成功打开端口【{port}】，但在 1.5 秒内未接收到有效数据。\n\n"
+                    f"⚠️ 已成功打开端口【{port}】，但在 2 秒内未接收到有效数据。\n\n"
                     u"请检查：\n"
                     u"1. 电子秤电源是否已打开。\n"
-                    u"2. 电子秤模式是否设置为【连续发送】，或尝试在秤上按下【打印/发送】键。"
+                    u"2. 当前选择的是分流给私有 POS 的端口（建议 COM3）；官方 POS 在 COM2 可保持运行。"
                 )
 
         except Exception as ex:

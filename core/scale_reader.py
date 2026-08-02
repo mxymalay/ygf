@@ -147,7 +147,12 @@ class ScaleReader(QObject):
                 time.sleep(1.5)
 
     def _run_loop_com(self):
-        """COM串口直连电子秤读取模式"""
+        """COM 串口直连迪宝 ACS-G315 读取模式。
+
+        该秤当前配置为 Samsung-China 轮询协议：主机以 5Hz 发送 ASCII
+        ``$`` (0x24)，秤返回 ``000.402\\r`` 形式的 kg 重量。此参数由
+        官方 yangguofu-pos 对 COM2 的实际串口记录确认。
+        """
         import serial
         port = self.config.get("scale_port", "COM2")
         baudrate = int(self.config.get("scale_baudrate", 9600))
@@ -162,57 +167,59 @@ class ScaleReader(QObject):
                     bytesize=serial.EIGHTBITS,
                     parity=serial.PARITY_NONE,
                     stopbits=serial.STOPBITS_ONE,
-                    timeout=0.5
+                    timeout=0.05,
+                    write_timeout=0.5,
+                    xonxoff=False,
+                    rtscts=False,
+                    dsrdtr=False,
                 )
-                # 激活 DTR / RTS 控制线 (迪宝 DIBAL 等电子秤硬件供电与唤醒)
+                # 和官方 POS 一致：DTR 开、RTS 关。不要打开 RTS 或混发探测命令。
                 self._serial.dtr = True
-                self._serial.rts = True
-                
-                # 初始化时向电子秤发送一次唤醒/查询命令
-                try:
-                    self._serial.write(b"W\r\n")
-                    self._serial.write(b"R\r\n")
-                except Exception:
-                    pass
+                self._serial.rts = False
 
                 self.status_changed.emit(True, "● 已连接串口秤 %s (波特率 %d)" % (port, baudrate))
                 
-                buffer = ""
-                last_poll_time = time.time()
+                buffer = bytearray()
+                poll_interval = 0.2  # 官方 POS 的实际轮询频率：5 次/秒
+                next_poll_time = time.monotonic()
 
                 while self._running:
                     try:
-                        data = self._serial.read(64)
+                        now = time.monotonic()
+                        if now >= next_poll_time:
+                            # ACS-G315 当前协议的唯一查询命令：0x24（ASCII '$'）。
+                            self._serial.write(b"$")
+                            self._serial.flush()
+                            next_poll_time = now + poll_interval
+
+                        # 读取可能被拆成多段的回包，例如 "0" + "00.402\\r"。
+                        waiting = self._serial.in_waiting
+                        data = self._serial.read(waiting or 1)
                         if data:
-                            buffer += data.decode("ascii", errors="ignore")
-                            if "\r" in buffer or "\n" in buffer:
-                                buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    line = line.strip()
-                                    if line:
-                                        w = self._parse_com_weight(line)
-                                        if w is not None:
-                                            w = self._apply_fluctuation_filter(w)
-                                            self.weight_updated.emit(w)
-                                            self._check_stability(w)
-                                            self.status_changed.emit(
-                                                True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
-                                            )
-                        else:
-                            # 若 0.8s 内未收到数据，说明该电子秤为【问答查询式】(如迪宝 ACS-G315)，组合轮询唤醒命令
-                            now = time.time()
-                            if now - last_poll_time > 0.8:
-                                last_poll_time = now
-                                try:
-                                    # 尝试迪宝ACS-G315所有常见问答轮询命令
-                                    self._serial.write(b"W\r\n")
-                                    self._serial.write(b"\x05")
-                                    self._serial.write(b"\x0201\x03")
-                                    self._serial.write(b"01\r\n")
-                                    self._serial.write(b"R\r\n")
-                                except Exception:
-                                    pass
+                            buffer.extend(data)
+                            while True:
+                                frame_end = next(
+                                    (i for i, b in enumerate(buffer) if b in (0x0D, 0x0A)),
+                                    -1,
+                                )
+                                if frame_end < 0:
+                                    break
+                                frame = bytes(buffer[:frame_end])
+                                del buffer[:frame_end + 1]
+                                # CRLF 时丢弃紧接的第二个终止符。
+                                if buffer and buffer[0] in (0x0D, 0x0A):
+                                    del buffer[0]
+                                line = frame.decode("ascii", errors="ignore").strip()
+                                if not line:
+                                    continue
+                                w = self._parse_com_weight(line)
+                                if w is not None:
+                                    w = self._apply_fluctuation_filter(w)
+                                    self.weight_updated.emit(w)
+                                    self._check_stability(w)
+                                    self.status_changed.emit(
+                                        True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
+                                    )
                     except serial.SerialException:
                         break
                     except Exception:
@@ -375,4 +382,3 @@ class ScaleReader(QObject):
             if (max_w - min_w) < self._stable_threshold:
                 avg_weight = sum(self._last_weights) / len(self._last_weights)
                 self.weight_stable.emit(round(avg_weight, 3))
-
