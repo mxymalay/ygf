@@ -316,7 +316,7 @@ class TakeoutSortingWidget(QWidget):
         pv_lay.setSpacing(8)
 
         pv_hdr = QHBoxLayout()
-        lbl_pv = QLabel(u"🔍 实时小票效果排版预览 (根据上方配置自动更新)")
+        lbl_pv = QLabel(u"🧾 小票排版效果预览")
         lbl_pv.setStyleSheet("font-size: 15px; font-weight: bold; color: #38BDF8; border: none;")
         pv_hdr.addWidget(lbl_pv)
 
@@ -324,15 +324,9 @@ class TakeoutSortingWidget(QWidget):
 
         btn_refresh = QPushButton(u"🔄 刷新排版预览")
         btn_refresh.setCursor(Qt.PointingHandCursor)
-        btn_refresh.setStyleSheet("QPushButton { background: #334155; color: #F8FAFC; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 14px; border: 1px solid #475569; } QPushButton:hover { background: #475569; }")
+        btn_refresh.setStyleSheet("QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 14px; border: 1px solid #0369A1; } QPushButton:hover { background: #0369A1; }")
         btn_refresh.clicked.connect(self._update_live_preview)
         pv_hdr.addWidget(btn_refresh)
-
-        btn_save = QPushButton(u"💾 保存当前配置")
-        btn_save.setCursor(Qt.PointingHandCursor)
-        btn_save.setStyleSheet("QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 16px; border: 1px solid #0369A1; } QPushButton:hover { background: #0369A1; }")
-        btn_save.clicked.connect(self._on_save_rules)
-        pv_hdr.addWidget(btn_save)
 
         btn_test = QPushButton(u"🧪 物理打票测试")
         btn_test.setCursor(Qt.PointingHandCursor)
