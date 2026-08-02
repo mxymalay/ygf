@@ -678,7 +678,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_danger_page(self):
         card, layout = self._create_section_card(
-            u"⚠️", u"危险操作与数据重置", u"清除本地全部配置及销售记录数据库"
+            u"⚠️", u"模块化数据重置与恢复", u"可按需单独清理系统日志、历史销售库、恢复默认配置或全量重置"
         )
         card.setStyleSheet("""
             QFrame#SettingCard {
@@ -688,31 +688,77 @@ class SettingsWidget(QWidget):
             }
         """)
 
-        info_box = QVBoxLayout()
-        info_box.setSpacing(12)
-
-        lbl_warn_title = QLabel(u"🚨 高危警示")
+        lbl_warn_title = QLabel(u"🚨 分项数据重置管理")
         lbl_warn_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; background: transparent;")
-        info_box.addWidget(lbl_warn_title)
+        layout.addWidget(lbl_warn_title)
 
-        lbl_danger = QLabel(u"点击“重置软件数据”将彻底清空本地配置文件 (config.json)、历史点餐销售数据库 (pos.db) 以及全部运行与算法操作日志 (app_events.jsonl)。此操作不可逆！")
-        lbl_danger.setWordWrap(True)
-        lbl_danger.setStyleSheet("color: #FCA5A5; font-size: 14px; line-height: 1.6; background: #2C0F14; padding: 16px; border-radius: 10px; border: 1px solid #7F1D1D;")
-        info_box.addWidget(lbl_danger)
+        reset_items = [
+            (
+                u"🧹", u"重置运行与算法日志", 
+                u"仅擦除系统运行日志、称重切换与算法追溯数据 (app_events.jsonl)。不会影响交易账目和参数配置。", 
+                u"🧹 清空运行日志", 
+                "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
+                self._on_reset_logs
+            ),
+            (
+                u"📊", u"清空历史销售数据库", 
+                u"仅清空本地 SQLite 销售数据库 (pos.db)，擦除所有历史点餐与叫号交易记录。下次开单将重新自动建表。", 
+                u"📊 清空销售数据库", 
+                "background-color: #EA580C; color: white; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #F97316;",
+                self._on_reset_db
+            ),
+            (
+                u"⚙️", u"恢复默认系统配置", 
+                u"仅将配置文件 (config.json) 恢复为出厂默认参数（包含串口、打印机、切屏规则等）。软件将自动关闭以应用设置。", 
+                u"⚙️ 恢复默认配置", 
+                "background-color: #D97706; color: white; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #F59E0B;",
+                self._on_reset_config
+            ),
+            (
+                u"🔥", u"一键彻底重置所有数据", 
+                u"高危全量操作！彻底擦除配置文件 (config.json)、销售数据库 (pos.db) 及所有日志文件。软件恢复最原始安装状态。", 
+                u"🔥 一键彻底重置", 
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444); color: white; font-size: 14px; font-weight: bold; padding: 10px 22px; border-radius: 8px; border: none;",
+                self._on_reset
+            ),
+        ]
 
-        layout.addLayout(info_box)
+        for icon, title, desc, btn_txt, btn_style, slot_fn in reset_items:
+            item_box = QFrame()
+            item_box.setStyleSheet("""
+                QFrame {
+                    background-color: #0F172A;
+                    border-radius: 12px;
+                    border: 1px solid #334155;
+                }
+            """)
+            h_layout = QHBoxLayout(item_box)
+            h_layout.setContentsMargins(16, 12, 16, 12)
+            h_layout.setSpacing(16)
 
-        btn_reset = QPushButton(u"🔥 清空全部数据并重置软件")
-        btn_reset.setCursor(Qt.PointingHandCursor)
-        btn_reset.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444);
-                color: white; font-size: 15px; font-weight: bold; padding: 12px 28px; border-radius: 10px; border: none;
-            }
-            QPushButton:hover { background: #B91C1C; }
-        """)
-        btn_reset.clicked.connect(self._on_reset)
-        layout.addWidget(btn_reset, alignment=Qt.AlignLeft)
+            v_info = QVBoxLayout()
+            v_info.setSpacing(4)
+
+            t_lbl = QLabel(f"{icon} {title}")
+            t_lbl.setStyleSheet("font-size: 15px; font-weight: 900; color: #F8FAFC; border: none; background: transparent;")
+            d_lbl = QLabel(desc)
+            d_lbl.setWordWrap(True)
+            d_lbl.setStyleSheet("font-size: 13px; color: #94A3B8; border: none; background: transparent;")
+            v_info.addWidget(t_lbl)
+            v_info.addWidget(d_lbl)
+
+            h_layout.addLayout(v_info, stretch=1)
+
+            btn = QPushButton(btn_txt)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(f"""
+                QPushButton {{ {btn_style} }}
+                QPushButton:hover {{ filter: brightness(1.2); opacity: 0.9; }}
+            """)
+            btn.clicked.connect(slot_fn)
+            h_layout.addWidget(btn, alignment=Qt.AlignVCenter)
+
+            layout.addWidget(item_box)
 
         return self._wrap_in_scroll(card)
 
@@ -996,6 +1042,51 @@ class SettingsWidget(QWidget):
         save_config(self.config)
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"收钱吧设置已保存！")
+
+    def _on_reset_logs(self):
+        """仅重置运行与算法日志"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        if not show_question(self, u"清空日志确认", u"确定要清空全部系统运行与算法操作日志 (app_events.jsonl) 吗？该操作不可撤销。"):
+            return
+        try:
+            from core.app_logger import clear_all_logs
+            ok = clear_all_logs()
+            if ok:
+                show_info(self, u"清空成功", u"全部运行与算法操作日志已成功清空！")
+            else:
+                show_error(self, u"清空失败", u"无法清除日志文件，请检查文件权限。")
+        except Exception as e:
+            show_error(self, u"操作异常", f"清空日志时发生错误: {e}")
+
+    def _on_reset_db(self):
+        """仅重置销售数据库"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        if not show_question(self, u"清空数据库确认", u"确定要删除本地所有的历史点餐与交易记录数据库 (pos.db) 吗？此操作不可逆！"):
+            return
+        try:
+            import os
+            from config import DB_PATH
+            if os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
+            show_info(self, u"清空成功", u"历史销售记录数据库已成功删除！下次开单时将自动建立新库。")
+        except Exception as e:
+            show_error(self, u"操作异常", f"清空数据库时发生错误: {e}")
+
+    def _on_reset_config(self):
+        """仅恢复默认配置"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        if not show_question(self, u"恢复默认设置确认", u"确定要重置配置文件 (config.json) 为出厂默认参数吗？软件即将关闭以应用初始设置。"):
+            return
+        try:
+            import os
+            from config import CONFIG_FILE
+            if os.path.exists(CONFIG_FILE):
+                os.remove(CONFIG_FILE)
+            show_info(self, u"重置成功", u"系统设置已成功恢复默认！程序即刻关闭，请手动重新启动。")
+            from PyQt5.QtWidgets import QApplication
+            QApplication.quit()
+        except Exception as e:
+            show_error(self, u"操作异常", f"重置配置文件时发生错误: {e}")
 
     def _on_reset(self):
         """重置软件（危险操作）"""
