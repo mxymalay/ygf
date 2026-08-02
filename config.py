@@ -153,24 +153,23 @@ def load_config() -> dict:
 
     # 4. 自动拆分并同步写回 data/settings/ 目录下各个模块文件 (自动迁移逻辑)
     save_config(merged)
+
+    # 5. 若存在旧版 settings.json 大文件，完成迁移后自动删除清理
     if has_legacy_config:
-        print(f"[配置迁移] 已自动将大配置文件 {CONFIG_FILE} 拆分并迁移至 {SETTINGS_DIR}/ 目录！")
+        try:
+            os.remove(CONFIG_FILE)
+            print(f"[配置迁移] 已成功将大配置文件 {CONFIG_FILE} 拆分迁移至 {SETTINGS_DIR}/ 目录，并已清理旧版 settings.json！")
+        except Exception as e:
+            print(f"[配置迁移 Warning] 物理删除旧配置文件失败: {e}")
 
     return merged
 
 
 def save_config(cfg: dict):
-    """保存配置：同步更新 data/settings.json 以及 data/settings/ 下各个模块化文件"""
+    """保存配置：按模块拆分保存到 data/settings/*.json 文件"""
     cfg.pop("simulation_mode", None)
 
-    # 1. 保存总的 data/settings.json (保留兼容性)
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-    # 2. 按模块拆分保存到 data/settings/*.json
+    # 按模块拆分保存到 data/settings/*.json
     module_buckets = {"sys": {}, "takeout": {}, "algo": {}, "shouqianba": {}}
     for k, v in cfg.items():
         mod = _get_module_name(k)
@@ -199,9 +198,6 @@ def export_config_bundle(cfg: dict, target_file_path: str):
     save_config(cfg)
     if target_file_path.endswith(".zip"):
         with zipfile.ZipFile(target_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # 写入主配置文件
-            if os.path.exists(CONFIG_FILE):
-                zipf.write(CONFIG_FILE, arcname="settings.json")
             # 写入模块化目录
             for mod, path in MODULE_FILES.items():
                 if os.path.exists(path):
