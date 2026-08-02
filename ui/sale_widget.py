@@ -1561,12 +1561,16 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_random_weight_click(self):
-        weights = [0.320, 0.450, 0.580, 0.640, 0.760, 0.850, 0.980, 1.150]
+        weights = [0.120, 0.150, 0.320, 0.450, 0.580, 0.640, 0.760, 0.850, 0.980, 1.150]
         w = random.choice(weights)
         w = round(w + random.uniform(-0.02, 0.02), 3)
         w = max(0.100, w)
-        self._on_weight_update(w)
-        self._on_weight_stable(w)
+        if hasattr(self, 'scale') and self.scale:
+            self.scale.weight_updated.emit(w)
+            self.scale.weight_stable.emit(w)
+        else:
+            self._on_weight_update(w)
+            self._on_weight_stable(w)
 
     def _on_random_weight_menu(self, pos):
         from PyQt5.QtWidgets import QMenu
@@ -1577,17 +1581,28 @@ class SaleWidget(QWidget):
             QMenu::item:selected { background-color: #EA580C; color: white; }
         """)
         
-        for preset in [0.300, 0.500, 0.800, 1.000, 1.200]:
+        for preset in [0.120, 0.300, 0.500, 0.800, 1.000, 1.200]:
             act = menu.addAction(u"设置重量: %.3f kg" % preset)
-            act.triggered.connect(lambda checked, val=preset: (self._on_weight_update(val), self._on_weight_stable(val)))
+            def trigger_preset(checked, val=preset):
+                if hasattr(self, 'scale') and self.scale:
+                    self.scale.weight_updated.emit(val)
+                    self.scale.weight_stable.emit(val)
+                else:
+                    self._on_weight_update(val)
+                    self._on_weight_stable(val)
+            act.triggered.connect(trigger_preset)
             
         act_custom = menu.addAction(u"自定义输入克数...")
         def ask_custom():
             val, ok = get_int_input(self, u"自定义重量", u"请输入克数 (例: 500 表示 0.5kg):", 500, 1, 99999)
             if ok:
                 w = round(val / 1000.0, 3)
-                self._on_weight_update(w)
-                self._on_weight_stable(w)
+                if hasattr(self, 'scale') and self.scale:
+                    self.scale.weight_updated.emit(w)
+                    self.scale.weight_stable.emit(w)
+                else:
+                    self._on_weight_update(w)
+                    self._on_weight_stable(w)
         act_custom.triggered.connect(ask_custom)
         
         menu.exec_(self.btn_random_weight.mapToGlobal(pos))
