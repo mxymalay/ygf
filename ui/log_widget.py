@@ -198,6 +198,23 @@ class LogWidget(QWidget):
 
         filter_bar.addSpacing(8)
 
+        # 导出按钮
+        btn_export = QPushButton(u"💾 导出TXT")
+        btn_export.setFixedHeight(36)
+        btn_export.setCursor(Qt.PointingHandCursor)
+        btn_export.setStyleSheet("""
+            QPushButton {
+                background-color: #065F46; color: #A7F3D0; font-size: 13px; font-weight: bold;
+                padding: 4px 14px; border-radius: 8px; border: 1px solid #10B981;
+            }
+            QPushButton:hover { background-color: #047857; }
+            QPushButton:pressed { background-color: #064E3B; }
+        """)
+        btn_export.clicked.connect(self._on_export_logs)
+        filter_bar.addWidget(btn_export)
+
+        filter_bar.addSpacing(8)
+
         # 手动清理按钮
         btn_cleanup = QPushButton(u"🗑️ 清理过期日志")
         btn_cleanup.setFixedHeight(36)
@@ -276,3 +293,47 @@ class LogWidget(QWidget):
         removed = cleanup_old_logs()
         QMessageBox.information(self, u"日志清理", f"已清理 {removed} 条过期日志记录 (保留最近 3 天)")
         self._load_logs()
+
+    def _on_export_logs(self):
+        """导出当前筛选出的日志到桌面TXT文件"""
+        cat_filter = self.combo_cat.currentData() or ""
+        keyword = self.txt_search.text().strip()
+        
+        # 获取最多5000条用于导出
+        logs = read_logs(category_filter=cat_filter, keyword=keyword, limit=5000)
+        if not logs:
+            QMessageBox.information(self, u"导出提示", u"当前没有可以导出的日志数据。")
+            return
+            
+        import os
+        from datetime import datetime
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"运营日志导出_{timestamp}.txt"
+        export_path = os.path.join(desktop_path, filename)
+        
+        try:
+            with open(export_path, 'w', encoding='utf-8') as f:
+                f.write("========== 门店运营日志导出 ==========\n")
+                f.write(f"导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                
+                cat_name = CAT_DISPLAY.get(cat_filter, '全部分类') if cat_filter else '全部分类'
+                f.write(f"分类筛选: {cat_name}\n")
+                f.write(f"关键词筛选: {keyword if keyword else '无'}\n")
+                f.write(f"共导出记录: {len(logs)} 条\n")
+                f.write("======================================\n\n")
+                
+                for entry in logs:
+                    ts = entry.get("ts", "")
+                    cat = entry.get("cat", "")
+                    msg = entry.get("msg", "")
+                    detail = entry.get("detail", "")
+                    
+                    line = f"[{ts}] [{cat}] {msg}"
+                    if detail:
+                        line += f" - {detail}"
+                    f.write(line + "\n")
+                    
+            QMessageBox.information(self, u"导出成功", f"成功导出 {len(logs)} 条日志到桌面：\n{filename}")
+        except Exception as e:
+            QMessageBox.warning(self, u"导出错误", f"导出日志时发生错误：\n{str(e)}")

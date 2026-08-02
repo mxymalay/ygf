@@ -162,7 +162,7 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.setSpacing(20)
 
         # --- 场景 1：总控与智能过滤 ---
-        grp1 = QGroupBox(u"场景一：总控与轻量单过滤 (Routing & Filtering)")
+        grp1 = QGroupBox(u"总控与智能过滤设置")
         lay1 = QFormLayout(grp1)
         lay1.setContentsMargins(20, 30, 20, 20)
         lay1.setSpacing(16)
@@ -183,7 +183,7 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.addWidget(grp1)
 
         # --- 场景 2：连续收银防打断 ---
-        grp2 = QGroupBox(u"场景二：连续收银与防打断保护 (Anti-Interruption)")
+        grp2 = QGroupBox(u"连续收银防打断保护")
         lay2 = QFormLayout(grp2)
         lay2.setContentsMargins(20, 30, 20, 20)
         lay2.setSpacing(16)
@@ -211,7 +211,7 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.addWidget(grp2)
 
         # --- 场景 3：异常抖动与人工干预 ---
-        grp3 = QGroupBox(u"场景三：秤具抖动与人工最高优先级 (Manual Override)")
+        grp3 = QGroupBox(u"秤具防抖与人工干预门限")
         lay3 = QFormLayout(grp3)
         lay3.setContentsMargins(20, 30, 20, 20)
         lay3.setSpacing(16)
@@ -231,7 +231,7 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.addWidget(grp3)
 
         # --- 场景 4：订单收尾 ---
-        grp4 = QGroupBox(u"场景四：结账收尾动作 (Order Finalization)")
+        grp4 = QGroupBox(u"结账收尾动作设置")
         lay4 = QFormLayout(grp4)
         lay4.setContentsMargins(20, 30, 20, 20)
         lay4.setSpacing(16)
