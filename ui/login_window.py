@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import subprocess
 from PyQt5.QtWidgets import (
@@ -37,6 +38,48 @@ def check_ygf_official_running() -> bool:
             pass
 
     return False
+
+
+def check_dibal_scale_connection(config) -> bool:
+    """按 ACS-G315 的已验证查询协议检查私有 POS 的秤端口。
+
+    此秤不持续广播。必须以 9600/8N1、DTR 开/RTS 关发送 ``$`` (0x24)，
+    才会返回 ``000.402\\r`` 一类的重量帧。
+    """
+    ser = None
+    try:
+        import serial
+
+        port = config.get("scale_port", "COM3")
+        baudrate = int(config.get("scale_baudrate", 9600))
+        ser = serial.Serial(
+            port=port,
+            baudrate=baudrate,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=0.35,
+            write_timeout=0.5,
+            xonxoff=False,
+            rtscts=False,
+            dsrdtr=False,
+        )
+        ser.dtr = True
+        ser.rts = False
+        ser.reset_input_buffer()
+        ser.write(b"$")
+        ser.flush()
+        frame = ser.read_until(b"\r", size=32)
+        text = frame.decode("ascii", errors="ignore").strip()
+        return bool(re.fullmatch(r"[+-]?\d{1,5}\.\d{1,4}", text))
+    except Exception:
+        return False
+    finally:
+        if ser is not None:
+            try:
+                ser.close()
+            except Exception:
+                pass
 
 
 class NumericKeypad(QWidget):
@@ -375,32 +418,20 @@ class LoginWindow(QDialog):
         self.progress_bar.setValue(35)
         official_running = check_ygf_official_running()
         
-        # 同时检测秤的串口连通性作为备用数据源
-        scale_ok = False
-        try:
-            import serial
-            port = self.config.get("scale_port", "COM2")
-            baudrate = self.config.get("scale_baudrate", 9600)
-            ser = serial.Serial(port, baudrate, timeout=0.8)
-            # 电子秤会持续不断向外广播数据
-            # 尝试监听读取一段数据，如果能读到任何字节，说明端口上确实接着一台正在发数据的设备(秤)
-            data = ser.read(16)
-            ser.close()
-            if data and len(data) > 2:
-                scale_ok = True
-        except Exception:
-            pass
+        # 同时按已验证的 DIBAL 查询协议检测私有 POS 的秤端口。
+        # 不能被动 read：ACS-G315 收到 '$' 后才返回重量。
+        scale_ok = check_dibal_scale_connection(self.config)
 
         if official_running or scale_ok:
             self.official_ok = True
-            msg = u"✔ OCR连通" if official_running else u"✔ 串口连通"
+            msg = u"✔ 官方连通" if official_running else u"✔ 秤连通"
             self.lbl_badge1.setText(msg)
             self.lbl_badge1.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             self.official_ok = False
             self.lbl_badge1.setText(u"✖ 源断开")
             self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
-            self.hardware_warnings.append("官方收银未运行且称重串口断开")
+            self.hardware_warnings.append("官方收银未运行且称重串口检测失败")
             
         QTimer.singleShot(250, self._check_printer)
 
