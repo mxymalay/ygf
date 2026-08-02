@@ -381,9 +381,13 @@ class LoginWindow(QDialog):
             import serial
             port = self.config.get("scale_port", "COM2")
             baudrate = self.config.get("scale_baudrate", 9600)
-            ser = serial.Serial(port, baudrate, timeout=0.2)
+            ser = serial.Serial(port, baudrate, timeout=0.8)
+            # 电子秤会持续不断向外广播数据
+            # 尝试监听读取一段数据，如果能读到任何字节，说明端口上确实接着一台正在发数据的设备(秤)
+            data = ser.read(16)
             ser.close()
-            scale_ok = True
+            if data and len(data) > 2:
+                scale_ok = True
         except Exception:
             pass
 
