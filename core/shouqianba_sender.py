@@ -47,7 +47,7 @@ def _find_shouqianba_hwnd():
                     buf = ctypes.create_unicode_buffer(length + 1)
                     user32.GetWindowTextW(hwnd, buf, length + 1)
                     title = buf.value
-                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba"]):
+                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"]):
                         target_hwnd[0] = hwnd
                         return False
             return True
@@ -173,7 +173,7 @@ def bring_shouqianba_to_front():
                     buf = ctypes.create_unicode_buffer(length + 1)
                     user32.GetWindowTextW(hwnd, buf, length + 1)
                     title = buf.value
-                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba"]):
+                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"]):
                         target_hwnd.append(hwnd)
             return True
 
