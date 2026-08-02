@@ -381,6 +381,24 @@ def apply_touch_combo_style(combo, item_height=48):
     from PyQt5.QtWidgets import QListView
     # 替换底层 View 摆脱系统限制
     view = QListView()
+    view.setUniformItemSizes(True)  # 强制统一尺寸，避免由于未加载完导致的高度重置
+    
+    # 强制在底层控件上应用 QSS，防止外层 stylesheet 被 Windows 原生 Theme 穿透覆盖
+    view.setStyleSheet("""
+        QListView {
+            background-color: #1E293B;
+            color: #F8FAFC;
+            selection-background-color: #38BDF8;
+            outline: none;
+            border: 1px solid #334155;
+            border-radius: 4px;
+        }
+        QListView::item {
+            min-height: %dpx;
+            padding: 4px 12px;
+        }
+    """ % item_height)
+    
     combo.setView(view)
     # 注入强制高度的委托
     combo.setItemDelegate(TouchItemDelegate(height=item_height, parent=combo))
