@@ -551,12 +551,13 @@ class SettingsWidget(QWidget):
                     self.cmb_scale_port.setCurrentIndex(i)
                     break
         # 显示扫描反馈
-        if active_ports:
-            self.lbl_scale_hint.setText(u"扫描完成！检测到活跃端口: %s" % ", ".join(active_ports))
-            self.lbl_scale_hint.setStyleSheet("color: #34D399; font-size: 12px; padding: 4px;")
-        else:
-            self.lbl_scale_hint.setText(u"扫描完成，未检测到任何活跃的COM端口。请检查串口线是否连接。")
-            self.lbl_scale_hint.setStyleSheet("color: #FBBF24; font-size: 12px; padding: 4px;")
+        if hasattr(self, 'lbl_scale_hint'):
+            if active_ports:
+                self.lbl_scale_hint.setText(u"扫描完成！检测到活跃端口: %s" % ", ".join(active_ports))
+                self.lbl_scale_hint.setStyleSheet("color: #34D399; font-size: 12px; padding: 4px;")
+            else:
+                self.lbl_scale_hint.setText(u"扫描完成，未检测到任何活跃的COM端口。请检查串口线是否连接。")
+                self.lbl_scale_hint.setStyleSheet("color: #FBBF24; font-size: 12px; padding: 4px;")
 
     def _on_save_scale(self):
         """保存称重数据源设置"""
