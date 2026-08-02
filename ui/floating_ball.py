@@ -200,6 +200,11 @@ class FloatingBall(QWidget):
     def _on_click_toggle(self):
         """手指轻点：快速在官方界面与私域 POS 之间切换"""
         self.stop_countdown()
+        
+        # 记录手动干预，触发 30 秒自动决策锁定 (防止秤抖动立刻抢抓)
+        if hasattr(self.main_window, 'switch_controller') and self.main_window.switch_controller:
+            self.main_window.switch_controller.notify_manual_switch()
+            
         if self.is_our_pos_active:
             success = bring_official_to_front()
             if not success and self.main_window:

@@ -1590,6 +1590,13 @@ class SaleWidget(QWidget):
             b.set_count(0)
         self.temp_order_no = self._gen_temp_order_no()
         self._update_price_display()
+        
+        # 清空购物车时，重置所有自动切换锁，允许即刻重新评估下一碗
+        parent_mw = self.window()
+        if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
+            parent_mw.switch_controller._last_official_time = 0.0
+            parent_mw.switch_controller._has_auto_popped = False
+            parent_mw.switch_controller._current_is_private = False
 
     def cleanup(self):
         if hasattr(self, 'scale'):
