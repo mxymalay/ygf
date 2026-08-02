@@ -27,6 +27,8 @@ VK_MAPPING = {
     "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B,
     "SPACE": 0x20, "ENTER": 0x0D, "TAB": 0x09,
 }
+SQB_TAB_FOCUS_DELAY = 0.6
+
 for i in range(26):
     ch = chr(ord('A') + i)
     VK_MAPPING[ch] = 0x41 + i
@@ -190,6 +192,28 @@ def bring_shouqianba_to_front():
     except Exception as e:
         logger.warning(f"强行唤起收钱吧窗口失败: {e}")
     return False
+
+
+def _build_sqb_amount_payloads(amount: float, fmt: str):
+    """按收钱吧插件配置生成“清零、金额”两个串口帧。"""
+    amount_text = f"{amount:.2f}"
+    if fmt == "QA":
+        return "QA0.00\r\n", f"QA{amount_text}\r\n"
+    return "0.00\r\n", f"{amount_text}\r\n"
+
+
+def _open_shouqianba_payment(hotkey: str):
+    """保持现场验证通过的收钱吧付款码聚焦顺序。
+
+    Tab 必须使用 send_hotkey() 的全局 keybd_event 路径，并且无论置前函数的
+    返回值如何都要发送一次。收钱吧 V4 能识别该全局 Tab；PostMessage、UIA
+    或坐标点击都不能替代这一行为。
+    """
+    if hotkey:
+        send_hotkey(hotkey)
+    bring_shouqianba_to_front()
+    time.sleep(SQB_TAB_FOCUS_DELAY)
+    send_hotkey("TAB")
 
 
 # 初始化全局 RapidOCR 算法引擎 (单例只加载一次，15ms 超高速文字识别)
@@ -404,19 +428,11 @@ def _do_send_amount(amount: float, config: dict):
     if not enabled:
         return
 
-    amt_str = f"{amount:.2f}"
-
     # 1. 串口推送逻辑 (先通过COM发送金额)
     port = config.get("shouqianba_port", "COM1")
     baudrate = int(config.get("shouqianba_baudrate", 2400))  # 默认 2400
     fmt = config.get("shouqianba_format", "QA")               # "QA" 或 "FLOAT"
-
-    if fmt == "QA":
-        reset_payload = "QA0.00\r\n"
-        payload = f"QA{amt_str}\r\n"
-    else:
-        reset_payload = "0.00\r\n"
-        payload = f"{amt_str}\r\n"
+    reset_payload, payload = _build_sqb_amount_payloads(amount, fmt)
 
     try:
         ser = serial.Serial()
@@ -452,18 +468,8 @@ def _do_send_amount(amount: float, config: dict):
         print("[收钱吧串口] 已完成静默 0.00 金额重置，隐藏前台唤起。")
         return
 
-    # 2. 自动模拟发送快捷键 (再调出收钱吧界面)
-    hotkey = config.get("shouqianba_hotkey", "Shift+Q")
-    if hotkey:
-        send_hotkey(hotkey)
-
-    # 3. 自动尝试将收钱吧窗口置顶前台
-    bring_shouqianba_to_front()
-
-    # 4. 解决 USB标准模式 下扫码枪误扫入金额栏的问题
-    # 置顶后延迟0.6秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
-    time.sleep(0.6)
-    send_hotkey("TAB")
+    # 2. 唤起收款界面并把焦点从金额框跳到付款码框。
+    _open_shouqianba_payment(config.get("shouqianba_hotkey", "Shift+Q"))
 
 
 def send_shouqianba_amount(amount: float, config: dict):
@@ -492,7 +498,7 @@ def test_shouqianba_port(config: dict):
     baudrate = int(config.get("shouqianba_baudrate", 2400))
     fmt = config.get("shouqianba_format", "QA")
 
-    payload = "QA0.00\r\n" if fmt == "QA" else "0.00\r\n"
+    _, payload = _build_sqb_amount_payloads(0.0, fmt)
 
     try:
         ser = serial.Serial()
