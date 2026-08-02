@@ -446,12 +446,20 @@ class CheckoutDialog(QDialog):
             if parent_w and hasattr(parent_w, 'printer'):
                 printer = parent_w.printer
             
+            # 开启底层高斯模糊
+            blur = QGraphicsBlurEffect(self.inner_container)
+            blur.setBlurRadius(18)
+            self.inner_container.setGraphicsEffect(blur)
+            
             # 弹出现金计算器
             def on_cash_confirm(pm):
                 self._complete_checkout(pm)
                 
             calc = CashCalculatorDialog(self.sale_data, parent=self, on_confirm=on_cash_confirm, printer=printer)
             calc.exec_()
+            
+            # 还原底层高斯模糊
+            self.inner_container.setGraphicsEffect(None)
             
             # 如果计算器被取消（未确认），则重置选择状态，允许重新选择
             if calc.result() != QDialog.Accepted:
