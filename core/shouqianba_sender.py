@@ -402,23 +402,13 @@ def _do_send_amount(amount: float, config: dict):
     # 等待 0.15 秒，确保收钱吧后台已处理完串口数据
     time.sleep(0.15)
 
-    # 如果是归零/重置清空 (amount <= 0)，只静默向串口发送 0.00 冲刷缓存，不触发快捷键唤起和窗口置顶
+    # 如果是归零/重置清空 (amount <= 0)，只静默向串口发送 0.00 冲刷缓存，不触发唤起
     if amount <= 0.0:
         print("[收钱吧串口] 已完成静默 0.00 金额重置，隐藏前台唤起。")
         return
 
-    # 2. 自动模拟发送快捷键 (再调出收钱吧界面)
-    hotkey = config.get("shouqianba_hotkey", "Shift+Q")
-    if hotkey:
-        send_hotkey(hotkey)
-
-    # 3. 自动尝试将收钱吧窗口置顶前台
+    # 静默使用 Win32 原生 API 唤起收钱吧窗口置顶 (不强发 Shift+Q 和 TAB 全局快捷键，防止打扰用户正常操作及切输入法)
     bring_shouqianba_to_front()
-    
-    # 4. 解决 USB标准模式 下扫码枪误扫入金额栏的问题
-    # 置顶后延迟0.6秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
-    time.sleep(0.6)
-    send_hotkey("TAB")
 
 
 def send_shouqianba_amount(amount: float, config: dict):
