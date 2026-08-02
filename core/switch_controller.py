@@ -101,15 +101,17 @@ class AutoSwitchController(QObject):
                     if hasattr(self.main_window, 'status'):
                         self.main_window.status.showMessage(msg, 5000)
         else:
-            # 称上重量归零 (放下碗拿走)，重置弹出标记
-            self._has_auto_popped = False
-            self._last_popped_weight = 0.0
-            self._current_is_private = False
-
             # 3. 称重归零超时智能判定：若空重量保持指定时间以上，说明上一位顾客已拿碗离开，自动提前解脱官方连单锁
             if self._zero_start_time == 0.0:
                 self._zero_start_time = now_ts
             elif now_ts - self._zero_start_time > self._zeroing_unlock_sec:
+                # 只有真正归零超过一定时间（例如 5 秒），才算作真正的离场，此时才重置弹出标记
+                if self._has_auto_popped:
+                    self._has_auto_popped = False
+                    self._last_popped_weight = 0.0
+                    self._current_is_private = False
+                    print(f"[AutoDecisionEngine] 称重归零已达 {self._zeroing_unlock_sec}s，重置决策状态，迎接下一位顾客")
+                    
                 if self._last_official_time > 0:
                     self._last_official_time = 0.0
                     print(f"[AutoDecisionEngine] 称重归零超时 {self._zeroing_unlock_sec}s (顾客已离场)，自动解除官方连单锁定")
