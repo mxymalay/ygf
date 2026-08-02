@@ -143,9 +143,10 @@ def copy_to_clipboard(text: str):
 
 
 def bring_shouqianba_to_front():
-    """查找收钱吧 PC收款 窗口并置顶唤起"""
+    """强行夺取键盘焦点并置顶收钱吧窗口 (突破 Windows 焦点锁定)"""
     try:
         user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
         target_hwnd = []
 
         def foreach_window(hwnd, lParam):
@@ -164,12 +165,30 @@ def bring_shouqianba_to_front():
 
         if target_hwnd:
             hwnd = target_hwnd[0]
+            
+            # 常规显示和置顶
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-            user32.SetForegroundWindow(hwnd)
-            print(f"[收钱吧唤起] 已将【PC收款】窗口拉至最前端！")
+            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002) # HWND_TOPMOST
+            user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002) # HWND_NOTOPMOST
+            
+            # 突破 Windows 限制，强行附加线程抢夺真正的键盘输入焦点
+            foreground_thread = user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
+            target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+            current_thread = kernel32.GetCurrentThreadId()
+
+            if foreground_thread != current_thread:
+                user32.AttachThreadInput(current_thread, foreground_thread, True)
+                user32.SetForegroundWindow(hwnd)
+                user32.SetFocus(hwnd)
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
+            else:
+                user32.SetForegroundWindow(hwnd)
+                user32.SetFocus(hwnd)
+
+            print(f"[收钱吧唤起] 已强行突破限制，为【PC收款】窗口注入真正的键盘焦点！")
             return True
     except Exception as e:
-        logger.warning(f"唤起收钱吧窗口失败: {e}")
+        logger.warning(f"强行唤起收钱吧窗口失败: {e}")
     return False
 
 
