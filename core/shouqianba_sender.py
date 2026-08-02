@@ -35,21 +35,33 @@ for i in range(10):
 
 
 def _find_shouqianba_hwnd():
-    """查找收钱吧主窗口句柄"""
+    """查找收钱吧窗口句柄，优先刚被快捷键激活的前台收款窗口。"""
     try:
         user32 = ctypes.windll.user32
+
+        def is_shouqianba_window(hwnd):
+            if not hwnd or not user32.IsWindowVisible(hwnd):
+                return False
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return False
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            title = buf.value
+            return any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"])
+
+        # 收钱吧可能同时存在后台主窗口和前台收款弹窗。EnumWindows 的顺序
+        # 不代表当前交互窗口，优先返回快捷键刚激活的前台窗口。
+        foreground_hwnd = user32.GetForegroundWindow()
+        if is_shouqianba_window(foreground_hwnd):
+            return foreground_hwnd
+
         target_hwnd = [None]
 
         def foreach_window(hwnd, lParam):
-            if user32.IsWindowVisible(hwnd):
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    buf = ctypes.create_unicode_buffer(length + 1)
-                    user32.GetWindowTextW(hwnd, buf, length + 1)
-                    title = buf.value
-                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"]):
-                        target_hwnd[0] = hwnd
-                        return False
+            if is_shouqianba_window(hwnd):
+                target_hwnd[0] = hwnd
+                return False
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
@@ -147,24 +159,9 @@ def bring_shouqianba_to_front():
     try:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
-        target_hwnd = []
+        hwnd = _find_shouqianba_hwnd()
 
-        def foreach_window(hwnd, lParam):
-            if user32.IsWindowVisible(hwnd):
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    buf = ctypes.create_unicode_buffer(length + 1)
-                    user32.GetWindowTextW(hwnd, buf, length + 1)
-                    title = buf.value
-                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"]):
-                        target_hwnd.append(hwnd)
-            return True
-
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
-        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
-
-        if target_hwnd:
-            hwnd = target_hwnd[0]
+        if hwnd:
             
             # 常规显示和置顶
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
