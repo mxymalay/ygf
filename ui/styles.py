@@ -188,6 +188,24 @@ QPushButton#btn_cash:hover {{
         stop:0 #34D399, stop:0.5 #6EE7B7, stop:1 #10B981);
 }}
 
+/* 其他渠道按钮 */
+QPushButton#btn_other {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #6D28D9, stop:0.5 #7C3AED, stop:1 #5B21B6);
+    color: #FFFFFF;
+    font-size: 15px;
+    font-weight: 900;
+    min-height: 60px;
+    border: none;
+    border-radius: 12px;
+    padding: 0px 4px;
+}}
+
+QPushButton#btn_other:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #7C3AED, stop:0.5 #8B5CF6, stop:1 #6D28D9);
+}}
+
 /* 重置清零与开钱箱按钮 */
 QPushButton#btn_clear, QPushButton#btn_open_drawer {{
     background: {c['bg_card']};

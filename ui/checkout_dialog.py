@@ -25,23 +25,110 @@ PAYMENT_LABELS = {
 }
 
 
+class PaymentStatusWidget(QFrame):
+    """
+    极客风动态支付状态卡片：
+    - WAITING 状态：360° 高帧率平滑旋转双色渐变光环 (QPainter 60FPS) + 极客脉冲 "⚡"
+    - SUCCESS 状态：平滑过渡为柔光绿底圈与加粗弹跳对号 "✓"
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.state = "WAITING"
+        self.angle = 0
+        self.scale_factor = 0.8
+        self.setMinimumSize(220, 220)
+        self.setStyleSheet("QFrame { background: transparent; border: none; }")
+
+        self.anim_timer = QTimer(self)
+        self.anim_timer.setInterval(16) # ~60 FPS
+        self.anim_timer.timeout.connect(self._on_anim_tick)
+        self.anim_timer.start()
+
+    def _on_anim_tick(self):
+        if self.state == "WAITING":
+            self.angle = (self.angle + 4) % 360
+            self.update()
+        elif self.state == "SUCCESS":
+            if self.scale_factor < 1.1:
+                self.scale_factor += 0.03
+                self.update()
+
+    def set_state(self, new_state):
+        if self.state != new_state:
+            self.state = new_state
+            self.scale_factor = 0.7
+            self.update()
+
+    def paintEvent(self, event):
+        from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QConicalGradient, QFont
+        from PyQt5.QtCore import QPointF
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        w, h = self.width(), self.height()
+        cx, cy = w / 2.0, h / 2.0 - 15.0
+        radius = 65.0
+
+        if self.state == "WAITING":
+            painter.save()
+            painter.translate(cx, cy)
+            painter.rotate(self.angle)
+
+            grad = QConicalGradient(0, 0, 0)
+            grad.setColorAt(0.0, QColor("#EA580C"))
+            grad.setColorAt(0.5, QColor("#F97316"))
+            grad.setColorAt(0.85, QColor(249, 115, 22, 50))
+            grad.setColorAt(1.0, QColor(249, 115, 22, 0))
+
+            pen = QPen(QBrush(grad), 9)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.drawArc(int(-radius), int(-radius), int(radius * 2), int(radius * 2), 0, 360 * 16)
+            painter.restore()
+
+            font = QFont("Microsoft YaHei", 32, QFont.Bold)
+            painter.setFont(font)
+            painter.setPen(QColor("#FFEDD5"))
+            painter.drawText(int(cx - 40), int(cy - 40), 80, 80, Qt.AlignCenter, "⚡")
+
+        elif self.state == "SUCCESS":
+            painter.save()
+            painter.translate(cx, cy)
+            painter.scale(self.scale_factor, self.scale_factor)
+
+            pen_bg = QPen(QColor("#10B981"), 8)
+            painter.setPen(pen_bg)
+            painter.setBrush(QBrush(QColor(16, 185, 129, 35)))
+            painter.drawEllipse(int(-radius), int(-radius), int(radius * 2), int(radius * 2))
+
+            pen_check = QPen(QColor("#10B981"), 10, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            painter.setPen(pen_check)
+            path_points = [
+                QPointF(-24, 2),
+                QPointF(-7, 20),
+                QPointF(26, -18)
+            ]
+            painter.drawPolyline(path_points)
+            painter.restore()
+
+
 class CheckoutDialog(QDialog):
     """
-    结账模态框：左侧经典小票预览 + 右侧三大付款按钮
-    点击付款按钮后**立即** accept()，不等待动画。
+    结账模态框：左侧发票小票预览 + 右侧动态支付通道 (支持 mode="OTHER" / mode="SCAN_CODE")
     """
 
-    def __init__(self, sale_data, parent=None, on_payment_callback=None, config=None):
+    def __init__(self, sale_data, parent=None, on_payment_callback=None, config=None, mode="OTHER"):
         super().__init__(parent)
         self.sale_data = sale_data
         self.on_payment_callback = on_payment_callback
         self.config = config or (parent.config if parent and hasattr(parent, 'config') else {})
+        self.mode = mode  # "OTHER" | "SCAN_CODE"
         self.selected_payment_method = ""
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
-        # 外层容器：使用极低透明度(alpha=1)替代完全透明，以确保系统能捕获到鼠标点击事件
         self.outer = QFrame(self)
         self.outer.setObjectName("CheckoutOuter")
         self.outer.setStyleSheet(
@@ -64,7 +151,7 @@ class CheckoutDialog(QDialog):
         root.setSpacing(40)
 
         # ════════════════════════════════════════════════════════════
-        # 左侧：经典小票预览区域（复用原 ReceiptPreviewDialog 风格）
+        # 左侧：经典小票预览与发票明细区域
         # ════════════════════════════════════════════════════════════
         left_frame = QFrame()
         left_frame.setObjectName("ReceiptLeft")
@@ -76,7 +163,6 @@ class CheckoutDialog(QDialog):
         left_layout.setContentsMargins(14, 14, 14, 14)
         left_layout.setSpacing(10)
 
-        # 小票卡片（虚线边框）
         ticket_card = QFrame()
         ticket_card.setObjectName("TicketCard")
         ticket_card.setStyleSheet(
@@ -87,7 +173,6 @@ class CheckoutDialog(QDialog):
         tc_layout.setContentsMargins(12, 12, 12, 12)
         tc_layout.setSpacing(8)
 
-        # 滚动区域
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -109,7 +194,6 @@ class CheckoutDialog(QDialog):
         scroll.setWidget(scroll_widget)
         tc_layout.addWidget(scroll, stretch=1)
 
-        # 固定的底部合计（不随滚动条滚动）
         self._add_sep(tc_layout)
         
         cart_items = sale_data.get("cart_items", [])
@@ -121,7 +205,6 @@ class CheckoutDialog(QDialog):
 
         left_layout.addWidget(ticket_card, stretch=1)
 
-        # 底部打印数量提示
         m_count = sum(1 for item in sale_data.get("cart_items", [])
                       if item.get("type") == "soup" or "weight" in item)
         if m_count > 0:
@@ -146,201 +229,127 @@ class CheckoutDialog(QDialog):
         root.addWidget(self.receipt_container, stretch=5)
 
         # ════════════════════════════════════════════════════════════
-        # 右侧：付款方式选择面板（仅按钮悬浮）
-        # ════════════════════════════════════════════════════════════
-        # 右侧：顶部主入口【收钱吧】 + 底部 3 备选正方形网格
+        # 右侧：根据 mode 构建面板 ("OTHER" 保留另外两个付款，"SCAN_CODE" 显示转圈圈对号)
         # ════════════════════════════════════════════════════════════
         right_frame = QFrame()
         right_frame.setObjectName("PaymentRight")
         right_frame.setStyleSheet(
-            "#PaymentRight { background: transparent; border: none; }"
+            "#PaymentRight { background: #111827; border-radius: 18px; border: 1px solid #374151; }"
         )
         self.right_panel = right_frame
         right_layout = QVBoxLayout(right_frame)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(20, 20, 20, 20)
         right_layout.setSpacing(16)
         right_layout.setAlignment(Qt.AlignCenter)
 
         self.pay_buttons = []
 
-        # ── 1. 顶部最上方主要入口：收钱吧 自动调起支付 ──
-        sqb_frame = QFrame()
-        sqb_frame.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #C2410C, stop:1 #EA580C);
-                border-radius: 16px; border: 2px solid #F97316;
-            }
-        """)
-        sqb_layout = QHBoxLayout(sqb_frame)
-        sqb_layout.setContentsMargins(20, 18, 20, 18)
-        sqb_layout.setSpacing(14)
+        if self.mode == "SCAN_CODE":
+            # ── 去扫码模式：显示 60FPS 旋转光环/对号 ──
+            lbl_title = QLabel(u"收钱吧 自动扫码扣款")
+            lbl_title.setAlignment(Qt.AlignCenter)
+            lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
+            right_layout.addWidget(lbl_title)
 
-        lbl_sqb_icon = QLabel(u"⚡")
-        lbl_sqb_icon.setStyleSheet("font-size: 38px; border: none; background: transparent; color: #FFEDD5;")
-        lbl_sqb_icon.setAlignment(Qt.AlignCenter)
-        sqb_layout.addWidget(lbl_sqb_icon)
+            self.lbl_sqb_desc = QLabel(u"⚡ 已调起收钱吧，等待扣款中...")
+            self.lbl_sqb_desc.setAlignment(Qt.AlignCenter)
+            self.lbl_sqb_desc.setStyleSheet("font-size: 14px; font-weight: bold; color: #F97316; border: none;")
+            right_layout.addWidget(self.lbl_sqb_desc)
 
-        sqb_text_col = QVBoxLayout()
-        sqb_text_col.setSpacing(4)
-        sqb_text_col.addStretch()
+            self.status_widget = PaymentStatusWidget(right_frame)
+            right_layout.addWidget(self.status_widget, alignment=Qt.AlignCenter)
 
-        badge_row = QHBoxLayout()
-        badge_row.setSpacing(6)
-        lbl_sqb_title = QLabel(u"收钱吧")
-        lbl_sqb_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
-        badge_row.addWidget(lbl_sqb_title)
+            # 开启收钱吧后台监视
+            QTimer.singleShot(100, lambda: self._start_sqb_smart_monitoring(total_p, PAYMENT_SQB))
 
-        lbl_badge = QLabel(u" 推荐 ")
-        lbl_badge.setStyleSheet("background: #FEF08A; color: #854D0E; font-size: 11px; font-weight: 900; border-radius: 4px; padding: 2px 6px; border: none;")
-        badge_row.addWidget(lbl_badge)
-        badge_row.addStretch()
+        elif self.mode == "CASH":
+            # ── 去现金模式：无额外付款按钮，展示现金状态与 60FPS 绿对号动画 ──
+            lbl_title = QLabel(u"现金收款")
+            lbl_title.setAlignment(Qt.AlignCenter)
+            lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
+            right_layout.addWidget(lbl_title)
 
-        sqb_text_col.addLayout(badge_row)
+            self.lbl_sqb_desc = QLabel(u"💵 请在计算器中确认实收金额...")
+            self.lbl_sqb_desc.setAlignment(Qt.AlignCenter)
+            self.lbl_sqb_desc.setStyleSheet("font-size: 14px; font-weight: bold; color: #34D399; border: none;")
+            right_layout.addWidget(self.lbl_sqb_desc)
 
-        self.lbl_sqb_desc = QLabel(u"电脑扫码")
-        self.lbl_sqb_desc.setStyleSheet("font-size: 13px; color: #FFEDD5; border: none; background: transparent;")
-        sqb_text_col.addWidget(self.lbl_sqb_desc)
+            self.status_widget = PaymentStatusWidget(right_frame)
+            right_layout.addWidget(self.status_widget, alignment=Qt.AlignCenter)
 
-        sqb_text_col.addStretch()
-        sqb_layout.addLayout(sqb_text_col, stretch=1)
+            # 50ms 后弹出现金计算器
+            QTimer.singleShot(50, self._trigger_cash_calc)
 
-        btn_sqb_overlay = QPushButton("", sqb_frame)
-        btn_sqb_overlay.setCursor(Qt.PointingHandCursor)
-        btn_sqb_overlay.setStyleSheet("""
-            QPushButton { background: transparent; border: none; }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-radius: 16px; }
-            QPushButton:pressed { background: rgba(255, 255, 255, 0.22); border-radius: 16px; }
-        """)
-        btn_sqb_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_SQB))
-        sqb_frame.resizeEvent = lambda event, ob=btn_sqb_overlay, bf=sqb_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
+        else:
+            # ── 其他模式：去除收钱吧和现金，保留剩下两个 (手持POS/被扫/静态码) ──
+            lbl_title = QLabel(u"其它渠道 记账结算")
+            lbl_title.setAlignment(Qt.AlignCenter)
+            lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
+            right_layout.addWidget(lbl_title)
 
-        right_layout.addWidget(sqb_frame, stretch=4)
-        self.pay_buttons.append(btn_sqb_overlay)
+            lbl_sub = QLabel(u"请选择手持 POS 刷卡或二维码主扫/被扫通道")
+            lbl_sub.setAlignment(Qt.AlignCenter)
+            lbl_sub.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
+            right_layout.addWidget(lbl_sub)
 
-        # ── 1.2 中间主要入口：现金收款 ──
-        cash_frame = QFrame()
-        cash_frame.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #1E3A8A, stop:1 #2563EB);
-                border-radius: 16px; border: 2px solid #3B82F6;
-            }
-        """)
-        cash_layout = QHBoxLayout(cash_frame)
-        cash_layout.setContentsMargins(20, 18, 20, 18)
-        cash_layout.setSpacing(14)
+            grid_layout = QVBoxLayout()
+            grid_layout.setSpacing(14)
 
-        lbl_cash_icon = QLabel(u"💵")
-        lbl_cash_icon.setStyleSheet("font-size: 38px; border: none; background: transparent; color: #DBEAFE;")
-        lbl_cash_icon.setAlignment(Qt.AlignCenter)
-        cash_layout.addWidget(lbl_cash_icon)
+            sub_configs = [
+                (PAYMENT_SCAN, u"💳", u"手持机器", u"手持 POS 刷卡/离线记账",
+                 "#064E3B", "#059669", "#10B981", "#A7F3D0"),
+                (PAYMENT_QR,   u"📱", u"被扫 / 静态码", u"顾客出示付款码或扫描静态码",
+                 "#4C1D95", "#7C3AED", "#8B5CF6", "#DDD6FE"),
+            ]
 
-        cash_text_col = QVBoxLayout()
-        cash_text_col.setSpacing(4)
-        cash_text_col.addStretch()
+            for method, icon, title, desc, bg_dark, bg_main, bg_hover, fg_accent in sub_configs:
+                sub_frame = QFrame()
+                sub_frame.setFixedHeight(110)
+                sub_frame.setStyleSheet(f"""
+                    QFrame {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                            stop:0 {bg_dark}, stop:1 {bg_main});
+                        border-radius: 14px; border: 1px solid {bg_hover};
+                    }}
+                """)
+                sub_box = QHBoxLayout(sub_frame)
+                sub_box.setContentsMargins(18, 12, 18, 12)
+                sub_box.setSpacing(16)
 
-        lbl_cash_title = QLabel(u"现金收款")
-        lbl_cash_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
-        cash_text_col.addWidget(lbl_cash_title)
+                lbl_sub_icon = QLabel(icon)
+                lbl_sub_icon.setStyleSheet("font-size: 32px; border: none; background: transparent;")
+                lbl_sub_icon.setAlignment(Qt.AlignCenter)
+                sub_box.addWidget(lbl_sub_icon)
 
-        lbl_cash_desc = QLabel(u"弹出计算器及自动找零")
-        lbl_cash_desc.setStyleSheet("font-size: 13px; color: #DBEAFE; border: none; background: transparent;")
-        cash_text_col.addWidget(lbl_cash_desc)
+                t_col = QVBoxLayout()
+                t_col.setSpacing(2)
+                t_col.addStretch()
 
-        cash_text_col.addStretch()
-        cash_layout.addLayout(cash_text_col, stretch=1)
+                lbl_sub_title = QLabel(title)
+                lbl_sub_title.setStyleSheet(f"font-size: 18px; font-weight: 900; color: {fg_accent}; border: none; background: transparent;")
+                t_col.addWidget(lbl_sub_title)
 
-        btn_cash_overlay = QPushButton("", cash_frame)
-        btn_cash_overlay.setCursor(Qt.PointingHandCursor)
-        btn_cash_overlay.setStyleSheet("""
-            QPushButton { background: transparent; border: none; }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-radius: 16px; }
-            QPushButton:pressed { background: rgba(255, 255, 255, 0.22); border-radius: 16px; }
-        """)
-        btn_cash_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_CASH))
-        cash_frame.resizeEvent = lambda event, ob=btn_cash_overlay, bf=cash_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
+                lbl_sub_desc = QLabel(desc)
+                lbl_sub_desc.setStyleSheet("font-size: 11px; color: rgba(255,255,255,0.7); border: none; background: transparent;")
+                t_col.addWidget(lbl_sub_desc)
 
-        right_layout.addWidget(cash_frame, stretch=1)
-        self.pay_buttons.append(btn_cash_overlay)
+                t_col.addStretch()
+                sub_box.addLayout(t_col, stretch=1)
 
-        # ── 1.5 虚线分隔与说明提示 ──
-        div_box = QHBoxLayout()
-        div_box.setContentsMargins(0, 8, 0, 8)
-        div_box.setSpacing(10)
+                sub_overlay = QPushButton("", sub_frame)
+                sub_overlay.setCursor(Qt.PointingHandCursor)
+                sub_overlay.setStyleSheet("""
+                    QPushButton { background: transparent; border: none; }
+                    QPushButton:hover { background: rgba(255, 255, 255, 0.1); border-radius: 14px; }
+                    QPushButton:pressed { background: rgba(255, 255, 255, 0.2); border-radius: 14px; }
+                """)
+                sub_overlay.clicked.connect(lambda checked, m=method: self._on_payment_selected(m))
+                sub_frame.resizeEvent = lambda event, ob=sub_overlay, bf=sub_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-        line_l = QFrame()
-        line_l.setFrameShape(QFrame.HLine)
-        line_l.setStyleSheet("border: none; border-top: 1px dashed #475569;")
+                grid_layout.addWidget(sub_frame)
+                self.pay_buttons.append(sub_overlay)
 
-        lbl_sep_text = QLabel(u"--- 其它渠道 (直接记账出票) ---")
-        lbl_sep_text.setStyleSheet("color: #94A3B8; font-size: 12px; font-weight: bold; border: none; background: transparent;")
-
-        line_r = QFrame()
-        line_r.setFrameShape(QFrame.HLine)
-        line_r.setStyleSheet("border: none; border-top: 1px dashed #475569;")
-
-        div_box.addWidget(line_l, stretch=1)
-        div_box.addWidget(lbl_sep_text)
-        div_box.addWidget(line_r, stretch=1)
-
-        right_layout.addLayout(div_box)
-
-        # ── 2. 底部 3 个精致小正方形 备选按键 (直接出票) ──
-        grid_layout = QHBoxLayout()
-        grid_layout.setSpacing(12)
-
-        sub_configs = [
-            (PAYMENT_SCAN, u"💳", u"手持机器", u"手持POS刷卡",
-             "#064E3B", "#059669", "#10B981", "#A7F3D0"),
-            (PAYMENT_QR,   u"📱", u"被扫/静态码", u"顾客扫二维码",
-             "#4C1D95", "#7C3AED", "#8B5CF6", "#DDD6FE"),
-        ]
-
-        for method, icon, title, desc, bg_dark, bg_main, bg_hover, fg_accent in sub_configs:
-            sub_frame = QFrame()
-            sub_frame.setFixedHeight(120)  # 设置固定高度，形成完美正方形比例
-            sub_frame.setStyleSheet(f"""
-                QFrame {{
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 {bg_dark}, stop:1 {bg_main});
-                    border-radius: 14px; border: 1px solid {bg_hover};
-                }}
-            """)
-            sub_box = QVBoxLayout(sub_frame)
-            sub_box.setContentsMargins(6, 10, 6, 10)
-            sub_box.setSpacing(4)
-            sub_box.setAlignment(Qt.AlignCenter)
-
-            lbl_sub_icon = QLabel(icon)
-            lbl_sub_icon.setStyleSheet("font-size: 24px; border: none; background: transparent;")
-            lbl_sub_icon.setAlignment(Qt.AlignCenter)
-            sub_box.addWidget(lbl_sub_icon)
-
-            lbl_sub_title = QLabel(title)
-            lbl_sub_title.setAlignment(Qt.AlignCenter)
-            lbl_sub_title.setStyleSheet(f"font-size: 14px; font-weight: 900; color: {fg_accent}; border: none; background: transparent;")
-            sub_box.addWidget(lbl_sub_title)
-
-            lbl_sub_desc = QLabel(desc)
-            lbl_sub_desc.setAlignment(Qt.AlignCenter)
-            lbl_sub_desc.setStyleSheet("font-size: 10px; color: rgba(255,255,255,0.7); border: none; background: transparent;")
-            sub_box.addWidget(lbl_sub_desc)
-
-            sub_overlay = QPushButton("", sub_frame)
-            sub_overlay.setCursor(Qt.PointingHandCursor)
-            sub_overlay.setStyleSheet("""
-                QPushButton { background: transparent; border: none; }
-                QPushButton:hover { background: rgba(255, 255, 255, 0.1); border-radius: 14px; }
-                QPushButton:pressed { background: rgba(255, 255, 255, 0.2); border-radius: 14px; }
-            """)
-            sub_overlay.clicked.connect(lambda checked, m=method: self._on_payment_selected(m))
-            sub_frame.resizeEvent = lambda event, ob=sub_overlay, bf=sub_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
-
-            grid_layout.addWidget(sub_frame, stretch=1)
-            self.pay_buttons.append(sub_overlay)
-
-        right_layout.addLayout(grid_layout)
+            right_layout.addLayout(grid_layout)
 
         root.addWidget(right_frame, stretch=3)
 
@@ -514,6 +523,34 @@ class CheckoutDialog(QDialog):
         # 其他付款方式（主扫/被扫）直接完成
         self._complete_checkout(method)
 
+    def _trigger_cash_calc(self):
+        """去现金模式下的现金计算器唤起与确认动画流程"""
+        from ui.cash_dialog import CashCalculatorDialog
+        parent_w = self.parent()
+        printer = getattr(parent_w, 'printer', None) if parent_w else None
+
+        blur = QGraphicsBlurEffect(self.inner_container)
+        blur.setBlurRadius(18)
+        self.inner_container.setGraphicsEffect(blur)
+
+        cash_confirmed = [False]
+        def on_cash_confirm(pm):
+            cash_confirmed[0] = True
+
+        calc = CashCalculatorDialog(self.sale_data, parent=self, on_confirm=on_cash_confirm, printer=printer)
+        calc.exec_()
+
+        self.inner_container.setGraphicsEffect(None)
+
+        if cash_confirmed[0]:
+            if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
+                self.lbl_sqb_desc.setText(u"🎉 现金已确认收讫！已自动完成出票")
+            if hasattr(self, 'status_widget') and self.status_widget:
+                self.status_widget.set_state("SUCCESS")
+            QTimer.singleShot(600, lambda: self._complete_checkout(PAYMENT_CASH))
+        else:
+            self.reject()
+
     def _start_sqb_smart_monitoring(self, amount, method):
         """
         智能无感感知模式：
@@ -541,7 +578,11 @@ class CheckoutDialog(QDialog):
             if sqb_status == "SUCCESS":
                 monitoring_timer.stop()
                 print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
-                self._complete_checkout(method)
+                if hasattr(self, 'status_widget') and self.status_widget:
+                    self.status_widget.set_state("SUCCESS")
+                if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
+                    self.lbl_sqb_desc.setText(u"🎉 支付成功！已自动完成出票")
+                QTimer.singleShot(600, lambda: self._complete_checkout(method))
                 return
 
             # 2. 识别到正处于【付款界面】 (宝蓝顶栏 / 付款码 OCR)

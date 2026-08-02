@@ -937,6 +937,13 @@ class SaleWidget(QWidget):
         
         btn_box.addLayout(clear_box, stretch=1)
 
+        self.btn_other = QPushButton(u"去其他")
+        self.btn_other.setObjectName("btn_other")
+        self.btn_other.setCursor(Qt.PointingHandCursor)
+        self.btn_other.setFixedWidth(78)
+        self.btn_other.clicked.connect(self._on_other_checkout)
+        btn_box.addWidget(self.btn_other)
+
         self.btn_cash = QPushButton(u"去现金")
         self.btn_cash.setObjectName("btn_cash")
         self.btn_cash.setCursor(Qt.PointingHandCursor)
@@ -1618,17 +1625,31 @@ class SaleWidget(QWidget):
         
         menu.exec_(self.btn_random_weight.mapToGlobal(pos))
 
+    def _on_other_checkout(self):
+        """点击 '去其他' 按钮：调起去除收钱吧和现金的备选支付模态框"""
+        self._open_checkout_dialog(mode="OTHER")
+
+    def _on_cash_checkout(self):
+        """点击 '去现金' 按钮：调起现金结算框"""
+        self._open_checkout_dialog(mode="CASH")
+
     def _on_print(self, auto_method=None):
-        """去结账 -> 弹出结账模态框（左侧小票 + 右侧付款方式按钮） -> 确认付款 -> 动画 -> 打票"""
+        """点击 '去扫码' 或快捷键结账：调起扫码专属等待/感知模态框"""
         if isinstance(auto_method, bool):
             auto_method = None
+        if auto_method == "cash":
+            self._open_checkout_dialog(mode="CASH")
+        else:
+            self._open_checkout_dialog(mode="SCAN_CODE", auto_method=auto_method)
+
+    def _open_checkout_dialog(self, mode="OTHER", auto_method=None):
+        """统一结账弹窗控制核心逻辑"""
         if not self.cart_items:
-            show_warning(self, u"提示", u"请先点选汤底或附加项目加入开单列表！")
+            show_warning(self, u"提示", u"没有加入任何东西，<span style='font-size: 22px; font-weight: 900; color: #EF4444;'>0元</span> 无法结账")
             return
 
         unit_price = self.config.get("unit_price", 47.60)
         price_unit = self.config.get("price_unit", "per_jin")
-        
         total_price = sum(item["price"] for item in self.cart_items)
 
         # 模式三：传统手动模式 -> 弹出确认/输入餐牌号弹窗
@@ -1658,7 +1679,7 @@ class SaleWidget(QWidget):
             "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
             "shop_subtitle": self.config.get("shop_subtitle", ""),
             "call_no": call_no_str,
-            "cart_items": list(self.cart_items),  # Create a copy so _on_clear doesn't affect the dialog
+            "cart_items": list(self.cart_items),
             "weight_kg": self.current_weight,
             "unit_price": unit_price,
             "price_unit": price_unit,
@@ -1668,11 +1689,9 @@ class SaleWidget(QWidget):
             "remark": u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, call_no_str, items_summary)
         }
 
-        # 1. 弹出结账模态框（左侧小票预览 + 右侧付款方式按钮）
         from ui.checkout_dialog import CheckoutDialog
 
         def handle_payment(payment_method):
-            # 2. 确认打票：正式消费叫号、记录数据库与驱动硬件打票
             actual_num = self.call_mgr.get_next_number()
             sale_data["call_no"] = "%02d" % actual_num
 
@@ -1705,7 +1724,6 @@ class SaleWidget(QWidget):
                 log_event(CAT_PRINT, f"小票驱动出票成功: 叫号#{sale_data['call_no']}", f"出票完成，启动 3 秒全自动退场倒计时")
                 self._on_clear()
                 self.refresh_call_number_display()
-                # 触发双系统自动退场倒计时
                 parent_mw = self.window()
                 if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
                     parent_mw.switch_controller.on_receipt_printed()
@@ -1721,29 +1739,19 @@ class SaleWidget(QWidget):
                     u"（注：本次消费记录已安全存入本地数据库，不会丢单）"
                 )
 
-        dlg = CheckoutDialog(sale_data, on_payment_callback=handle_payment, parent=self)
-        
-        from PyQt5.QtCore import QTimer
-        if auto_method == "cash":
-            # 立即触发现金结账
-            QTimer.singleShot(50, lambda: dlg._on_payment_selected("cash"))
-        else:
-            # 启动 0 延迟(50ms)自动点击收钱吧的定时器
-            auto_sqb_timer = QTimer(dlg)
-            auto_sqb_timer.setSingleShot(True)
-            def trigger_sqb():
-                if dlg.isVisible() and not dlg.selected_payment_method:
-                    from ui.checkout_dialog import PAYMENT_SQB
-                    dlg._on_payment_selected(PAYMENT_SQB)
-            
-            auto_sqb_timer.timeout.connect(trigger_sqb)
-            auto_sqb_timer.start(50)
-        
+        if mode == "SCAN_CODE":
+            try:
+                from core.shouqianba_sender import send_shouqianba_amount
+                send_shouqianba_amount(total_price, self.config)
+            except Exception as e:
+                print(f"[SaleWidget] 唤起收钱吧金额失败: {e}")
+
+        dlg = CheckoutDialog(sale_data, on_payment_callback=handle_payment, parent=self, mode=mode)
         dlg.exec_()
 
     def _on_cash_checkout(self):
         """去现金结账"""
-        self._on_print(auto_method="cash")
+        self._open_checkout_dialog(mode="CASH")
 
     def _on_clear(self):
         """清空购物车与所有按钮角标"""
