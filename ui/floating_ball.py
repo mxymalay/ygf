@@ -156,10 +156,11 @@ class FloatingBall(QWidget):
         painter.setBrush(QBrush(led_color))
         painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
         # 文字居中，胶囊高 50。圆点大小 6x6，所以 y=22 刚好垂直居中 (22+3=25)
-        painter.drawEllipse(12, 22, 6, 6)
+        led_x = 22 if self.is_our_pos_active else 12
+        painter.drawEllipse(led_x, 22, 6, 6)
 
         # 6. 两行居中文字排版
-        title_text = u"私域 POS" if self.is_our_pos_active else u"官方系统"
+        title_text = u"私域" if self.is_our_pos_active else u"官方系统"
         font_title = QFont("Microsoft YaHei", 9, QFont.Bold)
         painter.setFont(font_title)
         painter.setPen(QColor(255, 255, 255))
