@@ -113,7 +113,9 @@ def _get_module_name(key: str) -> str:
 
 
 def load_config() -> dict:
-    """从模板、data/settings/ 模块化 JSON 文件以及 settings.json 中加载并合并配置"""
+    """从模板、旧版大 settings.json 以及 data/settings/ 拆分模块文件中加载配置
+    若检测到旧版 settings.json，将自动拆分并迁移至 data/settings/ 下各模块 JSON 文件
+    """
     base_defaults = DEFAULT_CONFIG.copy()
 
     # 1. 检查 template 模板
@@ -126,9 +128,10 @@ def load_config() -> dict:
             pass
 
     merged = base_defaults.copy()
+    has_legacy_config = os.path.exists(CONFIG_FILE)
 
-    # 2. 读取旧的 data/settings.json (优先覆盖)
-    if os.path.exists(CONFIG_FILE):
+    # 2. 读取旧的 data/settings.json (包含历史全量配置)
+    if has_legacy_config:
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 saved = json.load(f)
@@ -136,7 +139,7 @@ def load_config() -> dict:
         except Exception:
             pass
 
-    # 3. 读取拆分后的 data/settings/*.json (模块化覆盖)
+    # 3. 读取拆分后的 data/settings/*.json (模块化文件覆盖)
     for mod, path in MODULE_FILES.items():
         if os.path.exists(path):
             try:
@@ -147,9 +150,12 @@ def load_config() -> dict:
                 pass
 
     merged.pop("simulation_mode", None)
-    
-    # 自动保存/同步拆分文件
+
+    # 4. 自动拆分并同步写回 data/settings/ 目录下各个模块文件 (自动迁移逻辑)
     save_config(merged)
+    if has_legacy_config:
+        print(f"[配置迁移] 已自动将大配置文件 {CONFIG_FILE} 拆分并迁移至 {SETTINGS_DIR}/ 目录！")
+
     return merged
 
 
