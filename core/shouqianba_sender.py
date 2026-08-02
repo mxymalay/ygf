@@ -273,13 +273,18 @@ def focus_shouqianba_payment_code() -> bool:
 
         width = rect.right - rect.left
         height = rect.bottom - rect.top
-        # 仅对截图中这类中等尺寸的收款弹窗点击，避免窗口识别异常时误点。
-        if not (400 <= width <= 900 and 400 <= height <= 900):
+        if 400 <= width <= 900 and 400 <= height <= 900:
+            # 独立收款弹窗：付款码框位于弹窗宽 59%、高 50% 的位置。
+            x = rect.left + int(width * 0.59)
+            y = rect.top + int(height * 0.50)
+        elif width >= 1000 and height >= 600:
+            # 收钱吧 V4 也会把收款框作为全屏主窗口内的嵌入式弹层显示。
+            # 由现场截图确认，付款码框中心位于该窗口约宽 54%、高 50%。
+            x = rect.left + int(width * 0.54)
+            y = rect.top + int(height * 0.50)
+        else:
             logger.warning("收钱吧窗口尺寸异常（%sx%s），取消付款码框点击", width, height)
             return False
-
-        x = rect.left + int(width * 0.59)
-        y = rect.top + int(height * 0.50)
         user32.SetCursorPos(x, y)
         time.sleep(0.05)
         user32.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
@@ -564,14 +569,14 @@ def _do_send_amount(amount: float, config: dict):
     # 4. 等待收款界面完成渲染后再次置前，并点击付款码输入框。该版本
     # 收钱吧会拦截模拟 Tab，鼠标点击能稳定把扫码焦点落到正确控件。
     time.sleep(0.9)
-    if bring_shouqianba_to_front():
-        time.sleep(0.12)
-        if focus_shouqianba_payment_code():
-            logger.info("收钱吧收款界面已重新置前，已点击付款码输入框")
-        else:
-            logger.warning("收钱吧窗口已找到，但付款码输入框点击失败")
+    # 即使 Windows 拒绝 SetForegroundWindow，也尝试对已定位的收钱吧窗口
+    # 点击；这比把结果绑定在置前 API 的返回值上更可靠。
+    bring_shouqianba_to_front()
+    time.sleep(0.12)
+    if focus_shouqianba_payment_code():
+        logger.info("收钱吧收款界面已重新置前，已点击付款码输入框")
     else:
-        logger.warning("快捷键后未找到收钱吧窗口，未发送 Tab 以免影响其他程序")
+        logger.warning("快捷键后未找到可点击的收钱吧收款窗口")
 
 
 def send_shouqianba_amount(amount: float, config: dict):
