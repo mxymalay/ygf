@@ -5,12 +5,13 @@ PyQt5 + Python 3.8 兼容
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
-    QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup
+    QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
+    QFileDialog
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
 
-from config import save_config
+from config import save_config, reset_module_config, export_config_bundle, import_config_bundle
 from utils.port_scanner import scan_printers
 
 
@@ -74,7 +75,7 @@ class SettingsWidget(QWidget):
         ("biz", u"🏪  店铺与计价"),
         ("sys", u"⚙️  系统与流转"),
         ("sqb", u"💵  收钱吧插件"),
-        ("danger", u"⚠️  重置与恢复"),
+        ("danger", u"⚠️  还原与重置"),
     ]
 
     def __init__(self, config, parent=None):
@@ -281,10 +282,15 @@ class SettingsWidget(QWidget):
         self.btn_group.buttonClicked[int].connect(self.stacked_widget.setCurrentIndex)
         self.nav_buttons[0].setChecked(True)
 
-        # 全局触控下拉框统一美化
-        from ui.styles import apply_touch_combo_style
+        # 全局触控下拉框、选择框与数字框统一美化
+        from ui.styles import apply_touch_combo_style, apply_touch_checkbox_style, apply_touch_spinbox_style
+        from PyQt5.QtWidgets import QCheckBox
         for combo in self.findChildren(QComboBox):
             apply_touch_combo_style(combo, item_height=48)
+        for chk in self.findChildren(QCheckBox):
+            apply_touch_checkbox_style(chk)
+        for spin in self.findChildren((QSpinBox, QDoubleSpinBox)):
+            apply_touch_spinbox_style(spin)
 
         self._disable_wheel_events()
 
@@ -687,7 +693,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_danger_page(self):
         card, layout = self._create_section_card(
-            u"⚠️", u"模块化数据重置与恢复", u"可按需单独清理系统日志、历史销售库、恢复默认配置或全量重置"
+            u"⚠️", u"配置导入导出与模块化还原", u"按需分别还原各模块配置，或导入导出完整设置文件"
         )
         card.setStyleSheet("""
             QFrame#SettingCard {
@@ -697,35 +703,89 @@ class SettingsWidget(QWidget):
             }
         """)
 
-        lbl_warn_title = QLabel(u"🚨 分项数据重置管理")
-        lbl_warn_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; background: transparent;")
+        # ── 1. 配置文件导入与导出卡片 ──
+        io_box = QFrame()
+        io_box.setStyleSheet("QFrame { background-color: #0F172A; border-radius: 12px; border: 1px solid #0284C7; padding: 14px; }")
+        io_layout = QVBoxLayout(io_box)
+        io_layout.setSpacing(10)
+
+        lbl_io_title = QLabel(u"📦 配置文件导入与导出 (快捷一键备份/还原分店设置)")
+        lbl_io_title.setStyleSheet("font-size: 15px; font-weight: 900; color: #38BDF8; border: none; background: transparent;")
+        io_layout.addWidget(lbl_io_title)
+
+        lbl_io_desc = QLabel(u"将系统设置、外卖中继规则、私域门限及收钱吧等配置导出为 JSON 或 Zip 压缩包，方便快速迁移至其他窗口设备。")
+        lbl_io_desc.setWordWrap(True)
+        lbl_io_desc.setStyleSheet("font-size: 13px; color: #94A3B8; border: none; background: transparent;")
+        io_layout.addWidget(lbl_io_desc)
+
+        btn_row = QHBoxLayout()
+        btn_export = QPushButton(u"📤 导出设置文件")
+        btn_export.setCursor(Qt.PointingHandCursor)
+        btn_export.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-size: 14px; font-weight: bold; padding: 10px 22px; border-radius: 8px; border: none; } QPushButton:hover { background-color: #0369A1; }")
+        btn_export.clicked.connect(self._on_export_config)
+        btn_row.addWidget(btn_export)
+
+        btn_import = QPushButton(u"📥 导入设置文件")
+        btn_import.setCursor(Qt.PointingHandCursor)
+        btn_import.setStyleSheet("QPushButton { background-color: #0D9488; color: white; font-size: 14px; font-weight: bold; padding: 10px 22px; border-radius: 8px; border: none; } QPushButton:hover { background-color: #0F766E; }")
+        btn_import.clicked.connect(self._on_import_config)
+        btn_row.addWidget(btn_import)
+        btn_row.addStretch()
+        io_layout.addLayout(btn_row)
+
+        layout.addWidget(io_box)
+
+        # ── 2. 模块化还原与重置管理 ──
+        lbl_warn_title = QLabel(u"🚨 模块化还原与重置管理")
+        lbl_warn_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; background: transparent; margin-top: 10px;")
         layout.addWidget(lbl_warn_title)
 
         reset_items = [
             (
-                u"🧹", u"重置运行与算法日志", 
-                u"仅擦除系统运行日志、称重切换与算法追溯数据 (app_events.jsonl)。不会影响交易账目和参数配置。", 
+                u"⚙️", u"还原【系统与硬件配置】", 
+                u"仅还原串口、打印机、开机自启等基础系统参数 (base.json) 为出厂默认设置。", 
+                u"⚙️ 还原系统配置", 
+                "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
+                self._on_reset_sys_config
+            ),
+            (
+                u"🛵", u"还原【外卖中继与排序规则】", 
+                u"仅还原外卖分类、菜品关键字、匹配模式及打票字号规则 (takeout.json)。", 
+                u"🛵 还原外卖规则", 
+                "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
+                self._on_reset_takeout_config
+            ),
+            (
+                u"🧠", u"还原【私域切屏算法规则】", 
+                u"仅还原私域截留目标百分比与称重触发门限参数 (algo.json)。", 
+                u"🧠 还原算法规则", 
+                "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
+                self._on_reset_algo_config
+            ),
+            (
+                u"💵", u"还原【收钱吧插件配置】", 
+                u"仅还原收钱吧推送端口、解析格式及唤起热键参数 (shouqianba.json)。", 
+                u"💵 还原收钱吧配置", 
+                "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
+                self._on_reset_sqb_config
+            ),
+            (
+                u"🧹", u"清空运行与算法日志", 
+                u"仅擦除系统运行日志与算法追溯文件 (app_events.jsonl)。不会影响交易账目和参数配置。", 
                 u"🧹 清空运行日志", 
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_logs
             ),
             (
                 u"📊", u"清空历史销售数据库", 
-                u"仅清空本地 SQLite 销售数据库 (pos.db)，擦除所有历史点餐与叫号交易记录。下次开单将重新自动建表。", 
+                u"仅清空本地 SQLite 销售数据库 (sales.db)，擦除所有历史点餐记录。下次开单将自动重建库。", 
                 u"📊 清空销售数据库", 
                 "background-color: #EA580C; color: white; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #F97316;",
                 self._on_reset_db
             ),
             (
-                u"⚙️", u"恢复默认系统配置", 
-                u"仅将配置文件 (config.json) 恢复为出厂默认参数（包含串口、打印机、切屏规则等）。软件将自动关闭以应用设置。", 
-                u"⚙️ 恢复默认配置", 
-                "background-color: #D97706; color: white; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #F59E0B;",
-                self._on_reset_config
-            ),
-            (
                 u"🔥", u"一键彻底重置所有数据", 
-                u"高危全量操作！彻底擦除配置文件 (config.json)、销售数据库 (pos.db) 及所有日志文件。软件恢复最原始安装状态。", 
+                u"高危全量操作！彻底擦除所有配置文件、销售数据库及日志文件。软件恢复最原始状态。", 
                 u"🔥 一键彻底重置", 
                 "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444); color: white; font-size: 14px; font-weight: bold; padding: 10px 22px; border-radius: 8px; border: none;",
                 self._on_reset
@@ -1102,6 +1162,80 @@ class SettingsWidget(QWidget):
         save_config(self.config)
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"收钱吧设置已保存！")
+
+    def _on_export_config(self):
+        """导出配置文件包 (支持 Zip 或 JSON)"""
+        from ui.custom_dialog import show_info, show_error
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, u"导出系统设置包", "ygf_pos_settings.zip", "Zip 打包配置文件 (*.zip);;JSON 配置文件 (*.json)"
+        )
+        if not file_path:
+            return
+        try:
+            export_config_bundle(self.config, file_path)
+            show_info(self, u"导出成功", f"配置文件已成功导出至：\n{file_path}")
+        except Exception as e:
+            show_error(self, u"导出失败", f"导出配置文件包时发生错误: {e}")
+
+    def _on_import_config(self):
+        """导入配置文件包"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, u"导入系统设置包", "", "设置包文件 (*.zip *.json)"
+        )
+        if not file_path:
+            return
+        if not show_question(self, u"导入确认", u"确定要导入并覆盖当前系统的配置参数吗？导入后系统将自动更新。"):
+            return
+        try:
+            self.config = import_config_bundle(file_path)
+            show_info(self, u"导入成功", u"设置文件已成功导入并刷新应用！请重新启动或刷新界面以套用新设置。")
+        except Exception as e:
+            show_error(self, u"导入失败", f"导入配置文件包时发生错误: {e}")
+
+    def _on_reset_sys_config(self):
+        """还原系统与硬件配置 (base.json)"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        if not show_question(self, u"还原确认", u"确定要将【系统与硬件配置】还原为出厂默认设置吗？"):
+            return
+        try:
+            self.config = reset_module_config(self.config, "sys")
+            show_info(self, u"还原成功", u"【系统与硬件配置】(data/settings/base.json) 已成功还原为出厂默认值！")
+        except Exception as e:
+            show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
+
+    def _on_reset_takeout_config(self):
+        """还原外卖中继与排序规则 (takeout.json)"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        if not show_question(self, u"还原确认", u"确定要将【外卖中继与排序规则】还原为出厂默认设置吗？"):
+            return
+        try:
+            self.config = reset_module_config(self.config, "takeout")
+            show_info(self, u"还原成功", u"【外卖中继与排序规则】(data/settings/takeout.json) 已成功还原为出厂默认值！")
+        except Exception as e:
+            show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
+
+    def _on_reset_algo_config(self):
+        """还原私域切屏算法规则 (algo.json)"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        if not show_question(self, u"还原确认", u"确定要将【私域切屏算法规则】还原为出厂默认设置吗？"):
+            return
+        try:
+            self.config = reset_module_config(self.config, "algo")
+            show_info(self, u"还原成功", u"【私域切屏算法规则】(data/settings/algo.json) 已成功还原为出厂默认值！")
+        except Exception as e:
+            show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
+
+    def _on_reset_sqb_config(self):
+        """还原收钱吧插件配置 (shouqianba.json)"""
+        from ui.custom_dialog import show_question, show_info, show_error
+        if not show_question(self, u"还原确认", u"确定要将【收钱吧插件配置】还原为出厂默认设置吗？"):
+            return
+        try:
+            self.config = reset_module_config(self.config, "shouqianba")
+            show_info(self, u"还原成功", u"【收钱吧插件配置】(data/settings/shouqianba.json) 已成功还原为出厂默认值！")
+        except Exception as e:
+            show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
 
     def _on_reset_logs(self):
         """仅重置运行与算法日志"""

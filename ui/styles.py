@@ -485,3 +485,84 @@ def apply_touch_combo_style(combo, item_height=52):
     # 3. 最后才替换 view
     combo.setView(view)
     combo.setMaxVisibleItems(10)
+
+
+def apply_touch_checkbox_style(chk):
+    """为 QCheckBox 强行应用触屏大尺寸方形指示框与间距美化"""
+    if not chk:
+        return
+    chk.setStyleSheet("""
+        QCheckBox {
+            color: #F8FAFC;
+            font-size: 14px;
+            font-weight: bold;
+            spacing: 10px;
+            min-height: 38px;
+            background: transparent;
+        }
+        QCheckBox::indicator {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: 2px solid #475569;
+            background-color: #0F172A;
+        }
+        QCheckBox::indicator:hover {
+            border-color: #38BDF8;
+            background-color: #1E293B;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #10B981;
+            border-color: #059669;
+        }
+    """)
+
+
+def apply_touch_spinbox_style(spin):
+    """为 QSpinBox / QDoubleSpinBox 强行应用触屏大字与加宽微调按钮"""
+    if not spin:
+        return
+    spin.setStyleSheet("""
+        QSpinBox, QDoubleSpinBox {
+            background-color: #0F172A;
+            color: #38BDF8;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-size: 15px;
+            font-weight: bold;
+            min-height: 42px;
+        }
+        QSpinBox:focus, QDoubleSpinBox:focus {
+            border: 2px solid #38BDF8;
+            background-color: #1E293B;
+        }
+        QSpinBox::up-button, QDoubleSpinBox::up-button {
+            subcontrol-origin: border;
+            subcontrol-position: top right;
+            width: 32px;
+            height: 19px;
+            background: #334155;
+            border-top-right-radius: 7px;
+            border: none;
+            margin-right: 1px;
+            margin-top: 1px;
+        }
+        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {
+            background: #38BDF8;
+        }
+        QSpinBox::down-button, QDoubleSpinBox::down-button {
+            subcontrol-origin: border;
+            subcontrol-position: bottom right;
+            width: 32px;
+            height: 19px;
+            background: #334155;
+            border-bottom-right-radius: 7px;
+            border: none;
+            margin-right: 1px;
+            margin-bottom: 1px;
+        }
+        QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+            background: #38BDF8;
+        }
+    """)

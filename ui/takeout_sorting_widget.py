@@ -404,11 +404,16 @@ class TakeoutSortingWidget(QWidget):
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(scroll_area)
 
-        # 3. 全局触控下拉框统一美化 (借鉴系统设置，完美适配触屏与高亮盲操)
-        from ui.styles import apply_touch_combo_style
+        # 3. 全局触控下拉框、选择框与数字框统一美化 (借鉴系统设置，完美适配触屏与高亮盲操)
+        from ui.styles import apply_touch_combo_style, apply_touch_checkbox_style, apply_touch_spinbox_style
         for combo in self.findChildren(QComboBox):
             apply_touch_combo_style(combo, item_height=48)
             combo.wheelEvent = lambda event, w=combo: event.ignore()
+        for chk in self.findChildren(QCheckBox):
+            apply_touch_checkbox_style(chk)
+        for spin in self.findChildren((QSpinBox, QDoubleSpinBox)):
+            apply_touch_spinbox_style(spin)
+            spin.wheelEvent = lambda event, w=spin: event.ignore()
 
     def _check_official_pos_status(self):
         try:
