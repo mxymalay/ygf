@@ -176,7 +176,7 @@ class SwitchSettingsWidget(QWidget):
         self.chk_enabled = QCheckBox(u"开启智能自动分流 (若关闭，则需要手动控制悬浮球)")
         lay1.addRow(QLabel(u"系统总控开关:"), self.chk_enabled)
         
-        self.sp_ratio = TouchSpinBox(70, 0, 100, 5, " %")
+        self.sp_ratio = TouchSpinBox(30, 0, 100, 5, " %")
         lay1.addRow(QLabel(u"目标私域截留比例:"), self.sp_ratio)
         
         self.sp_weight = TouchDoubleSpinBox(0.25, 0.00, 5.00, 0.05, " kg")
@@ -403,7 +403,7 @@ class SwitchSettingsWidget(QWidget):
 
     def _load_config(self):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
-        self.sp_ratio.setValue(int(self.config.get("private_ratio_percent", 70)))
+        self.sp_ratio.setValue(int(self.config.get("private_ratio_percent", 30)))
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
         self.sp_max_daily_limit.setValue(float(self.config.get("max_daily_revenue_limit", 0.0)))
         self.sp_min_valid_weight.setValue(float(self.config.get("min_valid_weight_kg", 0.08)))

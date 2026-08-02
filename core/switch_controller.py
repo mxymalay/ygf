@@ -18,7 +18,7 @@ class AutoSwitchController(QObject):
 
         self._auto_switch_enabled = self.config.get("auto_switch_enabled", True)
         self._auto_hide_delay_sec = self.config.get("auto_hide_delay_sec", 3)
-        self._target_private_ratio = float(self.config.get("private_ratio_percent", 70))  # 默认 70%
+        self._target_private_ratio = float(self.config.get("private_ratio_percent", 30))  # 默认 30%
         self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))  # 默认 0.25kg
         self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
         self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
@@ -234,7 +234,7 @@ class AutoSwitchController(QObject):
         self.config = config
         self._auto_switch_enabled = self.config.get("auto_switch_enabled", True)
         self._auto_hide_delay_sec = self.config.get("auto_hide_delay_sec", 3)
-        self._target_private_ratio = float(self.config.get("private_ratio_percent", 70))
+        self._target_private_ratio = float(self.config.get("private_ratio_percent", 30))
         self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))
         self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
         self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
