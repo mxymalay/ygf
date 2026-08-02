@@ -35,10 +35,23 @@ for i in range(10):
 
 
 def send_hotkey(hotkey_str: str):
-    """瞬间并发模拟键盘快捷键 (零延迟激发，避免 Shift 独按触发出法切换)"""
+    """底层 SendInput 级按键触发 (支持 TAB / Shift+Q 等各类组合按键)"""
     if not hotkey_str:
         return False
     try:
+        hotkey_clean = hotkey_str.strip().lower()
+        if hotkey_clean == "tab":
+            import keyboard
+            keyboard.send("tab")
+            print(f"[快捷键唤起] 成功物理 SendInput 发送: TAB")
+            return True
+
+        if hotkey_clean in ["enter", "space", "esc", "escape"]:
+            import keyboard
+            keyboard.send(hotkey_clean)
+            print(f"[快捷键唤起] 成功物理 SendInput 发送: {hotkey_str}")
+            return True
+
         user32 = ctypes.windll.user32
         parts = [p.strip().upper() for p in hotkey_str.split("+") if p.strip()]
         vk_codes = [VK_MAPPING[p] for p in parts if p in VK_MAPPING]
@@ -51,6 +64,8 @@ def send_hotkey(hotkey_str: str):
         # 瞬间并发按下所有修饰键与字母键 (零 time.sleep 间隔)
         for vk in vk_codes:
             scan_code = user32.MapVirtualKeyW(vk, 0)
+            if scan_code == 0:
+                scan_code = vk
             user32.keybd_event(vk, scan_code, 0, 0)
 
         time.sleep(0.01)
@@ -58,6 +73,8 @@ def send_hotkey(hotkey_str: str):
         # 瞬间释放所有按键
         for vk in reversed(vk_codes):
             scan_code = user32.MapVirtualKeyW(vk, 0)
+            if scan_code == 0:
+                scan_code = vk
             user32.keybd_event(vk, scan_code, KEYEVENTF_KEYUP, 0)
 
         print(f"[快捷键唤起] 瞬间唤起收钱吧: {hotkey_str}")
