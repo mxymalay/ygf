@@ -611,11 +611,16 @@ class SettingsWidget(QWidget):
 
         # ── 收钱吧插件配置要点指南 ──
         tip_frame = QFrame()
+        tip_frame.setObjectName("SqbTipFrame")
         tip_frame.setStyleSheet("""
-            QFrame {
+            QFrame#SqbTipFrame {
                 background-color: #0F172A;
-                border: 1px solid #38BDF8;
+                border: 1px solid #0284C7;
                 border-radius: 10px;
+            }
+            QFrame#SqbTipFrame QLabel {
+                border: none;
+                background: transparent;
             }
         """)
         tip_layout = QVBoxLayout(tip_frame)
@@ -623,7 +628,7 @@ class SettingsWidget(QWidget):
         tip_layout.setSpacing(8)
 
         lbl_tip_title = QLabel(u"💡 收钱吧 PC 助手 / 插件配置必备说明：")
-        lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 15px; font-weight: 900; background: transparent;")
+        lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 15px; font-weight: 900; border: none; background: transparent;")
         tip_layout.addWidget(lbl_tip_title)
 
         tips = [
@@ -634,7 +639,7 @@ class SettingsWidget(QWidget):
         for tip in tips:
             lbl_tip_item = QLabel(tip)
             lbl_tip_item.setWordWrap(True)
-            lbl_tip_item.setStyleSheet("color: #E2E8F0; font-size: 13px; background: transparent; line-height: 140%;")
+            lbl_tip_item.setStyleSheet("color: #E2E8F0; font-size: 13px; border: none; background: transparent; line-height: 140%;")
             tip_layout.addWidget(lbl_tip_item)
 
         layout.addWidget(tip_frame)
