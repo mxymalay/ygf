@@ -78,7 +78,7 @@ class TakeoutSortingWidget(QWidget):
         hc_layout = QHBoxLayout(header_card)
         hc_layout.setContentsMargins(16, 10, 16, 10)
 
-        lbl_title = QLabel(u"🛵 外卖小票中继拦截与高级排版设置")
+        lbl_title = QLabel(u"🛵 外卖排序与排版设置")
         lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none;")
         hc_layout.addWidget(lbl_title)
 
@@ -124,20 +124,20 @@ class TakeoutSortingWidget(QWidget):
         tc_lay.setSpacing(10)
 
         tbl_hdr = QHBoxLayout()
-        lbl_t_title = QLabel(u"📋 分类显示顺序与匹配关键字 (失焦自动保存)")
+        lbl_t_title = QLabel(u"📋 分类排序与关键字")
         lbl_t_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F8FAFC; border: none;")
         tbl_hdr.addWidget(lbl_t_title)
 
         tbl_hdr.addStretch()
 
-        lbl_mm = QLabel(u"🔍 关键词匹配算法:")
+        lbl_mm = QLabel(u"匹配算法:")
         lbl_mm.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
         tbl_hdr.addWidget(lbl_mm)
 
         self.cmb_match_mode = QComboBox()
         self.cmb_match_mode.addItems([
-            u"模糊包含匹配 (推荐，例: 填'牛'可配'肥牛/牛肉')",
-            u"全字精准匹配 (菜品全名必须与关键字完全一致)"
+            u"包含匹配 (推荐)",
+            u"精准全字匹配"
         ])
         saved_mode = self.config.get("takeout_match_mode", "contains")
         self.cmb_match_mode.setCurrentIndex(0 if saved_mode == "contains" else 1)
@@ -156,7 +156,7 @@ class TakeoutSortingWidget(QWidget):
         tbl_hdr.addWidget(btn_add_cat)
         tc_lay.addLayout(tbl_hdr)
 
-        lbl_hint = QLabel(u"💡 提示：关键字分隔使用逗号。系统已自动脱去全角/半角空格、序号 (1.) 及数量后缀 (x2)，避免因空格导致漏匹配。")
+        lbl_hint = QLabel(u"💡 关键字用逗号分隔，系统已自动过滤空格与序号干扰。")
         lbl_hint.setStyleSheet("color: #64748B; font-size: 12px; border: none;")
         tc_lay.addWidget(lbl_hint)
 
@@ -210,7 +210,7 @@ class TakeoutSortingWidget(QWidget):
             }
         """)
         tc_lay.addWidget(self.table)
-        self.tabs.addTab(tab_categories, u"📋 菜品分类排序与关键字")
+        self.tabs.addTab(tab_categories, u"📋 菜品分类排序")
 
         # Tab B: 排版字号、多份⭐标记与联数
         tab_format = QWidget()
@@ -223,31 +223,31 @@ class TakeoutSortingWidget(QWidget):
         f_card1.setStyleSheet("QFrame { background: #0F172A; border-radius: 8px; border: 1px solid #334155; padding: 12px; }")
         fc1_lay = QVBoxLayout(f_card1)
         fc1_lay.setSpacing(10)
-        lbl_fc1 = QLabel(u"🔤 票据各区域字号大小控制")
+        lbl_fc1 = QLabel(u"🔤 票据字号控制")
         lbl_fc1.setStyleSheet("font-size: 14px; font-weight: bold; color: #38BDF8; border: none;")
         fc1_lay.addWidget(lbl_fc1)
 
         row_f1 = QHBoxLayout()
-        lbl_f_hdr = QLabel(u"单号/序号字号 (#18):")
+        lbl_f_hdr = QLabel(u"单号字号:")
         lbl_f_hdr.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
         self.cmb_font_hdr = QComboBox()
-        self.cmb_font_hdr.addItems([u"标准字号 (Normal)", u"双倍大字 (Double Size)", u"特大四倍字 (Quad Size)"])
+        self.cmb_font_hdr.addItems([u"标准字号", u"双倍大字", u"特大四倍"])
         self.cmb_font_hdr.setCurrentIndex(1)
         self.cmb_font_hdr.setStyleSheet("QComboBox { background: #1E293B; color: #F8FAFC; border: 1px solid #334155; padding: 4px; border-radius: 4px; }")
         self.cmb_font_hdr.currentIndexChanged.connect(self._auto_save_format_settings)
 
-        lbl_f_cat = QLabel(u"  分类标题字号 ([肉类]):")
+        lbl_f_cat = QLabel(u"  分类字号:")
         lbl_f_cat.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
         self.cmb_font_cat = QComboBox()
-        self.cmb_font_cat.addItems([u"标准字号", u"加粗大字 (Bold)", u"双倍高度 (Double Height)"])
+        self.cmb_font_cat.addItems([u"标准字号", u"加粗大字", u"双倍高度"])
         self.cmb_font_cat.setCurrentIndex(1)
         self.cmb_font_cat.setStyleSheet("QComboBox { background: #1E293B; color: #F8FAFC; border: 1px solid #334155; padding: 4px; border-radius: 4px; }")
         self.cmb_font_cat.currentIndexChanged.connect(self._auto_save_format_settings)
 
-        lbl_f_item = QLabel(u"  菜品明细字号:")
+        lbl_f_item = QLabel(u"  菜品字号:")
         lbl_f_item.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
         self.cmb_font_item = QComboBox()
-        self.cmb_font_item.addItems([u"标准字号", u"双倍高度 (后厨醒目)", u"双倍大字"])
+        self.cmb_font_item.addItems([u"标准字号", u"双倍高度", u"双倍大字"])
         self.cmb_font_item.setCurrentIndex(1)
         self.cmb_font_item.setStyleSheet("QComboBox { background: #1E293B; color: #F8FAFC; border: 1px solid #334155; padding: 4px; border-radius: 4px; }")
         self.cmb_font_item.currentIndexChanged.connect(self._auto_save_format_settings)
@@ -267,18 +267,18 @@ class TakeoutSortingWidget(QWidget):
         f_card2.setStyleSheet("QFrame { background: #0F172A; border-radius: 8px; border: 1px solid #334155; padding: 12px; }")
         fc2_lay = QVBoxLayout(f_card2)
         fc2_lay.setSpacing(10)
-        lbl_fc2 = QLabel(u"⭐ 极速检菜醒目标记与打票联数")
+        lbl_fc2 = QLabel(u"⭐ 多份标记与打印联数")
         lbl_fc2.setStyleSheet("font-size: 14px; font-weight: bold; color: #10B981; border: none;")
         fc2_lay.addWidget(lbl_fc2)
 
         row_f2 = QHBoxLayout()
-        self.chk_star = QCheckBox(u"同菜品多份 (≥2) 前缀自动增加 ⭐ 醒目标记 (例: ⭐【多份x2】肥牛 x 2)")
+        self.chk_star = QCheckBox(u"多份菜品 (≥2) 自动加 ⭐ 标记")
         self.chk_star.setChecked(self.config.get("takeout_mark_star", True))
         self.chk_star.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold;")
         self.chk_star.stateChanged.connect(self._auto_save_format_settings)
         row_f2.addWidget(self.chk_star)
 
-        self.chk_prices = QCheckBox(u"制作联显示菜品单价与金额")
+        self.chk_prices = QCheckBox(u"制作联显示价格")
         self.chk_prices.setChecked(self.config.get("takeout_show_prices", False))
         self.chk_prices.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
         self.chk_prices.stateChanged.connect(self._auto_save_format_settings)
@@ -287,7 +287,7 @@ class TakeoutSortingWidget(QWidget):
         fc2_lay.addLayout(row_f2)
 
         row_f3 = QHBoxLayout()
-        lbl_k_cnt = QLabel(u"👨‍🍳 制作联 (后厨单) 打印份数:")
+        lbl_k_cnt = QLabel(u"👨‍🍳 制作联份数:")
         lbl_k_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.spn_kitchen_copies = QSpinBox()
         self.spn_kitchen_copies.setRange(0, 5)
@@ -295,7 +295,7 @@ class TakeoutSortingWidget(QWidget):
         self.spn_kitchen_copies.setStyleSheet("QSpinBox { background: #1E293B; color: #10B981; font-weight: bold; padding: 4px; }")
         self.spn_kitchen_copies.valueChanged.connect(self._auto_save_format_settings)
 
-        lbl_c_cnt = QLabel(u"  🧾 顾客联 (存根单) 打印份数:")
+        lbl_c_cnt = QLabel(u"  🧾 存根联份数:")
         lbl_c_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.spn_cust_copies = QSpinBox()
         self.spn_cust_copies.setRange(0, 5)
@@ -312,7 +312,7 @@ class TakeoutSortingWidget(QWidget):
 
         tf_lay.addWidget(f_card2)
         tf_lay.addStretch()
-        self.tabs.addTab(tab_format, u"🖨️ 排版字号、多份⭐标记与联数")
+        self.tabs.addTab(tab_format, u"🖨️ 字号与联数设置")
 
         # Tab C: 外卖地址、单号与预订单
         tab_header = QWidget()
@@ -325,29 +325,29 @@ class TakeoutSortingWidget(QWidget):
         hc_box = QVBoxLayout(h_card)
         hc_box.setSpacing(12)
 
-        lbl_hc_title = QLabel(u"📌 外卖地址、下单时间、订单号与预订单提醒配置")
+        lbl_hc_title = QLabel(u"📌 基础信息提醒配置")
         lbl_hc_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F59E0B; border: none;")
         hc_box.addWidget(lbl_hc_title)
 
-        self.chk_address = QCheckBox(u"小票顶部显示送餐地址 (例: 肥西水晶城 2 栋 1802)")
+        self.chk_address = QCheckBox(u"显示送餐地址")
         self.chk_address.setChecked(self.config.get("takeout_show_address", True))
         self.chk_address.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.chk_address.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_address)
 
-        self.chk_time = QCheckBox(u"小票显示下单时间 (例: 2026-08-03 02:45:10)")
+        self.chk_time = QCheckBox(u"显示下单时间")
         self.chk_time.setChecked(self.config.get("takeout_show_time", True))
         self.chk_time.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.chk_time.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_time)
 
-        self.chk_full_id = QCheckBox(u"小票底部显示平台完整订单号 (100088921831920)")
+        self.chk_full_id = QCheckBox(u"显示平台完整订单号")
         self.chk_full_id.setChecked(self.config.get("takeout_show_full_id", False))
         self.chk_full_id.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.chk_full_id.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_full_id)
 
-        self.chk_preorder = QCheckBox(u"⏰ 预订单 (定时单) 密集置顶醒目提醒 (防漏单防提前制作)")
+        self.chk_preorder = QCheckBox(u"⏰ 预订单醒目提醒")
         self.chk_preorder.setChecked(self.config.get("takeout_show_preorder", True))
         self.chk_preorder.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold;")
         self.chk_preorder.stateChanged.connect(self._auto_save_format_settings)
@@ -355,7 +355,7 @@ class TakeoutSortingWidget(QWidget):
 
         th_lay.addWidget(h_card)
         th_lay.addStretch()
-        self.tabs.addTab(tab_header, u"📌 地址、单号与预订单配置")
+        self.tabs.addTab(tab_header, u"📌 地址与单号配置")
 
         main_layout.addWidget(self.tabs)
 
