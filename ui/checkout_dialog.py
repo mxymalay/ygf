@@ -439,7 +439,26 @@ class CheckoutDialog(QDialog):
             self._show_sqb_confirm_overlay(total_amt, method)
             return
 
-        # 其他付款方式（现金/主扫/被扫）直接完成
+        elif method == PAYMENT_CASH:
+            from ui.cash_dialog import CashCalculatorDialog
+            parent_w = self.parent()
+            printer = None
+            if parent_w and hasattr(parent_w, 'printer'):
+                printer = parent_w.printer
+            
+            # 弹出现金计算器
+            def on_cash_confirm(pm):
+                self._complete_checkout(pm)
+                
+            calc = CashCalculatorDialog(self.sale_data, parent=self, on_confirm=on_cash_confirm, printer=printer)
+            calc.exec_()
+            
+            # 如果计算器被取消（未确认），则重置选择状态，允许重新选择
+            if calc.result() != QDialog.Accepted:
+                self.selected_payment_method = ""
+            return
+
+        # 其他付款方式（主扫/被扫）直接完成
         self._complete_checkout(method)
 
     def _complete_checkout(self, method):

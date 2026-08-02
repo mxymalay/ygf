@@ -1483,8 +1483,10 @@ class SaleWidget(QWidget):
         
         menu.exec_(self.btn_random_weight.mapToGlobal(pos))
 
-    def _on_print(self):
+    def _on_print(self, auto_method=None):
         """去结账 -> 弹出结账模态框（左侧小票 + 右侧付款方式按钮） -> 确认付款 -> 动画 -> 打票"""
+        if isinstance(auto_method, bool):
+            auto_method = None
         if not self.cart_items:
             show_warning(self, u"提示", u"请先点选汤底或附加项目加入开单列表！")
             return
@@ -1587,116 +1589,27 @@ class SaleWidget(QWidget):
 
         dlg = CheckoutDialog(sale_data, on_payment_callback=handle_payment, parent=self)
         
-        # 启动 2 秒后自动点击收钱吧的定时器
         from PyQt5.QtCore import QTimer
-        auto_sqb_timer = QTimer(dlg)
-        auto_sqb_timer.setSingleShot(True)
-        def trigger_sqb():
-            if dlg.isVisible() and not dlg.selected_payment_method:
-                from ui.checkout_dialog import PAYMENT_SQB
-                dlg._on_payment_selected(PAYMENT_SQB)
-        
-        auto_sqb_timer.timeout.connect(trigger_sqb)
-        auto_sqb_timer.start(2000)
+        if auto_method == "cash":
+            # 立即触发现金结账
+            QTimer.singleShot(50, lambda: dlg._on_payment_selected("cash"))
+        else:
+            # 启动 2 秒后自动点击收钱吧的定时器
+            auto_sqb_timer = QTimer(dlg)
+            auto_sqb_timer.setSingleShot(True)
+            def trigger_sqb():
+                if dlg.isVisible() and not dlg.selected_payment_method:
+                    from ui.checkout_dialog import PAYMENT_SQB
+                    dlg._on_payment_selected(PAYMENT_SQB)
+            
+            auto_sqb_timer.timeout.connect(trigger_sqb)
+            auto_sqb_timer.start(2000)
         
         dlg.exec_()
 
     def _on_cash_checkout(self):
         """去现金结账"""
-        if not self.cart_items:
-            show_warning(self, u"提示", u"请先点选汤底或附加项目加入开单列表！")
-            return
-
-        unit_price = self.config.get("unit_price", 47.60)
-        price_unit = self.config.get("price_unit", "per_jin")
-        total_price = sum(item["price"] for item in self.cart_items)
-
-        if self.call_mgr.get_mode() == CallNumberManager.MODE_MANUAL:
-            curr = self.call_mgr.peek_next_number()
-            val, ok = get_int_input(
-                self,
-                u"手动指定叫号牌",
-                u"【模式三：传统手动模式】\n请输入或确认本次结账的餐牌号码：",
-                curr, 1, 9999
-            )
-            if not ok: return
-            self.call_mgr.set_manual_number(val)
-
-        peek_num = self.call_mgr.peek_next_number()
-        call_no_str = "%02d" % peek_num
-
-        items_summary = ", ".join(
-            f"{item['name']}({item['tag']})" if item.get("tag") else item["name"]
-            for item in self.cart_items
-        )
-
-        sale_data = {
-            "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
-            "shop_subtitle": self.config.get("shop_subtitle", ""),
-            "receipt_footer": self.config.get("receipt_footer", u"谢谢惠顾！"),
-            "call_no": call_no_str,
-            "cart_items": list(self.cart_items),
-            "weight_kg": self.current_weight,
-            "unit_price": unit_price,
-            "price_unit": price_unit,
-            "total_price": total_price,
-            "temp_order_no": self.temp_order_no,
-            "config": self.config,
-            "remark": u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, call_no_str, items_summary)
-        }
-
-        def handle_cash_payment(payment_method):
-            actual_num = self.call_mgr.get_next_number()
-            sale_data["call_no"] = "%02d" % actual_num
-
-            import json
-            cart_items_json = json.dumps(sale_data["cart_items"], ensure_ascii=False)
-
-            record = self.db.insert_sale(
-                weight_kg=self.current_weight,
-                unit_price=unit_price,
-                price_unit=price_unit,
-                total_price=total_price,
-                remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary),
-                cart_items_json=cart_items_json,
-                payment_method=payment_method
-            )
-            
-            log_event(CAT_ORDER, f"订单成交入库: 叫号#{sale_data['call_no']}", f"支付方式: {payment_method} | 实付: ¥{total_price:.2f} | 明细: {items_summary}")
-
-            full_sale = dict(record) if record else {}
-            full_sale.update(sale_data)
-
-            log_event(CAT_USER, f"点击付款结算", f"选择方式: {payment_method} | 应付: ¥{total_price:.2f}")
-
-            try:
-                success = self.printer.print_receipt(full_sale)
-            except Exception as e:
-                success = False
-                self.printer.last_error = str(e)
-
-            if success:
-                log_event(CAT_PRINT, f"小票驱动出票成功: 叫号#{sale_data['call_no']}", f"出票完成，启动 3 秒全自动退场倒计时")
-                self._on_clear()
-                self.refresh_call_number_display()
-                parent_mw = self.window()
-                if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
-                    parent_mw.switch_controller.on_receipt_printed()
-            else:
-                err_detail = getattr(self.printer, 'last_error', '') or u"打印机名无效或硬件未连接"
-                log_event(CAT_PRINT, f"打印失败", f"错误: {err_detail}")
-                show_warning(
-                    self,
-                    u"打印故障提示",
-                    u"小票硬件发送失败，错误详情：\n"
-                    f"{err_detail}\n\n"
-                    u"请检查打印机驱动名称与物理硬件连接！\n"
-                    u"（注：本次消费记录已安全存入本地数据库，不会丢单）"
-                )
-
-        from ui.cash_dialog import CashCalculatorDialog
-        dlg = CashCalculatorDialog(sale_data, parent=self, on_confirm=handle_cash_payment, printer=self.printer)
-        dlg.exec_()
+        self._on_print(auto_method="cash")
 
     def _on_clear(self):
         """清空购物车与所有按钮角标"""
