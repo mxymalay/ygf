@@ -85,7 +85,23 @@ class SwitchSettingsWidget(QWidget):
         lbl_weight_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
         form_layout.addRow(QLabel(), lbl_weight_tip)
 
-        # 4. 延时隐退
+        # 4. 官方界面连单锁定 (60s)
+        self.sp_official_lock = QSpinBox()
+        self.sp_official_lock.setRange(0, 300)
+        self.sp_official_lock.setSuffix(u" 秒")
+        form_layout.addRow(QLabel(u"官方界面连单保护时长:"), self.sp_official_lock)
+
+        # 5. 称重归零解锁判定 (5s)
+        self.sp_zeroing_unlock = QSpinBox()
+        self.sp_zeroing_unlock.setRange(1, 60)
+        self.sp_zeroing_unlock.setSuffix(u" 秒")
+        form_layout.addRow(QLabel(u"称重归零离场解锁判定:"), self.sp_zeroing_unlock)
+        
+        lbl_zeroing_tip = QLabel(u"当秤上重量归零并保持该时长后，自动解除上方设定的官方连单保护锁。")
+        lbl_zeroing_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
+        form_layout.addRow(QLabel(), lbl_zeroing_tip)
+
+        # 6. 延时隐退
         self.sp_delay = QSpinBox()
         self.sp_delay.setRange(0, 30)
         self.sp_delay.setSuffix(u" 秒")
@@ -120,6 +136,8 @@ class SwitchSettingsWidget(QWidget):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
         self.sp_ratio.setValue(int(self.config.get("private_ratio_percent", 70)))
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
+        self.sp_official_lock.setValue(int(self.config.get("official_lock_sec", 60)))
+        self.sp_zeroing_unlock.setValue(int(self.config.get("zeroing_unlock_sec", 5)))
         self.sp_delay.setValue(int(self.config.get("auto_hide_delay_sec", 3)))
 
     def _on_save(self):
@@ -127,12 +145,16 @@ class SwitchSettingsWidget(QWidget):
         new_enabled = self.chk_enabled.isChecked()
         new_ratio = self.sp_ratio.value()
         new_weight = self.sp_weight.value()
+        new_official_lock = self.sp_official_lock.value()
+        new_zeroing_unlock = self.sp_zeroing_unlock.value()
         new_delay = self.sp_delay.value()
 
         # 2. 更新 config
         self.config["auto_switch_enabled"] = new_enabled
         self.config["private_ratio_percent"] = new_ratio
         self.config["min_private_weight_kg"] = new_weight
+        self.config["official_lock_sec"] = new_official_lock
+        self.config["zeroing_unlock_sec"] = new_zeroing_unlock
         self.config["auto_hide_delay_sec"] = new_delay
         
         save_config(self.config)
@@ -141,7 +163,9 @@ class SwitchSettingsWidget(QWidget):
         detail = (f"开关: {'开' if new_enabled else '关'} | "
                   f"截留比: {new_ratio}% | "
                   f"门限: {new_weight:.2f}kg | "
-                  f"隐退延时: {new_delay}秒")
+                  f"官方锁: {new_official_lock}s | "
+                  f"离场判定: {new_zeroing_unlock}s | "
+                  f"隐退延时: {new_delay}s")
         log_event(CAT_SYSTEM, "全自动分流算法参数被修改", detail)
 
         # 4. 同步至实时生效的控制器

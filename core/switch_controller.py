@@ -20,6 +20,8 @@ class AutoSwitchController(QObject):
         self._auto_hide_delay_sec = self.config.get("auto_hide_delay_sec", 3)
         self._target_private_ratio = float(self.config.get("private_ratio_percent", 70))  # 默认 70%
         self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))  # 默认 0.25kg
+        self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
+        self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
 
         self._total_evaluated_orders = 0
         self._private_orders_count = 0
@@ -96,14 +98,14 @@ class AutoSwitchController(QObject):
             self._last_popped_weight = 0.0
             self._current_is_private = False
 
-            # 3. 称重归零 5 秒智能判定：若空重量保持 5 秒以上，说明上一位顾客已拿碗离开，自动提前解脱官方连单锁
+            # 3. 称重归零超时智能判定：若空重量保持指定时间以上，说明上一位顾客已拿碗离开，自动提前解脱官方连单锁
             if self._zero_start_time == 0.0:
                 self._zero_start_time = now_ts
-            elif now_ts - self._zero_start_time > 5.0:
+            elif now_ts - self._zero_start_time > self._zeroing_unlock_sec:
                 if self._last_official_time > 0:
                     self._last_official_time = 0.0
-                    print("[AutoDecisionEngine] 称重归零超时 (顾客已离场)，自动解除官方连单锁定")
-                    log_event(CAT_DECISION, "顾客离场解锁", "称重归零超过 5 秒，恢复新单智能决策")
+                    print(f"[AutoDecisionEngine] 称重归零超时 {self._zeroing_unlock_sec}s (顾客已离场)，自动解除官方连单锁定")
+                    log_event(CAT_DECISION, "顾客离场解锁", f"称重归零超过 {self._zeroing_unlock_sec} 秒，恢复新单智能决策")
 
     def _evaluate_decision(self, weight_kg: float) -> bool:
         """
@@ -120,13 +122,13 @@ class AutoSwitchController(QObject):
                 log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
                 return True
 
-        # 规则 0B：官方多碗/连续开单保护 (如果 60 秒 (1分钟) 内上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
+        # 规则 0B：官方多碗/连续开单保护 (如果上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
         now_ts = time.time()
-        if now_ts - self._last_official_time < 60.0:
+        if now_ts - self._last_official_time < self._official_lock_sec:
             elapsed = now_ts - self._last_official_time
             self._last_official_time = now_ts  # 刷新连单锁定期
-            print(f"[AutoDecisionEngine] 检测到 60 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
-            log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < 60s | 本次称重 {weight_kg:.3f}kg")
+            print(f"[AutoDecisionEngine] 检测到 {self._official_lock_sec} 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
+            log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < {self._official_lock_sec}s | 本次称重 {weight_kg:.3f}kg")
             return False
 
         self._total_evaluated_orders += 1
@@ -194,3 +196,5 @@ class AutoSwitchController(QObject):
         self._auto_hide_delay_sec = self.config.get("auto_hide_delay_sec", 3)
         self._target_private_ratio = float(self.config.get("private_ratio_percent", 70))
         self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))
+        self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
+        self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
