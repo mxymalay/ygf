@@ -57,7 +57,7 @@ DEFAULT_CONFIG = {
     "shouqianba_port": "COM1",          # 收钱吧监听串口/虚拟串口
     "shouqianba_baudrate": 2400,        # 波特率
     "shouqianba_format": "QA",          # 解析规则: "QA" (QA12.50\r\n) 或 "FLOAT" (12.50\r\n)
-    "shouqianba_hotkey": "F12",         # 收钱吧唤起快捷键
+    "shouqianba_hotkey": "Shift+Q",       # 收钱吧唤起快捷键 (默认 Shift+Q)
 
     # 称重数据源设置
     "scale_source": "official",         # 数据源: "official" = 官方收银系统OCR读取, "com" = 串口直连电子秤

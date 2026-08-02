@@ -183,7 +183,7 @@ def _do_send_amount(amount: float, config: dict):
     time.sleep(0.15)
 
     # 2. 自动模拟发送快捷键 (再调出收钱吧界面)
-    hotkey = config.get("shouqianba_hotkey", "F12")
+    hotkey = config.get("shouqianba_hotkey", "Shift+Q")
     if hotkey:
         send_hotkey(hotkey)
 
