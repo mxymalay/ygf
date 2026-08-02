@@ -519,7 +519,7 @@ def apply_touch_checkbox_style(chk):
 
 
 def apply_touch_spinbox_style(spin):
-    """为 QSpinBox / QDoubleSpinBox 强行应用触屏大字与加宽微调按钮"""
+    """为 QSpinBox / QDoubleSpinBox 强行应用触屏大字与加宽微调按钮 (带清晰高亮上下箭头)"""
     if not spin:
         return
     spin.setStyleSheet("""
@@ -540,8 +540,8 @@ def apply_touch_spinbox_style(spin):
         QSpinBox::up-button, QDoubleSpinBox::up-button {
             subcontrol-origin: border;
             subcontrol-position: top right;
-            width: 32px;
-            height: 19px;
+            width: 34px;
+            height: 20px;
             background: #334155;
             border-top-right-radius: 7px;
             border: none;
@@ -551,11 +551,21 @@ def apply_touch_spinbox_style(spin):
         QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {
             background: #38BDF8;
         }
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+            width: 0px;
+            height: 0px;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-bottom: 6px solid #F8FAFC;
+        }
+        QSpinBox::up-button:hover QSpinBox::up-arrow, QDoubleSpinBox::up-button:hover QDoubleSpinBox::up-arrow {
+            border-bottom-color: #0F172A;
+        }
         QSpinBox::down-button, QDoubleSpinBox::down-button {
             subcontrol-origin: border;
             subcontrol-position: bottom right;
-            width: 32px;
-            height: 19px;
+            width: 34px;
+            height: 20px;
             background: #334155;
             border-bottom-right-radius: 7px;
             border: none;
@@ -564,5 +574,15 @@ def apply_touch_spinbox_style(spin):
         }
         QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
             background: #38BDF8;
+        }
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+            width: 0px;
+            height: 0px;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid #F8FAFC;
+        }
+        QSpinBox::down-button:hover QSpinBox::down-arrow, QDoubleSpinBox::down-button:hover QDoubleSpinBox::down-arrow {
+            border-top-color: #0F172A;
         }
     """)
