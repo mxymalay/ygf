@@ -102,6 +102,25 @@ class SettingsWidget(QWidget):
                 background-color: #0F172A; border-radius: 8px; border: 1px solid #334155;
             }
             QLabel { color: #D1D5DB; font-size: 14px; background: transparent; }
+            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+                background-color: #0F172A; color: #F8FAFC; border: 1px solid #334155;
+                border-radius: 6px; padding: 6px 10px; font-size: 14px;
+            }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+                border: 1px solid #38BDF8;
+            }
+            QComboBox::drop-down {
+                border: none; width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1E293B; color: #F8FAFC; selection-background-color: #38BDF8;
+            }
+            QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
+                background-color: #1E293B; border: 1px solid #334155; border-radius: 2px; width: 20px;
+            }
+            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+                background-color: #334155;
+            }
         """)
         layout = QVBoxLayout(container)
         layout.setSpacing(16)
