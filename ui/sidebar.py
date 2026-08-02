@@ -118,7 +118,7 @@ class SideNavBar(QWidget):
         self._items.append(item_queue)
 
         # 4: 切换算法
-        item_switch = SideNavItem(u"🤖", u"切换算法", 4)
+        item_switch = SideNavItem(u"⇄", u"切换算法", 4)
         item_switch.clicked.connect(lambda: self._select_page(4))
         layout.addWidget(item_switch)
         self._items.append(item_switch)
