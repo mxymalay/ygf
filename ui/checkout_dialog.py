@@ -527,13 +527,13 @@ class CheckoutDialog(QDialog):
         from core.shouqianba_sender import get_sqb_overall_status
 
         monitoring_timer = QTimer(self)
-        monitoring_timer.setInterval(250)
+        monitoring_timer.setInterval(100)
         elapsed_ms = [0]
         window_ever_seen = [False]
         closed_count = [0]
 
         def _check_status():
-            elapsed_ms[0] += 250
+            elapsed_ms[0] += 100
             
             sqb_status = get_sqb_overall_status()
 
@@ -554,13 +554,13 @@ class CheckoutDialog(QDialog):
                     self._show_sqb_confirm_overlay(amount, method)
                 return
 
-            # 3. 缓冲前 1.5 秒给收钱吧启动/绘制留出时间
-            if elapsed_ms[0] < 1500:
+            # 3. 前 500ms 为窗口唤起留缓冲
+            if elapsed_ms[0] < 500:
                 return
 
-            # 4. 如果连续在 CLOSED 状态
+            # 4. 如果窗口出现过且被关闭，300ms 极速响应弹出确认卡片
             closed_count[0] += 1
-            if (window_ever_seen[0] and closed_count[0] >= 8) or elapsed_ms[0] >= 4000:
+            if (window_ever_seen[0] and closed_count[0] >= 3) or elapsed_ms[0] >= 2500:
                 monitoring_timer.stop()
                 print("[CheckoutDialog] ℹ️ 检测到收钱吧付款窗口已关闭（且未到账），展现确认卡片。")
                 self._restore_pay_buttons()
