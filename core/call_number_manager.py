@@ -203,4 +203,5 @@ class CallNumberManager:
             chosen = random.choice(pool)
             self._used_numbers.add(chosen)
             self._cached_next_number = None
+            self._save_state()
             return chosen
