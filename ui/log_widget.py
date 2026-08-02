@@ -144,7 +144,12 @@ class LogWidget(QWidget):
             QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView {
                 background-color: #1E293B; color: #F8FAFC; selection-background-color: #334155;
-                border: 1px solid #475569;
+                border: 1px solid #475569; outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 48px;
+                padding-left: 10px;
+                font-size: 16px;
             }
         """)
         self.combo_cat.currentIndexChanged.connect(self._load_logs)
