@@ -76,19 +76,24 @@ class MainWindow(QMainWindow):
         self.report_page = ReportWidget(self.db, printer=self.sale_page.printer, config=self.config)
         self.stack.addWidget(self.report_page)
 
-        # 页面 3: 叫号设置 (独立叫号避重菜单)
+        # 页面 3: 外卖小票排序与中继拦截
+        from ui.takeout_sorting_widget import TakeoutSortingWidget
+        self.takeout_page = TakeoutSortingWidget(config=self.config, printer=self.sale_page.printer)
+        self.stack.addWidget(self.takeout_page)
+
+        # 页面 4: 叫号设置 (独立叫号避重菜单)
         self.queue_page = QueueWidget(self.config, self.call_mgr)
         self.stack.addWidget(self.queue_page)
 
-        # 页面 4: 切换算法设置
+        # 页面 5: 切换算法设置
         self.switch_settings_page = SwitchSettingsWidget(self.config)
         self.stack.addWidget(self.switch_settings_page)
 
-        # 页面 5: 系统设置
+        # 页面 6: 系统设置
         self.settings_page = SettingsWidget(self.config)
         self.stack.addWidget(self.settings_page)
 
-        # 页面 6: 运营日志
+        # 页面 7: 运营日志
         self.log_page = LogWidget()
         self.stack.addWidget(self.log_page)
 
@@ -191,7 +196,7 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setText(now)
 
     def _on_page_changed(self, index):
-        page_names = {0: "收银台", 1: "订单查询", 2: "交班报表", 3: "叫号设置", 4: "切换算法", 5: "系统设置", 6: "日志信息"}
+        page_names = {0: "收银台", 1: "订单查询", 2: "交班报表", 3: "外卖排序", 4: "叫号设置", 5: "切换算法", 6: "系统设置", 7: "日志信息"}
         from core.app_logger import log_event, CAT_USER
         log_event(CAT_USER, f"切换页面: {page_names.get(index, index)}", "")
         self.stack.setCurrentIndex(index)
@@ -201,9 +206,9 @@ class MainWindow(QMainWindow):
             self.history_page._on_query()
         elif index == 2:
             self.report_page.reload_report()
-        elif index == 3:
+        elif index == 4:
             self.queue_page._load_settings()
-        elif index == 6:
+        elif index == 7:
             self.log_page._load_logs()
 
     def _check_first_run_price(self):

@@ -108,31 +108,37 @@ class SideNavBar(QWidget):
         layout.addWidget(item_report)
         self._items.append(item_report)
 
+        # 3: 外卖排序
+        item_takeout = SideNavItem(u"🛵", u"外卖排序", 3)
+        item_takeout.clicked.connect(lambda: self._select_page(3))
+        layout.addWidget(item_takeout)
+        self._items.append(item_takeout)
+
         # 将“核心业务组”与“设置管理组”平均拉开
         layout.addStretch(1)
 
         # 3. 设置管理模块组
-        # 3: 叫号设置
-        item_queue = SideNavItem(u"⚡", u"叫号设置", 3)
-        item_queue.clicked.connect(lambda: self._select_page(3))
+        # 4: 叫号设置
+        item_queue = SideNavItem(u"⚡", u"叫号设置", 4)
+        item_queue.clicked.connect(lambda: self._select_page(4))
         layout.addWidget(item_queue)
         self._items.append(item_queue)
 
-        # 4: 切换算法
-        item_switch = SideNavItem(u"⇄", u"切换算法", 4)
-        item_switch.clicked.connect(lambda: self._select_page(4))
+        # 5: 切换算法
+        item_switch = SideNavItem(u"⇄", u"切换算法", 5)
+        item_switch.clicked.connect(lambda: self._select_page(5))
         layout.addWidget(item_switch)
         self._items.append(item_switch)
 
-        # 5: 系统设置
-        item_settings = SideNavItem(u"⚙", u"系统设置", 5)
-        item_settings.clicked.connect(lambda: self._select_page(5))
+        # 6: 系统设置
+        item_settings = SideNavItem(u"⚙", u"系统设置", 6)
+        item_settings.clicked.connect(lambda: self._select_page(6))
         layout.addWidget(item_settings)
         self._items.append(item_settings)
 
-        # 6: 日志信息
-        item_log = SideNavItem(u"📋", u"日志信息", 6)
-        item_log.clicked.connect(lambda: self._select_page(6))
+        # 7: 日志信息
+        item_log = SideNavItem(u"📋", u"日志信息", 7)
+        item_log.clicked.connect(lambda: self._select_page(7))
         layout.addWidget(item_log)
         self._items.append(item_log)
 
