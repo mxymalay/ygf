@@ -142,7 +142,7 @@ def bring_shouqianba_to_front():
 
 
 def check_shouqianba_payment_success() -> bool:
-    """自动检测【收钱吧】PC插件是否弹出了“收款成功/支付成功/交易成功”等结果窗口"""
+    """全面深度检测：精准识别【收钱吧 PC版 V4.0.4】支付成功弹窗 (支持子控件与WM_GETTEXT抓取)"""
     import sys
     if sys.platform != "win32":
         return False
@@ -150,20 +150,74 @@ def check_shouqianba_payment_success() -> bool:
         user32 = ctypes.windll.user32
         found_success = [False]
 
-        def foreach_window(hwnd, lParam):
-            if user32.IsWindowVisible(hwnd):
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    buf = ctypes.create_unicode_buffer(length + 1)
-                    user32.GetWindowTextW(hwnd, buf, length + 1)
-                    title = buf.value
-                    # 匹配收钱吧成功窗口或提示关键字
-                    if any(kw in title for kw in ["收款成功", "支付成功", "交易成功", "收钱吧到账"]):
-                        found_success[0] = True
-                        return False
+        # 匹配成功关键字 (收钱吧 V4.0.4 特征：顶部“支付成功”、底部“打印小票”)
+        success_keywords = ["支付成功", "收款成功", "交易成功", "收钱吧到账", "打印小票"]
+        # 严格排除失败/等待状态 (避免在“支付失败”、“支付中，请稍后”时误判)
+        fail_keywords = ["支付失败", "交易失败", "支付中", "输入密码", "倒计时", "EP99"]
+
+        WM_GETTEXT = 0x000D
+        WM_GETTEXTLENGTH = 0x000E
+
+        def evaluate_text(text: str) -> bool:
+            if not text:
+                return False
+            # 如果包含失败或支付中，必定不是成功
+            if any(fk in text for fk in fail_keywords):
+                return False
+            # 如果包含成功特征
+            if any(sk in text for sk in success_keywords):
+                return True
+            return False
+
+        def get_wm_text(h):
+            try:
+                l = user32.SendMessageW(h, WM_GETTEXTLENGTH, 0, 0)
+                if 0 < l < 1024:
+                    buf = ctypes.create_unicode_buffer(l + 1)
+                    user32.SendMessageW(h, WM_GETTEXT, l + 1, buf)
+                    return buf.value.strip()
+            except Exception:
+                pass
+            return ""
+
+        def check_hwnd(h) -> bool:
+            # 1. API: GetWindowTextW
+            l = user32.GetWindowTextLengthW(h)
+            if l > 0:
+                buf = ctypes.create_unicode_buffer(l + 1)
+                user32.GetWindowTextW(h, buf, l + 1)
+                txt = buf.value.strip()
+                if evaluate_text(txt):
+                    return True
+
+            # 2. API: WM_GETTEXT
+            wm_txt = get_wm_text(h)
+            if evaluate_text(wm_txt):
+                return True
+
+            return False
+
+        def foreach_child(child_hwnd, lParam):
+            if check_hwnd(child_hwnd):
+                found_success[0] = True
+                return False
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        child_proc = WNDENUMPROC(foreach_child)
+
+        def foreach_window(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                # 检查主窗口文本
+                if check_hwnd(hwnd):
+                    found_success[0] = True
+                    return False
+                # 深入枚举主窗口下的所有子控件 (Child Windows)
+                user32.EnumChildWindows(hwnd, child_proc, 0)
+                if found_success[0]:
+                    return False
+            return True
+
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
         return found_success[0]
     except Exception as e:
