@@ -185,27 +185,7 @@ def bring_shouqianba_to_front():
                 user32.SetForegroundWindow(hwnd)
                 user32.SetFocus(hwnd)
 
-            # 终极杀手锏：在窗口标题栏(或空白处)模拟物理鼠标点击，百分百夺取物理焦点
-            rect = ctypes.wintypes.RECT()
-            user32.GetWindowRect(hwnd, ctypes.byref(rect))
-            
-            # 取窗口顶部往右 50，往下 10 的位置（通常是标题栏空白处，绝对安全）
-            cx = rect.left + 50
-            cy = rect.top + 10
-            
-            # 记录原来的鼠标位置
-            old_pt = ctypes.wintypes.POINT()
-            user32.GetCursorPos(ctypes.byref(old_pt))
-            
-            # 瞬间移动鼠标过去并点击左键
-            user32.SetCursorPos(cx, cy)
-            user32.mouse_event(0x0002, 0, 0, 0, 0) # MOUSEEVENTF_LEFTDOWN
-            user32.mouse_event(0x0004, 0, 0, 0, 0) # MOUSEEVENTF_LEFTUP
-            
-            # 瞬间把鼠标移回原来的地方 (用户几乎感觉不到鼠标动过)
-            user32.SetCursorPos(old_pt.x, old_pt.y)
-
-            print(f"[收钱吧唤起] 已强行突破限制，并物理点击注入真正的键盘焦点！")
+            print(f"[收钱吧唤起] 已强行突破限制，为【PC收款】窗口注入真正的键盘焦点！")
             return True
     except Exception as e:
         logger.warning(f"强行唤起收钱吧窗口失败: {e}")
