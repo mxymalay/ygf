@@ -583,10 +583,11 @@ class CheckoutDialog(QDialog):
         btn_cancel.setCursor(Qt.PointingHandCursor)
         btn_cancel.setStyleSheet("""
             QPushButton {
-                background: #334155; color: #F1F5F9; font-size: 15px; font-weight: bold;
-                border-radius: 10px; padding: 12px 18px; border: 1px solid #475569;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444);
+                color: #FFFFFF; font-size: 20px; font-weight: 900;
+                border-radius: 12px; padding: 20px 24px; border: none;
             }
-            QPushButton:hover { background: #475569; }
+            QPushButton:hover { background: #EF4444; }
         """)
         btn_cancel.clicked.connect(confirm_dialog.reject)
         btn_row.addWidget(btn_cancel, stretch=1)
@@ -596,8 +597,8 @@ class CheckoutDialog(QDialog):
         btn_ok.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10B981);
-                color: #FFFFFF; font-size: 16px; font-weight: 900;
-                border-radius: 10px; padding: 12px 20px; border: none;
+                color: #FFFFFF; font-size: 20px; font-weight: 900;
+                border-radius: 12px; padding: 20px 24px; border: none;
             }
             QPushButton:hover { background: #10B981; }
         """)
