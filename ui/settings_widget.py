@@ -233,49 +233,17 @@ class SettingsWidget(QWidget):
         self.spin_auto_start_delay.setValue(self.config.get("auto_start_delay", 8))
         syg.addWidget(self.spin_auto_start_delay, 1, 1, 1, 2)
 
-        syg.addWidget(QLabel(u"称重自动弹出/退场："), 2, 0)
-        self.cmb_auto_switch = QComboBox()
-        self.cmb_auto_switch.addItems([u"开启 - 端碗称重全自动弹出，出票后自动退场", u"关闭 - 仅手动切换"])
-        if not self.config.get("auto_switch_enabled", True):
-            self.cmb_auto_switch.setCurrentIndex(1)
-        syg.addWidget(self.cmb_auto_switch, 2, 1, 1, 2)
-
-        syg.addWidget(QLabel(u"出票自动退场等待："), 3, 0)
-        self.spin_auto_hide_delay = QSpinBox()
-        self.spin_auto_hide_delay.setRange(1, 30)
-        self.spin_auto_hide_delay.setSuffix(u" 秒")
-        self.spin_auto_hide_delay.setValue(self.config.get("auto_hide_delay_sec", 3))
-        syg.addWidget(self.spin_auto_hide_delay, 3, 1, 1, 2)
-
-        syg.addWidget(QLabel(u"桌面常驻触屏悬浮球："), 4, 0)
+        syg.addWidget(QLabel(u"桌面常驻触屏悬浮球："), 2, 0)
         self.cmb_floating_ball = QComboBox()
         self.cmb_floating_ball.addItems([u"开启 - 在屏幕边缘显示半透明触屏切换球", u"关闭 - 隐藏悬浮球"])
         if not self.config.get("floating_ball_enabled", True):
             self.cmb_floating_ball.setCurrentIndex(1)
-        syg.addWidget(self.cmb_floating_ball, 4, 1, 1, 2)
+        syg.addWidget(self.cmb_floating_ball, 2, 1, 1, 2)
 
-        syg.addWidget(QLabel(u"智能私域截留目标比例："), 5, 0)
-        self.spin_private_ratio = QSpinBox()
-        self.spin_private_ratio.setRange(10, 95)
-        self.spin_private_ratio.setSuffix(u" %")
-        self.spin_private_ratio.setToolTip(u"设置期望拦截到本私域 POS 的订单比例。例如 70% 代表 70% 走私域，30% 自动留给官方系统。")
-        self.spin_private_ratio.setValue(int(self.config.get("private_ratio_percent", 70)))
-        syg.addWidget(self.spin_private_ratio, 5, 1, 1, 2)
-
-        syg.addWidget(QLabel(u"小单必走官方门限重量："), 6, 0)
-        self.spin_min_private_weight = QDoubleSpinBox()
-        self.spin_min_private_weight.setRange(0.05, 5.00)
-        self.spin_min_private_weight.setSingleStep(0.05)
-        self.spin_min_private_weight.setDecimals(2)
-        self.spin_min_private_weight.setSuffix(u" kg")
-        self.spin_min_private_weight.setToolTip(u"小于此重量的订单视为小单/轻量单，算法将全自动分配给官方收银系统报备。")
-        self.spin_min_private_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
-        syg.addWidget(self.spin_min_private_weight, 6, 1, 1, 2)
-
-        btn_save_sys = QPushButton(u"保存运行设置")
+        btn_save_sys = QPushButton(u"保存系统设置")
         self._style_save_btn(btn_save_sys)
         btn_save_sys.clicked.connect(self._on_save_sys)
-        syg.addWidget(btn_save_sys, 7, 0, 1, 4, Qt.AlignRight)
+        syg.addWidget(btn_save_sys, 3, 0, 1, 4, Qt.AlignRight)
 
         layout.addWidget(sys_group)
 
@@ -442,11 +410,7 @@ class SettingsWidget(QWidget):
     def _on_save_sys(self):
         self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
         self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
-        self.config["auto_switch_enabled"] = (self.cmb_auto_switch.currentIndex() == 0)
-        self.config["auto_hide_delay_sec"] = self.spin_auto_hide_delay.value()
         self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
-        self.config["private_ratio_percent"] = self.spin_private_ratio.value()
-        self.config["min_private_weight_kg"] = self.spin_min_private_weight.value()
         save_config(self.config)
 
         # 1. 立即应用自动启动配置
