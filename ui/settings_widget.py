@@ -413,11 +413,9 @@ class SettingsWidget(QWidget):
         
         layout.addWidget(danger_group)
 
-        from PyQt5.QtWidgets import QListView
+        from ui.styles import apply_touch_combo_style
         for combo in self.findChildren(QComboBox):
-            # 强制替换为 QListView 解决 Windows 原生下拉框忽略高度样式的问题
-            list_view = QListView()
-            combo.setView(list_view)
+            apply_touch_combo_style(combo, item_height=48)
 
         scroll.setWidget(container)
         main_layout.addWidget(scroll)

@@ -358,3 +358,29 @@ def fix_calendar_header_style(calendar):
     cal_layout = calendar.layout()
     if isinstance(cal_layout, QVBoxLayout):
         cal_layout.insertWidget(1, hdr)
+
+
+from PyQt5.QtWidgets import QStyledItemDelegate
+from PyQt5.QtCore import QSize
+
+class TouchItemDelegate(QStyledItemDelegate):
+    """强制为 QComboBox 下拉选项提供最小高度的委托，无视 Windows 默认样式覆盖"""
+    def __init__(self, height=48, parent=None):
+        super().__init__(parent)
+        self._item_height = height
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setHeight(max(size.height(), self._item_height))
+        return size
+
+def apply_touch_combo_style(combo, item_height=48):
+    """为 QComboBox 强行应用触屏优化的列表渲染机制"""
+    if not combo:
+        return
+    from PyQt5.QtWidgets import QListView
+    # 替换底层 View 摆脱系统限制
+    view = QListView()
+    combo.setView(view)
+    # 注入强制高度的委托
+    combo.setItemDelegate(TouchItemDelegate(height=item_height, parent=combo))

@@ -151,9 +151,8 @@ class LogWidget(QWidget):
             }
         """)
         self.combo_cat.currentIndexChanged.connect(self._load_logs)
-        from PyQt5.QtWidgets import QListView
-        list_view = QListView()
-        self.combo_cat.setView(list_view)
+        from ui.styles import apply_touch_combo_style
+        apply_touch_combo_style(self.combo_cat, item_height=48)
         filter_bar.addWidget(self.combo_cat)
 
         filter_bar.addSpacing(8)

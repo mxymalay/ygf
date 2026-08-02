@@ -206,15 +206,15 @@ class QueueWidget(QWidget):
         mb_layout = QVBoxLayout(mode_box)
         mb_layout.setContentsMargins(16, 16, 16, 16)
         mb_layout.setSpacing(14)
-        
-        from PyQt5.QtWidgets import QComboBox, QStackedWidget, QStyledItemDelegate
+        from PyQt5.QtWidgets import QComboBox, QStackedWidget
         mode_select_layout = QHBoxLayout()
         lbl_ms = QLabel(u"取餐号模式：")
         lbl_ms.setStyleSheet("font-size: 15px; font-weight: bold; color: #F8FAFC; border: none; background: transparent;")
         mode_select_layout.addWidget(lbl_ms)
         
         self.cmb_mode = QComboBox()
-        self.cmb_mode.setItemDelegate(QStyledItemDelegate())
+        from ui.styles import apply_touch_combo_style
+        apply_touch_combo_style(self.cmb_mode, item_height=48)
         self.cmb_mode.addItems([
             u"模式一：智能时段避重 (推荐)",
             u"模式二：自定义范围叫号",

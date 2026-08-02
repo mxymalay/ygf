@@ -191,9 +191,9 @@ class HistoryWidget(QWidget):
 
         for cbo in (self.cbo_year, self.cbo_month, self.cbo_day):
             cbo.setStyleSheet(cbo_style)
-            # 为了触屏体验，强制替换为 QListView
-            import PyQt5.QtWidgets as QtWidgets
-            cbo.setView(QtWidgets.QListView())
+            # 为了触屏体验，注入强制高度委托
+            from ui.styles import apply_touch_combo_style
+            apply_touch_combo_style(cbo, item_height=48)
 
         curr_year = QDate.currentDate().year()
         for y in range(2020, curr_year + 5):
@@ -225,7 +225,8 @@ class HistoryWidget(QWidget):
 
         for cbo in (self.cbo_start_hour, self.cbo_end_hour):
             cbo.setStyleSheet(cbo_style)
-            cbo.setView(QtWidgets.QListView())
+            from ui.styles import apply_touch_combo_style
+            apply_touch_combo_style(cbo, item_height=48)
             for h in range(0, 24):
                 cbo.addItem(f"{h:02d}时", h)
 
@@ -312,8 +313,8 @@ class HistoryWidget(QWidget):
             }
         """
         self.cbo_search_type.setStyleSheet(cbo_search_style)
-        import PyQt5.QtWidgets as QtWidgets
-        self.cbo_search_type.setView(QtWidgets.QListView())
+        from ui.styles import apply_touch_combo_style
+        apply_touch_combo_style(self.cbo_search_type, item_height=48)
         search_row.addWidget(self.cbo_search_type)
 
         self.txt_search = QLineEdit()
