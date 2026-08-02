@@ -357,7 +357,7 @@ class SettingsWidget(QWidget):
         hk_box.addWidget(self.txt_sqb_hotkey, stretch=2)
 
         # 快速预设按钮
-        for hk_item in ["无(纯串口)", "Shift+Q", "F12", "Ctrl+F12"]:
+        for hk_item in ["Shift+Q", "F12", "Ctrl+F12", "Alt+S"]:
             btn_hk = QPushButton(hk_item)
             btn_hk.setCursor(Qt.PointingHandCursor)
             btn_hk.setStyleSheet("""
@@ -367,10 +367,7 @@ class SettingsWidget(QWidget):
                 }
                 QPushButton:hover { background: #38BDF8; color: #0F172A; }
             """)
-            if hk_item == "无(纯串口)":
-                btn_hk.clicked.connect(lambda chk: self.txt_sqb_hotkey.setText(""))
-            else:
-                btn_hk.clicked.connect(lambda chk, t=hk_item: self.txt_sqb_hotkey.setText(t))
+            btn_hk.clicked.connect(lambda chk, t=hk_item: self.txt_sqb_hotkey.setText(t))
             hk_box.addWidget(btn_hk)
 
         sg.addLayout(hk_box, 4, 1, 1, 2)

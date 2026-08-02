@@ -106,11 +106,6 @@ def bring_official_to_front():
         try:
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE = 9 还原窗口
             user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE = 3 保持全屏
-            
-            # 模拟按一下 ALT 键 (0x12)，绕过 Windows 防焦点抢占机制，确保拿到真实键盘焦点
-            user32.keybd_event(0x12, 0, 0, 0) # ALT down
-            user32.keybd_event(0x12, 0, 2, 0) # ALT up
-            
             user32.SetForegroundWindow(hwnd)
             return True
         except Exception as e:
@@ -130,11 +125,6 @@ def bring_our_pos_to_front(main_window):
         if user32:
             hwnd = int(main_window.winId())
             user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE = 3 (保持 100% 最大化全屏，严禁变成窗口化)
-            
-            # 同样模拟 ALT 键夺取物理键盘焦点
-            user32.keybd_event(0x12, 0, 0, 0)
-            user32.keybd_event(0x12, 0, 2, 0)
-            
             user32.SetForegroundWindow(hwnd)
     except Exception as e:
         print("[WindowUtils] 切换至本系统失败:", e)

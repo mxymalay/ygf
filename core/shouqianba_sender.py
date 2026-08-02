@@ -146,14 +146,16 @@ def _do_send_amount(amount: float, config: dict):
 
     amt_str = f"{amount:.2f}"
     
-    hotkey = config.get("shouqianba_hotkey", "Shift+Q")
+    # 1. 自动将金额复制到 Windows 剪贴板
+    copy_to_clipboard(amt_str)
+
+    # 2. 自动模拟发送快捷键
+    hotkey = config.get("shouqianba_hotkey", "F12")
     if hotkey:
-        # 1. 自动将金额复制到 Windows 剪贴板
-        copy_to_clipboard(amt_str)
-        # 2. 自动模拟发送快捷键
         send_hotkey(hotkey)
-        # 3. 自动尝试将收钱吧窗口置顶前台
-        bring_shouqianba_to_front()
+
+    # 3. 自动尝试将收钱吧窗口置顶前台
+    bring_shouqianba_to_front()
 
     # 4. 串口推送逻辑
     port = config.get("shouqianba_port", "COM1")
