@@ -415,8 +415,8 @@ def _do_send_amount(amount: float, config: dict):
             time.sleep(0.08)
             bring_shouqianba_to_front()
 
-    # 3. 唤起置顶后，向收钱吧精准发送 TAB 键 (将光标自动跳转到【扫码框】)
-    time.sleep(0.15)
+    # 3. 唤起置顶后，等待 0.45 秒 (给收钱吧 V4.0.4 渲染界面时间)，精准发送 TAB 键 (光标强行跳到扫码框)
+    time.sleep(0.45)
     send_hotkey("TAB")
 
 
