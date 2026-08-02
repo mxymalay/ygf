@@ -21,14 +21,14 @@ from core.app_logger import (
 # 分类中文名映射
 CAT_DISPLAY = {
     "":          "全部分类",
-    CAT_ORDER:   "💰 订单交易",
-    CAT_USER:    "👤 用户操作",
-    CAT_SCALE:   "⚖️ 称重",
-    CAT_PRINT:   "🖨️ 小票打印",
-    CAT_DECISION:"🤖 智能决策",
-    CAT_SWITCH:  "🔄 系统切换",
-    CAT_PANIC:   "🛡️ 避险",
-    CAT_SYSTEM:  "💻 系统",
+    CAT_ORDER:   "订单交易",
+    CAT_USER:    "用户操作",
+    CAT_SCALE:   "称重",
+    CAT_PRINT:   "小票打印",
+    CAT_DECISION:"智能决策",
+    CAT_SWITCH:  "系统切换",
+    CAT_PANIC:   "避险",
+    CAT_SYSTEM:  "系统",
 }
 
 # 8大分类独立光谱色彩体系 (互不重叠，极高识别度)
@@ -111,7 +111,7 @@ class LogWidget(QWidget):
 
         # ── 顶部标题 ──
         header = QHBoxLayout()
-        lbl_title = QLabel(u"📋 运营日志")
+        lbl_title = QLabel(u"运营日志")
         lbl_title.setStyleSheet("color: #F8FAFC; font-size: 22px; font-weight: 900; letter-spacing: 1px;")
         header.addWidget(lbl_title)
 
@@ -175,7 +175,7 @@ class LogWidget(QWidget):
         filter_bar.addWidget(self.txt_search)
 
         # 搜索按钮
-        btn_search = QPushButton(u"🔍 筛选")
+        btn_search = QPushButton(u"筛选")
         btn_search.setFixedHeight(36)
         btn_search.setCursor(Qt.PointingHandCursor)
         btn_search.setStyleSheet("""
@@ -199,7 +199,7 @@ class LogWidget(QWidget):
         filter_bar.addSpacing(8)
 
         # 导出按钮
-        btn_export = QPushButton(u"💾 导出TXT")
+        btn_export = QPushButton(u"导出TXT")
         btn_export.setFixedHeight(36)
         btn_export.setCursor(Qt.PointingHandCursor)
         btn_export.setStyleSheet("""
@@ -216,7 +216,7 @@ class LogWidget(QWidget):
         filter_bar.addSpacing(8)
 
         # 手动清理按钮
-        btn_cleanup = QPushButton(u"🗑️ 清理过期日志")
+        btn_cleanup = QPushButton(u"清理过期日志")
         btn_cleanup.setFixedHeight(36)
         btn_cleanup.setCursor(Qt.PointingHandCursor)
         btn_cleanup.setStyleSheet("""
