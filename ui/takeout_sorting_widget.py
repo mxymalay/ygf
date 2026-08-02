@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 外卖小票中继与菜品排序配置页面
-包含：字号大小设置、同菜品多份⭐标记、打印联数、价格隐藏、外卖地址/单号/预订单提醒设置
+支持触摸屏垂直滚动 (QScrollArea)、下置大高度小票预览、自动【外卖打包】标识
 """
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QComboBox, QSpinBox, QTabWidget, QTextEdit
+    QComboBox, QSpinBox, QTabWidget, QTextEdit, QScrollArea
 )
 from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text
 from config import save_config
@@ -35,14 +35,13 @@ SAMPLE_RAW_TAKEOUT = """美团外卖  #18存根联
 
 
 class TakeoutSortingWidget(QWidget):
-    """外卖小票排序与中继拦截设置面板"""
+    """外卖小票排序与中继拦截设置面板 (支持触屏滚动)"""
 
     def __init__(self, config=None, printer=None, parent=None):
         super().__init__(parent)
         self.config = config or {}
         self.printer = printer
 
-        # 1. 优先加载本地 saved 分类
         saved_cats = self.config.get("takeout_categories")
         if saved_cats and isinstance(saved_cats, list) and len(saved_cats) > 0:
             self.categories = saved_cats
@@ -54,7 +53,7 @@ class TakeoutSortingWidget(QWidget):
         self._load_table_data()
         self._update_live_preview()
 
-        # 2. 定时轮询检测官方 POS 软件运行状态
+        # 轮询检测官方 POS 软件运行状态
         self.pos_check_timer = QTimer(self)
         self.pos_check_timer.timeout.connect(self._check_official_pos_status)
         self.pos_check_timer.start(2000)
@@ -65,11 +64,17 @@ class TakeoutSortingWidget(QWidget):
         self._check_official_pos_status()
 
     def _build_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        # 1. 采用外层 QScrollArea 容器，完美适配触屏滑动
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        # ── 1. 顶部状态与控制栏 ──
+        scroll_content = QWidget()
+        main_layout = QVBoxLayout(scroll_content)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(14)
+
+        # ── 1. 顶部控制栏 ──
         header_card = QFrame()
         header_card.setStyleSheet(
             "QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; }"
@@ -83,17 +88,14 @@ class TakeoutSortingWidget(QWidget):
 
         hc_layout.addStretch()
 
-        # 官方 POS 运行状态徽章
         self.lbl_pos_status = QLabel(u"检测官方 POS 中...")
         self.lbl_pos_status.setStyleSheet("font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: none;")
         hc_layout.addWidget(self.lbl_pos_status)
 
-        # 动态打印机名称显示
         self.lbl_printer = QLabel(u"监听打印机: 检测中...")
         self.lbl_printer.setStyleSheet("font-size: 13px; color: #38BDF8; font-weight: bold; border: none;")
         hc_layout.addWidget(self.lbl_printer)
 
-        # 开关按钮
         is_active = self.config.get("takeout_interceptor_enabled", True)
         self.btn_toggle = QPushButton(u"已开启中继" if is_active else u"已关闭中继")
         self.btn_toggle.setCheckable(True)
@@ -111,7 +113,7 @@ class TakeoutSortingWidget(QWidget):
 
         main_layout.addWidget(header_card)
 
-        # ── 2. Tab 选项卡分版块设置 ──
+        # ── 2. Tab 选项卡配置板块 ──
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane { border: 1px solid #334155; background: #1E293B; border-radius: 8px; }
@@ -147,7 +149,8 @@ class TakeoutSortingWidget(QWidget):
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels([u"排序", u"分类名称", u"匹配关键字 (逗号分隔)", u"顺序调整"])
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(50)
+        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.setMinimumHeight(240)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 70)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
@@ -303,56 +306,55 @@ class TakeoutSortingWidget(QWidget):
         self.chk_preorder.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_preorder)
 
-        self.chk_pack_dense = QCheckBox(u"🛍️ 打包订单在最顶部与最底部密集打印 3 行【打包】提醒")
-        self.chk_pack_dense.setChecked(self.config.get("takeout_dense_pack", True))
-        self.chk_pack_dense.setStyleSheet("color: #10B981; font-size: 13px; font-weight: bold;")
-        self.chk_pack_dense.stateChanged.connect(self._auto_save_format_settings)
-        hc_box.addWidget(self.chk_pack_dense)
-
         th_lay.addWidget(h_card)
         th_lay.addStretch()
         self.tabs.addTab(tab_header, u"📌 地址、单号与预订单配置")
 
-        main_layout.addWidget(self.tabs, stretch=1)
+        main_layout.addWidget(self.tabs)
 
-        # ── 3. 实时预览与底栏 ──
-        bottom_box = QHBoxLayout()
-        bottom_box.setSpacing(14)
-
-        # 左侧实效小票预览
+        # ── 3. 独立下置大高度【实时小票效果预览】卡片 ──
         pv_card = QFrame()
-        pv_card.setStyleSheet("QFrame { background: #1E293B; border-radius: 8px; border: 1px solid #334155; padding: 10px; }")
+        pv_card.setStyleSheet("QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; padding: 14px; }")
         pv_lay = QVBoxLayout(pv_card)
-        pv_lay.setContentsMargins(10, 8, 10, 8)
-        lbl_pv = QLabel(u"🔍 当前设置实时小票效果预览:")
-        lbl_pv.setStyleSheet("font-size: 13px; font-weight: bold; color: #38BDF8; border: none;")
-        pv_lay.addWidget(lbl_pv)
+        pv_lay.setContentsMargins(14, 10, 14, 10)
+        pv_lay.setSpacing(8)
 
-        self.txt_preview = QTextEdit()
-        self.txt_preview.setReadOnly(True)
-        self.txt_preview.setFixedHeight(120)
-        self.txt_preview.setStyleSheet("QTextEdit { background: #0F172A; color: #34D399; font-family: 'Consolas', monospace; font-size: 12px; font-weight: bold; border: 1px solid #334155; border-radius: 6px; }")
-        pv_lay.addWidget(self.txt_preview)
-        bottom_box.addWidget(pv_card, stretch=1)
+        pv_hdr = QHBoxLayout()
+        lbl_pv = QLabel(u"🔍 实时小票效果排版预览 (根据上方配置自动更新)")
+        lbl_pv.setStyleSheet("font-size: 15px; font-weight: bold; color: #38BDF8; border: none;")
+        pv_hdr.addWidget(lbl_pv)
 
-        # 右侧操作控制按钮
-        ctrl_box = QVBoxLayout()
-        ctrl_box.setAlignment(Qt.AlignBottom)
+        pv_hdr.addStretch()
 
         btn_save = QPushButton(u"💾 保存当前配置")
         btn_save.setCursor(Qt.PointingHandCursor)
-        btn_save.setStyleSheet("QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 8px 20px; border: 1px solid #0369A1; } QPushButton:hover { background: #0369A1; }")
+        btn_save.setStyleSheet("QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 16px; border: 1px solid #0369A1; } QPushButton:hover { background: #0369A1; }")
         btn_save.clicked.connect(self._on_save_rules)
-        ctrl_box.addWidget(btn_save)
+        pv_hdr.addWidget(btn_save)
 
         btn_test = QPushButton(u"🧪 物理打票测试")
         btn_test.setCursor(Qt.PointingHandCursor)
-        btn_test.setStyleSheet("QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 8px 20px; border: 1px solid #059669; } QPushButton:hover { background: #059669; }")
+        btn_test.setStyleSheet("QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 16px; border: 1px solid #059669; } QPushButton:hover { background: #059669; }")
         btn_test.clicked.connect(self._on_test_print)
-        ctrl_box.addWidget(btn_test)
+        pv_hdr.addWidget(btn_test)
 
-        bottom_box.addLayout(ctrl_box)
-        main_layout.addLayout(bottom_box)
+        pv_lay.addLayout(pv_hdr)
+
+        self.txt_preview = QTextEdit()
+        self.txt_preview.setReadOnly(True)
+        self.txt_preview.setFixedHeight(240)  # 240px 大高度下置小票预览
+        self.txt_preview.setStyleSheet(
+            "QTextEdit { background: #0F172A; color: #34D399; font-family: 'Consolas', monospace; "
+            "font-size: 13px; font-weight: bold; border: 1.5px solid #059669; border-radius: 8px; padding: 10px; }"
+        )
+        pv_lay.addWidget(self.txt_preview)
+
+        main_layout.addWidget(pv_card)
+
+        # 2. 设置布局外层为 scroll_area
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll_area)
 
     def _check_official_pos_status(self):
         try:
@@ -389,7 +391,7 @@ class TakeoutSortingWidget(QWidget):
         for idx, cat in enumerate(self.categories):
             r = self.table.rowCount()
             self.table.insertRow(r)
-            self.table.setRowHeight(r, 50)
+            self.table.setRowHeight(r, 48)
 
             item_seq = QTableWidgetItem(f"#{r + 1}")
             item_seq.setTextAlignment(Qt.AlignCenter)
@@ -476,7 +478,6 @@ class TakeoutSortingWidget(QWidget):
         self.config["takeout_show_time"] = self.chk_time.isChecked()
         self.config["takeout_show_full_id"] = self.chk_full_id.isChecked()
         self.config["takeout_show_preorder"] = self.chk_preorder.isChecked()
-        self.config["takeout_dense_pack"] = self.chk_pack_dense.isChecked()
 
         save_config(self.config)
         self._update_live_preview()
@@ -489,7 +490,6 @@ class TakeoutSortingWidget(QWidget):
             "show_order_time": self.chk_time.isChecked(),
             "show_full_order_id": self.chk_full_id.isChecked(),
             "show_preorder_alert": self.chk_preorder.isChecked(),
-            "dense_pack_header": self.chk_pack_dense.isChecked(),
             "custom_categories": self.categories
         }
         res = parse_and_sort_takeout_text(SAMPLE_RAW_TAKEOUT, opts)
@@ -517,7 +517,6 @@ class TakeoutSortingWidget(QWidget):
                     "show_order_time": self.chk_time.isChecked(),
                     "show_full_order_id": self.chk_full_id.isChecked(),
                     "show_preorder_alert": self.chk_preorder.isChecked(),
-                    "dense_pack_header": self.chk_pack_dense.isChecked(),
                     "custom_categories": self.categories
                 }
                 res = parse_and_sort_takeout_text(SAMPLE_RAW_TAKEOUT, opts)

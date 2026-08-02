@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 外卖打印中继与菜品智能排序核心引擎
-支持外卖单识别、菜品分类排序、多份⭐标记、字号控制与头部元数据控制
+外卖单默认即为【外卖打包】，自动包含打包醒目提醒与分类重排
 """
 import time
 import re
@@ -46,16 +46,7 @@ def classify_item(item_name: str, custom_categories: list = None) -> str:
 
 def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     """
-    解析外卖单文本并按检菜规范重排
-    支持 options 包含：
-      - mark_multi_qty_star: bool (多份≥2加⭐)
-      - show_prices: bool (显示价格)
-      - show_address: bool (显示送餐地址)
-      - show_order_time: bool (显示下单时间)
-      - show_full_order_id: bool (显示完整订单号)
-      - show_preorder_alert: bool (预订单⏰提醒)
-      - dense_pack_header: bool (打包密集提醒)
-      - custom_categories: list (自定义分类)
+    解析外卖单文本并按检菜规范重排 (默认全量打包规则)
     """
     opts = options or {}
     mark_star = opts.get("mark_multi_qty_star", True)
@@ -64,7 +55,6 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     show_order_time = opts.get("show_order_time", True)
     show_full_order_id = opts.get("show_full_order_id", False)
     show_preorder_alert = opts.get("show_preorder_alert", True)
-    dense_pack_header = opts.get("dense_pack_header", True)
     custom_categories = opts.get("custom_categories", DEFAULT_CATEGORIES)
 
     is_meituan = "美团外卖" in raw_text or "美团" in raw_text
@@ -128,9 +118,8 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     platform_name = "美团外卖" if is_meituan else ("饿了么" if is_eleme else "外卖订单")
     sorted_lines = []
 
-    # 1. 预订单 / 打包 顶端密集提醒
-    if dense_pack_header:
-        sorted_lines.append("打包  " * 8)
+    # 1. 顶端默认密集【外卖打包】提醒
+    sorted_lines.append("外卖打包  " * 6)
 
     if is_preorder and show_preorder_alert:
         p_str = f"⏰ 预订单 ({preorder_time_str} 前送达)" if preorder_time_str else "⏰ 预订单 (定时送达)"
@@ -140,7 +129,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
 
     # 2. 头部标题
     sorted_lines.append("================================================")
-    sorted_lines.append(f"         【{platform_name} {order_no} 检菜单】")
+    sorted_lines.append(f"      【{platform_name} {order_no} 检菜单-外卖打包】")
     sorted_lines.append("================================================")
 
     # 3. 元数据：下单时间 & 地址
@@ -171,8 +160,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     if show_full_order_id and full_order_id:
         sorted_lines.append(f"完整订单号：{full_order_id}")
 
-    if dense_pack_header:
-        sorted_lines.append("打包  " * 8)
+    sorted_lines.append("外卖打包  " * 6)
 
     sorted_text = "\n".join(sorted_lines)
 
