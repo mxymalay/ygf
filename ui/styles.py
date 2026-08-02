@@ -375,19 +375,34 @@ class TouchItemDelegate(QStyledItemDelegate):
         return size
 
 def apply_touch_combo_style(combo, item_height=48):
-    """为 QComboBox 强行应用触屏优化（参照 queue_widget 已验证可用的模式）
+    """为 QComboBox 强行应用触屏优化
     
-    核心: 把完整样式直接设在 combo 自身上，不依赖父容器继承。
-    combobox-popup: 0 禁用 Windows 原生弹出菜单。
+    经测试: 在当前 Windows + Qt 环境下, CSS min-height 完全无效,
+    只有自定义 delegate 的 sizeHint 才能控制选项高度。
     """
     if not combo:
         return
-    from PyQt5.QtWidgets import QStyledItemDelegate
+    from PyQt5.QtWidgets import QListView
 
-    # 直接在 combo 上设置完整样式（和 queue_widget 一模一样的写法）
+    # 1. 替换为 QListView（脱离原生渲染）
+    view = QListView()
+    view.setStyleSheet("""
+        QListView {
+            background-color: #1E293B;
+            color: #F8FAFC;
+            selection-background-color: #38BDF8;
+            outline: none;
+            border: 1px solid #334155;
+        }
+    """)
+    combo.setView(view)
+
+    # 2. 注入自定义 sizeHint delegate（这是唯一能控制高度的方式）
+    combo.setItemDelegate(TouchItemDelegate(height=item_height, parent=combo))
+
+    # 3. 设置 combo 自身的基础样式
     combo.setStyleSheet("""
         QComboBox {
-            combobox-popup: 0;
             background-color: #0F172A; color: #F8FAFC;
             border: 1px solid #334155; border-radius: 6px;
             padding: 6px 10px; font-size: 14px;
@@ -398,24 +413,5 @@ def apply_touch_combo_style(combo, item_height=48):
         QComboBox::drop-down {
             border: none; width: 24px;
         }
-        QComboBox QAbstractItemView {
-            background-color: #1E293B;
-            color: #F8FAFC;
-            selection-background-color: #38BDF8;
-            selection-color: #FFFFFF;
-            font-size: 14px;
-            border: 1px solid #334155;
-            border-radius: 6px;
-            padding: 4px;
-            outline: none;
-        }
-        QComboBox QAbstractItemView::item {
-            min-height: %dpx;
-            padding: 8px 14px;
-            border-radius: 4px;
-        }
-    """ % item_height)
-
-    # 和 queue_widget 一样，设置 QStyledItemDelegate
-    combo.setItemDelegate(QStyledItemDelegate())
+    """)
     combo.setMaxVisibleItems(10)
