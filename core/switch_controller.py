@@ -26,6 +26,7 @@ class AutoSwitchController(QObject):
         self._min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08))
         self._surge_correction_weight = float(self.config.get("surge_correction_weight_kg", 0.15))
         self._manual_override_lock_sec = float(self.config.get("manual_override_lock_sec", 30.0))
+        self._max_daily_revenue_limit = float(self.config.get("max_daily_revenue_limit", 0.0))
 
         self._total_evaluated_orders = 0
         self._private_orders_count = 0
@@ -151,6 +152,23 @@ class AutoSwitchController(QObject):
             log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < {self._official_lock_sec}s | 本次称重 {weight_kg:.3f}kg")
             return False
 
+        # 规则 0C：当日累计收款封顶保护 (如果今日私域累积收款达到/超过上限，停止切回本 POS，分配给官方)
+        if self._max_daily_revenue_limit > 0:
+            try:
+                db = getattr(self.main_window, 'db', None)
+                if db:
+                    today_summary = db.get_today_summary()
+                    today_amount = float(today_summary.get("total_amount", 0.0))
+                    if today_amount >= self._max_daily_revenue_limit:
+                        self._official_orders_count += 1
+                        self._last_official_time = now_ts
+                        msg = f"🛑 今日本POS已收款 ¥{today_amount:.2f} 达到/超过设定上限 ¥{self._max_daily_revenue_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
+                        print(f"[AutoDecisionEngine] {msg}")
+                        log_event(CAT_DECISION, "当日收款封顶 -> 走官方", f"今日已收 ¥{today_amount:.2f} >= 门限 ¥{self._max_daily_revenue_limit:.2f}")
+                        return False
+            except Exception as e:
+                print(f"[AutoDecisionEngine] 查询今日收款汇总异常: {e}")
+
         self._total_evaluated_orders += 1
 
         # 规则 1：小单过滤，低于设定重量一律分配给官方
@@ -224,3 +242,4 @@ class AutoSwitchController(QObject):
         self._min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08))
         self._surge_correction_weight = float(self.config.get("surge_correction_weight_kg", 0.15))
         self._manual_override_lock_sec = float(self.config.get("manual_override_lock_sec", 30.0))
+        self._max_daily_revenue_limit = float(self.config.get("max_daily_revenue_limit", 0.0))
