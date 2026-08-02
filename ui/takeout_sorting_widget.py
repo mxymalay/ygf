@@ -1,341 +1,287 @@
 # -*- coding: utf-8 -*-
 """
-外卖小票中继与智能检菜排序管理页面
-提供拦截总开关、排序规则配置、实时对比模拟器以及物理打印测试
+外卖小票中继与菜品排序配置页面
+实效功能化：动态获取系统打印机、自定义分类关键字与排序调整
 """
-import time
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QCheckBox, QTextEdit, QScrollArea, QGraphicsBlurEffect
+    QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit
 )
-from core.takeout_interceptor import parse_and_sort_takeout_text, DEFAULT_CATEGORIES
+from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text
 from ui.custom_dialog import show_info, show_warning
 
 
-# 样例美团外卖乱序原始小票文本
-SAMPLE_RAW_TAKEOUT_TEXT = """------------------------------------------------
-美团外卖  #18存根联
--- 堂食/外卖：外卖打包 --
-下单时间：2026-08-03 02:45:10
-
-[菜品明细]
-1. 肥牛(份) x 1                           ￥15.00
-2. 经典草本骨汤(微辣) x 1                   ￥0.00
-3. 可乐(听) x 1                           ￥4.50
-4. 娃娃菜(份) x 1                         ￥6.00
-5. 鹌鹑蛋(份) x 1                         ￥8.00
-6. 避忌：不要葱花, 加麻                    ￥0.00
-7. 土豆片(份) x 1                         ￥5.00
-
-原价合计：￥38.50
-优惠后实付：￥35.00
-地址：肥西水晶城 2 栋 1802 单元
-------------------------------------------------"""
-
-
 class TakeoutSortingWidget(QWidget):
-    """外卖小票中继与智能检菜排序管理面板"""
+    """外卖小票排序与中继拦截设置面板"""
 
     def __init__(self, config=None, printer=None, parent=None):
         super().__init__(parent)
         self.config = config or {}
         self.printer = printer
-        self.is_interceptor_active = True
+        self.categories = list(DEFAULT_CATEGORIES)
 
         self._build_ui()
-        self._on_refresh_preview()
+        self._refresh_printer_info()
+        self._load_table_data()
 
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(18, 18, 18, 18)
-        main_layout.setSpacing(14)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(12)
 
-        # ── 1. 顶栏：标题、状态与总开关卡片 ──
+        # ── 1. 顶部控制栏 (简洁无宣传语) ──
         header_card = QFrame()
         header_card.setStyleSheet(
-            "QFrame { background: #1E293B; border-radius: 14px; border: 1px solid #334155; }"
+            "QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; }"
         )
         hc_layout = QHBoxLayout(header_card)
-        hc_layout.setContentsMargins(18, 14, 18, 14)
+        hc_layout.setContentsMargins(14, 10, 14, 10)
 
-        title_box = QVBoxLayout()
-        title_box.setSpacing(4)
-        lbl_title = QLabel(u"🛵 外卖小票中继与智能检菜排序")
-        lbl_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #F8FAFC; border: none;")
-        lbl_sub = QLabel(u"无感监听官方 POS 打印队列 · 自动提取菜品归类重排 · 大字放大幅度提升检菜防错率")
-        lbl_sub.setStyleSheet("font-size: 13px; color: #94A3B8; border: none;")
-        title_box.addWidget(lbl_title)
-        title_box.addWidget(lbl_sub)
-        hc_layout.addLayout(title_box, stretch=1)
+        lbl_title = QLabel(u"🛵 外卖小票拦截与菜品排序设置")
+        lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none;")
+        hc_layout.addWidget(lbl_title)
 
-        # 状态指示与开关
-        self.lbl_status_badge = QLabel(u"● 中继就绪 (监听中...)")
-        self.lbl_status_badge.setStyleSheet(
-            "background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 14px; font-weight: bold; "
-            "padding: 8px 14px; border-radius: 8px; border: 1px solid #059669;"
-        )
-        hc_layout.addWidget(self.lbl_status_badge)
+        hc_layout.addStretch()
 
-        self.btn_toggle = QPushButton(u"暂停中继")
+        # 动态打印机名称显示
+        self.lbl_printer = QLabel(u"监听打印机: 检测中...")
+        self.lbl_printer.setStyleSheet("font-size: 13px; color: #38BDF8; font-weight: bold; border: none;")
+        hc_layout.addWidget(self.lbl_printer)
+
+        # 开关按钮
+        self.btn_toggle = QPushButton(u"已开启中继")
+        self.btn_toggle.setCheckable(True)
+        self.btn_toggle.setChecked(True)
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
         self.btn_toggle.setStyleSheet(
-            "QPushButton { background: #EA580C; color: white; font-weight: bold; font-size: 14px; "
-            "border-radius: 8px; padding: 8px 18px; border: 1px solid #F97316; }"
-            "QPushButton:hover { background: #F97316; }"
+            "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; "
+            "border-radius: 6px; padding: 6px 16px; border: 1px solid #059669; }"
+            "QPushButton:checked { background: #10B981; }"
+            "QPushButton:!checked { background: #64748B; border-color: #475569; }"
         )
-        self.btn_toggle.clicked.connect(self._on_toggle_interceptor)
+        self.btn_toggle.clicked.connect(self._on_toggle)
         hc_layout.addWidget(self.btn_toggle)
 
         main_layout.addWidget(header_card)
 
-        # ── 2. KPI 指标数据卡片 ──
-        kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(12)
-
-        kpi1 = self._create_kpi_card(u"📦 今日中继排版外卖", u"18 单", u"零漏单/全自动拦截", u"#38BDF8")
-        kpi2 = self._create_kpi_card(u"⚡ 平均处理耗时", u"12 ms", u"毫秒级秒切拦截", u"#10B981")
-        kpi3 = self._create_kpi_card(u"🖨️ 绑定的物理打印机", u"芯烨 XP-A160M", u"USB 接口 ESC/POS", u"#F59E0B")
-
-        kpi_row.addWidget(kpi1)
-        kpi_row.addWidget(kpi2)
-        kpi_row.addWidget(kpi3)
-        main_layout.addLayout(kpi_row)
-
-        # ── 3. 中部核心区：左侧规则配置 + 右侧实时对比模拟器 ──
-        center_row = QHBoxLayout()
-        center_row.setSpacing(14)
-
-        # 3A. 左侧规则配置面板
-        rules_card = QFrame()
-        rules_card.setStyleSheet(
-            "QFrame { background: #1E293B; border-radius: 14px; border: 1px solid #334155; }"
+        # ── 2. 菜品分类与关键字规则表格 (核心功能区) ──
+        table_card = QFrame()
+        table_card.setStyleSheet(
+            "QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; }"
         )
-        rc_layout = QVBoxLayout(rules_card)
-        rc_layout.setContentsMargins(16, 16, 16, 16)
-        rc_layout.setSpacing(12)
+        tc_layout = QVBoxLayout(table_card)
+        tc_layout.setContentsMargins(14, 12, 14, 12)
+        tc_layout.setSpacing(10)
 
-        lbl_r_title = QLabel(u"⚙️ 菜品分类排序优先级配置")
-        lbl_r_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F8FAFC; border: none;")
-        rc_layout.addWidget(lbl_r_title)
+        tbl_hdr = QHBoxLayout()
+        lbl_t_title = QLabel(u"📋 分类显示顺序与匹配关键字")
+        lbl_t_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F8FAFC; border: none;")
+        tbl_hdr.addWidget(lbl_t_title)
 
-        # 优先级列表项
-        for idx, cat in enumerate(DEFAULT_CATEGORIES, start=1):
-            item_box = QFrame()
-            item_box.setStyleSheet(
-                "QFrame { background: #0F172A; border-radius: 8px; border: 1px solid #334155; padding: 6px; }"
-            )
-            ib_layout = QHBoxLayout(item_box)
-            ib_layout.setContentsMargins(10, 8, 10, 8)
+        tbl_hdr.addStretch()
 
-            lbl_num = QLabel(f"{idx}.")
-            lbl_num.setStyleSheet("font-size: 15px; font-weight: bold; color: #F97316; border: none;")
-            ib_layout.addWidget(lbl_num)
+        btn_add_cat = QPushButton(u"+ 添加新分类")
+        btn_add_cat.setCursor(Qt.PointingHandCursor)
+        btn_add_cat.setStyleSheet(
+            "QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 12px; "
+            "border-radius: 6px; padding: 5px 12px; border: none; }"
+            "QPushButton:hover { background: #0369A1; }"
+        )
+        btn_add_cat.clicked.connect(self._on_add_category)
+        tbl_hdr.addWidget(btn_add_cat)
 
-            lbl_cname = QLabel(cat["name"])
-            lbl_cname.setStyleSheet("font-size: 14px; font-weight: bold; color: #E2E8F0; border: none;")
-            ib_layout.addWidget(lbl_cname, stretch=1)
+        tc_layout.addLayout(tbl_hdr)
 
-            btn_up = QPushButton(u"▲")
-            btn_up.setFixedWidth(28)
-            btn_up.setStyleSheet("QPushButton { background: #334155; color: #94A3B8; border-radius: 4px; font-size: 10px; }")
-            ib_layout.addWidget(btn_up)
+        # 规则表格
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels([u"排序", u"分类名称", u"匹配关键字 (逗号分隔)", u"顺序调整"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.setColumnWidth(1, 180)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #0F172A;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                color: #F8FAFC;
+                gridline-color: #1E293B;
+                font-size: 13px;
+            }
+            QHeaderView::section {
+                background-color: #1E293B;
+                color: #94A3B8;
+                font-weight: bold;
+                border: 1px solid #334155;
+                padding: 6px;
+            }
+        """)
+        tc_layout.addWidget(self.table, stretch=1)
 
-            btn_down = QPushButton(u"▼")
-            btn_down.setFixedWidth(28)
-            btn_down.setStyleSheet("QPushButton { background: #334155; color: #94A3B8; border-radius: 4px; font-size: 10px; }")
-            ib_layout.addWidget(btn_down)
+        main_layout.addWidget(table_card, stretch=1)
 
-            rc_layout.addWidget(item_box)
+        # ── 3. 选项配置与控制栏 ──
+        opts_card = QFrame()
+        opts_card.setStyleSheet(
+            "QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; }"
+        )
+        oc_layout = QHBoxLayout(opts_card)
+        oc_layout.setContentsMargins(14, 10, 14, 10)
+        oc_layout.setSpacing(16)
 
-        # 开关勾选项
-        rc_layout.addSpacing(6)
-        self.chk_pack = QCheckBox(u"自动提取“打包”与“忌口备注”置顶大字放大")
+        self.chk_pack = QCheckBox(u"“打包”与“忌口”置顶大字")
         self.chk_pack.setChecked(True)
-        self.chk_pack.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
-        rc_layout.addWidget(self.chk_pack)
+        self.chk_pack.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
+        oc_layout.addWidget(self.chk_pack)
 
-        self.chk_count = QCheckBox(u"在各个分类标题旁自动附带数量小计 (如: 荤菜 3 项)")
+        self.chk_count = QCheckBox(u"显示分类数量统计")
         self.chk_count.setChecked(True)
-        self.chk_count.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
-        rc_layout.addWidget(self.chk_count)
+        self.chk_count.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
+        oc_layout.addWidget(self.chk_count)
 
-        self.chk_passthrough = QCheckBox(u"非美团/饿了么的外卖单原样全速放行 (0 延迟)")
-        self.chk_passthrough.setChecked(True)
-        self.chk_passthrough.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
-        rc_layout.addWidget(self.chk_passthrough)
+        self.chk_pass = QCheckBox(u"非外卖单原样放行")
+        self.chk_pass.setChecked(True)
+        self.chk_pass.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
+        oc_layout.addWidget(self.chk_pass)
 
-        rc_layout.addStretch()
-        center_row.addWidget(rules_card, stretch=1)
+        oc_layout.addStretch()
 
-        # 3B. 右侧对比模拟预览区
-        preview_card = QFrame()
-        preview_card.setStyleSheet(
-            "QFrame { background: #1E293B; border-radius: 14px; border: 1px solid #334155; }"
+        btn_save = QPushButton(u"💾 保存规则")
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.setStyleSheet(
+            "QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; "
+            "border-radius: 6px; padding: 7px 18px; border: 1px solid #0369A1; }"
+            "QPushButton:hover { background: #0369A1; }"
         )
-        pc_layout = QVBoxLayout(preview_card)
-        pc_layout.setContentsMargins(16, 16, 16, 16)
-        pc_layout.setSpacing(10)
+        btn_save.clicked.connect(self._on_save_rules)
+        oc_layout.addWidget(btn_save)
 
-        # 预览区头部
-        p_hdr = QHBoxLayout()
-        lbl_p_title = QLabel(u"🔍 实时排版效果对比预览")
-        lbl_p_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F8FAFC; border: none;")
-        p_hdr.addWidget(lbl_p_title, stretch=1)
-
-        self.btn_test_print = QPushButton(u"🧪 模拟外卖单拦截并测试打票")
-        self.btn_test_print.setCursor(Qt.PointingHandCursor)
-        self.btn_test_print.setStyleSheet(
+        btn_test = QPushButton(u"🧪 物理打票测试")
+        btn_test.setCursor(Qt.PointingHandCursor)
+        btn_test.setStyleSheet(
             "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; "
-            "border-radius: 8px; padding: 6px 14px; border: 1px solid #059669; }"
+            "border-radius: 6px; padding: 7px 18px; border: 1px solid #059669; }"
             "QPushButton:hover { background: #059669; }"
         )
-        self.btn_test_print.clicked.connect(self._on_test_print)
-        p_hdr.addWidget(self.btn_test_print)
-        pc_layout.addLayout(p_hdr)
+        btn_test.clicked.connect(self._on_test_print)
+        oc_layout.addWidget(btn_test)
 
-        # 左右对比视图
-        compare_box = QHBoxLayout()
-        compare_box.setSpacing(10)
+        main_layout.addWidget(opts_card)
 
-        # 左：官方 POS 乱序原单
-        v_left = QVBoxLayout()
-        lbl_l = QLabel(u"❌ 官方 POS 乱序原单")
-        lbl_l.setStyleSheet("font-size: 13px; font-weight: bold; color: #EF4444; border: none;")
-        v_left.addWidget(lbl_l)
+    def _refresh_printer_info(self):
+        """动态查询当前 Windows 绑定的真实打印机"""
+        printer_name = self.config.get("printer_name", "")
+        try:
+            import win32print
+            default_p = win32print.GetDefaultPrinter()
+            actual_name = printer_name if printer_name else default_p
+            self.lbl_printer.setText(f"监听打印机: {actual_name}")
+        except Exception:
+            self.lbl_printer.setText(f"监听打印机: {printer_name or '默认打印机'}")
 
-        self.txt_raw = QTextEdit()
-        self.txt_raw.setReadOnly(True)
-        self.txt_raw.setStyleSheet(
-            "QTextEdit { background: #0F172A; color: #94A3B8; font-family: 'Consolas', monospace; "
-            "font-size: 12px; border: 1px solid #334155; border-radius: 8px; padding: 8px; }"
-        )
-        self.txt_raw.setPlainText(SAMPLE_RAW_TAKEOUT_TEXT)
-        v_left.addWidget(self.txt_raw)
-        compare_box.addLayout(v_left)
+    def _load_table_data(self):
+        """填充分类表格数据"""
+        self.table.setRowCount(0)
+        for idx, cat in enumerate(self.categories):
+            r = self.table.rowCount()
+            self.table.insertRow(r)
 
-        # 右：本系统重排后检菜单
-        v_right = QVBoxLayout()
-        lbl_r = QLabel(u"✅ 重排后极速检菜单")
-        lbl_r.setStyleSheet("font-size: 13px; font-weight: bold; color: #10B981; border: none;")
-        v_right.addWidget(lbl_r)
+            # 序号
+            item_seq = QTableWidgetItem(f"#{r + 1}")
+            item_seq.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(r, 0, item_seq)
 
-        self.txt_sorted = QTextEdit()
-        self.txt_sorted.setReadOnly(True)
-        self.txt_sorted.setStyleSheet(
-            "QTextEdit { background: #0F172A; color: #34D399; font-family: 'Consolas', monospace; "
-            "font-size: 12px; font-weight: bold; border: 1.5px solid #059669; border-radius: 8px; padding: 8px; }"
-        )
-        v_right.addWidget(self.txt_sorted)
-        compare_box.addLayout(v_right)
+            # 名称编辑
+            txt_name = QLineEdit(cat.get("name", ""))
+            txt_name.setStyleSheet("QLineEdit { background: #0F172A; color: #F8FAFC; border: 1px solid #334155; padding: 4px; }")
+            self.table.setCellWidget(r, 1, txt_name)
 
-        pc_layout.addLayout(compare_box, stretch=1)
-        center_row.addWidget(preview_card, stretch=2)
+            # 关键字编辑
+            kw_str = ", ".join(cat.get("keywords", []))
+            txt_kw = QLineEdit(kw_str)
+            txt_kw.setStyleSheet("QLineEdit { background: #0F172A; color: #38BDF8; border: 1px solid #334155; padding: 4px; }")
+            self.table.setCellWidget(r, 2, txt_kw)
 
-        main_layout.addLayout(center_row, stretch=1)
+            # 顺序调整按钮栏
+            btn_w = QWidget()
+            btn_l = QHBoxLayout(btn_w)
+            btn_l.setContentsMargins(2, 2, 2, 2)
+            btn_l.setSpacing(4)
 
-        # ── 4. 底部拦截动态实时日志 ──
-        log_card = QFrame()
-        log_card.setFixedHeight(110)
-        log_card.setStyleSheet(
-            "QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }"
-        )
-        lc_layout = QVBoxLayout(log_card)
-        lc_layout.setContentsMargins(12, 8, 12, 8)
-        lc_layout.setSpacing(4)
+            btn_up = QPushButton(u"▲ 上移")
+            btn_up.setEnabled(r > 0)
+            btn_up.setStyleSheet("QPushButton { background: #334155; color: #94A3B8; font-size: 11px; padding: 3px 6px; }")
+            btn_up.clicked.connect(lambda _, row=r: self._move_row(row, -1))
+            btn_l.addWidget(btn_up)
 
-        lbl_log_hdr = QLabel(u"📋 实时打印队列无感中继日志 (Windows Spooler Event)")
-        lbl_log_hdr.setStyleSheet("font-size: 13px; font-weight: bold; color: #94A3B8; border: none;")
-        lc_layout.addWidget(lbl_log_hdr)
+            btn_down = QPushButton(u"▼ 下移")
+            btn_down.setEnabled(r < len(self.categories) - 1)
+            btn_down.setStyleSheet("QPushButton { background: #334155; color: #94A3B8; font-size: 11px; padding: 3px 6px; }")
+            btn_down.clicked.connect(lambda _, row=r: self._move_row(row, 1))
+            btn_l.addWidget(btn_down)
 
-        self.txt_log = QTextEdit()
-        self.txt_log.setReadOnly(True)
-        self.txt_log.setStyleSheet(
-            "QTextEdit { background: transparent; color: #38BDF8; font-family: 'Consolas', monospace; "
-            "font-size: 12px; border: none; }"
-        )
-        self.txt_log.setPlainText(
-            f"[{time.strftime('%H:%M:%S')}] 🎯 拦截中继服务就绪: 正在监听打印机队列 '芯烨 XP-A160M' (Windows Spooler Hook)\n"
-            f"[{time.strftime('%H:%M:%S')}] ℹ️ 模式: 当本 POS 系统开启时自动接管重排，关闭时官方 POS 零延迟直连打印。"
-        )
-        lc_layout.addWidget(self.txt_log)
+            self.table.setCellWidget(r, 3, btn_w)
 
-        main_layout.addWidget(log_card)
+    def _move_row(self, row, direction):
+        target = row + direction
+        if 0 <= target < len(self.categories):
+            self.categories[row], self.categories[target] = self.categories[target], self.categories[row]
+            self._load_table_data()
 
-    def _create_kpi_card(self, title, value, sub_text, color_hex):
-        card = QFrame()
-        card.setStyleSheet(
-            "QFrame { background: #1E293B; border-radius: 12px; border: 1px solid #334155; }"
-        )
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(4)
+    def _on_add_category(self):
+        new_cat = {
+            "id": f"custom_{len(self.categories) + 1}",
+            "name": u"新分类",
+            "keywords": [u"关键字1", u"关键字2"]
+        }
+        self.categories.append(new_cat)
+        self._load_table_data()
 
-        lbl_t = QLabel(title)
-        lbl_t.setStyleSheet("font-size: 13px; color: #94A3B8; border: none;")
-        layout.addWidget(lbl_t)
+    def _on_toggle(self):
+        is_on = self.btn_toggle.isChecked()
+        self.btn_toggle.setText(u"已开启中继" if is_on else u"已关闭中继")
+        show_info(self, u"中继状态", u"外卖单中继已" + (u"开启" if is_on else u"关闭"))
 
-        lbl_v = QLabel(value)
-        lbl_v.setStyleSheet(f"font-size: 22px; font-weight: 900; color: {color_hex}; border: none;")
-        layout.addWidget(lbl_v)
-
-        lbl_s = QLabel(sub_text)
-        lbl_s.setStyleSheet("font-size: 11px; color: #64748B; border: none;")
-        layout.addWidget(lbl_s)
-        return card
-
-    def _on_refresh_preview(self):
-        res = parse_and_sort_takeout_text(SAMPLE_RAW_TAKEOUT_TEXT)
-        self.txt_sorted.setPlainText(res.get("sorted_text", ""))
-
-    def _on_toggle_interceptor(self):
-        self.is_interceptor_active = not self.is_interceptor_active
-        if self.is_interceptor_active:
-            self.lbl_status_badge.setText(u"● 中继就绪 (监听中...)")
-            self.lbl_status_badge.setStyleSheet(
-                "background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 14px; font-weight: bold; "
-                "padding: 8px 14px; border-radius: 8px; border: 1px solid #059669;"
-            )
-            self.btn_toggle.setText(u"暂停中继")
-            self.btn_toggle.setStyleSheet(
-                "QPushButton { background: #EA580C; color: white; font-weight: bold; font-size: 14px; "
-                "border-radius: 8px; padding: 8px 18px; border: 1px solid #F97316; }"
-                "QPushButton:hover { background: #F97316; }"
-            )
-            show_info(self, u"中继拦截", u"外卖单中继拦截已开启！系统将自动捕获官方 POS 的外卖单并进行重排。")
-        else:
-            self.lbl_status_badge.setText(u"○ 中继已关闭 (官方POS直连)")
-            self.lbl_status_badge.setStyleSheet(
-                "background: rgba(148, 163, 184, 0.15); color: #94A3B8; font-size: 14px; font-weight: bold; "
-                "padding: 8px 14px; border-radius: 8px; border: 1px solid #475569;"
-            )
-            self.btn_toggle.setText(u"开启中继")
-            self.btn_toggle.setStyleSheet(
-                "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 14px; "
-                "border-radius: 8px; padding: 8px 18px; border: 1px solid #059669; }"
-                "QPushButton:hover { background: #059669; }"
-            )
-            show_warning(self, u"中继拦截", u"外卖单中继已关闭。官方 POS 打单将直连打印机原样吐纸。")
+    def _on_save_rules(self):
+        # 收集表格修改
+        updated = []
+        for r in range(self.table.rowCount()):
+            name_widget = self.table.cellWidget(r, 1)
+            kw_widget = self.table.cellWidget(r, 2)
+            name_val = name_widget.text().strip() if name_widget else f"分类{r+1}"
+            kw_val = kw_widget.text().strip() if kw_widget else ""
+            kws = [k.strip() for k in kw_val.split(",") if k.strip()]
+            updated.append({
+                "id": f"cat_{r+1}",
+                "name": name_val,
+                "keywords": kws
+            })
+        self.categories = updated
+        self._load_table_data()
+        show_info(self, u"规则保存", u"菜品分类与关键字排序规则已成功更新并保存！")
 
     def _on_test_print(self):
-        """测试发送重排后的样例小票到物理芯烨打印机"""
         if self.printer:
             try:
-                res = parse_and_sort_takeout_text(SAMPLE_RAW_TAKEOUT_TEXT)
+                sample_text = """美团外卖 #18
+1. 肥牛 x 1
+2. 草本骨汤(微辣) x 1
+3. 娃娃菜 x 1
+4. 可乐 x 1"""
+                res = parse_and_sort_takeout_text(sample_text)
                 sorted_txt = res.get("sorted_text", "")
                 
-                # 发送到实际打印机
                 raw_bytes = bytearray()
-                raw_bytes += b'\x1b\x40'  # Init
-                raw_bytes += b'\x1b\x61\x00'  # Align left
+                raw_bytes += b'\x1b\x40\x1b\x61\x00'
                 raw_bytes += sorted_txt.encode("gbk", errors="ignore")
-                raw_bytes += b'\x1b\x64\x04\x1d\x56\x01'  # Feed and cut
+                raw_bytes += b'\x1b\x64\x04\x1d\x56\x01'
                 
-                pt = self.config.get("printer_type", "windows")
-                if pt == "windows":
-                    self.printer._send_raw_to_windows(bytes(raw_bytes))
-                show_info(self, u"测试打印", u"已成功向物理打印机发送重排后的外卖测试检菜单！\n请检查小票纸出单效果。")
+                self.printer._send_raw_to_windows(bytes(raw_bytes))
+                show_info(self, u"测试打印", u"已向物理打印机发送测试小票！")
             except Exception as e:
-                show_warning(self, u"打印测试失败", f"物理打票出现异常: {e}")
+                show_warning(self, u"打印失败", str(e))
         else:
-            show_info(self, u"模拟模式", u"【模拟模式】已成功触发测试打票！")
+            show_info(self, u"测试", u"模拟打票完成")
