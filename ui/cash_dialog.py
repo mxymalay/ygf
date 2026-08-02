@@ -21,7 +21,7 @@ class CashCalculatorDialog(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
-        self.resize(800, 650)
+        self.resize(850, 650)
         
         self._build_ui()
         

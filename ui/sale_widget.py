@@ -1002,8 +1002,8 @@ class SaleWidget(QWidget):
         
         anim_in.start()
 
-        # 1.5秒后开始淡出
-        QTimer.singleShot(1500, anim_out.start)
+        # 0.8秒后开始淡出
+        QTimer.singleShot(800, anim_out.start)
         anim_out.finished.connect(toast.deleteLater)
 
     def _on_menu_click(self, btn: MenuGridButton):
