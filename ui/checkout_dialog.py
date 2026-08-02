@@ -571,20 +571,15 @@ class CheckoutDialog(QDialog):
         box.setContentsMargins(32, 28, 32, 28)
         box.setSpacing(18)
 
-        lbl_icon = QLabel(u"⚡ 收钱吧 支付确认")
+        lbl_icon = QLabel(u"⚡ 请你确认收钱状态")
         lbl_icon.setAlignment(Qt.AlignCenter)
         lbl_icon.setStyleSheet("font-size: 24px; font-weight: 900; color: #F97316; border: none; background: transparent;")
         box.addWidget(lbl_icon)
 
-        lbl_amt = QLabel(f"订单金额：￥{amount:.2f}")
-        lbl_amt.setAlignment(Qt.AlignCenter)
-        lbl_amt.setStyleSheet("font-size: 34px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
-        box.addWidget(lbl_amt)
-
         btn_row = QHBoxLayout()
         btn_row.setSpacing(14)
 
-        btn_cancel = QPushButton(u"❌ 支付失败 / 退回")
+        btn_cancel = QPushButton(u"❌ 点错了/返回/出现问题")
         btn_cancel.setCursor(Qt.PointingHandCursor)
         btn_cancel.setStyleSheet("""
             QPushButton {
@@ -596,7 +591,7 @@ class CheckoutDialog(QDialog):
         btn_cancel.clicked.connect(confirm_dialog.reject)
         btn_row.addWidget(btn_cancel, stretch=1)
 
-        btn_ok = QPushButton(u"✅ 确认付款成功 (完成出票)")
+        btn_ok = QPushButton(u"✅ 已听到收钱吧到账")
         btn_ok.setCursor(Qt.PointingHandCursor)
         btn_ok.setStyleSheet("""
             QPushButton {
