@@ -164,13 +164,14 @@ class MainWindow(QMainWindow):
                 if hasattr(self, 'sale_page'):
                     self.sale_page.cleanup()
 
-                # 2. 静默后台执行 git pull，不弹出任何黑框终端
+                # 2. 静默后台重置日志文件并执行 git pull，不弹出任何黑框终端
                 startupinfo = None
                 if os.name == 'nt':
                     startupinfo = subprocess.STARTUPINFO()
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                     startupinfo.wShowWindow = 0 # SW_HIDE
 
+                subprocess.run(["git", "checkout", "--", "."], capture_output=True, text=True, startupinfo=startupinfo)
                 subprocess.run(["git", "pull"], capture_output=True, text=True, startupinfo=startupinfo)
 
                 # 3. 启动新的 Python 实例并平滑退出旧进程
