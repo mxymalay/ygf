@@ -522,26 +522,45 @@ class SettingsWidget(QWidget):
     def _refresh_scale_com_ports(self):
         """扫描可用COM端口 (称重秤专用)"""
         self.cmb_scale_port.clear()
+        active_ports = []
         try:
             import serial.tools.list_ports
-            ports = [p.device for p in serial.tools.list_ports.comports()]
+            active_ports = [p.device for p in serial.tools.list_ports.comports()]
         except Exception:
-            ports = []
+            pass
         all_ports = [f"COM{i}" for i in range(1, 13)]
-        for p in ports:
+        for p in active_ports:
             if p not in all_ports:
                 all_ports.append(p)
         for p in sorted(all_ports, key=lambda x: int(x.replace("COM", "")) if x.startswith("COM") and x[3:].isdigit() else 99):
-            self.cmb_scale_port.addItem(p)
+            # 在活跃端口后面加标记
+            if p in active_ports:
+                self.cmb_scale_port.addItem(f"{p}  [已连接]")
+            else:
+                self.cmb_scale_port.addItem(p)
         cur = self.config.get("scale_port", "COM2")
         if cur:
-            self.cmb_scale_port.setCurrentText(cur)
+            # 尝试匹配带标记的项
+            for i in range(self.cmb_scale_port.count()):
+                if self.cmb_scale_port.itemText(i).startswith(cur):
+                    self.cmb_scale_port.setCurrentIndex(i)
+                    break
+        # 显示扫描反馈
+        if active_ports:
+            self.lbl_scale_hint.setText(u"扫描完成！检测到活跃端口: %s" % ", ".join(active_ports))
+            self.lbl_scale_hint.setStyleSheet("color: #34D399; font-size: 12px; padding: 4px;")
+        else:
+            self.lbl_scale_hint.setText(u"扫描完成，未检测到任何活跃的COM端口。请检查串口线是否连接。")
+            self.lbl_scale_hint.setStyleSheet("color: #FBBF24; font-size: 12px; padding: 4px;")
 
     def _on_save_scale(self):
         """保存称重数据源设置"""
         source_text = self.cmb_scale_source.currentText()
         self.config["scale_source"] = source_text.split(" - ")[0].strip()
-        self.config["scale_port"] = self.cmb_scale_port.currentText().strip()
+        # 去除端口名后面可能带的 [已连接] 标记
+        port_text = self.cmb_scale_port.currentText().strip()
+        port_text = port_text.split("[")[0].strip()
+        self.config["scale_port"] = port_text
         try:
             self.config["scale_baudrate"] = int(self.cmb_scale_baud.currentText().strip())
         except Exception:
