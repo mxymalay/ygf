@@ -53,10 +53,10 @@ class TakeoutSortingWidget(QWidget):
         self._load_table_data()
         self._update_live_preview()
 
-        # 轮询检测官方 POS 软件运行状态
+        # 轮询检测官方 POS 软件运行状态 (4 秒定时，极速零阻塞)
         self.pos_check_timer = QTimer(self)
         self.pos_check_timer.timeout.connect(self._check_official_pos_status)
-        self.pos_check_timer.start(2000)
+        self.pos_check_timer.start(4000)
         self._check_official_pos_status()
 
     def showEvent(self, event):

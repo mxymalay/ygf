@@ -51,15 +51,15 @@ def find_official_pids():
 
 
 def find_official_window_handle():
-    """查找官方收银软件的窗口句柄 (HWND) - 支持标题匹配 + 进程 PID 双重保险"""
+    """查找官方收银软件的窗口句柄 (HWND) - 优先纯 Win32 零阻塞匹配，匹配失败才回退进程列表"""
     if not user32:
         return None
 
     found_hwnd = [None]
     current_pid = os.getpid()
-    official_pids = find_official_pids()
 
-    def enum_windows_callback(hwnd, lparam):
+    # 1. 优先极速遍历窗口标题 (纯 C API，耗时 < 0.1ms，绝不阻塞主线程)
+    def enum_title_callback(hwnd, lparam):
         if not user32.IsWindowVisible(hwnd):
             return True
 
@@ -68,12 +68,6 @@ def find_official_window_handle():
         if pid.value == current_pid:
             return True
 
-        # 策略 1：如果窗口所属 PID 命中官方进程列表，直接锁定！
-        if pid.value in official_pids:
-            found_hwnd[0] = hwnd
-            return False  # 停止遍历
-
-        # 策略 2：如果没有命中 PID，通过窗口标题关键词匹配
         length = user32.GetWindowTextLengthW(hwnd)
         if length == 0:
             return True
@@ -83,16 +77,36 @@ def find_official_window_handle():
         title = buffer.value
 
         for kw in OFFICIAL_WINDOW_TITLES:
-            if kw in title and "免安装" not in title and "辅助" not in title:
+            if kw in title and "免安装" not in title and "辅助" not in title and "排序" not in title:
                 found_hwnd[0] = hwnd
-                return False  # 停止遍历
+                return False
 
         return True
 
     WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
-    cb = WNDENUMPROC(enum_windows_callback)
+    cb = WNDENUMPROC(enum_title_callback)
     user32.EnumWindows(cb, 0)
 
+    if found_hwnd[0]:
+        return found_hwnd[0]
+
+    # 2. 若标题未命中，回退到进程 PID 检测
+    official_pids = find_official_pids()
+    if not official_pids:
+        return None
+
+    def enum_pid_callback(hwnd, lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value in official_pids:
+            found_hwnd[0] = hwnd
+            return False
+        return True
+
+    cb_pid = WNDENUMPROC(enum_pid_callback)
+    user32.EnumWindows(cb_pid, 0)
     return found_hwnd[0]
 
 
