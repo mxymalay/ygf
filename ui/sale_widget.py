@@ -1529,13 +1529,24 @@ class SaleWidget(QWidget):
 
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
-        if not connected or self.config.get("is_mock_mode", False):
+        is_mock = self.config.get("is_mock_mode", False)
+        if is_mock:
             self.lbl_scale_status_icon.hide()
             self.btn_random_weight.show()
-        if not connected:
+            return
+
+        self.btn_random_weight.hide()
+        self.lbl_scale_status_icon.show()
+
+        if connected:
+            if not hasattr(self, '_is_stable') or not self._is_stable:
+                self.lbl_scale_status_icon.setText(u"✔")
+                self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
+            self.lbl_scale_status_icon.setToolTip(u"电子秤串口正常连通: %s" % msg)
+        else:
             self.lbl_scale_status_icon.setText(u"✕")
             self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
-            self.lbl_scale_status_icon.setToolTip(u"官方秤未连接: %s" % msg)
+            self.lbl_scale_status_icon.setToolTip(u"电子秤连接提示: %s" % msg)
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):

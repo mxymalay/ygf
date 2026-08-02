@@ -206,52 +206,32 @@ class ScaleReader(QObject):
     def _parse_com_weight(self, line: str):
         """
         从串口原始数据行中解析重量值 (单位: kg)。
-        增强防乱码与防误判过滤：
-        1. 波特率不匹配导致的乱码字符过滤
-        2. 严格匹配电子秤格式 (ST,GS / WN / 显式 kg 单位 / 纯数字)
-        3. 过滤掉时间戳、串口状态码等非重量异常数据
+        支持常见电子秤协议格式:
+        - 纯数字: "0.350" or "+0.350" or "-0.350"
+        - 常见厂商协议: "ST,GS,+  0.350kg" (寺冈/大华/顶尖/梅特勒/托利多等)
+        - 日志与网口/串口包裹格式: "read - 000.350" / "WN000.350"
+        - 克重格式: "350g" or "350"
         """
         if not line:
             return None
-
-        # 1. 过滤乱码数据 (若不可打印 ASCII 字符比例过高，说明波特率设置错误)
-        clean_chars = sum(1 for c in line if 32 <= ord(c) <= 126)
-        if len(line) > 0 and (clean_chars / len(line)) < 0.6:
-            return None
-
-        # 2. 优先匹配显式带 kg / 千克 单位的格式 (例如: "ST,GS,+  0.350kg", "WN0.350kg")
-        m_unit = re.search(r'([+-]?\s*\d{1,5}\.\d{1,4})\s*(?:kg|千克)', line, re.IGNORECASE)
-        if m_unit:
+        
+        # 尝试带小数点标准格式: 例如 "+  0.350kg", "0.350", "- 00.350", "WN0.350kg"
+        m = re.search(r'([+-]?\s*\d{1,5}\.\d{1,4})', line)
+        if m:
             try:
-                val = float(m_unit.group(1).replace(" ", ""))
+                val = float(m.group(1).replace(" ", ""))
                 if val > 50:
                     val = val / 1000.0
-                if val <= 50.0:
-                    return round(abs(val), 3)
+                return round(abs(val), 3)
             except Exception:
                 pass
 
-        # 3. 匹配常见称重品牌指令前缀 (如 ST, US, GS, WW, WN, read, DI_BAO 等)
-        m_prefix = re.search(r'(?:ST|US|GS|WW|WN|read|DI_BAO)[,\s:]*([+-]?\s*\d{1,5}\.\d{1,4})', line, re.IGNORECASE)
-        if m_prefix:
+        # 尝试带单位的整型克重格式: 例如 "350g" / "350克"
+        m2 = re.search(r'([+-]?\s*\d{3,6})\s*(?:g|克)', line, re.IGNORECASE)
+        if m2:
             try:
-                val = float(m_prefix.group(1).replace(" ", ""))
-                if val > 50:
-                    val = val / 1000.0
-                if val <= 50.0:
-                    return round(abs(val), 3)
-            except Exception:
-                pass
-
-        # 4. 纯标准数值格式 (如 "+00.350", "-00.000", "0.350")
-        m_exact = re.search(r'^\s*([+-]?\s*\d{1,4}\.\d{2,3})\s*$', line)
-        if m_exact:
-            try:
-                val = float(m_exact.group(1).replace(" ", ""))
-                if val > 50:
-                    val = val / 1000.0
-                if val <= 50.0:  # 电子秤常见最大量程不超过 50kg
-                    return round(abs(val), 3)
+                val = float(m2.group(1).replace(" ", "")) / 1000.0
+                return round(abs(val), 3)
             except Exception:
                 pass
 
