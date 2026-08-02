@@ -457,13 +457,22 @@ def _do_send_amount(amount: float, config: dict):
     if hotkey:
         send_hotkey(hotkey)
 
-    # 3. 自动尝试将收钱吧窗口置顶前台
+    # 3. 快捷键会异步打开收款界面。这里先尽力置前一次；不能在这里
+    # 立刻发 Tab，因为收钱吧往往会在稍后创建/激活新的收款窗口。
     bring_shouqianba_to_front()
-    
-    # 4. 解决 USB标准模式 下扫码枪误扫入金额栏的问题
-    # 置顶后延迟0.6秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
-    time.sleep(0.6)
-    send_hotkey("TAB")
+
+    # 4. 等待收款界面完成渲染后，再次置前，保证 Tab 发送给收钱吧而非
+    # 本 POS 或刚刚失焦的旧窗口。只发送一次，避免焦点跳过扫码栏。
+    time.sleep(0.9)
+    if bring_shouqianba_to_front():
+        time.sleep(0.12)
+        if send_hotkey("TAB"):
+            logger.info("收钱吧收款界面已重新置前，已发送 Tab 至扫码栏")
+            print("[收钱吧焦点] 收款界面已置前，已发送 Tab")
+        else:
+            logger.warning("收钱吧窗口已找到，但 Tab 注入失败")
+    else:
+        logger.warning("快捷键后未找到收钱吧窗口，未发送 Tab 以免影响其他程序")
 
 
 def send_shouqianba_amount(amount: float, config: dict):
