@@ -695,7 +695,7 @@ class SettingsWidget(QWidget):
         lbl_warn_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; background: transparent;")
         info_box.addWidget(lbl_warn_title)
 
-        lbl_danger = QLabel(u"点击“重置软件数据”将彻底清空本地的配置文件 (config.json) 以及所有的历史点餐销售数据库 (pos.db)。此操作不可逆！")
+        lbl_danger = QLabel(u"点击“重置软件数据”将彻底清空本地配置文件 (config.json)、历史点餐销售数据库 (pos.db) 以及全部运行与算法操作日志 (app_events.jsonl)。此操作不可逆！")
         lbl_danger.setWordWrap(True)
         lbl_danger.setStyleSheet("color: #FCA5A5; font-size: 14px; line-height: 1.6; background: #2C0F14; padding: 16px; border-radius: 10px; border: 1px solid #7F1D1D;")
         info_box.addWidget(lbl_danger)
@@ -1038,6 +1038,12 @@ class SettingsWidget(QWidget):
                     os.remove(CONFIG_FILE)
                 except Exception as e:
                     print(f"Failed to remove config: {e}")
+
+            try:
+                from core.app_logger import clear_all_logs
+                clear_all_logs()
+            except Exception as e:
+                print(f"Failed to remove log file: {e}")
             
             QMessageBox.information(
                 self, u"重置成功", 

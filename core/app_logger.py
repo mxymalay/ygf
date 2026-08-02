@@ -128,3 +128,16 @@ def cleanup_old_logs():
     except Exception:
         pass
     return removed_count
+
+
+def clear_all_logs():
+    """彻底清空/删除所有本地日志文件 (app_events.jsonl)"""
+    _ensure_dir()
+    with _LOCK:
+        try:
+            if os.path.exists(_LOG_FILE):
+                os.remove(_LOG_FILE)
+            return True
+        except Exception as e:
+            print(f"Failed to remove log file {_LOG_FILE}: {e}")
+            return False
