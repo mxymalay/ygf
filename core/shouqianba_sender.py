@@ -485,6 +485,14 @@ def clear_shouqianba_amount(config: dict):
     send_shouqianba_amount(0.00, config)
 
 
+def is_shouqianba_window_open() -> bool:
+    """检查收钱吧前台/支付窗口是否正处于打开/可见状态"""
+    import sys
+    if sys.platform != "win32":
+        return False
+    return _find_shouqianba_hwnd() is not None
+
+
 def test_shouqianba_port(config: dict):
     """
     自检测试：向配置的收钱吧串口发送数据测试连通性

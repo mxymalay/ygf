@@ -198,9 +198,9 @@ class CheckoutDialog(QDialog):
 
         sqb_text_col.addLayout(badge_row)
 
-        lbl_sqb_desc = QLabel(u"电脑扫码")
-        lbl_sqb_desc.setStyleSheet("font-size: 13px; color: #FFEDD5; border: none; background: transparent;")
-        sqb_text_col.addWidget(lbl_sqb_desc)
+        self.lbl_sqb_desc = QLabel(u"电脑扫码")
+        self.lbl_sqb_desc.setStyleSheet("font-size: 13px; color: #FFEDD5; border: none; background: transparent;")
+        sqb_text_col.addWidget(self.lbl_sqb_desc)
 
         sqb_text_col.addStretch()
         sqb_layout.addLayout(sqb_text_col, stretch=1)
@@ -465,7 +465,7 @@ class CheckoutDialog(QDialog):
         """用户点击付款方式"""
         self.selected_payment_method = method
 
-        # 如果点击的是【收钱吧】，先唤起收钱吧并推送金额，然后弹出二次确认框
+        # 如果点击的是【收钱吧】，先唤起收钱吧并推送金额，启动后台无感侦测
         if method == PAYMENT_SQB:
             try:
                 from core.shouqianba_sender import send_shouqianba_amount
@@ -480,8 +480,8 @@ class CheckoutDialog(QDialog):
             except Exception as e:
                 print(f"[CheckoutDialog] 调起收钱吧金额异常: {e}")
 
-            # 弹出确认窗口询问收银员是否收款成功
-            self._show_sqb_confirm_overlay(total_amt, method)
+            # 启动智能无感监测：收钱吧窗口打开时静默等待；成功则直接打票结账；若窗口被关闭/超时未扣款，才弹窗确认
+            self._start_sqb_smart_monitoring(total_amt, method)
             return
 
         elif method == PAYMENT_CASH:
@@ -514,6 +514,67 @@ class CheckoutDialog(QDialog):
         # 其他付款方式（主扫/被扫）直接完成
         self._complete_checkout(method)
 
+    def _start_sqb_smart_monitoring(self, amount, method):
+        """
+        智能无感感知模式：
+        1. 只要收钱吧【付款窗口存在/打开】，说明顾客正在扫码付款，POS 保持静默等待；
+        2. 后台侦测到【支付成功】，零弹窗直接完成结账并自动打印出票！
+        3. 只有当【付款窗口被关闭且未支付成功】或【异常超时】时，才弹出确认卡片。
+        """
+        # 暂时禁用按钮，防止收银员重复点击
+        for btn in self.pay_buttons:
+            btn.setEnabled(False)
+
+        if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
+            self.lbl_sqb_desc.setText(u"⚡ 已调起收钱吧，等待扣款中...")
+
+        from core.shouqianba_sender import check_shouqianba_payment_success, is_shouqianba_window_open
+
+        monitoring_timer = QTimer(self)
+        monitoring_timer.setInterval(250)
+        elapsed_ms = [0]
+
+        def _check_status():
+            elapsed_ms[0] += 250
+            
+            # 1. 优先实时检测【支付成功】
+            if check_shouqianba_payment_success():
+                monitoring_timer.stop()
+                print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
+                self._complete_checkout(method)
+                return
+
+            # 2. 前 2 秒：为收钱吧软件启动/唤起留出窗口显示缓冲时间
+            if elapsed_ms[0] < 2000:
+                return
+
+            # 3. 2 秒后判断收钱吧付款窗口是否依然存在
+            window_open = is_shouqianba_window_open()
+            
+            if window_open:
+                # 窗口正处于打开状态（顾客正在扫码/支付），继续后台静默等待
+                if elapsed_ms[0] >= 60000: # 60 秒防卡死超时
+                    monitoring_timer.stop()
+                    self._restore_pay_buttons()
+                    self._show_sqb_confirm_overlay(amount, method)
+                return
+            else:
+                # 窗口已被收银员或收钱吧关闭/消失，但并未检测到成功（说明取消支付或未到账）
+                monitoring_timer.stop()
+                print("[CheckoutDialog] ℹ️ 收钱吧付款窗口已关闭且未到账，弹窗供收银员确认。")
+                self._restore_pay_buttons()
+                self._show_sqb_confirm_overlay(amount, method)
+
+        monitoring_timer.timeout.connect(_check_status)
+        monitoring_timer.start()
+
+    def _restore_pay_buttons(self):
+        """恢复付款按钮可用状态与描述信息"""
+        for btn in self.pay_buttons:
+            btn.setEnabled(True)
+        if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
+            self.lbl_sqb_desc.setText(u"电脑扫码")
+
     def _complete_checkout(self, method):
         """执行最终结账、发送打印指令与飞出出票动画"""
         # 禁用所有按钮，防止重复点击
@@ -531,7 +592,7 @@ class CheckoutDialog(QDialog):
         QTimer.singleShot(100, self._start_fly_animation)
 
     def _show_sqb_confirm_overlay(self, amount, method):
-        """精致嵌入式等待/确认框：变窄 (380px) + 无盖遮罩嵌入付款界面中"""
+        """精致嵌入式等待/确认框：放大卡片尺寸 (580x420) + 展示金额 + 无盖遮罩嵌入付款界面中"""
         confirm_dialog = QDialog(self)
         confirm_dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         confirm_dialog.setAttribute(Qt.WA_TranslucentBackground)
@@ -551,30 +612,61 @@ class CheckoutDialog(QDialog):
         dialog_layout = QHBoxLayout(mask_frame)
         dialog_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 极简高瘦迷你确认卡片 (330px 窄款 + 增加高度)
+        # 放大版确认卡片 (580px 宽 x 420px 高，与官方收钱吧弹窗比例大小保持一致)
         cd_outer = QFrame()
-        cd_outer.setFixedWidth(330)
-        cd_outer.setMinimumHeight(170)
+        cd_outer.setFixedSize(580, 420)
         cd_outer.setStyleSheet("""
             QFrame {
                 background: #1E293B;
-                border-radius: 18px;
+                border-radius: 20px;
                 border: 2px solid #F97316;
             }
         """)
         dialog_layout.addWidget(cd_outer, alignment=Qt.AlignCenter)
 
         box = QVBoxLayout(cd_outer)
-        box.setContentsMargins(18, 30, 18, 30)
-        box.setSpacing(22)
+        box.setContentsMargins(28, 28, 28, 28)
+        box.setSpacing(18)
 
         lbl_icon = QLabel(u"⚡ 请确认收钱吧收款状态")
         lbl_icon.setAlignment(Qt.AlignCenter)
-        lbl_icon.setStyleSheet("font-size: 16px; font-weight: 900; color: #F97316; border: none; background: transparent;")
+        lbl_icon.setStyleSheet("font-size: 24px; font-weight: 900; color: #F97316; border: none; background: transparent;")
         box.addWidget(lbl_icon)
 
+        # 中间金额与状态显示卡片
+        amt_box = QFrame()
+        amt_box.setStyleSheet("""
+            QFrame {
+                background: #0F172A;
+                border-radius: 14px;
+                border: 1px solid #334155;
+            }
+        """)
+        amt_layout = QVBoxLayout(amt_box)
+        amt_layout.setContentsMargins(20, 16, 20, 16)
+        amt_layout.setSpacing(6)
+        amt_layout.setAlignment(Qt.AlignCenter)
+
+        lbl_amt_title = QLabel(u"待确认支付金额")
+        lbl_amt_title.setAlignment(Qt.AlignCenter)
+        lbl_amt_title.setStyleSheet("font-size: 15px; color: #94A3B8; border: none; background: transparent;")
+        amt_layout.addWidget(lbl_amt_title)
+
+        int_val, dec_val = f"{amount:.2f}".split('.')
+        lbl_amt_val = QLabel(f"￥<span style='font-size:42px; font-weight:900;'>{int_val}</span>.<span style='font-size:28px;'>{dec_val}</span>")
+        lbl_amt_val.setAlignment(Qt.AlignCenter)
+        lbl_amt_val.setStyleSheet("font-size: 32px; color: #10B981; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; border: none; background: transparent;")
+        amt_layout.addWidget(lbl_amt_val)
+
+        lbl_tip = QLabel(u"提示：请等待收钱吧客户端扣款成功或手动确认")
+        lbl_tip.setAlignment(Qt.AlignCenter)
+        lbl_tip.setStyleSheet("font-size: 13px; color: #64748B; border: none; background: transparent;")
+        amt_layout.addWidget(lbl_tip)
+
+        box.addWidget(amt_box, stretch=1)
+
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(16)
 
         btn_cancel = QPushButton(u"❌ 未到账 / 退回")
         btn_cancel.setCursor(Qt.PointingHandCursor)
@@ -582,8 +674,8 @@ class CheckoutDialog(QDialog):
         btn_cancel.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444);
-                color: #FFFFFF; font-size: 13px; font-weight: bold;
-                border-radius: 10px; padding: 15px 6px; border: none; outline: none;
+                color: #FFFFFF; font-size: 18px; font-weight: bold;
+                border-radius: 12px; padding: 18px 10px; border: none; outline: none;
             }
             QPushButton:hover { background: #EF4444; }
         """)
@@ -596,8 +688,8 @@ class CheckoutDialog(QDialog):
         btn_ok.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10B981);
-                color: #FFFFFF; font-size: 13px; font-weight: bold;
-                border-radius: 10px; padding: 15px 6px; border: none; outline: none;
+                color: #FFFFFF; font-size: 18px; font-weight: bold;
+                border-radius: 12px; padding: 18px 10px; border: none; outline: none;
             }
             QPushButton:hover { background: #10B981; }
         """)
@@ -624,7 +716,7 @@ class CheckoutDialog(QDialog):
                         border: 2px solid #10B981;
                     }
                 """)
-                QTimer.singleShot(400, confirm_dialog.accept)
+                QTimer.singleShot(150, confirm_dialog.accept)
 
         auto_check_timer.timeout.connect(_on_auto_detect_sqb)
         auto_check_timer.start()
