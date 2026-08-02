@@ -116,6 +116,11 @@ class ScaleReader(QObject):
         1. 初次或跳动超过 0.01kg，说明是真实重量改变（放上/拿走），重新锁定。
         2. 如果在 0.01kg 范围内跳动，取较大的值并锁定，不再向下跳动。
         """
+        # 强制归零信任：如果电子秤读数归零，立刻解除防抖，避免卡在 0.008 等微小数值
+        if w <= 0.001:
+            self._locked_weight = 0.0
+            return 0.0
+            
         if self._locked_weight < 0 or abs(w - self._locked_weight) > 0.01:
             self._locked_weight = w
         else:
