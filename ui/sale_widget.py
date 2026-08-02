@@ -1694,7 +1694,7 @@ class SaleWidget(QWidget):
             # 立即触发现金结账
             QTimer.singleShot(50, lambda: dlg._on_payment_selected("cash"))
         else:
-            # 启动 1 秒后自动点击收钱吧的定时器
+            # 启动 0 延迟(50ms)自动点击收钱吧的定时器
             auto_sqb_timer = QTimer(dlg)
             auto_sqb_timer.setSingleShot(True)
             def trigger_sqb():
@@ -1703,7 +1703,7 @@ class SaleWidget(QWidget):
                     dlg._on_payment_selected(PAYMENT_SQB)
             
             auto_sqb_timer.timeout.connect(trigger_sqb)
-            auto_sqb_timer.start(1000)
+            auto_sqb_timer.start(50)
         
         dlg.exec_()
 
