@@ -38,6 +38,7 @@ class ReceiptPrinter:
     DOUBLE_SIZE = b'\x1d\x21\x11'
     NORMAL_SIZE = b'\x1d\x21\x00'
     FEED_LINES = b'\x1b\x64\x04'
+    OPEN_DRAWER = b'\x1b\x70\x00\x3c\xff'
 
     def __init__(self, config):
         self.config = config
@@ -248,6 +249,28 @@ class ReceiptPrinter:
         except Exception as e:
             err_msg = str(e)
             print("[打印错误] %s" % err_msg)
+            self.last_error = err_msg
+            return False
+        return False
+
+    def open_cash_drawer(self):
+        """发送开启钱箱指令"""
+        print("[ReceiptPrinter] 正在发送开启钱箱指令...")
+        pt = self.config.get("printer_type", "windows")
+        if self.config.get("is_mock_mode", False):
+            print("[模拟调试模式] 已模拟开启钱箱！")
+            return True
+            
+        try:
+            if pt == "windows":
+                return self._send_raw_to_windows(self.OPEN_DRAWER)
+            elif pt == "network":
+                return self._send_raw_to_network(self.OPEN_DRAWER)
+            elif pt == "serial":
+                return self._send_raw_to_serial(self.OPEN_DRAWER)
+        except Exception as e:
+            err_msg = str(e)
+            print("[开启钱箱错误] %s" % err_msg)
             self.last_error = err_msg
             return False
         return False

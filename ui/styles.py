@@ -170,6 +170,24 @@ QPushButton#btn_print:hover {{
         stop:0 #F87171, stop:0.5 #FB923C, stop:1 #EF4444);
 }}
 
+/* 现金收款按钮 */
+QPushButton#btn_cash {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #10B981, stop:0.5 #34D399, stop:1 #059669);
+    color: #FFFFFF;
+    font-size: 22px;
+    font-weight: 900;
+    min-height: 60px;
+    border: none;
+    border-radius: 12px;
+    letter-spacing: 1px;
+}}
+
+QPushButton#btn_cash:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #34D399, stop:0.5 #6EE7B7, stop:1 #10B981);
+}}
+
 /* 重置清零按钮 */
 QPushButton#btn_clear {{
     background: {c['bg_card']};
