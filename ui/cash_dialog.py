@@ -67,15 +67,7 @@ class CashCalculatorDialog(QDialog):
         lbl_title = QLabel(u"💵 现金结算")
         lbl_title.setStyleSheet("font-size: 24px; font-weight: 900; color: #60A5FA; border: none;")
         header.addWidget(lbl_title)
-        
-        btn_close = QPushButton(u"✕")
-        btn_close.setCursor(Qt.PointingHandCursor)
-        btn_close.setStyleSheet("""
-            QPushButton { background: transparent; color: #94A3B8; font-size: 24px; font-weight: bold; border: none; }
-            QPushButton:hover { color: #F87171; }
-        """)
-        btn_close.clicked.connect(self.reject)
-        header.addWidget(btn_close, alignment=Qt.AlignRight)
+        header.addStretch()
         layout.addLayout(header)
         
         # 价格显示区
