@@ -51,6 +51,11 @@ class TasteSelectionDialog(QDialog):
         self.selected_spice = ""
         self.selected_prefs = set()
         self.extra_tags = set()
+        
+        from PyQt5.QtCore import QTimer
+        self.auto_close_timer = QTimer(self)
+        self.auto_close_timer.setSingleShot(True)
+        self.auto_close_timer.timeout.connect(self.accept)
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(18, 26, 18, 18)
@@ -130,6 +135,7 @@ class TasteSelectionDialog(QDialog):
         for s, btn in self.spicy_btns.items():
             btn.setChecked(s == self.selected_spice)
         self.flavor_changed.emit(self.get_tag_string())
+        self._reset_auto_close_timer()
 
     def _toggle_pref(self, val):
         if val in self.selected_prefs:
@@ -137,6 +143,10 @@ class TasteSelectionDialog(QDialog):
         else:
             self.selected_prefs.add(val)
         self.flavor_changed.emit(self.get_tag_string())
+        self._reset_auto_close_timer()
+        
+    def _reset_auto_close_timer(self):
+        self.auto_close_timer.start(2000)
 
     def update_layout_margins(self):
         if self.arrow_direction == "up":
