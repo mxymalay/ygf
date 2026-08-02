@@ -37,19 +37,41 @@ for i in range(10):
 
 
 def _find_shouqianba_hwnd():
-    """查找收钱吧主窗口句柄"""
+    """查找收钱吧主窗口句柄 (支持进程名 + 窗口标题多维精准识别)"""
     try:
         user32 = ctypes.windll.user32
         target_hwnd = [None]
 
+        # 1. 获取收钱吧相关进程 PID 集合 (bqsqq / shouqianba / sqb)
+        sqb_pids = set()
+        try:
+            import psutil
+            for p in psutil.process_iter(['pid', 'name']):
+                pname = (p.info['name'] or "").lower()
+                if any(k in pname for k in ['bqsqq', 'shouqianba', 'sqb', 'pc收款']):
+                    sqb_pids.add(p.info['pid'])
+        except Exception:
+            pass
+
+        keywords = ["收款", "收钱吧", "PC收款", "收款助手", "Shouqianba", "bqsqq", "V4.", "V3."]
+
         def foreach_window(hwnd, lParam):
             if user32.IsWindowVisible(hwnd):
+                # 优先匹配进程 ID
+                if sqb_pids:
+                    pid = ctypes.c_ulong()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    if pid.value in sqb_pids:
+                        target_hwnd[0] = hwnd
+                        return False
+
+                # 文本标题匹配
                 length = user32.GetWindowTextLengthW(hwnd)
                 if length > 0:
                     buf = ctypes.create_unicode_buffer(length + 1)
                     user32.GetWindowTextW(hwnd, buf, length + 1)
                     title = buf.value
-                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"]):
+                    if any(kw in title for kw in keywords):
                         target_hwnd[0] = hwnd
                         return False
             return True
