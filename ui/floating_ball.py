@@ -165,14 +165,25 @@ class FloatingBall(QWidget):
         rect_title = QRect(6, 5, 82, 40) # 扩大标题矩形，使其完全居中
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        # 7. 右下角状态指示 (决策成功动态对钩 / 人工干预暂停图标)
+        # 7. 右下角状态指示 (决策成功动态对钩 / 人工干预暂停图标 / 算法锁定锁头)
         is_paused = False
+        is_locked = False
+        now_ts = time.time()
+        
         if hasattr(self.main_window, 'switch_controller') and self.main_window.switch_controller:
             sc = self.main_window.switch_controller
-            is_paused = (not sc._auto_switch_enabled) or (time.time() < sc._manual_override_until)
+            is_paused = (not sc._auto_switch_enabled) or (now_ts < sc._manual_override_until)
+            
+            if not is_paused:
+                if sc._last_official_time > 0 and (now_ts - sc._last_official_time < sc._official_lock_sec):
+                    is_locked = True
+                elif hasattr(self.main_window, 'sale_page') and self.main_window.sale_page:
+                    cart_items = getattr(self.main_window.sale_page, 'cart_items', [])
+                    if cart_items and (now_ts - sc._last_private_time < sc._private_lock_sec):
+                        is_locked = True
 
         if is_paused:
-            # 绘制暂停图标 (两条垂直白线)
+            # 绘制暂停图标 (两条垂直白线) ⏸
             painter.setPen(QPen(QColor(0, 0, 0, 100), 3.0, Qt.SolidLine, Qt.RoundCap)) # 阴影
             painter.drawLine(72, 30, 72, 36)
             painter.drawLine(77, 30, 77, 36)
@@ -180,6 +191,19 @@ class FloatingBall(QWidget):
             painter.setPen(QPen(QColor(255, 255, 255), 2.5, Qt.SolidLine, Qt.RoundCap))
             painter.drawLine(71, 29, 71, 35)
             painter.drawLine(76, 29, 76, 35)
+            
+        elif is_locked:
+            # 绘制锁定图标 (带圆环的小锁) 🔒
+            painter.setPen(QPen(QColor(0, 0, 0, 100), 2.5, Qt.SolidLine, Qt.RoundCap))
+            painter.drawRect(72, 33, 6, 4)
+            painter.drawArc(73, 29, 4, 6, 0, 180 * 16)
+            
+            painter.setPen(QPen(QColor(255, 255, 255), 1.5, Qt.SolidLine, Qt.RoundCap))
+            painter.setBrush(QColor(255, 255, 255))
+            painter.drawRect(71, 32, 6, 4)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawArc(72, 28, 4, 6, 0, 180 * 16)
+            
         elif self._show_checkmark:
             # 绘制决策通过的高亮对钩 (带黑色阴影增强对比度)
             path_shadow = QPainterPath()
