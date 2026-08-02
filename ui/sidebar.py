@@ -108,8 +108,8 @@ class SideNavBar(QWidget):
         layout.addWidget(item_report)
         self._items.append(item_report)
 
-        # 将“叫号设置”与“系统设置”同上方按钮拉开适当间隙（不使用横线）
-        layout.addSpacing(6)
+        # 将“核心业务组”与“设置管理组”平均拉开
+        layout.addStretch(1)
 
         # 3. 设置管理模块组
         # 3: 叫号设置
@@ -136,9 +136,10 @@ class SideNavBar(QWidget):
         layout.addWidget(item_log)
         self._items.append(item_log)
 
-        layout.addStretch()
+        # 将“设置管理组”与“底部快捷控制组”平均拉开
+        layout.addStretch(1)
 
-        # 3. 底部快捷控制按钮组
+        # 4. 底部快捷控制按钮组
 
 
         # 最小化
