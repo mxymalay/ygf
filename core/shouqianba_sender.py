@@ -146,10 +146,7 @@ def _do_send_amount(amount: float, config: dict):
 
     amt_str = f"{amount:.2f}"
     
-    # 1. 自动将金额复制到 Windows 剪贴板
-    copy_to_clipboard(amt_str)
-
-    # 2. 串口推送逻辑 (先通过COM发送金额)
+    # 1. 串口推送逻辑 (先通过COM发送金额)
     port = config.get("shouqianba_port", "COM1")
     baudrate = int(config.get("shouqianba_baudrate", 2400))  # 默认 2400
     fmt = config.get("shouqianba_format", "QA")               # "QA" 或 "FLOAT"
@@ -179,12 +176,15 @@ def _do_send_amount(amount: float, config: dict):
         logger.warning(f"推送金额到收钱吧串口 {port} 提示: {e}")
         print(f"[收钱吧串口 Notice] 端口 {port} 发送提示: {e}")
 
-    # 3. 自动模拟发送快捷键 (再调出收钱吧界面)
+    # 等待 0.3 秒，确保收钱吧后台已处理完串口数据
+    time.sleep(0.3)
+
+    # 2. 自动模拟发送快捷键 (再调出收钱吧界面)
     hotkey = config.get("shouqianba_hotkey", "F12")
     if hotkey:
         send_hotkey(hotkey)
 
-    # 4. 自动尝试将收钱吧窗口置顶前台
+    # 3. 自动尝试将收钱吧窗口置顶前台
     bring_shouqianba_to_front()
 
 
