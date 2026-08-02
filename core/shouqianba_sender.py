@@ -15,7 +15,6 @@ import logging
 import ctypes
 import time
 import keyboard
-import subprocess
 
 logger = logging.getLogger("ShouqianbaSender")
 
@@ -36,33 +35,21 @@ for i in range(10):
 
 
 def _find_shouqianba_hwnd():
-    """查找收钱吧窗口句柄，优先刚被快捷键激活的前台收款窗口。"""
+    """查找收钱吧主窗口句柄"""
     try:
         user32 = ctypes.windll.user32
-
-        def is_shouqianba_window(hwnd):
-            if not hwnd or not user32.IsWindowVisible(hwnd):
-                return False
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length <= 0:
-                return False
-            buf = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buf, length + 1)
-            title = buf.value
-            return any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"])
-
-        # 收钱吧可能同时存在后台主窗口和前台收款弹窗。EnumWindows 的顺序
-        # 不代表当前交互窗口，优先返回快捷键刚激活的前台窗口。
-        foreground_hwnd = user32.GetForegroundWindow()
-        if is_shouqianba_window(foreground_hwnd):
-            return foreground_hwnd
-
         target_hwnd = [None]
 
         def foreach_window(hwnd, lParam):
-            if is_shouqianba_window(hwnd):
-                target_hwnd[0] = hwnd
-                return False
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buf = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buf, length + 1)
+                    title = buf.value
+                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"]):
+                        target_hwnd[0] = hwnd
+                        return False
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
@@ -70,59 +57,6 @@ def _find_shouqianba_hwnd():
         return target_hwnd[0]
     except Exception:
         return None
-
-
-def _focus_payment_code_with_uia(hwnd) -> bool:
-    """使用 Windows UI Automation 聚焦收钱吧的付款码编辑框。
-
-    收钱吧 V4 会拦截普通窗口消息和模拟键盘事件。UI Automation 直接调用
-    编辑控件的 SetFocus，不依赖窗口坐标、屏幕缩放或 Tab 键处理。
-    """
-    if not hwnd:
-        return False
-
-    # 收款框有两个可见编辑框：金额在上、付款码在下。选纵向最靠下的一个。
-    # UIAutomationClient 是 Windows 7 自带 .NET 组件，无需安装额外 Python 包。
-    script = r'''
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-$hwnd = [System.IntPtr]__HWND__
-$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
-if ($null -eq $root) { exit 2 }
-$condition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Edit
-)
-$found = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
-$visible = @()
-for ($i = 0; $i -lt $found.Count; $i++) {
-    $item = $found.Item($i)
-    if ($item.Current.IsEnabled -and -not $item.Current.IsOffscreen -and $item.Current.IsKeyboardFocusable) {
-        $visible += $item
-    }
-}
-if ($visible.Count -lt 2) { exit 3 }
-$paymentCode = $visible | Sort-Object { $_.Current.BoundingRectangle.Top } | Select-Object -Last 1
-$paymentCode.SetFocus()
-Write-Output 'PAYMENT_CODE_FOCUSED'
-'''.replace("__HWND__", str(int(hwnd)))
-
-    try:
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-            capture_output=True,
-            text=True,
-            timeout=4,
-            creationflags=creationflags,
-        )
-        ok = result.returncode == 0 and "PAYMENT_CODE_FOCUSED" in result.stdout
-        if not ok:
-            logger.warning("UI Automation 未定位付款码框（退出码 %s）", result.returncode)
-        return ok
-    except Exception as e:
-        logger.warning(f"UI Automation 聚焦付款码框失败: {e}")
-        return False
 
 
 def send_hotkey(hotkey_str: str):
@@ -213,147 +147,49 @@ def bring_shouqianba_to_front():
     try:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
-        hwnd = _find_shouqianba_hwnd()
+        target_hwnd = []
 
-        if hwnd:
+        def foreach_window(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buf = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buf, length + 1)
+                    title = buf.value
+                    if any(kw in title for kw in ["PC收款", "收钱吧", "收款助手", "Shouqianba", "bqsqq"]):
+                        target_hwnd.append(hwnd)
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
+
+        if target_hwnd:
+            hwnd = target_hwnd[0]
             
             # 常规显示和置顶
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002) # HWND_TOPMOST
             user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002) # HWND_NOTOPMOST
             
-            # 突破 Windows 前台限制：必须同时附加“当前线程、原前台线程、
-            # 收钱吧窗口线程”的输入队列。旧实现只附加了原前台线程，导致
-            # SetFocus 跨线程失败而 Tab 实际仍发给本 POS。
-            foreground_hwnd = user32.GetForegroundWindow()
-            foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
+            # 突破 Windows 限制，强行附加线程抢夺真正的键盘输入焦点
+            foreground_thread = user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
             target_thread = user32.GetWindowThreadProcessId(hwnd, None)
             current_thread = kernel32.GetCurrentThreadId()
-            attached_foreground = False
-            attached_target = False
-            try:
-                if foreground_thread and foreground_thread != current_thread:
-                    attached_foreground = bool(user32.AttachThreadInput(
-                        current_thread, foreground_thread, True
-                    ))
-                if target_thread and target_thread != current_thread:
-                    attached_target = bool(user32.AttachThreadInput(
-                        current_thread, target_thread, True
-                    ))
 
-                user32.BringWindowToTop(hwnd)
+            if foreground_thread != current_thread:
+                user32.AttachThreadInput(current_thread, foreground_thread, True)
                 user32.SetForegroundWindow(hwnd)
-                # 不对顶层窗口调用 SetFocus：收钱吧真正接收扫码的通常是
-                # 子控件，强行把焦点设到顶层会丢掉这个子控件焦点。
-                # SetForegroundWindow 没有抛异常也不表示成功；必须实际核验。
-                is_foreground = (user32.GetForegroundWindow() == hwnd)
-                if is_foreground:
-                    print(f"[收钱吧唤起] 已为【PC收款】窗口取得键盘焦点！")
-                else:
-                    logger.warning("收钱吧窗口已找到，但 Windows 拒绝切换到前台")
-                return is_foreground
-            finally:
-                if attached_target:
-                    user32.AttachThreadInput(current_thread, target_thread, False)
-                if attached_foreground:
-                    user32.AttachThreadInput(current_thread, foreground_thread, False)
+                user32.SetFocus(hwnd)
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
+            else:
+                user32.SetForegroundWindow(hwnd)
+                user32.SetFocus(hwnd)
+
+            print(f"[收钱吧唤起] 已强行突破限制，为【PC收款】窗口注入真正的键盘焦点！")
+            return True
     except Exception as e:
         logger.warning(f"强行唤起收钱吧窗口失败: {e}")
     return False
-
-
-def send_tab_to_shouqianba_focus() -> bool:
-    """向收钱吧当前获得焦点的子控件定向发送一次 Tab。
-
-    全局 keybd_event 在收钱吧的收款窗口中可能被其窗口层截获，导致 Tab
-    落在本 POS。这里通过 AttachThreadInput 取得目标线程的焦点控件，再向
-    该控件投递真实的按下/抬起消息。
-    """
-    hwnd = _find_shouqianba_hwnd()
-    if not hwnd:
-        return False
-
-    try:
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        current_thread = kernel32.GetCurrentThreadId()
-        target_thread = user32.GetWindowThreadProcessId(hwnd, None)
-        attached = False
-        try:
-            if target_thread and target_thread != current_thread:
-                attached = bool(user32.AttachThreadInput(
-                    current_thread, target_thread, True
-                ))
-
-            focus_hwnd = user32.GetFocus()
-            recipient = focus_hwnd if focus_hwnd and user32.IsWindow(focus_hwnd) else hwnd
-            vk_tab = VK_MAPPING["TAB"]
-            scan_code = user32.MapVirtualKeyW(vk_tab, 0)
-            key_down_lparam = 1 | (scan_code << 16)
-            key_up_lparam = key_down_lparam | (1 << 30) | (1 << 31)
-            down_ok = user32.PostMessageW(recipient, 0x0100, vk_tab, key_down_lparam)
-            up_ok = user32.PostMessageW(recipient, 0x0101, vk_tab, key_up_lparam)
-            if down_ok and up_ok:
-                logger.info("已向收钱吧焦点控件 %s 定向发送 Tab", recipient)
-                print("[收钱吧焦点] 已向收钱吧输入控件定向发送 Tab")
-                return True
-            return False
-        finally:
-            if attached:
-                user32.AttachThreadInput(current_thread, target_thread, False)
-    except Exception as e:
-        logger.warning(f"向收钱吧焦点控件发送 Tab 失败: {e}")
-        return False
-
-
-def focus_shouqianba_payment_code() -> bool:
-    """点击收钱吧收款弹窗中的“付款码”输入框。
-
-    收钱吧 V4 的无标题栏收款弹窗会拦截程序投递的 Tab，但人工鼠标点击
-    付款码框始终有效。该输入框在弹窗宽度约 59%、高度约 50% 的位置；
-    使用窗口相对坐标可适配不同分辨率与 DPI 缩放。
-    """
-    try:
-        from ctypes import wintypes
-
-        hwnd = _find_shouqianba_hwnd()
-        if not hwnd:
-            return False
-
-        if _focus_payment_code_with_uia(hwnd):
-            logger.info("已通过 UI Automation 聚焦收钱吧付款码输入框")
-            print("[收钱吧焦点] 已通过 UI Automation 聚焦付款码输入框")
-            return True
-
-        user32 = ctypes.windll.user32
-        rect = wintypes.RECT()
-        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            return False
-
-        width = rect.right - rect.left
-        height = rect.bottom - rect.top
-        if 400 <= width <= 900 and 400 <= height <= 900:
-            # 独立收款弹窗：付款码框位于弹窗宽 59%、高 50% 的位置。
-            x = rect.left + int(width * 0.59)
-            y = rect.top + int(height * 0.50)
-        elif width >= 1000 and height >= 600:
-            # 收钱吧 V4 也会把收款框作为全屏主窗口内的嵌入式弹层显示。
-            # 由现场截图确认，付款码框中心位于该窗口约宽 54%、高 50%。
-            x = rect.left + int(width * 0.54)
-            y = rect.top + int(height * 0.50)
-        else:
-            logger.warning("收钱吧窗口尺寸异常（%sx%s），取消付款码框点击", width, height)
-            return False
-        user32.SetCursorPos(x, y)
-        time.sleep(0.05)
-        user32.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
-        user32.mouse_event(0x0004, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
-        logger.info("已点击收钱吧付款码输入框：(%s, %s)", x, y)
-        print("[收钱吧焦点] 已点击付款码输入框")
-        return True
-    except Exception as e:
-        logger.warning(f"点击收钱吧付款码输入框失败: {e}")
-        return False
 
 
 # 初始化全局 RapidOCR 算法引擎 (单例只加载一次，15ms 超高速文字识别)
@@ -569,7 +405,7 @@ def _do_send_amount(amount: float, config: dict):
         return
 
     amt_str = f"{amount:.2f}"
-    
+
     # 1. 串口推送逻辑 (先通过COM发送金额)
     port = config.get("shouqianba_port", "COM1")
     baudrate = int(config.get("shouqianba_baudrate", 2400))  # 默认 2400
@@ -621,21 +457,13 @@ def _do_send_amount(amount: float, config: dict):
     if hotkey:
         send_hotkey(hotkey)
 
-    # 3. 快捷键会异步打开收款界面。这里先尽力置前一次；不能在这里
-    # 立刻发 Tab，因为收钱吧往往会在稍后创建/激活新的收款窗口。
+    # 3. 自动尝试将收钱吧窗口置顶前台
     bring_shouqianba_to_front()
-
-    # 4. 等待收款界面完成渲染后再次置前，并点击付款码输入框。该版本
-    # 收钱吧会拦截模拟 Tab，鼠标点击能稳定把扫码焦点落到正确控件。
-    time.sleep(0.9)
-    # 即使 Windows 拒绝 SetForegroundWindow，也尝试对已定位的收钱吧窗口
-    # 点击；这比把结果绑定在置前 API 的返回值上更可靠。
-    bring_shouqianba_to_front()
-    time.sleep(0.12)
-    if focus_shouqianba_payment_code():
-        logger.info("收钱吧收款界面已重新置前，已点击付款码输入框")
-    else:
-        logger.warning("快捷键后未找到可点击的收钱吧收款窗口")
+    
+    # 4. 解决 USB标准模式 下扫码枪误扫入金额栏的问题
+    # 置顶后延迟0.6秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
+    time.sleep(0.6)
+    send_hotkey("TAB")
 
 
 def send_shouqianba_amount(amount: float, config: dict):
