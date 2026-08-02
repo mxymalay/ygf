@@ -1,0 +1,7 @@
+{
+  "shouqianba_enabled": true,
+  "shouqianba_port": "COM1",
+  "shouqianba_baudrate": 9600,
+  "shouqianba_format": "QA",
+  "shouqianba_hotkey": "Shift+Q"
+}

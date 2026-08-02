@@ -1,0 +1,113 @@
+{
+  "takeout_interceptor_enabled": true,
+  "takeout_categories": [
+    {
+      "id": "cat_1",
+      "name": "🍲 汤底 / 辣度 / 忌口偏好",
+      "keywords": [
+        "汤",
+        "辣",
+        "葱",
+        "蒜",
+        "香菜",
+        "麻辣",
+        "牛油",
+        "番茄",
+        "骨汤",
+        "清汤",
+        "忌口",
+        "打包",
+        "不要",
+        "少辣",
+        "微辣",
+        "特辣"
+      ]
+    },
+    {
+      "id": "cat_2",
+      "name": "🥩 肉类 / 海鲜 / 主料",
+      "keywords": [
+        "牛",
+        "羊",
+        "猪",
+        "鸡",
+        "鸭",
+        "鱼",
+        "虾",
+        "蟹",
+        "肉",
+        "丸",
+        "蛋",
+        "肠",
+        "培根",
+        "午餐肉",
+        "毛肚",
+        "百叶",
+        "黄喉",
+        "掌中宝",
+        "鱿鱼",
+        "排骨"
+      ]
+    },
+    {
+      "id": "cat_3",
+      "name": "🥬 蔬菜 / 菌菇 / 豆",
+      "keywords": [
+        "菜",
+        "菇",
+        "豆",
+        "笋",
+        "腐",
+        "面",
+        "粉",
+        "海带",
+        "木耳",
+        "土豆",
+        "莲藕",
+        "山药",
+        "冬瓜",
+        "萝卜",
+        "海带结",
+        "宽粉",
+        "金针菇",
+        "木耳",
+        "油菜",
+        "菠菜",
+        "生菜",
+        "豆腐皮"
+      ]
+    },
+    {
+      "id": "cat_4",
+      "name": "🥤 饮品 / 小吃 / 主食",
+      "keywords": [
+        "水",
+        "汁",
+        "茶",
+        "奶",
+        "可乐",
+        "雪碧",
+        "王老吉",
+        "加多宝",
+        "啤酒",
+        "饮",
+        "饭",
+        "冰淇淋",
+        "酸奶"
+      ]
+    }
+  ],
+  "takeout_match_mode": "contains",
+  "takeout_font_hdr": 1,
+  "takeout_font_cat": 1,
+  "takeout_font_item": 1,
+  "takeout_mark_star": true,
+  "takeout_show_prices": false,
+  "takeout_kitchen_copies": 1,
+  "takeout_cust_copies": 0,
+  "takeout_show_address": true,
+  "takeout_show_time": true,
+  "takeout_show_full_id": false,
+  "takeout_show_preorder": true,
+  "takeout_dense_pack": true
+}

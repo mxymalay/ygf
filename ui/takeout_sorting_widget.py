@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QComboBox, QSpinBox, QTabWidget, QTextEdit, QScrollArea
+    QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QTextEdit, QScrollArea
 )
 from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text
 from config import save_config
