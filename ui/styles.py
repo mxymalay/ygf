@@ -188,14 +188,19 @@ QPushButton#btn_cash:hover {{
         stop:0 #34D399, stop:0.5 #6EE7B7, stop:1 #10B981);
 }}
 
-/* 重置清零按钮 */
-QPushButton#btn_clear {{
+/* 重置清零与开钱箱按钮 */
+QPushButton#btn_clear, QPushButton#btn_open_drawer {{
     background: {c['bg_card']};
     color: {c['warning']};
     border: none;
     font-size: 15px;
     min-height: 42px;
     border-radius: 8px;
+    font-weight: bold;
+}}
+
+QPushButton#btn_clear:hover, QPushButton#btn_open_drawer:hover {{
+    background: #334155;
 }}
 
 /* ─── 单选框与复选框 (透明背景去黑条) ──────────── */

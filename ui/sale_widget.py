@@ -897,11 +897,22 @@ class SaleWidget(QWidget):
         # 底部核心按键
         btn_box = QHBoxLayout()
         
+        clear_box = QHBoxLayout()
+        clear_box.setSpacing(10)
+        
         self.btn_clear = QPushButton(u"清空重置")
         self.btn_clear.setObjectName("btn_clear")
         self.btn_clear.setCursor(Qt.PointingHandCursor)
         self.btn_clear.clicked.connect(self._on_clear)
-        btn_box.addWidget(self.btn_clear, stretch=1)
+        clear_box.addWidget(self.btn_clear, stretch=1)
+        
+        self.btn_open_drawer = QPushButton(u"开钱箱")
+        self.btn_open_drawer.setObjectName("btn_open_drawer")
+        self.btn_open_drawer.setCursor(Qt.PointingHandCursor)
+        self.btn_open_drawer.clicked.connect(lambda: self.printer.open_cash_drawer() if self.printer else None)
+        clear_box.addWidget(self.btn_open_drawer, stretch=1)
+        
+        btn_box.addLayout(clear_box, stretch=1)
 
         self.btn_cash = QPushButton(u"去现金")
         self.btn_cash.setObjectName("btn_cash")
@@ -920,6 +931,49 @@ class SaleWidget(QWidget):
         layout.addLayout(right, stretch=7)
 
         self._update_price_display()
+
+    def _show_toast(self, msg_text):
+        """显示一个自动消失的提示框"""
+        from PyQt5.QtWidgets import QLabel, QGraphicsOpacityEffect
+        from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+        
+        toast = QLabel(msg_text, self)
+        toast.setStyleSheet("""
+            QLabel {
+                background-color: rgba(30, 41, 59, 0.95);
+                color: #34D399;
+                font-size: 28px;
+                font-weight: bold;
+                padding: 20px 40px;
+                border-radius: 16px;
+                border: 2px solid #059669;
+            }
+        """)
+        toast.setAlignment(Qt.AlignCenter)
+        toast.adjustSize()
+        
+        # 居中显示在当前 widget
+        x = (self.width() - toast.width()) // 2
+        y = (self.height() - toast.height()) // 2
+        toast.move(x, y - 50) # 稍微偏上一点
+        toast.show()
+        toast.raise_()
+
+        effect = QGraphicsOpacityEffect(toast)
+        toast.setGraphicsEffect(effect)
+
+        anim = QPropertyAnimation(effect, b"opacity")
+        anim.setDuration(800)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.InCubic)
+
+        # 保留引用防止被提前回收
+        toast._anim = anim
+
+        # 2秒后开始淡出
+        QTimer.singleShot(2000, anim.start)
+        anim.finished.connect(toast.deleteLater)
 
     def _on_menu_click(self, btn: MenuGridButton):
         """点击右侧菜单按钮"""
@@ -974,6 +1028,8 @@ class SaleWidget(QWidget):
             if not skip_flavor_popup:
                 self._position_popup_at_widget(dlg, btn)
                 dlg.exec_()
+                
+            self._show_toast(u"温馨提示：是否有精品串？是否需要打包？")
         else:
             item_entry = {
                 "type": "item",
