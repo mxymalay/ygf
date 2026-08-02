@@ -77,8 +77,8 @@ class CashCalculatorDialog(QDialog):
         lbl_ys_t = QLabel(u"应收金额：")
         lbl_ys_t.setStyleSheet("font-size: 18px; color: #94A3B8; border: none;")
         int_ys, dec_ys = f"{self.total_amount:.2f}".split('.')
-        self.lbl_ys = QLabel(f"￥{int_ys}.<span style='font-size:18px;'>{dec_ys}</span>")
-        self.lbl_ys.setStyleSheet("font-size: 28px; font-weight: bold; color: #F1F5F9; border: none;")
+        self.lbl_ys = QLabel(f"￥<b>{int_ys}</b>.<span style='font-size:18px;'>{dec_ys}</span>")
+        self.lbl_ys.setStyleSheet("font-size: 28px; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; color: #F1F5F9; border: none;")
         row_ys.addWidget(lbl_ys_t)
         row_ys.addStretch()
         row_ys.addWidget(self.lbl_ys)
@@ -88,8 +88,8 @@ class CashCalculatorDialog(QDialog):
         row_ss = QHBoxLayout()
         lbl_ss_t = QLabel(u"实收金额：")
         lbl_ss_t.setStyleSheet("font-size: 18px; color: #94A3B8; border: none;")
-        self.lbl_ss = QLabel(u"￥0.<span style='font-size:24px;'>00</span>")
-        self.lbl_ss.setStyleSheet("font-size: 36px; font-weight: 900; color: #34D399; border: none;")
+        self.lbl_ss = QLabel(u"￥<b>0</b>.<span style='font-size:24px;'>00</span>")
+        self.lbl_ss.setStyleSheet("font-size: 36px; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; color: #34D399; border: none;")
         row_ss.addWidget(lbl_ss_t)
         row_ss.addStretch()
         row_ss.addWidget(self.lbl_ss)
@@ -99,8 +99,8 @@ class CashCalculatorDialog(QDialog):
         row_zl = QHBoxLayout()
         lbl_zl_t = QLabel(u"找零金额：")
         lbl_zl_t.setStyleSheet("font-size: 18px; color: #94A3B8; border: none;")
-        self.lbl_zl = QLabel(u"￥0.<span style='font-size:36px;'>00</span>")
-        self.lbl_zl.setStyleSheet("font-size: 56px; font-weight: 900; color: #F59E0B; border: none;")
+        self.lbl_zl = QLabel(u"￥<b>0</b>.<span style='font-size:36px;'>00</span>")
+        self.lbl_zl.setStyleSheet("font-size: 64px; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; color: #FF3B30; border: none;")
         row_zl.addWidget(lbl_zl_t)
         row_zl.addStretch()
         row_zl.addWidget(self.lbl_zl)
@@ -184,16 +184,16 @@ class CashCalculatorDialog(QDialog):
             pass
             
         int_ss, dec_ss = f"{val:.2f}".split('.')
-        self.lbl_ss.setText(f"￥{int_ss}.<span style='font-size:24px;'>{dec_ss}</span>")
+        self.lbl_ss.setText(f"￥<b>{int_ss}</b>.<span style='font-size:24px;'>{dec_ss}</span>")
         
         change = val - self.total_amount
         if change < 0:
-            self.lbl_zl.setText(u"￥0.<span style='font-size:36px;'>00</span>")
-            self.lbl_zl.setStyleSheet("font-size: 56px; font-weight: 900; color: #94A3B8; border: none;")
+            self.lbl_zl.setText(u"￥<b>0</b>.<span style='font-size:36px;'>00</span>")
+            self.lbl_zl.setStyleSheet("font-size: 64px; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; color: #94A3B8; border: none;")
         else:
             int_zl, dec_zl = f"{change:.2f}".split('.')
-            self.lbl_zl.setText(f"￥{int_zl}.<span style='font-size:36px;'>{dec_zl}</span>")
-            self.lbl_zl.setStyleSheet("font-size: 56px; font-weight: 900; color: #F59E0B; border: none;")
+            self.lbl_zl.setText(f"￥<b>{int_zl}</b>.<span style='font-size:36px;'>{dec_zl}</span>")
+            self.lbl_zl.setStyleSheet("font-size: 64px; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; color: #FF3B30; border: none;")
 
     def _on_confirm(self):
         val = 0.0
