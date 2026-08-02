@@ -31,10 +31,11 @@ class CheckoutDialog(QDialog):
     点击付款按钮后**立即** accept()，不等待动画。
     """
 
-    def __init__(self, sale_data, parent=None, on_payment_callback=None):
+    def __init__(self, sale_data, parent=None, on_payment_callback=None, config=None):
         super().__init__(parent)
         self.sale_data = sale_data
         self.on_payment_callback = on_payment_callback
+        self.config = config or (parent.config if parent and hasattr(parent, 'config') else {})
         self.selected_payment_method = ""
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
