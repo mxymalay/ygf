@@ -783,7 +783,7 @@ class SaleWidget(QWidget):
             mid_layout.addWidget(btn_d)
             self.discount_btns[rate] = btn_d
 
-        mid_layout.addSpacing(6)
+        mid_layout.addSpacing(20) # Category separator
 
         # 改口味按钮
         btn_flavor = QPushButton("改口味")
@@ -809,7 +809,7 @@ class SaleWidget(QWidget):
         btn_takeout.clicked.connect(lambda: self._on_cart_item_takeout_click(self.selected_item_index))
         mid_layout.addWidget(btn_takeout)
 
-        mid_layout.addSpacing(6)
+        mid_layout.addSpacing(20) # Category separator
 
         # 数量加减与删除按钮: +, -, 删
         btn_plus = QPushButton("＋")
