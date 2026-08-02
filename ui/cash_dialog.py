@@ -21,7 +21,10 @@ class CashCalculatorDialog(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
-        self.resize(850, 650)
+        if parent:
+            self.resize(parent.size())
+        else:
+            self.resize(1920, 1080)
         
         self._build_ui()
         
@@ -30,7 +33,22 @@ class CashCalculatorDialog(QDialog):
             QTimer.singleShot(100, self.printer.open_cash_drawer)
 
     def _build_ui(self):
-        main_frame = QFrame(self)
+        # 外层容器：使用极低透明度(alpha=1)替代完全透明，以确保捕获鼠标点击事件
+        self.outer = QFrame(self)
+        self.outer.setObjectName("CashOuter")
+        self.outer.setStyleSheet(
+            "#CashOuter { background: rgba(0, 0, 0, 0.01); border: none; }"
+        )
+        
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(self.outer)
+        
+        wrapper_layout = QHBoxLayout(self.outer)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+
+        main_frame = QFrame()
+        main_frame.setFixedSize(850, 650)
         main_frame.setStyleSheet("""
             QFrame {
                 background-color: #1E293B;
@@ -38,10 +56,7 @@ class CashCalculatorDialog(QDialog):
                 border: 2px solid #3B82F6;
             }
         """)
-        
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(main_frame)
+        wrapper_layout.addWidget(main_frame, alignment=Qt.AlignCenter)
         
         layout = QVBoxLayout(main_frame)
         layout.setContentsMargins(30, 30, 30, 30)
@@ -211,3 +226,10 @@ class CashCalculatorDialog(QDialog):
         if self.on_confirm:
             self.on_confirm("cash")
         self.accept()
+
+    def mousePressEvent(self, event):
+        child = self.childAt(event.pos())
+        if not child or child == self.outer:
+            self.reject()
+        else:
+            super().mousePressEvent(event)
