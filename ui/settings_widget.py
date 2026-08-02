@@ -921,11 +921,14 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info, show_error, show_warning
         import time
 
-        try:
-            import serial
-        except ImportError:
-            show_error(self, u"依赖缺失", u"未找到 pyserial 模块，无法进行串口测试。")
-            return
+        # 若后台已存在运行中的称重线程独占此端口，先暂时挂起以防端口占用报错
+        parent_mw = self.window()
+        active_scale = None
+        if hasattr(parent_mw, 'sale_page') and hasattr(parent_mw.sale_page, 'scale'):
+            active_scale = parent_mw.sale_page.scale
+            if active_scale and getattr(active_scale, '_running', False):
+                active_scale.stop()
+                time.sleep(0.3)
 
         try:
             ser = serial.Serial(
@@ -939,6 +942,8 @@ class SettingsWidget(QWidget):
             ser.dtr = True
             ser.rts = True
         except Exception as e:
+            if active_scale:
+                active_scale.start()
             show_error(
                 self, u"串口连接失败",
                 f"无法打开端口【{port}】！\n\n原因: {str(e)}\n\n"
@@ -1019,6 +1024,9 @@ class SettingsWidget(QWidget):
             except Exception:
                 pass
             show_error(self, u"测试过程异常", f"通信读取过程发生错误: {str(ex)}")
+        finally:
+            if active_scale:
+                active_scale.start()
 
     def _refresh_scale_com_ports(self, show_toast=False):
         """扫描可用COM端口 (称重秤专用)"""
