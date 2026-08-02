@@ -517,45 +517,50 @@ class CheckoutDialog(QDialog):
     def _start_sqb_smart_monitoring(self, amount, method):
         """
         智能无感感知模式：
-        1. 唤起收钱吧后，只要【收钱吧付款窗口】在屏幕上显示，POS 保持后台静默等待；
+        1. 唤起收钱吧后，通过 RapidOCR/色彩采样，只要【收钱吧付款窗口】在屏幕上显示，POS 保持后台静默等待；
         2. 若扫码成功，0 弹窗直接自动完成结账并打印小票！
-        3. 若【收钱吧付款窗口已被关闭/消失】且未到账，立刻自动弹出放大版确认卡片供收银员操作。
+        3. 若【收钱吧付款窗口已被关闭/消失】且未到账，才弹出确认卡片供收银员操作。
         """
         if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
             self.lbl_sqb_desc.setText(u"⚡ 已调起收钱吧，等待扣款中...")
 
-        from core.shouqianba_sender import check_shouqianba_payment_success, is_sqb_pay_window_visible
+        from core.shouqianba_sender import get_sqb_overall_status
 
         monitoring_timer = QTimer(self)
-        monitoring_timer.setInterval(200)
+        monitoring_timer.setInterval(250)
         elapsed_ms = [0]
         window_ever_seen = [False]
+        closed_count = [0]
 
         def _check_status():
-            elapsed_ms[0] += 200
+            elapsed_ms[0] += 250
             
-            # 1. 优先实时检测【支付成功】
-            if check_shouqianba_payment_success():
+            sqb_status = get_sqb_overall_status()
+
+            # 1. 优先检测【支付成功】
+            if sqb_status == "SUCCESS":
                 monitoring_timer.stop()
                 print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
                 self._complete_checkout(method)
                 return
 
-            is_visible = is_sqb_pay_window_visible()
-            if is_visible:
+            # 2. 识别到正处于【付款界面】 (宝蓝顶栏 / 付款码 OCR)
+            if sqb_status == "WAITING":
                 window_ever_seen[0] = True
-                if elapsed_ms[0] >= 90000: # 90 秒超时防卡死
+                closed_count[0] = 0
+                if elapsed_ms[0] >= 90000: # 90 秒长超时
                     monitoring_timer.stop()
                     self._restore_pay_buttons()
                     self._show_sqb_confirm_overlay(amount, method)
                 return
 
-            # 2. 缓冲前 1.5 秒给窗口唤起留时间
+            # 3. 缓冲前 1.5 秒给收钱吧启动/绘制留出时间
             if elapsed_ms[0] < 1500:
                 return
 
-            # 3. 如果窗口出现过现在被关闭了，或者 3 秒内一直未监听到窗口弹出来
-            if window_ever_seen[0] or elapsed_ms[0] >= 3000:
+            # 4. 如果连续在 CLOSED 状态
+            closed_count[0] += 1
+            if (window_ever_seen[0] and closed_count[0] >= 8) or elapsed_ms[0] >= 4000:
                 monitoring_timer.stop()
                 print("[CheckoutDialog] ℹ️ 检测到收钱吧付款窗口已关闭（且未到账），展现确认卡片。")
                 self._restore_pay_buttons()

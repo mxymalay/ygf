@@ -537,27 +537,97 @@ def check_shouqianba_payment_state() -> str:
         return "CLOSED"
 
 
-def is_sqb_pay_window_visible() -> bool:
-    """精准判定收钱吧【付款码/收款中】前台弹窗是否正显示在屏幕上"""
+def _analyze_sqb_window_image_status(hwnd) -> str:
+    """
+    复用 RapidOCR + 宝蓝/亮绿顶栏色彩双引擎深度分类收钱吧窗口状态:
+    返回 "SUCCESS" / "WAITING" / "NONE"
+    """
+    try:
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance()
+        if not app:
+            return "NONE"
+        screen = QApplication.primaryScreen()
+        if not screen:
+            return "NONE"
+
+        pixmap = screen.grabWindow(hwnd)
+        if pixmap.isNull() or pixmap.width() < 120 or pixmap.height() < 120:
+            return "NONE"
+
+        qimg = pixmap.toImage()
+        w = qimg.width()
+        h = qimg.height()
+
+        # A. RapidOCR 深度文字提取
+        ocr_engine = _get_ocr_engine()
+        if ocr_engine:
+            try:
+                import numpy as np
+                qimg_rgb = qimg.convertToFormat(4) # Format_RGB888
+                ptr = qimg_rgb.bits()
+                ptr.setsize(h * w * 3)
+                img_np = np.frombuffer(ptr, np.uint8).reshape((h, w, 3))
+
+                result, _ = ocr_engine(img_np)
+                if result:
+                    all_ocr_text = "".join([line[1] for line in result])
+                    
+                    success_keywords = ["支付成功", "收款成功", "交易成功", "打印小票", "收钱吧到账"]
+                    if any(sk in all_ocr_text for sk in success_keywords):
+                        return "SUCCESS"
+
+                    waiting_keywords = [
+                        "付款码", "支付方式", "显示虚拟键盘", "电脑扫码", "请扫码", "主扫", "被扫", 
+                        "待支付", "输入密码", "倒计时", "EP99", "收款", "V4.0", "V4.", "PC收款", "收钱吧"
+                    ]
+                    if any(wk in all_ocr_text for wk in waiting_keywords):
+                        return "WAITING"
+            except Exception as e:
+                logger.warning(f"RapidOCR 提取状态异常: {e}")
+
+        # B. 色彩采样引擎 (蓝顶=付款中, 绿顶=支付成功)
+        header_h = int(h * 0.25)
+        green_count = 0
+        blue_count = 0
+        total_samples = 0
+
+        for x in range(10, w - 10, 6):
+            for y in range(10, header_h - 5, 6):
+                pixel = qimg.pixelColor(x, y)
+                r, g, b = pixel.red(), pixel.green(), pixel.blue()
+                total_samples += 1
+                if g > r + 30 and g > b + 30 and g > 100:
+                    green_count += 1
+                elif b > r + 30 and b > g + 30 and b > 100:
+                    blue_count += 1
+
+        if total_samples > 0:
+            if green_count / total_samples > 0.30:
+                return "SUCCESS"
+            if blue_count / total_samples > 0.30: # 经典宝蓝顶栏 = 正处于等待付款界面
+                return "WAITING"
+
+    except Exception as e:
+        logger.warning(f"分析收钱吧窗口图像状态异常: {e}")
+
+    return "NONE"
+
+
+def get_sqb_overall_status() -> str:
+    """
+    遍历全局窗口获取收钱吧实时状态：
+    - "SUCCESS" : 扣款成功
+    - "WAITING" : 付款码弹窗显示中 (蓝顶/付款文本)
+    - "CLOSED"  : 无付款弹窗
+    """
     import sys
     if sys.platform != "win32":
-        return False
+        return "CLOSED"
+
     try:
         user32 = ctypes.windll.user32
-        found = [False]
-
-        pay_window_keywords = ["收款", "付款码", "支付方式", "显示虚拟键盘", "V4.0", "V4.", "PC收款", "收钱吧"]
-
-        def get_window_text(h):
-            try:
-                l = user32.GetWindowTextLengthW(h)
-                if l > 0:
-                    buf = ctypes.create_unicode_buffer(l + 1)
-                    user32.GetWindowTextW(h, buf, l + 1)
-                    return buf.value.strip()
-            except Exception:
-                pass
-            return ""
+        status = ["CLOSED"]
 
         def foreach_window(hwnd, lParam):
             if user32.IsWindowVisible(hwnd):
@@ -566,18 +636,20 @@ def is_sqb_pay_window_visible() -> bool:
                 w = rect.right - rect.left
                 h = rect.bottom - rect.top
                 
-                if 250 <= w <= 800 and 250 <= h <= 850:
-                    txt = get_window_text(hwnd)
-                    if any(kw in txt for kw in pay_window_keywords):
-                        found[0] = True
+                if 200 <= w <= 900 and 200 <= h <= 900:
+                    res = _analyze_sqb_window_image_status(hwnd)
+                    if res == "SUCCESS":
+                        status[0] = "SUCCESS"
                         return False
+                    elif res == "WAITING":
+                        status[0] = "WAITING"
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
-        return found[0]
+        return status[0]
     except Exception:
-        return False
+        return "CLOSED"
 
 
 def _do_send_amount(amount: float, config: dict):
