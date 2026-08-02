@@ -753,7 +753,7 @@ class SettingsWidget(QWidget):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(f"""
                 QPushButton {{ {btn_style} }}
-                QPushButton:hover {{ filter: brightness(1.2); opacity: 0.9; }}
+                QPushButton:hover {{ border-color: #38BDF8; }}
             """)
             btn.clicked.connect(slot_fn)
             h_layout.addWidget(btn, alignment=Qt.AlignVCenter)
