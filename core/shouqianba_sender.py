@@ -537,6 +537,49 @@ def check_shouqianba_payment_state() -> str:
         return "CLOSED"
 
 
+def is_sqb_pay_window_visible() -> bool:
+    """精准判定收钱吧【付款码/收款中】前台弹窗是否正显示在屏幕上"""
+    import sys
+    if sys.platform != "win32":
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        found = [False]
+
+        pay_window_keywords = ["收款", "付款码", "支付方式", "显示虚拟键盘", "V4.0", "V4.", "PC收款", "收钱吧"]
+
+        def get_window_text(h):
+            try:
+                l = user32.GetWindowTextLengthW(h)
+                if l > 0:
+                    buf = ctypes.create_unicode_buffer(l + 1)
+                    user32.GetWindowTextW(h, buf, l + 1)
+                    return buf.value.strip()
+            except Exception:
+                pass
+            return ""
+
+        def foreach_window(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                rect = ctypes.wintypes.RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                
+                if 250 <= w <= 800 and 250 <= h <= 850:
+                    txt = get_window_text(hwnd)
+                    if any(kw in txt for kw in pay_window_keywords):
+                        found[0] = True
+                        return False
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
+        return found[0]
+    except Exception:
+        return False
+
+
 def _do_send_amount(amount: float, config: dict):
     """后台子线程多通道推送逻辑"""
     enabled = config.get("shouqianba_enabled", True)
