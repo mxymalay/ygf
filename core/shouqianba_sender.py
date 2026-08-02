@@ -27,7 +27,7 @@ VK_MAPPING = {
     "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B,
     "SPACE": 0x20, "ENTER": 0x0D, "TAB": 0x09,
 }
-SQB_TAB_FOCUS_DELAY = 0.6
+SQB_TAB_FOCUS_DELAY = 0.2
 
 for i in range(26):
     ch = chr(ord('A') + i)
