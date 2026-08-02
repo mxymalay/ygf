@@ -92,15 +92,16 @@ class SettingsWidget(QWidget):
         container = QWidget()
         container.setStyleSheet("""
             QGroupBox {
+                background-color: #1E293B; border-radius: 12px; border: 1px solid #334155;
+                margin-top: 24px; padding-top: 24px;
                 font-size: 15px; font-weight: bold; color: #F9FAFB;
-                border: 1px solid #334155; border-radius: 10px;
-                margin-top: 12px; padding: 18px 14px 14px 14px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin; subcontrol-position: top left;
-                padding: 2px 10px; color: #38BDF8;
+                padding: 4px 12px; color: #38BDF8; font-size: 16px; font-weight: bold;
+                background-color: #0F172A; border-radius: 8px; border: 1px solid #334155;
             }
-            QLabel { color: #D1D5DB; font-size: 14px; }
+            QLabel { color: #D1D5DB; font-size: 14px; background: transparent; }
         """)
         layout = QVBoxLayout(container)
         layout.setSpacing(16)
