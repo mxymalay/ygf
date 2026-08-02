@@ -282,21 +282,6 @@ class LoginWindow(QDialog):
         """)
         self.btn_close.clicked.connect(self.reject)
         bottom_bar.addWidget(self.btn_close)
-
-        self.btn_normal = QPushButton(u"▶️ 强行以正常模式进入")
-        self.btn_normal.setFocusPolicy(Qt.NoFocus)
-        self.btn_normal.hide()
-        self.btn_normal.setCursor(Qt.PointingHandCursor)
-        self.btn_normal.setStyleSheet("""
-            QPushButton {
-                color: #38BDF8; background: transparent; border: 1px solid #0284C7;
-                border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: bold; outline: none;
-            }
-            QPushButton:hover { background: #0284C7; color: #FFFFFF; }
-            QPushButton:focus { outline: none; }
-        """)
-        self.btn_normal.clicked.connect(self._on_normal_click)
-        bottom_bar.addWidget(self.btn_normal)
         
         self.btn_debug = QPushButton(u"🧪 切换为模拟调试模式")
         self.btn_debug.setFocusPolicy(Qt.NoFocus)
@@ -460,12 +445,7 @@ class LoginWindow(QDialog):
         if self.official_ok:
             QTimer.singleShot(400, self.accept)
         else:
-            self.btn_normal.show()
             self.btn_debug.show()
-
-    def _on_normal_click(self):
-        self.is_mock_mode = False
-        self.accept()
 
     def _on_debug_click(self):
         self.is_mock_mode = True
