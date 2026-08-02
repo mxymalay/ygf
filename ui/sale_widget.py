@@ -933,12 +933,19 @@ class SaleWidget(QWidget):
         self._update_price_display()
 
     def _show_toast(self, msg_text):
-        """显示一个自动消失的提示框"""
-        from PyQt5.QtWidgets import QLabel, QGraphicsOpacityEffect
+        """显示一个自动消失的提示框（使用系统级 WindowOpacity 保证丝滑动画）"""
+        from PyQt5.QtWidgets import QLabel, QWidget, QVBoxLayout
         from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
         
-        toast = QLabel(msg_text, self)
-        toast.setStyleSheet("""
+        toast = QWidget(self.window())  # 必须挂在主窗口上，且设为 top-level
+        toast.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
+        toast.setAttribute(Qt.WA_TranslucentBackground)
+        
+        layout = QVBoxLayout(toast)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        lbl = QLabel(msg_text)
+        lbl.setStyleSheet("""
             QLabel {
                 background-color: rgba(30, 41, 59, 0.95);
                 color: #34D399;
@@ -949,31 +956,45 @@ class SaleWidget(QWidget):
                 border: 2px solid #059669;
             }
         """)
-        toast.setAlignment(Qt.AlignCenter)
+        lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(lbl)
+        
         toast.adjustSize()
         
-        # 居中显示在当前 widget
-        x = (self.width() - toast.width()) // 2
-        y = (self.height() - toast.height()) // 2
-        toast.move(x, y - 50) # 稍微偏上一点
+        # 居中显示在主窗口中心偏上
+        main_win = self.window()
+        main_rect = main_win.geometry()
+        x = main_rect.x() + (main_rect.width() - toast.width()) // 2
+        y = main_rect.y() + (main_rect.height() - toast.height()) // 2 - 80
+        toast.move(x, y)
+        
+        # 初始透明度
+        toast.setWindowOpacity(0.0)
         toast.show()
-        toast.raise_()
 
-        effect = QGraphicsOpacityEffect(toast)
-        toast.setGraphicsEffect(effect)
+        # 淡入动画
+        anim_in = QPropertyAnimation(toast, b"windowOpacity")
+        anim_in.setDuration(300)
+        anim_in.setStartValue(0.0)
+        anim_in.setEndValue(1.0)
+        anim_in.setEasingCurve(QEasingCurve.OutCubic)
+        
+        # 淡出动画
+        anim_out = QPropertyAnimation(toast, b"windowOpacity")
+        anim_out.setDuration(500)
+        anim_out.setStartValue(1.0)
+        anim_out.setEndValue(0.0)
+        anim_out.setEasingCurve(QEasingCurve.InCubic)
 
-        anim = QPropertyAnimation(effect, b"opacity")
-        anim.setDuration(800)
-        anim.setStartValue(1.0)
-        anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.InCubic)
-
-        # 保留引用防止被提前回收
-        toast._anim = anim
+        # 保留引用
+        toast._anim_in = anim_in
+        toast._anim_out = anim_out
+        
+        anim_in.start()
 
         # 2秒后开始淡出
-        QTimer.singleShot(2000, anim.start)
-        anim.finished.connect(toast.deleteLater)
+        QTimer.singleShot(2000, anim_out.start)
+        anim_out.finished.connect(toast.deleteLater)
 
     def _on_menu_click(self, btn: MenuGridButton):
         """点击右侧菜单按钮"""
