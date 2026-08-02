@@ -609,7 +609,22 @@ class CheckoutDialog(QDialog):
 
         box.addLayout(btn_row)
 
+        # 启动后台高频侦测：自动侦测收钱吧【收款成功/支付成功】窗口
+        auto_check_timer = QTimer(confirm_dialog)
+        auto_check_timer.setInterval(300)
+
+        def _on_auto_detect_sqb():
+            from core.shouqianba_sender import check_shouqianba_payment_success
+            if check_shouqianba_payment_success():
+                auto_check_timer.stop()
+                print("[CheckoutDialog] 🎯 成功自动侦测到【收钱吧】支付成功窗口！无痛自动完成结账并打印出票！")
+                confirm_dialog.accept()
+
+        auto_check_timer.timeout.connect(_on_auto_detect_sqb)
+        auto_check_timer.start()
+
         res = confirm_dialog.exec_()
+        auto_check_timer.stop()
 
         # 还原底层高斯模糊
         self.inner_container.setGraphicsEffect(None)

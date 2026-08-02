@@ -141,6 +141,36 @@ def bring_shouqianba_to_front():
     return False
 
 
+def check_shouqianba_payment_success() -> bool:
+    """自动检测【收钱吧】PC插件是否弹出了“收款成功/支付成功/交易成功”等结果窗口"""
+    import sys
+    if sys.platform != "win32":
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        found_success = [False]
+
+        def foreach_window(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buf = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buf, length + 1)
+                    title = buf.value
+                    # 匹配收钱吧成功窗口或提示关键字
+                    if any(kw in title for kw in ["收款成功", "支付成功", "交易成功", "收钱吧到账"]):
+                        found_success[0] = True
+                        return False
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
+        return found_success[0]
+    except Exception as e:
+        logger.warning(f"检测收钱吧成功窗口异常: {e}")
+        return False
+
+
 def _do_send_amount(amount: float, config: dict):
     """后台子线程多通道推送逻辑"""
     enabled = config.get("shouqianba_enabled", True)
