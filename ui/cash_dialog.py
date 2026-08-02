@@ -99,7 +99,7 @@ class CashCalculatorDialog(QDialog):
         lbl_zl_t = QLabel(u"找零金额：")
         lbl_zl_t.setStyleSheet("font-size: 18px; color: #94A3B8; border: none;")
         self.lbl_zl = QLabel(f"￥0.00")
-        self.lbl_zl.setStyleSheet("font-size: 28px; font-weight: bold; color: #F59E0B; border: none;")
+        self.lbl_zl.setStyleSheet("font-size: 56px; font-weight: 900; color: #F59E0B; border: none;")
         row_zl.addWidget(lbl_zl_t)
         row_zl.addStretch()
         row_zl.addWidget(self.lbl_zl)
@@ -187,10 +187,10 @@ class CashCalculatorDialog(QDialog):
         change = val - self.total_amount
         if change < 0:
             self.lbl_zl.setText(f"￥0.00")
-            self.lbl_zl.setStyleSheet("font-size: 28px; font-weight: bold; color: #94A3B8; border: none;")
+            self.lbl_zl.setStyleSheet("font-size: 56px; font-weight: 900; color: #94A3B8; border: none;")
         else:
             self.lbl_zl.setText(f"￥{change:.2f}")
-            self.lbl_zl.setStyleSheet("font-size: 28px; font-weight: bold; color: #F59E0B; border: none;")
+            self.lbl_zl.setStyleSheet("font-size: 56px; font-weight: 900; color: #F59E0B; border: none;")
 
     def _on_confirm(self):
         val = 0.0
