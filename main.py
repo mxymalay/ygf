@@ -22,7 +22,8 @@ def main():
     config = load_config()
 
     # 首次运行时保存默认配置
-    if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "settings.json")):
+    from config import CONFIG_FILE
+    if not os.path.exists(CONFIG_FILE):
         save_config(config)
 
     # 启动时自动清理超过 3 天的旧日志

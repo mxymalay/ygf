@@ -24,8 +24,14 @@ CAT_SYSTEM   = "SYSTEM"     # 系统启动/关闭/配置变更等
 
 ALL_CATEGORIES = [CAT_ORDER, CAT_USER, CAT_SCALE, CAT_PRINT, CAT_DECISION, CAT_SWITCH, CAT_PANIC, CAT_SYSTEM]
 
-# 日志文件路径
-_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+import sys
+
+# 动态获取 DATA_DIR (兼容 PyInstaller 封包)
+if getattr(sys, 'frozen', False):
+    _BASE_DIR = os.path.dirname(sys.executable)
+else:
+    _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_LOG_DIR = os.path.join(_BASE_DIR, "data")
 _LOG_FILE = os.path.join(_LOG_DIR, "app_events.jsonl")
 _LOCK = threading.Lock()
 _RETENTION_DAYS = 3
