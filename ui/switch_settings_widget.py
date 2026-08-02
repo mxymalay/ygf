@@ -129,6 +129,7 @@ class SwitchSettingsWidget(QWidget):
         # 核心滚动区
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("""
             QScrollArea { border: none; background: transparent; }
             QScrollBar:vertical {
@@ -179,6 +180,7 @@ class SwitchSettingsWidget(QWidget):
         
         lbl_w_tip = QLabel(u"场景说明：低于该重量的一律判定为小单/加菜，自动分配给官方收银机。")
         lbl_w_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_w_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_w_tip)
         form_vlayout.addWidget(grp1)
 
@@ -192,18 +194,21 @@ class SwitchSettingsWidget(QWidget):
         lay2.addRow(QLabel(u"官方界面连单保护:"), self.sp_official_lock)
         lbl_o_tip = QLabel(u"场景说明：一单刚分配给官方，此时间内就算来了大单也继续走官方，防止弹窗打断店员。")
         lbl_o_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_o_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_o_tip)
 
         self.sp_zeroing_unlock = TouchSpinBox(5, 1, 60, 1, " 秒")
         lay2.addRow(QLabel(u"称重归零离场解锁:"), self.sp_zeroing_unlock)
         lbl_z_tip = QLabel(u"场景说明：顾客端走碗，秤归零保持该时长后，自动解除上述连单保护，重新开始评判。")
         lbl_z_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_z_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_z_tip)
 
         self.sp_private_lock = TouchSpinBox(300, 10, 3600, 10, " 秒")
         lay2.addRow(QLabel(u"私域死单超时清理:"), self.sp_private_lock)
         lbl_p_tip = QLabel(u"场景说明：顾客不要了/忘记结账导致购物车一直有菜，超时后自动清空释放锁。")
         lbl_p_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_p_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_p_tip)
         form_vlayout.addWidget(grp2)
 
@@ -223,6 +228,7 @@ class SwitchSettingsWidget(QWidget):
         lay3.addRow(QLabel(u"悬浮球手动强锁定:"), self.sp_manual_override_lock)
         lbl_m_tip = QLabel(u"场景说明：只要店员手点悬浮球切屏，该时长内算法绝对静默，100% 尊重人工。")
         lbl_m_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_m_tip.setWordWrap(True)
         lay3.addRow(QLabel(), lbl_m_tip)
         form_vlayout.addWidget(grp3)
 
