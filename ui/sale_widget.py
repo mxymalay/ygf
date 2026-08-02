@@ -90,14 +90,23 @@ class TasteSelectionDialog(QDialog):
         self.pref_btns = {}
         pref_box = QHBoxLayout()
         pref_box.setSpacing(8)
-        for p in [u"免蒜", u"免醋"]:
+        for p in [u"免蒜", u"免醋", u"打包"]:
             btn = QPushButton(p)
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(
-                f"QPushButton {{ background: {btn_bg}; color: {btn_fg}; border: 1px solid {btn_border}; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }}"
-                "QPushButton:checked { background: #059669; color: white; border: 1px solid #10B981; }"
-            )
+            
+            if p == u"打包":
+                # 打包按钮特别高亮颜色
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: {btn_bg}; color: {btn_fg}; border: 1px solid {btn_border}; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }}"
+                    "QPushButton:checked { background: #EAB308; color: #713F12; border: 1px solid #CA8A04; }"
+                )
+            else:
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: {btn_bg}; color: {btn_fg}; border: 1px solid {btn_border}; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: 14px; }}"
+                    "QPushButton:checked { background: #059669; color: white; border: 1px solid #10B981; }"
+                )
+                
             btn.clicked.connect(lambda checked, val=p: self._toggle_pref(val))
             pref_box.addWidget(btn)
             self.pref_btns[p] = btn
@@ -1049,7 +1058,39 @@ class SaleWidget(QWidget):
 
             # 2. 实时响应辣度/避忌按钮，点击即刻刷新卡片标签
             def update_flavor(new_tag):
+                old_tag = item_entry.get("tag", "")
                 item_entry["tag"] = new_tag
+                
+                # Check if "打包" state changed
+                old_tags = [p.strip() for p in old_tag.split("/") if p.strip()]
+                new_tags = [p.strip() for p in new_tag.split("/") if p.strip()]
+                
+                was_takeout = "打包" in old_tags
+                is_takeout = "打包" in new_tags
+                
+                if is_takeout and not was_takeout:
+                    # 自动增加一个打包盒
+                    box_btn = self.menu_buttons.get("item_box")
+                    if box_btn:
+                        # 用QTimer延迟添加，避免递归问题或界面卡死
+                        from PyQt5.QtCore import QTimer
+                        QTimer.singleShot(0, lambda: self._on_menu_click(box_btn))
+                elif was_takeout and not is_takeout:
+                    # 自动删减一个打包盒
+                    for i in range(len(self.cart_items)-1, -1, -1):
+                        box_item = self.cart_items[i]
+                        if box_item.get("key_id") == "item_box":
+                            qty = box_item.get("qty", 1)
+                            if qty > 1:
+                                box_item["qty"] = qty - 1
+                                box_item["price"] = box_item["base_price"] * box_item["qty"] * box_item.get("discount_rate", 1.0)
+                            else:
+                                self.cart_items.pop(i)
+                                if "item_box" in self.menu_buttons:
+                                    btn_box = self.menu_buttons["item_box"]
+                                    btn_box.set_count(max(0, btn_box.count - 1))
+                            break
+
                 self._auto_focus_requested = True
                 self._update_price_display()
 
