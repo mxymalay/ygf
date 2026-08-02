@@ -287,9 +287,13 @@ class CheckoutDialog(QDialog):
             lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
             right_layout.addWidget(lbl_title)
 
-            lbl_sub = QLabel(u"请选择手持 POS 刷卡或二维码主扫/被扫通道")
+            lbl_sub = QLabel(u"⚠️ 点击下方按钮，即刻出票")
             lbl_sub.setAlignment(Qt.AlignCenter)
-            lbl_sub.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none;")
+            lbl_sub.setStyleSheet(
+                "background: rgba(245, 158, 11, 0.15); color: #F59E0B; "
+                "font-size: 15px; font-weight: 900; padding: 8px 16px; "
+                "border-radius: 8px; border: 1px solid #D97706;"
+            )
             right_layout.addWidget(lbl_sub)
 
             grid_layout = QVBoxLayout()
