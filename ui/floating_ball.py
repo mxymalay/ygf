@@ -64,6 +64,11 @@ class FloatingBall(QWidget):
         self._countdown_total_ms = 3000.0
         self._countdown_start_time = 0.0
 
+        # 定时刷新界面以确保暂停图标能按时消失 (1Hz)
+        self._state_refresh_timer = QTimer(self)
+        self._state_refresh_timer.timeout.connect(self.update)
+        self._state_refresh_timer.start(1000)
+
         # 决策通过的对钩指示符
         self._show_checkmark = False
         self._checkmark_timer = QTimer(self)
@@ -157,22 +162,35 @@ class FloatingBall(QWidget):
         font_title = QFont("Microsoft YaHei", 9, QFont.Bold)
         painter.setFont(font_title)
         painter.setPen(QColor(255, 255, 255))
-        rect_title = QRect(6, 5, 82, 20)
+        rect_title = QRect(6, 5, 82, 40) # 扩大标题矩形，使其完全居中
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        sub_text = u"长按或连点可退出"
-        font_sub = QFont("Microsoft YaHei", 7, QFont.Normal)
-        font_sub.setPixelSize(10)
-        painter.setFont(font_sub)
-        painter.setPen(QColor(229, 231, 235, 220))
-        rect_sub = QRect(0, 26, 88, 18)
-        painter.drawText(rect_sub, Qt.AlignCenter, sub_text)
+        # 7. 右下角状态指示 (决策成功动态对钩 / 人工干预暂停图标)
+        is_paused = False
+        if hasattr(self.main_window, 'switch_controller') and self.main_window.switch_controller:
+            sc = self.main_window.switch_controller
+            is_paused = (not sc._auto_switch_enabled) or (time.time() < sc._manual_override_until)
 
-        # 7. 右下角动态对钩 (决策成功指示)
-        if self._show_checkmark:
-            painter.setPen(QPen(QColor(34, 197, 94), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)) # 亮绿色对钩
+        if is_paused:
+            # 绘制暂停图标 (两条垂直白线)
+            painter.setPen(QPen(QColor(0, 0, 0, 100), 3.0, Qt.SolidLine, Qt.RoundCap)) # 阴影
+            painter.drawLine(72, 30, 72, 36)
+            painter.drawLine(77, 30, 77, 36)
+            
+            painter.setPen(QPen(QColor(255, 255, 255), 2.5, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(71, 29, 71, 35)
+            painter.drawLine(76, 29, 76, 35)
+        elif self._show_checkmark:
+            # 绘制决策通过的高亮对钩 (带黑色阴影增强对比度)
+            path_shadow = QPainterPath()
+            path_shadow.moveTo(69, 35)
+            path_shadow.lineTo(73, 39)
+            path_shadow.lineTo(80, 29)
+            painter.setPen(QPen(QColor(0, 0, 0, 100), 3.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawPath(path_shadow)
+
+            painter.setPen(QPen(QColor(253, 224, 71), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)) # 亮黄色对钩
             path = QPainterPath()
-            # 绘制对钩在胶囊的右下角，坐标大致在 (72, 30) 区域
             path.moveTo(68, 34)
             path.lineTo(72, 38)
             path.lineTo(79, 28)
