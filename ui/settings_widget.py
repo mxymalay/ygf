@@ -838,14 +838,6 @@ class SettingsWidget(QWidget):
                 if self.cmb_scale_port.itemText(i).startswith(cur):
                     self.cmb_scale_port.setCurrentIndex(i)
                     break
-        if hasattr(self, 'lbl_scale_hint'):
-            if active_ports:
-                self.lbl_scale_hint.setText(u"扫描完成！检测到活跃端口: %s" % ", ".join(active_ports))
-                self.lbl_scale_hint.setStyleSheet("color: #34D399; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
-            else:
-                self.lbl_scale_hint.setText(u"扫描完成，未检测到任何活跃的COM端口。已列出默认COM1-COM12。")
-                self.lbl_scale_hint.setStyleSheet("color: #FBBF24; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
-
         if show_toast:
             from ui.custom_dialog import show_info
             if active_ports:
