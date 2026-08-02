@@ -141,8 +141,25 @@ def bring_shouqianba_to_front():
     return False
 
 
+# 初始化全局 RapidOCR 算法引擎 (单例只加载一次，15ms 超高速文字识别)
+_rapid_ocr_engine = None
+
+def _get_ocr_engine():
+    global _rapid_ocr_engine
+    if _rapid_ocr_engine is None:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            _rapid_ocr_engine = RapidOCR()
+            logger.info("成功初始化 RapidOCR 高效本地文字识别引擎！")
+            print("[OCR引擎] 成功载入 RapidOCR 本地高精文字识别引擎！")
+        except Exception as e:
+            logger.warning(f"本地未加载 RapidOCR 引擎 ({e})，降级使用视觉色彩分析。")
+            _rapid_ocr_engine = False
+    return _rapid_ocr_engine if _rapid_ocr_engine else None
+
+
 def _analyze_sqb_window_image_success(hwnd) -> bool:
-    """视觉色彩图像深度分析：精准判别收钱吧 V4.0.4 成功绿顶/失败红顶/支付中状态"""
+    """双模式视觉+OCR深度分析：优先使用 RapidOCR 识别真实文本，辅以色彩采样"""
     try:
         from PyQt5.QtWidgets import QApplication
         app = QApplication.instance()
@@ -160,7 +177,38 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
         w = qimg.width()
         h = qimg.height()
 
-        # 1. 采样顶部 25% 区域背景颜色 (Header Region)
+        # ----------------------------------------------------
+        # 模式 A：使用 RapidOCR 高速提取图像中打印的所有真实中文字符
+        # ----------------------------------------------------
+        ocr_engine = _get_ocr_engine()
+        if ocr_engine:
+            try:
+                import numpy as np
+                qimg_rgb = qimg.convertToFormat(4) # QImage.Format_RGB888
+                ptr = qimg_rgb.bits()
+                ptr.setsize(h * w * 3)
+                img_np = np.frombuffer(ptr, np.uint8).reshape((h, w, 3))
+
+                result, _ = ocr_engine(img_np)
+                if result:
+                    all_ocr_text = "".join([line[1] for line in result])
+                    
+                    # 1. 严格过滤失败/等待状态
+                    fail_keywords = ["支付失败", "交易失败", "支付中", "输入密码", "倒计时", "EP99"]
+                    if any(fk in all_ocr_text for fk in fail_keywords):
+                        return False
+                    
+                    # 2. 精准匹配成功标志文字 (收钱吧 V4.0.4 出现的“支付成功”、“打印小票”)
+                    success_keywords = ["支付成功", "收款成功", "交易成功", "打印小票", "收钱吧到账"]
+                    if any(sk in all_ocr_text for sk in success_keywords):
+                        print(f"[OCR识别] 🎯 成功从收钱吧弹窗识别到关键文字: '{all_ocr_text}'！判定支付成功！")
+                        return True
+            except Exception as e:
+                logger.warning(f"RapidOCR 提取文本异常: {e}")
+
+        # ----------------------------------------------------
+        # 模式 B：色彩采样引擎 (兜底降级方案)
+        # ----------------------------------------------------
         header_h = int(h * 0.25)
         green_count = 0
         red_count = 0
@@ -182,13 +230,10 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
         green_ratio = green_count / total_samples
         red_ratio = red_count / total_samples
 
-        # 如果顶部是红色 (截图2 支付失败)，肯定不是成功
         if red_ratio > 0.35:
             return False
 
-        # 如果顶部是绿色 (截图1 支付成功 或 截图3 支付中)
         if green_ratio > 0.35:
-            # 2. 进一步采样底部 35% 区域，检测是否有绿色“打印小票”按钮 (截图1 专有特征)
             button_y_start = int(h * 0.65)
             button_green_count = 0
             button_samples = 0
@@ -203,11 +248,11 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
             if button_samples > 0:
                 btn_ratio = button_green_count / button_samples
                 if btn_ratio > 0.05:
-                    print(f"[视觉算法] 🎯 精准命中收钱吧 V4.0.4【绿色顶部 + 绿色打印小票按钮】(比例 {btn_ratio:.2f})！判定支付成功！")
+                    print(f"[视觉色彩] 🎯 命中收钱吧【绿顶 + 绿色打印小票按钮】(比例 {btn_ratio:.2f})！判定支付成功！")
                     return True
 
     except Exception as e:
-        logger.warning(f"视觉分析收钱吧窗口异常: {e}")
+        logger.warning(f"深度分析收钱吧窗口异常: {e}")
     return False
 
 
