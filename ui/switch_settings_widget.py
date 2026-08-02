@@ -292,8 +292,6 @@ class SwitchSettingsWidget(QWidget):
         filtered = [L for L in all_logs if L.get("cat") in (CAT_DECISION, CAT_SWITCH, CAT_PANIC)]
         # 取最近 40 条展示
         filtered = filtered[:40]
-        # 由于日志是按时间倒序（最新的在最前），我们反转一下，让最新的在底部
-        filtered.reverse()
 
         html = ""
         for entry in filtered:
@@ -315,14 +313,7 @@ class SwitchSettingsWidget(QWidget):
                 html += f"<span style='color: #94A3B8; font-size: 12px;'> - {detail}</span>"
             html += f"</div>"
 
-        # 记住滚动条位置
-        scrollbar = self.txt_logs.verticalScrollBar()
-        is_at_bottom = scrollbar.value() == scrollbar.maximum()
-
         self.txt_logs.setHtml(html)
-
-        if is_at_bottom:
-            scrollbar.setValue(scrollbar.maximum())
 
     def _load_config(self):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
