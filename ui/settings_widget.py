@@ -934,18 +934,10 @@ class SettingsWidget(QWidget):
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=1.5
+                timeout=0.8
             )
-            # 激活 DTR / RTS 引脚 (迪宝/顶尖等电子秤硬件唤起必选)
             ser.dtr = True
             ser.rts = True
-            # 发送唤醒与查询命令 (兼容迪宝 ACS-G315 及各类问答式电子秤)
-            try:
-                ser.write(b"W\r\n")
-                ser.write(b"R\r\n")
-                ser.write(b"\x05")
-            except Exception:
-                pass
         except Exception as e:
             show_error(
                 self, u"串口连接失败",
@@ -956,17 +948,28 @@ class SettingsWidget(QWidget):
             )
             return
 
-        # 尝试读取数据帧 1.5 秒
+        # 尝试读取数据帧 2 秒 (循环发送探针命令)
         try:
             start_t = time.time()
             received_data = ""
             weight_val = None
+            probe_cmds = [b"\x05", b"01\r\n", b"W\r\n", b"\x0201\x03", b"R\r\n"]
+            cmd_idx = 0
 
-            while time.time() - start_t < 1.5:
-                data = ser.read(64)
+            while time.time() - start_t < 2.0:
+                # 干净地发送单条探针命令
+                try:
+                    ser.write(probe_cmds[cmd_idx % len(probe_cmds)])
+                    ser.flush()
+                    cmd_idx += 1
+                except Exception:
+                    pass
+
+                time.sleep(0.15)
+                data = ser.read(128)
                 if data:
                     received_data += data.decode("ascii", errors="ignore")
-                    if "\r" in received_data or "\n" in received_data:
+                    if "\r" in received_data or "\n" in received_data or "[" in received_data:
                         lines = received_data.replace("\r\n", "\n").replace("\r", "\n").split("\n")
                         for line in lines:
                             line = line.strip()
@@ -974,6 +977,8 @@ class SettingsWidget(QWidget):
                                 from core.scale_reader import ScaleReader
                                 temp_reader = ScaleReader(self.config)
                                 w = temp_reader._parse_com_weight(line)
+                                if w is None:
+                                    w = temp_reader._parse_ygf_log_line(line)
                                 if w is not None:
                                     weight_val = w
                                     break
