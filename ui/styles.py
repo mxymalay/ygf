@@ -226,6 +226,19 @@ QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {{
     border: none;
 }}
 
+QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    width: 0px;
+    height: 0px;
+    border: none;
+    background: transparent;
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    width: 0px;
+    height: 0px;
+    border: none;
+    background: transparent;
+}}
+
 /* ─── 表格 ──────────────────────────────────── */
 QTableWidget {{
     background-color: {c['bg_card']};

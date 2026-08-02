@@ -249,10 +249,16 @@ class SettingsWidget(QWidget):
                 background-color: #0F172A;
             }
             QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
-                background-color: #1E293B; border: 1px solid #334155; border-radius: 3px; width: 24px;
+                width: 0px;
+                height: 0px;
+                border: none;
+                background: transparent;
             }
-            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
-                background-color: #334155;
+            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+                width: 0px;
+                height: 0px;
+                border: none;
+                background: transparent;
             }
         """)
 
