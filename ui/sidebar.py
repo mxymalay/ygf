@@ -20,14 +20,14 @@ class SideNavItem(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 8, 2, 8)
-        layout.setSpacing(2)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(1)
         layout.setAlignment(Qt.AlignCenter)
 
         # 上图标
         self.lbl_icon = QLabel(icon_text)
         self.lbl_icon.setAlignment(Qt.AlignCenter)
-        self.lbl_icon.setStyleSheet("font-size: 20px; background: transparent;")
+        self.lbl_icon.setStyleSheet("font-size: 18px; background: transparent;")
         layout.addWidget(self.lbl_icon)
 
         # 下文字 (紧凑排版)
@@ -35,12 +35,12 @@ class SideNavItem(QPushButton):
         self.lbl_text.setAlignment(Qt.AlignCenter)
         self.lbl_text.setWordWrap(True)
         self.lbl_text.setStyleSheet(
-            "font-size: 13px; font-weight: bold; color: #FFFFFF; background: transparent;"
+            "font-size: 12px; font-weight: bold; color: #FFFFFF; background: transparent;"
         )
         layout.addWidget(self.lbl_text)
 
         self.setLayout(layout)
-        self.setFixedHeight(72)
+        self.setFixedHeight(58)
 
 
 class SideNavBar(QWidget):
@@ -61,23 +61,24 @@ class SideNavBar(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
         layout.setAlignment(Qt.AlignTop)
 
         # 1. 顶端品牌标识 Badge
         brand_frame = QFrame()
-        brand_frame.setFixedHeight(64)
+        brand_frame.setFixedHeight(54)
         brand_frame.setStyleSheet("background: transparent;")
         bf_layout = QVBoxLayout(brand_frame)
         bf_layout.setAlignment(Qt.AlignCenter)
+        bf_layout.setContentsMargins(0, 4, 0, 4)
 
         lbl_logo = QLabel(u"🍜")
         lbl_logo.setAlignment(Qt.AlignCenter)
         lbl_logo.setStyleSheet(
-            "font-size: 22px; "
+            "font-size: 18px; "
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F97316, stop:1 #EA580C); "
-            "border-radius: 20px; min-width: 40px; max-width: 40px; "
-            "min-height: 40px; max-height: 40px; border: none;"
+            "border-radius: 17px; min-width: 34px; max-width: 34px; "
+            "min-height: 34px; max-height: 34px; border: none;"
         )
         bf_layout.addWidget(lbl_logo)
         layout.addWidget(brand_frame)
@@ -108,7 +109,7 @@ class SideNavBar(QWidget):
         self._items.append(item_report)
 
         # 将“叫号设置”与“系统设置”同上方按钮拉开适当间隙（不使用横线）
-        layout.addSpacing(16)
+        layout.addSpacing(6)
 
         # 3. 设置管理模块组
         # 3: 叫号设置
