@@ -642,8 +642,10 @@ class CheckoutDialog(QDialog):
             # 确认付款成功 → 执行结账出票
             self._complete_checkout(method)
         else:
-            # 支付失败/退回 → 直接关闭结账弹窗，退出到点菜界面
-            print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，直接退出至点菜界面。")
+            # 支付失败/退回 → 重置收钱吧金额，并直接关闭结账弹窗，退出到点菜界面
+            print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，已清空收钱吧金额并退出至点菜界面。")
+            from core.shouqianba_sender import clear_shouqianba_amount
+            clear_shouqianba_amount(self.config)
             self.reject()
 
     def _start_fly_animation(self):

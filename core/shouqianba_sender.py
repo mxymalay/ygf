@@ -185,8 +185,10 @@ def _do_send_amount(amount: float, config: dict):
     fmt = config.get("shouqianba_format", "QA")               # "QA" 或 "FLOAT"
 
     if fmt == "QA":
+        reset_payload = "QA0.00\r\n"
         payload = f"QA{amt_str}\r\n"
     else:
+        reset_payload = "0.00\r\n"
         payload = f"{amt_str}\r\n"
 
     try:
@@ -201,9 +203,15 @@ def _do_send_amount(amount: float, config: dict):
         ser.open()
         ser.dtr = True
         ser.rts = True
+        
+        # 先发一次 0.00 重置包，强行抹除上一次扫码枪误扫入金额栏的长数字/残留金额
+        ser.write(reset_payload.encode("ascii"))
+        time.sleep(0.08)
+        
+        # 再发真实金额包，确保收钱吧 100% 触发金额变动事件
         ser.write(payload.encode("ascii"))
-        logger.info(f"成功向收钱吧串口 {port} 发送金额: {payload.strip()}")
-        print(f"[收钱吧串口 Success] 已成功向 {port} (波特率 {baudrate}) 发送数据: {payload.strip()}")
+        logger.info(f"成功向收钱吧串口 {port} 发送重置与金额: {payload.strip()}")
+        print(f"[收钱吧串口 Success] 已冲刷重置并向 {port} 发送金额: {payload.strip()}")
         ser.close()
     except Exception as e:
         logger.warning(f"推送金额到收钱吧串口 {port} 提示: {e}")
@@ -232,6 +240,11 @@ def send_shouqianba_amount(amount: float, config: dict):
     """
     t = threading.Thread(target=_do_send_amount, args=(amount, config), daemon=True)
     t.start()
+
+
+def clear_shouqianba_amount(config: dict):
+    """取消/退出时清空收钱吧插件金额框 (发送 0.00 重置包)"""
+    send_shouqianba_amount(0.00, config)
 
 
 def test_shouqianba_port(config: dict):
