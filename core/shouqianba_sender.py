@@ -50,14 +50,16 @@ def send_hotkey(hotkey_str: str):
 
         # 按下所有组合键
         for vk in vk_codes:
-            user32.keybd_event(vk, 0, 0, 0)
+            scan_code = user32.MapVirtualKeyW(vk, 0)
+            user32.keybd_event(vk, scan_code, 0, 0)
             time.sleep(0.02)
 
         time.sleep(0.05)
 
         # 逆序释放键
         for vk in reversed(vk_codes):
-            user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+            scan_code = user32.MapVirtualKeyW(vk, 0)
+            user32.keybd_event(vk, scan_code, KEYEVENTF_KEYUP, 0)
             time.sleep(0.02)
 
         print(f"[快捷键唤起] 成功模拟发送收钱吧快捷键: {hotkey_str}")
@@ -189,13 +191,9 @@ def _do_send_amount(amount: float, config: dict):
     bring_shouqianba_to_front()
     
     # 4. 解决 USB标准模式 下扫码枪误扫入金额栏的问题
-    # 置顶后延迟0.3秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
-    time.sleep(0.3)
-    try:
-        keyboard.send('tab')
-        print("[快捷键唤起] 成功使用 keyboard 模块触发 TAB")
-    except Exception:
-        send_hotkey("TAB")
+    # 置顶后延迟0.6秒(等收钱吧界面彻底渲染完毕再敲TAB)，强行让光标从“金额栏”跳跃到“扫码栏”
+    time.sleep(0.6)
+    send_hotkey("TAB")
 
 
 def send_shouqianba_amount(amount: float, config: dict):
@@ -275,10 +273,7 @@ def _barcode_checker_loop():
         if len(_barcode_buffer) >= 10 and (now - _last_key_time) > 0.1:
             logger.info(f"[扫码补偿] 检测到支付宝碰一碰极速输入({len(_barcode_buffer)}位): {_barcode_buffer}，自动补充 Enter")
             _barcode_buffer = ""  # 清空防止重复触发
-            try:
-                keyboard.send('enter')
-            except Exception:
-                send_hotkey("ENTER")
+            send_hotkey("ENTER")
 
 try:
     keyboard.on_press(_global_key_listener)
