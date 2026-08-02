@@ -397,12 +397,10 @@ class TouchItemDelegate(QStyledItemDelegate):
         size.setHeight(max(size.height(), self._item_height))
         return size
 
-def apply_touch_combo_style(combo, item_height=56):
-    """为 QComboBox 强行应用触屏优化
+def apply_touch_combo_style(combo, item_height=52):
+    """为 QComboBox 强行应用触屏与下拉列表美化
     
-    经测试: CSS min-height 在 Windows Qt 下无效,
-    只有自定义 delegate 的 sizeHint 才能控制选项高度。
-    注意顺序: stylesheet → view → delegate, 防止 Qt 重置。
+    解决下拉菜单选项文字靠边/顶格问题，增加内边距与 Hover 亮色反馈
     """
     if not combo:
         return
@@ -412,22 +410,44 @@ def apply_touch_combo_style(combo, item_height=56):
     combo.setStyleSheet("""
         QComboBox {
             background-color: #0F172A; color: #F8FAFC;
-            border: 1px solid #334155; border-radius: 6px;
-            padding: 6px 10px; font-size: 14px;
+            border: 1px solid #334155; border-radius: 8px;
+            padding: 8px 16px; font-size: 14px; font-weight: 500;
         }
-        QComboBox:focus { border: 1px solid #38BDF8; }
-        QComboBox::drop-down { border: none; width: 24px; }
+        QComboBox:focus { border: 2px solid #38BDF8; background-color: #0F172A; }
+        QComboBox::drop-down { border: none; width: 32px; }
+        QComboBox QAbstractItemView {
+            background-color: #1E293B;
+            color: #F8FAFC;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 6px;
+            outline: none;
+        }
     """)
 
-    # 2. 创建 view, 把 delegate 设在 view 上（不是 combo 上）
+    # 2. 创建 view, 把 delegate 设在 view 上
     delegate = TouchItemDelegate(height=item_height, parent=combo)
     view = QListView()
     view.setItemDelegate(delegate)
     view.setStyleSheet("""
         QListView {
-            background-color: #1E293B; color: #F8FAFC;
-            selection-background-color: #38BDF8;
-            outline: none; border: 1px solid #334155;
+            background-color: #1E293B;
+            color: #F8FAFC;
+            outline: none;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 6px;
+        }
+        QListView::item {
+            padding: 10px 16px;
+            margin: 2px 4px;
+            border-radius: 6px;
+            min-height: 34px;
+        }
+        QListView::item:hover, QListView::item:selected {
+            background-color: #38BDF8;
+            color: #0F172A;
+            font-weight: bold;
         }
     """)
 
