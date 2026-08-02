@@ -15,6 +15,7 @@ import logging
 import ctypes
 import time
 import keyboard
+import subprocess
 
 logger = logging.getLogger("ShouqianbaSender")
 
@@ -69,6 +70,59 @@ def _find_shouqianba_hwnd():
         return target_hwnd[0]
     except Exception:
         return None
+
+
+def _focus_payment_code_with_uia(hwnd) -> bool:
+    """使用 Windows UI Automation 聚焦收钱吧的付款码编辑框。
+
+    收钱吧 V4 会拦截普通窗口消息和模拟键盘事件。UI Automation 直接调用
+    编辑控件的 SetFocus，不依赖窗口坐标、屏幕缩放或 Tab 键处理。
+    """
+    if not hwnd:
+        return False
+
+    # 收款框有两个可见编辑框：金额在上、付款码在下。选纵向最靠下的一个。
+    # UIAutomationClient 是 Windows 7 自带 .NET 组件，无需安装额外 Python 包。
+    script = r'''
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+$hwnd = [System.IntPtr]__HWND__
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+if ($null -eq $root) { exit 2 }
+$condition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Edit
+)
+$found = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+$visible = @()
+for ($i = 0; $i -lt $found.Count; $i++) {
+    $item = $found.Item($i)
+    if ($item.Current.IsEnabled -and -not $item.Current.IsOffscreen -and $item.Current.IsKeyboardFocusable) {
+        $visible += $item
+    }
+}
+if ($visible.Count -lt 2) { exit 3 }
+$paymentCode = $visible | Sort-Object { $_.Current.BoundingRectangle.Top } | Select-Object -Last 1
+$paymentCode.SetFocus()
+Write-Output 'PAYMENT_CODE_FOCUSED'
+'''.replace("__HWND__", str(int(hwnd)))
+
+    try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            creationflags=creationflags,
+        )
+        ok = result.returncode == 0 and "PAYMENT_CODE_FOCUSED" in result.stdout
+        if not ok:
+            logger.warning("UI Automation 未定位付款码框（退出码 %s）", result.returncode)
+        return ok
+    except Exception as e:
+        logger.warning(f"UI Automation 聚焦付款码框失败: {e}")
+        return False
 
 
 def send_hotkey(hotkey_str: str):
@@ -265,6 +319,11 @@ def focus_shouqianba_payment_code() -> bool:
         hwnd = _find_shouqianba_hwnd()
         if not hwnd:
             return False
+
+        if _focus_payment_code_with_uia(hwnd):
+            logger.info("已通过 UI Automation 聚焦收钱吧付款码输入框")
+            print("[收钱吧焦点] 已通过 UI Automation 聚焦付款码输入框")
+            return True
 
         user32 = ctypes.windll.user32
         rect = wintypes.RECT()

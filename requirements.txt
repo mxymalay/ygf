@@ -2,3 +2,4 @@ PyQt5>=5.15.0
 pyserial>=3.5
 pywin32>=300
 pyinstaller>=5.0
+keyboard>=0.13.5
