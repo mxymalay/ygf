@@ -253,7 +253,7 @@ class LoginWindow(QDialog):
         check_layout.addWidget(self.progress_bar)
 
         # 三项卡片
-        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方收银运行环境")
+        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  数据源 (官方或串口)")
         self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"🖨️  热敏小票打印机外设")
         self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"💳  收钱吧串口通信联动")
 
@@ -373,15 +373,30 @@ class LoginWindow(QDialog):
         
     def _do_check_official_software(self):
         self.progress_bar.setValue(35)
-        if check_ygf_official_running():
+        official_running = check_ygf_official_running()
+        
+        # 同时检测秤的串口连通性作为备用数据源
+        scale_ok = False
+        try:
+            import serial
+            port = self.config.get("scale_port", "COM2")
+            baudrate = self.config.get("scale_baudrate", 9600)
+            ser = serial.Serial(port, baudrate, timeout=0.2)
+            ser.close()
+            scale_ok = True
+        except Exception:
+            pass
+
+        if official_running or scale_ok:
             self.official_ok = True
-            self.lbl_badge1.setText(u"✔ 运行正常")
+            msg = u"✔ OCR连通" if official_running else u"✔ 串口连通"
+            self.lbl_badge1.setText(msg)
             self.lbl_badge1.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             self.official_ok = False
-            self.lbl_badge1.setText(u"✖ 未运行")
+            self.lbl_badge1.setText(u"✖ 源断开")
             self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
-            self.hardware_warnings.append("官方收银软件未运行")
+            self.hardware_warnings.append("官方收银未运行且称重串口断开")
             
         QTimer.singleShot(250, self._check_printer)
 
