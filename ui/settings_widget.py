@@ -23,10 +23,10 @@ class HotKeyRecorderEdit(QLineEdit):
             QLineEdit {
                 background-color: #0F172A;
                 color: #38BDF8;
-                border: 2px solid #334155;
+                border: 1px solid #334155;
                 border-radius: 10px;
-                padding: 10px 14px;
-                font-size: 15px;
+                padding: 10px 16px;
+                font-size: 14px;
                 font-weight: bold;
             }
             QLineEdit:focus {
@@ -83,6 +83,13 @@ class SettingsWidget(QWidget):
         self.nav_buttons = []
         self._build_ui()
 
+    def _make_label(self, text):
+        """统一生成右对齐、无黑框颜色的优雅 Label"""
+        lbl = QLabel(text)
+        lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl.setStyleSheet("color: #94A3B8; font-size: 14px; font-weight: 600; background: transparent; padding-right: 4px;")
+        return lbl
+
     def _style_save_btn(self, btn):
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet("""
@@ -91,7 +98,7 @@ class SettingsWidget(QWidget):
                 color: #FFFFFF;
                 font-size: 15px;
                 font-weight: bold;
-                padding: 10px 24px;
+                padding: 12px 28px;
                 border-radius: 10px;
                 border: none;
             }
@@ -116,15 +123,15 @@ class SettingsWidget(QWidget):
         card.setObjectName("SettingCard")
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(28, 24, 28, 28)
-        card_layout.setSpacing(20)
+        card_layout.setContentsMargins(32, 28, 32, 32)
+        card_layout.setSpacing(24)
 
         # 头部标题
         header_box = QVBoxLayout()
-        header_box.setSpacing(4)
+        header_box.setSpacing(6)
         
         lbl_head = QLabel(f"{title_icon} {title_text}")
-        lbl_head.setStyleSheet("font-size: 20px; font-weight: 900; color: #F8FAFC; border: none; background: transparent;")
+        lbl_head.setStyleSheet("font-size: 22px; font-weight: 900; color: #F8FAFC; border: none; background: transparent;")
         header_box.addWidget(lbl_head)
 
         if subtitle_text:
@@ -221,26 +228,28 @@ class SettingsWidget(QWidget):
         # ════════════════════════════════════════════════════════════
         self.stacked_widget = QStackedWidget()
         self.stacked_widget.setStyleSheet("""
-            QWidget {
+            QStackedWidget {
                 background-color: #0B1120;
             }
             QLabel {
                 color: #E2E8F0;
                 font-size: 14px;
+                background: transparent;
             }
             QLineEdit, QSpinBox, QDoubleSpinBox {
                 background-color: #0F172A;
                 color: #F8FAFC;
                 border: 1px solid #334155;
-                border-radius: 8px;
-                padding: 8px 12px;
+                border-radius: 10px;
+                padding: 10px 16px;
                 font-size: 14px;
             }
             QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
                 border: 2px solid #38BDF8;
+                background-color: #0F172A;
             }
             QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
-                background-color: #1E293B; border: 1px solid #334155; border-radius: 3px; width: 22px;
+                background-color: #1E293B; border: 1px solid #334155; border-radius: 3px; width: 24px;
             }
             QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
                 background-color: #334155;
@@ -280,8 +289,9 @@ class SettingsWidget(QWidget):
         scroll.setStyleSheet("QScrollArea { border: none; background: #0B1120; }")
         
         wrapper = QWidget()
+        wrapper.setStyleSheet("background: transparent;")
         wrapper_layout = QVBoxLayout(wrapper)
-        wrapper_layout.setContentsMargins(30, 30, 30, 30)
+        wrapper_layout.setContentsMargins(40, 36, 40, 36)
         wrapper_layout.addWidget(card_widget)
         wrapper_layout.addStretch()
 
@@ -296,9 +306,11 @@ class SettingsWidget(QWidget):
             u"⚖️", u"称重数据源设置", u"配置硬件电子秤接口或官方收银系统串口日志抓取"
         )
         grid = QGridLayout()
-        grid.setSpacing(16)
+        grid.setSpacing(18)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
 
-        grid.addWidget(QLabel(u"数据来源："), 0, 0)
+        grid.addWidget(self._make_label(u"数据来源："), 0, 0)
         self.cmb_scale_source = QComboBox()
         self.cmb_scale_source.addItems([
             u"official - 官方收银系统 (OCR读取日志)",
@@ -311,7 +323,7 @@ class SettingsWidget(QWidget):
         grid.addWidget(self.cmb_scale_source, 0, 1, 1, 2)
 
         # COM口配置 (仅串口模式可见)
-        self.lbl_scale_port = QLabel(u"秤串口 (COM)：")
+        self.lbl_scale_port = self._make_label(u"秤串口 (COM)：")
         grid.addWidget(self.lbl_scale_port, 1, 0)
         self.cmb_scale_port = QComboBox()
         self.cmb_scale_port.setEditable(True)
@@ -321,13 +333,13 @@ class SettingsWidget(QWidget):
         self.btn_refresh_scale_ports = QPushButton(u"🔄 扫描COM口")
         self.btn_refresh_scale_ports.setCursor(Qt.PointingHandCursor)
         self.btn_refresh_scale_ports.setStyleSheet("""
-            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 8px 16px; font-weight: bold; }
+            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
             QPushButton:hover { background: #38BDF8; color: #0F172A; }
         """)
         self.btn_refresh_scale_ports.clicked.connect(self._refresh_scale_com_ports)
         grid.addWidget(self.btn_refresh_scale_ports, 1, 2)
 
-        self.lbl_scale_baud = QLabel(u"波特率：")
+        self.lbl_scale_baud = self._make_label(u"波特率：")
         grid.addWidget(self.lbl_scale_baud, 2, 0)
         self.cmb_scale_baud = QComboBox()
         self.cmb_scale_baud.addItems(["2400", "4800", "9600", "19200", "38400", "115200"])
@@ -338,7 +350,7 @@ class SettingsWidget(QWidget):
         # 提示信息
         self.lbl_scale_hint = QLabel("")
         self.lbl_scale_hint.setWordWrap(True)
-        self.lbl_scale_hint.setStyleSheet("color: #94A3B8; font-size: 13px; padding: 6px; background: #0F172A; border-radius: 8px;")
+        self.lbl_scale_hint.setStyleSheet("color: #94A3B8; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
         grid.addWidget(self.lbl_scale_hint, 3, 0, 1, 3)
 
         layout.addLayout(grid)
@@ -361,9 +373,11 @@ class SettingsWidget(QWidget):
             u"🖨️", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
         )
         grid = QGridLayout()
-        grid.setSpacing(16)
+        grid.setSpacing(18)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
 
-        grid.addWidget(QLabel(u"打印方式："), 0, 0)
+        grid.addWidget(self._make_label(u"打印方式："), 0, 0)
         self.cmb_printer_type = QComboBox()
         self.cmb_printer_type.addItems([
             "windows - Windows 驱动打印",
@@ -377,7 +391,7 @@ class SettingsWidget(QWidget):
                 break
         grid.addWidget(self.cmb_printer_type, 0, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"打印机名称："), 1, 0)
+        grid.addWidget(self._make_label(u"打印机名称："), 1, 0)
         self.cmb_printer_name = QComboBox()
         self.cmb_printer_name.setEditable(True)
         self._refresh_printers()
@@ -386,17 +400,17 @@ class SettingsWidget(QWidget):
         btn_rp = QPushButton(u"🔄 刷新打印机")
         btn_rp.setCursor(Qt.PointingHandCursor)
         btn_rp.setStyleSheet("""
-            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 8px 16px; font-weight: bold; }
+            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
             QPushButton:hover { background: #38BDF8; color: #0F172A; }
         """)
         btn_rp.clicked.connect(self._refresh_printers)
         grid.addWidget(btn_rp, 1, 2)
 
-        grid.addWidget(QLabel(u"网络 IP："), 2, 0)
+        grid.addWidget(self._make_label(u"网络 IP："), 2, 0)
         self.txt_ip = QLineEdit(self.config.get("printer_ip", "192.168.1.100"))
         grid.addWidget(self.txt_ip, 2, 1)
 
-        grid.addWidget(QLabel(u"端口："), 2, 2)
+        grid.addWidget(self._make_label(u"端口："), 2, 2)
         self.spin_net_port = QSpinBox()
         self.spin_net_port.setRange(1, 65535)
         self.spin_net_port.setValue(self.config.get("printer_port", 9100))
@@ -419,23 +433,25 @@ class SettingsWidget(QWidget):
             u"🏪", u"店铺与计价设置", u"设置小票头部标题、分店名称、单价与计价单位"
         )
         grid = QGridLayout()
-        grid.setSpacing(16)
+        grid.setSpacing(18)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
 
-        grid.addWidget(QLabel(u"店名："), 0, 0)
+        grid.addWidget(self._make_label(u"店名："), 0, 0)
         self.txt_shop = QLineEdit(self.config.get("shop_name", u"杨国福麻辣烫"))
         grid.addWidget(self.txt_shop, 0, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"分店名称："), 1, 0)
+        grid.addWidget(self._make_label(u"分店名称："), 1, 0)
         self.txt_sub = QLineEdit(self.config.get("shop_subtitle", u""))
         self.txt_sub.setPlaceholderText(u"例如：杨国福(肥西水晶城店)")
         grid.addWidget(self.txt_sub, 1, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"小票底部文字："), 2, 0)
+        grid.addWidget(self._make_label(u"小票底部文字："), 2, 0)
         self.txt_footer = QLineEdit(self.config.get("receipt_footer", u"谢谢惠顾！"))
         self.txt_footer.setPlaceholderText(u"例如：谢谢惠顾！")
         grid.addWidget(self.txt_footer, 2, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"计价方式："), 3, 0)
+        grid.addWidget(self._make_label(u"计价方式："), 3, 0)
         self.cmb_unit = QComboBox()
         self.cmb_unit.addItems(["per_jin - 按斤计价", "per_kg - 按公斤计价"])
         pu = self.config.get("price_unit", "per_jin")
@@ -445,14 +461,14 @@ class SettingsWidget(QWidget):
                 break
         grid.addWidget(self.cmb_unit, 3, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"标准汤底单价："), 4, 0)
+        grid.addWidget(self._make_label(u"标准汤底单价："), 4, 0)
         self.spin_default_price = QDoubleSpinBox()
         self.spin_default_price.setRange(0.01, 999.99)
         self.spin_default_price.setValue(self.config.get("unit_price", 47.60))
         self.spin_default_price.setDecimals(2)
         grid.addWidget(self.spin_default_price, 4, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"精品汤底单价："), 5, 0)
+        grid.addWidget(self._make_label(u"精品汤底单价："), 5, 0)
         self.spin_special_price = QDoubleSpinBox()
         self.spin_special_price.setRange(0.01, 999.99)
         self.spin_special_price.setValue(self.config.get("special_soup_price", 50.00))
@@ -476,16 +492,18 @@ class SettingsWidget(QWidget):
             u"⚙️", u"系统运行与触屏悬浮球", u"配置 Windows 开机自启、缓冲区延迟与桌面常驻悬浮球"
         )
         grid = QGridLayout()
-        grid.setSpacing(16)
+        grid.setSpacing(18)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
 
-        grid.addWidget(QLabel(u"开机自启动："), 0, 0)
+        grid.addWidget(self._make_label(u"开机自启动："), 0, 0)
         self.cmb_auto_start = QComboBox()
         self.cmb_auto_start.addItems([u"开启 - 随 Windows 启动并打开点餐系统", u"关闭 - 仅允许手动启动"])
         if not self.config.get("auto_start_enabled", True):
             self.cmb_auto_start.setCurrentIndex(1)
         grid.addWidget(self.cmb_auto_start, 0, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"自启缓冲延迟："), 1, 0)
+        grid.addWidget(self._make_label(u"自启缓冲延迟："), 1, 0)
         self.spin_auto_start_delay = QSpinBox()
         self.spin_auto_start_delay.setRange(0, 60)
         self.spin_auto_start_delay.setSuffix(u" 秒")
@@ -493,7 +511,7 @@ class SettingsWidget(QWidget):
         self.spin_auto_start_delay.setValue(self.config.get("auto_start_delay", 8))
         grid.addWidget(self.spin_auto_start_delay, 1, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"桌面常驻触屏悬浮球："), 2, 0)
+        grid.addWidget(self._make_label(u"桌面常驻触屏悬浮球："), 2, 0)
         self.cmb_floating_ball = QComboBox()
         self.cmb_floating_ball.addItems([u"开启 - 在屏幕边缘显示半透明触屏切换球", u"关闭 - 隐藏悬浮球"])
         if not self.config.get("floating_ball_enabled", True):
@@ -517,16 +535,18 @@ class SettingsWidget(QWidget):
             u"💵", u"收钱吧 PC收款助手", u"配置自动向收钱吧软件推送金额及呼起热键"
         )
         grid = QGridLayout()
-        grid.setSpacing(16)
+        grid.setSpacing(18)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
 
-        grid.addWidget(QLabel(u"自动推送金额："), 0, 0)
+        grid.addWidget(self._make_label(u"自动推送金额："), 0, 0)
         self.cmb_sqb_enable = QComboBox()
         self.cmb_sqb_enable.addItems([u"开启 - 自动推送结账金额到收钱吧", u"关闭 - 不推送"])
         if not self.config.get("shouqianba_enabled", True):
             self.cmb_sqb_enable.setCurrentIndex(1)
         grid.addWidget(self.cmb_sqb_enable, 0, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"串口 (COM端口)："), 1, 0)
+        grid.addWidget(self._make_label(u"串口 (COM端口)："), 1, 0)
         self.cmb_sqb_port = QComboBox()
         self.cmb_sqb_port.setEditable(True)
         self._refresh_com_ports()
@@ -535,20 +555,20 @@ class SettingsWidget(QWidget):
         btn_refresh_ports = QPushButton(u"🔄 扫描COM端口")
         btn_refresh_ports.setCursor(Qt.PointingHandCursor)
         btn_refresh_ports.setStyleSheet("""
-            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 8px 16px; font-weight: bold; }
+            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
             QPushButton:hover { background: #38BDF8; color: #0F172A; }
         """)
         btn_refresh_ports.clicked.connect(self._refresh_com_ports)
         grid.addWidget(btn_refresh_ports, 1, 2)
 
-        grid.addWidget(QLabel(u"波特率 (Baudrate)："), 2, 0)
+        grid.addWidget(self._make_label(u"波特率 (Baudrate)："), 2, 0)
         self.cmb_sqb_baud = QComboBox()
         self.cmb_sqb_baud.addItems(["2400", "9600", "19200", "38400", "115200"])
         cur_baud = str(self.config.get("shouqianba_baudrate", 2400))
         self.cmb_sqb_baud.setCurrentText(cur_baud)
         grid.addWidget(self.cmb_sqb_baud, 2, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"解析规则："), 3, 0)
+        grid.addWidget(self._make_label(u"解析规则："), 3, 0)
         self.cmb_sqb_fmt = QComboBox()
         self.cmb_sqb_fmt.addItems([
             u"QA - QA标记 (例如 QA12.50)",
@@ -559,7 +579,7 @@ class SettingsWidget(QWidget):
             self.cmb_sqb_fmt.setCurrentIndex(1)
         grid.addWidget(self.cmb_sqb_fmt, 3, 1, 1, 2)
 
-        grid.addWidget(QLabel(u"唤起快捷键："), 4, 0)
+        grid.addWidget(self._make_label(u"唤起快捷键："), 4, 0)
         
         hk_box = QHBoxLayout()
         self.txt_sqb_hotkey = HotKeyRecorderEdit()
@@ -574,7 +594,7 @@ class SettingsWidget(QWidget):
             btn_hk.setStyleSheet("""
                 QPushButton {
                     background: #334155; color: #F8FAFC; border: 1px solid #475569;
-                    border-radius: 8px; padding: 6px 12px; font-weight: bold;
+                    border-radius: 8px; padding: 8px 14px; font-weight: bold;
                 }
                 QPushButton:hover { background: #38BDF8; color: #0F172A; }
             """)
@@ -608,10 +628,10 @@ class SettingsWidget(QWidget):
         """)
 
         info_box = QVBoxLayout()
-        info_box.setSpacing(10)
+        info_box.setSpacing(12)
 
         lbl_warn_title = QLabel(u"🚨 高危警示")
-        lbl_warn_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444;")
+        lbl_warn_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; background: transparent;")
         info_box.addWidget(lbl_warn_title)
 
         lbl_danger = QLabel(u"点击“重置软件数据”将彻底清空本地的配置文件 (config.json) 以及所有的历史点餐销售数据库 (pos.db)。此操作不可逆！")
@@ -626,7 +646,7 @@ class SettingsWidget(QWidget):
         btn_reset.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444);
-                color: white; font-size: 15px; font-weight: bold; padding: 12px 24px; border-radius: 10px; border: none;
+                color: white; font-size: 15px; font-weight: bold; padding: 12px 28px; border-radius: 10px; border: none;
             }
             QPushButton:hover { background: #B91C1C; }
         """)
@@ -764,10 +784,10 @@ class SettingsWidget(QWidget):
         if hasattr(self, 'lbl_scale_hint'):
             if active_ports:
                 self.lbl_scale_hint.setText(u"扫描完成！检测到活跃端口: %s" % ", ".join(active_ports))
-                self.lbl_scale_hint.setStyleSheet("color: #34D399; font-size: 13px; padding: 6px; background: #0F172A; border-radius: 8px;")
+                self.lbl_scale_hint.setStyleSheet("color: #34D399; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
             else:
                 self.lbl_scale_hint.setText(u"扫描完成，未检测到任何活跃的COM端口。请检查串口线是否连接。")
-                self.lbl_scale_hint.setStyleSheet("color: #FBBF24; font-size: 13px; padding: 6px; background: #0F172A; border-radius: 8px;")
+                self.lbl_scale_hint.setStyleSheet("color: #FBBF24; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
 
     def _on_save_scale(self):
         """保存称重数据源设置"""
