@@ -14,6 +14,7 @@ import threading
 import logging
 import ctypes
 import time
+import keyboard
 
 logger = logging.getLogger("ShouqianbaSender")
 
@@ -176,8 +177,8 @@ def _do_send_amount(amount: float, config: dict):
         logger.warning(f"推送金额到收钱吧串口 {port} 提示: {e}")
         print(f"[收钱吧串口 Notice] 端口 {port} 发送提示: {e}")
 
-    # 等待 0.3 秒，确保收钱吧后台已处理完串口数据
-    time.sleep(0.3)
+    # 等待 0.15 秒，确保收钱吧后台已处理完串口数据
+    time.sleep(0.15)
 
     # 2. 自动模拟发送快捷键 (再调出收钱吧界面)
     hotkey = config.get("shouqianba_hotkey", "F12")
@@ -233,3 +234,49 @@ def test_shouqianba_port(config: dict):
         return True, f"端口 {port} ({baudrate}bps) 连通正常"
     except Exception as e:
         return False, f"端口 {port} 未连通"
+
+
+# =========================================================================
+# 硬件补偿：全局扫码枪/碰一碰设备无回车自动补全逻辑
+# 检测极速输入，自动补一个 Enter
+# =========================================================================
+
+_barcode_buffer = ""
+_last_key_time = 0
+
+def _global_key_listener(e):
+    global _barcode_buffer, _last_key_time
+    now = time.time()
+    
+    # 遇到自带回车的扫码设备，清空缓存，不需要补偿
+    if e.name == "enter":
+        _barcode_buffer = ""
+        _last_key_time = now
+        return
+        
+    # 只监听普通字符（数字、字母等通常用于付款码的字符）
+    if e.name and len(e.name) == 1 and e.name.isalnum():
+        if now - _last_key_time > 0.05:
+            _barcode_buffer = e.name  # 超过50ms重新计算
+        else:
+            _barcode_buffer += e.name
+        _last_key_time = now
+
+def _barcode_checker_loop():
+    global _barcode_buffer, _last_key_time
+    while True:
+        time.sleep(0.1)
+        now = time.time()
+        # 如果缓存累积了超过 10 位极速输入（支付码一般都在15位以上），且 0.1 秒没有新输入
+        if len(_barcode_buffer) >= 10 and (now - _last_key_time) > 0.1:
+            logger.info(f"[扫码补偿] 检测到支付宝碰一碰极速输入({len(_barcode_buffer)}位): {_barcode_buffer}，自动补充 Enter")
+            _barcode_buffer = ""  # 清空防止重复触发
+            send_hotkey("ENTER")
+
+try:
+    keyboard.on_press(_global_key_listener)
+    _t = threading.Thread(target=_barcode_checker_loop, daemon=True)
+    _t.start()
+    logger.info("支付宝碰一碰设备无回车补偿器已启动")
+except Exception as _e:
+    logger.warning(f"碰一碰监听器启动失败（可能需要管理员权限）: {_e}")
