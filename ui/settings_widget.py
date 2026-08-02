@@ -865,8 +865,13 @@ class SettingsWidget(QWidget):
         except Exception:
             self.config["scale_baudrate"] = 9600
         save_config(self.config)
+
+        parent_mw = self.window()
+        if hasattr(parent_mw, 'sale_page') and hasattr(parent_mw.sale_page, 'restart_scale'):
+            parent_mw.sale_page.restart_scale()
+
         from ui.custom_dialog import show_info
-        show_info(self, u"保存成功", u"称重数据源设置已保存！\n切换数据源需要重启软件才能生效。")
+        show_info(self, u"保存成功", u"称重数据源设置已保存并即时生效！")
 
     def _on_save_sqb(self):
         self.config["shouqianba_enabled"] = (self.cmb_sqb_enable.currentIndex() == 0)

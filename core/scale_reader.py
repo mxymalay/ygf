@@ -172,19 +172,21 @@ class ScaleReader(QObject):
                         data = self._serial.read(64)
                         if data:
                             buffer += data.decode("ascii", errors="ignore")
-                            # 按换行符拆分，尝试解析每一行
-                            while "\n" in buffer:
-                                line, buffer = buffer.split("\n", 1)
-                                line = line.strip()
-                                if line:
-                                    w = self._parse_com_weight(line)
-                                    if w is not None:
-                                        w = self._apply_fluctuation_filter(w)
-                                        self.weight_updated.emit(w)
-                                        self._check_stability(w)
-                                        self.status_changed.emit(
-                                            True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
-                                        )
+                            # 替换 \r\n 或 \r 为 \n 统一切分，兼容所有电子秤回车换行协议
+                            if "\r" in buffer or "\n" in buffer:
+                                buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
+                                while "\n" in buffer:
+                                    line, buffer = buffer.split("\n", 1)
+                                    line = line.strip()
+                                    if line:
+                                        w = self._parse_com_weight(line)
+                                        if w is not None:
+                                            w = self._apply_fluctuation_filter(w)
+                                            self.weight_updated.emit(w)
+                                            self._check_stability(w)
+                                            self.status_changed.emit(
+                                                True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
+                                            )
                     except serial.SerialException:
                         break
                     except Exception:
@@ -203,16 +205,17 @@ class ScaleReader(QObject):
 
     def _parse_com_weight(self, line: str):
         """
-        从串口原始数据行中解析重量值。
+        从串口原始数据行中解析重量值 (单位: kg)。
         支持常见电子秤协议格式:
         - 纯数字: "0.350" or "+0.350" or "-0.350"
-        - 带前缀: "ST,GS,+  0.350kg" (寺冈/大华/顶尖等)
-        - DI_BAO格式: "read - 000.350"
+        - 常见厂商协议: "ST,GS,+  0.350kg" (寺冈/大华/顶尖/梅特勒/托利多等)
+        - 日志与网口/串口包裹格式: "read - 000.350" / "WN000.350"
+        - 克重格式: "350g" or "350"
         """
         if not line:
             return None
         
-        # 尝试常见格式
+        # 尝试带小数点标准格式: 例如 "+  0.350kg", "0.350", "- 00.350", "WN0.350kg"
         m = re.search(r'([+-]?\s*\d{1,5}\.\d{1,4})', line)
         if m:
             try:
@@ -222,6 +225,16 @@ class ScaleReader(QObject):
                 return round(abs(val), 3)
             except Exception:
                 pass
+
+        # 尝试带单位的整型克重格式: 例如 "350g" / "350克"
+        m2 = re.search(r'([+-]?\s*\d{3,6})\s*(?:g|克)', line, re.IGNORECASE)
+        if m2:
+            try:
+                val = float(m2.group(1).replace(" ", "")) / 1000.0
+                return round(abs(val), 3)
+            except Exception:
+                pass
+
         return None
 
     def _find_active_ygf_log(self) -> str:
