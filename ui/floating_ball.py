@@ -152,10 +152,11 @@ class FloatingBall(QWidget):
             if bar_width > 4:
                 painter.drawLine(4, 2, 4 + bar_width, 2)
 
-        # 5. 边框嵌入式 LED 呼吸指示灯 (位于胶囊左侧)
+        # 5. 边框嵌入式 LED 呼吸指示灯 (位于文字前方垂直居中)
         painter.setBrush(QBrush(led_color))
         painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
-        painter.drawEllipse(12, 14, 6, 6)
+        # 文字居中，胶囊高 50。圆点大小 6x6，所以 y=22 刚好垂直居中 (22+3=25)
+        painter.drawEllipse(12, 22, 6, 6)
 
         # 6. 两行居中文字排版
         title_text = u"私域 POS" if self.is_our_pos_active else u"官方系统"
