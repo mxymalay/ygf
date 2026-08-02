@@ -9,12 +9,69 @@
   "price_unit": "per_kg",
   "shop_name": "杨国福麻辣烫",
   "shop_subtitle": "杨国福(测试店)",
+  "is_first_run": true,
   "auto_print": false,
   "stable_threshold": 0.01,
   "stable_count": 5,
-  "is_first_run": true,
+  "auto_start_enabled": true,
+  "auto_start_delay": 8,
+  "auto_switch_enabled": true,
+  "floating_ball_enabled": true,
+  "panic_hotkey": "F10",
+  "auto_hide_delay_sec": 3,
+  "scale_source": "official",
+  "scale_port": "COM2",
+  "scale_baudrate": 9600,
+  "private_ratio_percent": 30,
+  "min_private_weight_kg": 0.25,
   "shouqianba_enabled": true,
-  "shouqianba_port": "COM3",
-  "shouqianba_baudrate": 9600,
-  "shouqianba_format": "QA"
+  "shouqianba_port": "COM1",
+  "shouqianba_baudrate": 2400,
+  "shouqianba_format": "QA",
+  "shouqianba_hotkey": "Shift+Q",
+  "takeout_interceptor_enabled": true,
+  "takeout_categories": [
+    {
+      "id": "cat_1",
+      "name": "主食类",
+      "keywords": ["面", "米饭", "粉丝", "年糕", "方便面"]
+    },
+    {
+      "id": "cat_2",
+      "name": "肉类",
+      "keywords": ["牛肉", "肥牛", "羊肉", "鸡肉", "培根", "火腿", "肉丸"]
+    },
+    {
+      "id": "cat_3",
+      "name": "海鲜类",
+      "keywords": ["虾", "蟹棒", "鱼丸", "鱿鱼", "巴沙鱼"]
+    },
+    {
+      "id": "cat_4",
+      "name": "蔬菜类",
+      "keywords": ["白菜", "菠菜", "金针菇", "土豆", "藕片", "生菜", "西兰花"]
+    },
+    {
+      "id": "cat_5",
+      "name": "豆制品类",
+      "keywords": ["豆腐", "腐竹", "豆皮", "豆干"]
+    },
+    {
+      "id": "cat_6",
+      "name": "饮料酒水",
+      "keywords": ["可乐", "雪碧", "王老吉", "酸梅汤", "矿泉水"]
+    }
+  ],
+  "takeout_match_mode": "contains",
+  "takeout_font_hdr": 1,
+  "takeout_font_cat": 1,
+  "takeout_font_item": 1,
+  "takeout_mark_star": true,
+  "takeout_show_prices": false,
+  "takeout_kitchen_copies": 1,
+  "takeout_cust_copies": 0,
+  "takeout_show_address": true,
+  "takeout_show_time": true,
+  "takeout_show_full_id": false,
+  "takeout_show_preorder": true
 }
