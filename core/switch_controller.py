@@ -23,6 +23,9 @@ class AutoSwitchController(QObject):
         self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
         self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
         self._private_lock_sec = float(self.config.get("private_lock_sec", 300.0))  # 默认私域购物车5分钟超时
+        self._min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08))
+        self._surge_correction_weight = float(self.config.get("surge_correction_weight_kg", 0.15))
+        self._manual_override_lock_sec = float(self.config.get("manual_override_lock_sec", 30.0))
 
         self._total_evaluated_orders = 0
         self._private_orders_count = 0
@@ -41,8 +44,10 @@ class AutoSwitchController(QObject):
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self._on_auto_hide_timeout)
 
-    def notify_manual_switch(self, duration_sec: float = 30.0):
-        """店员手动点击悬浮球/快捷键触发：锁定 30 秒内不被称重自动抢抓覆盖"""
+    def notify_manual_switch(self, duration_sec: float = -1.0):
+        """店员手动点击悬浮球/快捷键触发：锁定指定秒数内不被称重自动抢抓覆盖"""
+        if duration_sec < 0:
+            duration_sec = self._manual_override_lock_sec
         self._manual_override_until = time.time() + duration_sec
         log_event(CAT_SWITCH, f"店员手动干预锁定", f"优先尊重店员操作，暂停自动调度 {duration_sec} 秒")
 
@@ -57,12 +62,12 @@ class AutoSwitchController(QObject):
             return
 
         # 重量门限判断 (例如大于 0.08kg 视为有放碗动作)
-        if weight_kg > 0.08:
+        if weight_kg > self._min_valid_weight:
             self._zero_start_time = 0.0  # 重置归零时间戳
 
             # 2. 动态重量递增修正 (比如手刚放碗读数 0.12kg，1秒内手放开稳在 0.55kg)
             weight_diff = weight_kg - self._last_popped_weight
-            is_surge = self._has_auto_popped and weight_diff > 0.15 and not self._current_is_private
+            is_surge = self._has_auto_popped and weight_diff > self._surge_correction_weight and not self._current_is_private
 
             if not self._has_auto_popped or is_surge:
                 self._has_auto_popped = True
@@ -212,3 +217,6 @@ class AutoSwitchController(QObject):
         self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
         self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
         self._private_lock_sec = float(self.config.get("private_lock_sec", 300.0))
+        self._min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08))
+        self._surge_correction_weight = float(self.config.get("surge_correction_weight_kg", 0.15))
+        self._manual_override_lock_sec = float(self.config.get("manual_override_lock_sec", 30.0))

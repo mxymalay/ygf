@@ -79,11 +79,25 @@ class SwitchSettingsWidget(QWidget):
         self.sp_weight.setRange(0.00, 5.00)
         self.sp_weight.setSingleStep(0.05)
         self.sp_weight.setSuffix(" kg")
-        form_layout.addRow(QLabel(u"轻量单切回门限:"), self.sp_weight)
+        form_layout.addRow(QLabel(u"轻量小单自动切回门限:"), self.sp_weight)
         
         lbl_weight_tip = QLabel(u"低于该重量的单子一律判定为小单/加菜，自动分配给官方收银机。")
         lbl_weight_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
         form_layout.addRow(QLabel(), lbl_weight_tip)
+
+        # 3.1 称重起漂过滤门限
+        self.sp_min_valid_weight = QDoubleSpinBox()
+        self.sp_min_valid_weight.setRange(0.01, 0.50)
+        self.sp_min_valid_weight.setSingleStep(0.01)
+        self.sp_min_valid_weight.setSuffix(" kg")
+        form_layout.addRow(QLabel(u"最低有效称重(防空秤抖动):"), self.sp_min_valid_weight)
+
+        # 3.2 剧增防抖修正门限
+        self.sp_surge_correction = QDoubleSpinBox()
+        self.sp_surge_correction.setRange(0.05, 1.00)
+        self.sp_surge_correction.setSingleStep(0.05)
+        self.sp_surge_correction.setSuffix(" kg")
+        form_layout.addRow(QLabel(u"手放碗剧增防抖修正门限:"), self.sp_surge_correction)
 
         # 4. 官方界面连单锁定 (60s)
         self.sp_official_lock = QSpinBox()
@@ -111,11 +125,21 @@ class SwitchSettingsWidget(QWidget):
         lbl_private_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
         form_layout.addRow(QLabel(), lbl_private_tip)
 
+        # 6.5 手动干预保护
+        self.sp_manual_override_lock = QSpinBox()
+        self.sp_manual_override_lock.setRange(5, 120)
+        self.sp_manual_override_lock.setSuffix(u" 秒")
+        form_layout.addRow(QLabel(u"手动点击悬浮球强制锁定:"), self.sp_manual_override_lock)
+        
+        lbl_manual_tip = QLabel(u"店员点击悬浮球切屏后，该时长内算法完全静默，100% 尊重店员选择。")
+        lbl_manual_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal; border: none;")
+        form_layout.addRow(QLabel(), lbl_manual_tip)
+
         # 7. 延时隐退
         self.sp_delay = QSpinBox()
         self.sp_delay.setRange(0, 30)
         self.sp_delay.setSuffix(u" 秒")
-        form_layout.addRow(QLabel(u"出票后自动隐退延时:"), self.sp_delay)
+        form_layout.addRow(QLabel(u"结账出票后自动隐退延时:"), self.sp_delay)
 
         root.addWidget(form_frame)
 
@@ -146,9 +170,13 @@ class SwitchSettingsWidget(QWidget):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
         self.sp_ratio.setValue(int(self.config.get("private_ratio_percent", 70)))
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
+        self.sp_min_valid_weight.setValue(float(self.config.get("min_valid_weight_kg", 0.08)))
+        self.sp_surge_correction.setValue(float(self.config.get("surge_correction_weight_kg", 0.15)))
+        
         self.sp_official_lock.setValue(int(self.config.get("official_lock_sec", 60)))
         self.sp_zeroing_unlock.setValue(int(self.config.get("zeroing_unlock_sec", 5)))
         self.sp_private_lock.setValue(int(self.config.get("private_lock_sec", 300)))
+        self.sp_manual_override_lock.setValue(int(self.config.get("manual_override_lock_sec", 30)))
         self.sp_delay.setValue(int(self.config.get("auto_hide_delay_sec", 3)))
 
     def _on_save(self):
@@ -156,18 +184,24 @@ class SwitchSettingsWidget(QWidget):
         new_enabled = self.chk_enabled.isChecked()
         new_ratio = self.sp_ratio.value()
         new_weight = self.sp_weight.value()
+        new_min_valid = self.sp_min_valid_weight.value()
+        new_surge = self.sp_surge_correction.value()
         new_official_lock = self.sp_official_lock.value()
         new_zeroing_unlock = self.sp_zeroing_unlock.value()
         new_private_lock = self.sp_private_lock.value()
+        new_manual_override = self.sp_manual_override_lock.value()
         new_delay = self.sp_delay.value()
 
         # 2. 更新 config
         self.config["auto_switch_enabled"] = new_enabled
         self.config["private_ratio_percent"] = new_ratio
         self.config["min_private_weight_kg"] = new_weight
+        self.config["min_valid_weight_kg"] = new_min_valid
+        self.config["surge_correction_weight_kg"] = new_surge
         self.config["official_lock_sec"] = new_official_lock
         self.config["zeroing_unlock_sec"] = new_zeroing_unlock
         self.config["private_lock_sec"] = new_private_lock
+        self.config["manual_override_lock_sec"] = new_manual_override
         self.config["auto_hide_delay_sec"] = new_delay
         
         save_config(self.config)
@@ -175,12 +209,10 @@ class SwitchSettingsWidget(QWidget):
         # 3. 记录日志
         detail = (f"开关: {'开' if new_enabled else '关'} | "
                   f"截留比: {new_ratio}% | "
-                  f"门限: {new_weight:.2f}kg | "
-                  f"官方锁: {new_official_lock}s | "
-                  f"离场判定: {new_zeroing_unlock}s | "
-                  f"私域清理: {new_private_lock}s | "
-                  f"隐退延时: {new_delay}s")
-        log_event(CAT_SYSTEM, "全自动分流算法参数被修改", detail)
+                  f"门限: {new_weight:.2f}kg (起漂{new_min_valid:.2f}, 剧增{new_surge:.2f}) | "
+                  f"锁: 官{new_official_lock}s, 离{new_zeroing_unlock}s, 私{new_private_lock}s, 手{new_manual_override}s | "
+                  f"隐退: {new_delay}s")
+        log_event(CAT_SYSTEM, "全自动分流算法所有参数被修改", detail)
 
         # 4. 同步至实时生效的控制器
         parent_mw = self.window()
