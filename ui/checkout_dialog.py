@@ -260,7 +260,7 @@ class CheckoutDialog(QDialog):
         btn_cash_overlay.clicked.connect(lambda checked: self._on_payment_selected(PAYMENT_CASH))
         cash_frame.resizeEvent = lambda event, ob=btn_cash_overlay, bf=cash_frame: ob.setGeometry(0, 0, bf.width(), bf.height())
 
-        right_layout.addWidget(cash_frame, stretch=3)
+        right_layout.addWidget(cash_frame, stretch=1)
         self.pay_buttons.append(btn_cash_overlay)
 
         # ── 1.5 虚线分隔与说明提示 ──
