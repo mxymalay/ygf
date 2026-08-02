@@ -409,7 +409,7 @@ class SettingsWidget(QWidget):
             QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
             QPushButton:hover { background: #38BDF8; color: #0F172A; }
         """)
-        btn_rp.clicked.connect(self._refresh_printers)
+        btn_rp.clicked.connect(lambda: self._refresh_printers(show_toast=True))
         grid.addWidget(btn_rp, 1, 2)
 
         grid.addWidget(self._make_label(u"网络 IP："), 2, 0)
@@ -564,7 +564,7 @@ class SettingsWidget(QWidget):
             QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
             QPushButton:hover { background: #38BDF8; color: #0F172A; }
         """)
-        btn_refresh_ports.clicked.connect(self._refresh_com_ports)
+        btn_refresh_ports.clicked.connect(lambda: self._refresh_com_ports(show_toast=True))
         grid.addWidget(btn_refresh_ports, 1, 2)
 
         grid.addWidget(self._make_label(u"波特率 (Baudrate)："), 2, 0)
@@ -696,7 +696,7 @@ class SettingsWidget(QWidget):
             widget.wheelEvent = lambda event, w=widget: event.ignore()
 
     # ─── 刷新 COM 串口列表 ──────────────────────────
-    def _refresh_com_ports(self):
+    def _refresh_com_ports(self, show_toast=False):
         self.cmb_sqb_port.clear()
         try:
             from core.shouqianba_sender import get_available_com_ports
@@ -713,15 +713,32 @@ class SettingsWidget(QWidget):
         if cur:
             self.cmb_sqb_port.setCurrentText(cur)
 
+        if show_toast:
+            from ui.custom_dialog import show_info
+            if ports:
+                show_info(self, u"扫描成功", f"检测到 {len(ports)} 个活跃COM端口：\n" + ", ".join(ports))
+            else:
+                show_info(self, u"扫描提示", u"未检测到物理串口，已列出默认端口列表COM1-COM12。")
+
     # ─── 刷新打印机列表 ──────────────────────────────
-    def _refresh_printers(self):
+    def _refresh_printers(self, show_toast=False):
         self.cmb_printer_name.clear()
         printers = scan_printers()
         for name in printers:
             self.cmb_printer_name.addItem(name)
         cur = self.config.get("printer_name", "shouyin")
-        if cur:
-            self.cmb_printer_name.setCurrentText(cur)
+        if cur and printers:
+            for i in range(self.cmb_printer_name.count()):
+                if self.cmb_printer_name.itemText(i) == cur:
+                    self.cmb_printer_name.setCurrentIndex(i)
+                    break
+
+        if show_toast:
+            from ui.custom_dialog import show_info
+            if printers:
+                show_info(self, u"打印机扫描成功", f"成功检测到 {len(printers)} 台系统打印机：\n\n" + "\n".join(f"• {p}" for p in printers))
+            else:
+                show_info(self, u"打印机扫描提示", u"未检测到任何本地已安装的 Windows 打印机，请检查驱动是否已安装。")
 
     # ─── 保存设置 ──────────────────────────────────
     def _on_save_printer(self):

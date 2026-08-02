@@ -25,15 +25,24 @@ def scan_ports():
 
 
 def scan_printers():
-    """扫描 Windows 打印机列表"""
+    """扫描 Windows 打印机列表 (结合 Qt API 与 Win32 API)"""
     printers = []
+    try:
+        from PyQt5.QtPrintSupport import QPrinterInfo
+        names = QPrinterInfo.availablePrinterNames()
+        if names:
+            return list(names)
+    except Exception:
+        pass
+
     try:
         import win32print
         flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
         printer_list = win32print.EnumPrinters(flags, None, 1)
         for _, _, name, _ in printer_list:
-            printers.append(name)
-    except ImportError:
+            if name and name not in printers:
+                printers.append(name)
+    except Exception:
         pass
     return printers
 
