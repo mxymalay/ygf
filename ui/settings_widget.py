@@ -936,6 +936,16 @@ class SettingsWidget(QWidget):
                 stopbits=serial.STOPBITS_ONE,
                 timeout=1.5
             )
+            # 激活 DTR / RTS 引脚 (迪宝/顶尖等电子秤硬件唤起必选)
+            ser.dtr = True
+            ser.rts = True
+            # 发送唤醒与查询命令 (兼容迪宝 ACS-G315 及各类问答式电子秤)
+            try:
+                ser.write(b"W\r\n")
+                ser.write(b"R\r\n")
+                ser.write(b"\x05")
+            except Exception:
+                pass
         except Exception as e:
             show_error(
                 self, u"串口连接失败",

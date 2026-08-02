@@ -162,17 +162,29 @@ class ScaleReader(QObject):
                     bytesize=serial.EIGHTBITS,
                     parity=serial.PARITY_NONE,
                     stopbits=serial.STOPBITS_ONE,
-                    timeout=1.0
+                    timeout=0.5
                 )
+                # 激活 DTR / RTS 控制线 (迪宝 DIBAL 等电子秤硬件供电与唤醒)
+                self._serial.dtr = True
+                self._serial.rts = True
+                
+                # 初始化时向电子秤发送一次唤醒/查询命令
+                try:
+                    self._serial.write(b"W\r\n")
+                    self._serial.write(b"R\r\n")
+                except Exception:
+                    pass
+
                 self.status_changed.emit(True, "● 已连接串口秤 %s (波特率 %d)" % (port, baudrate))
                 
                 buffer = ""
+                last_poll_time = time.time()
+
                 while self._running:
                     try:
                         data = self._serial.read(64)
                         if data:
                             buffer += data.decode("ascii", errors="ignore")
-                            # 替换 \r\n 或 \r 为 \n 统一切分，兼容所有电子秤回车换行协议
                             if "\r" in buffer or "\n" in buffer:
                                 buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
                                 while "\n" in buffer:
@@ -187,6 +199,15 @@ class ScaleReader(QObject):
                                             self.status_changed.emit(
                                                 True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
                                             )
+                        else:
+                            # 若 0.8s 内未收到数据，说明该电子秤为【问答查询式】(如迪宝 ACS-G315)，定期主动发送查询命令
+                            now = time.time()
+                            if now - last_poll_time > 0.8:
+                                last_poll_time = now
+                                try:
+                                    self._serial.write(b"W\r\n")
+                                except Exception:
+                                    pass
                     except serial.SerialException:
                         break
                     except Exception:
