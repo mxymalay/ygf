@@ -52,15 +52,11 @@ class TakeoutSortingWidget(QWidget):
         self._refresh_printer_info()
         self._load_table_data()
         self._update_live_preview()
-
-        # 轮询检测官方 POS 软件运行状态 (4 秒定时，极速零阻塞)
-        self.pos_check_timer = QTimer(self)
-        self.pos_check_timer.timeout.connect(self._check_official_pos_status)
-        self.pos_check_timer.start(4000)
         self._check_official_pos_status()
 
     def showEvent(self, event):
         super().showEvent(event)
+        # 仅在进入本页面时触发一次官方 POS 检测，无需后台定时循环
         self._check_official_pos_status()
 
     def _build_ui(self):
@@ -326,6 +322,12 @@ class TakeoutSortingWidget(QWidget):
 
         pv_hdr.addStretch()
 
+        btn_refresh = QPushButton(u"🔄 刷新排版预览")
+        btn_refresh.setCursor(Qt.PointingHandCursor)
+        btn_refresh.setStyleSheet("QPushButton { background: #334155; color: #F8FAFC; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 14px; border: 1px solid #475569; } QPushButton:hover { background: #475569; }")
+        btn_refresh.clicked.connect(self._update_live_preview)
+        pv_hdr.addWidget(btn_refresh)
+
         btn_save = QPushButton(u"💾 保存当前配置")
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.setStyleSheet("QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 16px; border: 1px solid #0369A1; } QPushButton:hover { background: #0369A1; }")
@@ -468,7 +470,6 @@ class TakeoutSortingWidget(QWidget):
         self.categories = updated
         self.config["takeout_categories"] = updated
         save_config(self.config)
-        self._update_live_preview()
 
     def _auto_save_format_settings(self):
         self.config["takeout_font_hdr"] = self.cmb_font_hdr.currentIndex()
@@ -486,7 +487,6 @@ class TakeoutSortingWidget(QWidget):
         self.config["takeout_show_preorder"] = self.chk_preorder.isChecked()
 
         save_config(self.config)
-        self._update_live_preview()
 
     def _update_live_preview(self):
         opts = {
@@ -511,6 +511,7 @@ class TakeoutSortingWidget(QWidget):
     def _on_save_rules(self):
         self._auto_save_categories()
         self._auto_save_format_settings()
+        self._update_live_preview()
         show_info(self, u"配置保存", u"所有排版、字号、多份⭐标记与元数据规则已自动保存！")
 
     def _on_test_print(self):
