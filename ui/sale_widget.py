@@ -1646,7 +1646,6 @@ class SaleWidget(QWidget):
         sale_data = {
             "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
             "shop_subtitle": self.config.get("shop_subtitle", ""),
-            "receipt_footer": self.config.get("receipt_footer", u"谢谢惠顾！"),
             "call_no": call_no_str,
             "cart_items": list(self.cart_items),  # Create a copy so _on_clear doesn't affect the dialog
             "weight_kg": self.current_weight,

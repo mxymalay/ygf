@@ -932,7 +932,6 @@ class HistoryWidget(QWidget):
             sale_data = {
                 "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
                 "shop_subtitle": self.config.get("shop_subtitle", ""),
-                "receipt_footer": self.config.get("receipt_footer", u"谢谢惠顾！"),
                 "call_no": call_no,
                 "weight_kg": r.get("weight_kg", 0.0),
                 "unit_price": r.get("unit_price", 47.60),

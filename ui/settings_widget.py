@@ -478,12 +478,7 @@ class SettingsWidget(QWidget):
         self.txt_sub.setPlaceholderText(u"例如：杨国福(肥西水晶城店)")
         grid.addWidget(self.txt_sub, 1, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"小票底部文字："), 2, 0)
-        self.txt_footer = QLineEdit(self.config.get("receipt_footer", u"谢谢惠顾！"))
-        self.txt_footer.setPlaceholderText(u"例如：谢谢惠顾！")
-        grid.addWidget(self.txt_footer, 2, 1, 1, 2)
-
-        grid.addWidget(self._make_label(u"计价方式："), 3, 0)
+        grid.addWidget(self._make_label(u"计价方式："), 2, 0)
         self.cmb_unit = QComboBox()
         self.cmb_unit.addItems(["per_jin - 按斤计价", "per_kg - 按公斤计价"])
         pu = self.config.get("price_unit", "per_jin")
@@ -491,21 +486,21 @@ class SettingsWidget(QWidget):
             if self.cmb_unit.itemText(i).startswith(pu):
                 self.cmb_unit.setCurrentIndex(i)
                 break
-        grid.addWidget(self.cmb_unit, 3, 1, 1, 2)
+        grid.addWidget(self.cmb_unit, 2, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"标准汤底单价："), 4, 0)
+        grid.addWidget(self._make_label(u"标准汤底单价："), 3, 0)
         self.spin_default_price = QDoubleSpinBox()
         self.spin_default_price.setRange(0.01, 999.99)
         self.spin_default_price.setValue(self.config.get("unit_price", 47.60))
         self.spin_default_price.setDecimals(2)
-        grid.addWidget(self.spin_default_price, 4, 1, 1, 2)
+        grid.addWidget(self.spin_default_price, 3, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"精品汤底单价："), 5, 0)
+        grid.addWidget(self._make_label(u"精品汤底单价："), 4, 0)
         self.spin_special_price = QDoubleSpinBox()
         self.spin_special_price.setRange(0.01, 999.99)
         self.spin_special_price.setValue(self.config.get("special_soup_price", 50.00))
         self.spin_special_price.setDecimals(2)
-        grid.addWidget(self.spin_special_price, 5, 1, 1, 2)
+        grid.addWidget(self.spin_special_price, 4, 1, 1, 2)
 
         layout.addLayout(grid)
 
@@ -785,7 +780,6 @@ class SettingsWidget(QWidget):
     def _on_save_biz(self):
         self.config["shop_name"] = self.txt_shop.text()
         self.config["shop_subtitle"] = self.txt_sub.text()
-        self.config["receipt_footer"] = self.txt_footer.text()
         pu_text = self.cmb_unit.currentText()
         self.config["price_unit"] = pu_text.split(" - ")[0].strip()
         self.config["unit_price"] = self.spin_default_price.value()

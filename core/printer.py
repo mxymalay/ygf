@@ -137,15 +137,6 @@ class ReceiptPrinter:
         # 7. 打印时间
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
         d += ("打印时间：%s\n" % now_str).encode("gbk", errors="ignore")
-
-        # 8. 小票底部自定义文字 (如"谢谢惠顾！")
-        footer = sale.get("receipt_footer", self.config.get("receipt_footer", u"谢谢惠顾！")).strip()
-        if footer:
-            d += b'------------------------------------------------\n'
-            d += self.ALIGN_CENTER + self.BOLD_ON
-            d += (footer + "\n").encode("gbk", errors="ignore")
-            d += self.BOLD_OFF
-
         d += self.FEED_LINES + self.CUT_PARTIAL
         return bytes(d)
 
