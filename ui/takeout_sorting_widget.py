@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 外卖小票中继与菜品排序配置页面
-实效功能化：动态获取系统打印机、自定义分类关键字与排序调整
+解决表格压缩与拥挤问题，大行高、宽留白、高舒适度排版
 """
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -27,16 +27,16 @@ class TakeoutSortingWidget(QWidget):
 
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(18, 18, 18, 18)
+        main_layout.setSpacing(14)
 
-        # ── 1. 顶部控制栏 (简洁无宣传语) ──
+        # ── 1. 顶部控制栏 ──
         header_card = QFrame()
         header_card.setStyleSheet(
             "QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; }"
         )
         hc_layout = QHBoxLayout(header_card)
-        hc_layout.setContentsMargins(14, 10, 14, 10)
+        hc_layout.setContentsMargins(18, 12, 18, 12)
 
         lbl_title = QLabel(u"🛵 外卖小票拦截与菜品排序设置")
         lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none;")
@@ -56,7 +56,7 @@ class TakeoutSortingWidget(QWidget):
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
         self.btn_toggle.setStyleSheet(
             "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; "
-            "border-radius: 6px; padding: 6px 16px; border: 1px solid #059669; }"
+            "border-radius: 6px; padding: 7px 18px; border: 1px solid #059669; }"
             "QPushButton:checked { background: #10B981; }"
             "QPushButton:!checked { background: #64748B; border-color: #475569; }"
         )
@@ -65,18 +65,18 @@ class TakeoutSortingWidget(QWidget):
 
         main_layout.addWidget(header_card)
 
-        # ── 2. 菜品分类与关键字规则表格 (核心功能区) ──
+        # ── 2. 菜品分类与关键字规则表格 (宽大排版) ──
         table_card = QFrame()
         table_card.setStyleSheet(
             "QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; }"
         )
         tc_layout = QVBoxLayout(table_card)
-        tc_layout.setContentsMargins(14, 12, 14, 12)
-        tc_layout.setSpacing(10)
+        tc_layout.setContentsMargins(18, 16, 18, 16)
+        tc_layout.setSpacing(12)
 
         tbl_hdr = QHBoxLayout()
         lbl_t_title = QLabel(u"📋 分类显示顺序与匹配关键字")
-        lbl_t_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F8FAFC; border: none;")
+        lbl_t_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F8FAFC; border: none;")
         tbl_hdr.addWidget(lbl_t_title)
 
         tbl_hdr.addStretch()
@@ -84,8 +84,8 @@ class TakeoutSortingWidget(QWidget):
         btn_add_cat = QPushButton(u"+ 添加新分类")
         btn_add_cat.setCursor(Qt.PointingHandCursor)
         btn_add_cat.setStyleSheet(
-            "QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 12px; "
-            "border-radius: 6px; padding: 5px 12px; border: none; }"
+            "QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; "
+            "border-radius: 6px; padding: 6px 14px; border: none; }"
             "QPushButton:hover { background: #0369A1; }"
         )
         btn_add_cat.clicked.connect(self._on_add_category)
@@ -93,15 +93,21 @@ class TakeoutSortingWidget(QWidget):
 
         tc_layout.addLayout(tbl_hdr)
 
-        # 规则表格
+        # 表格配置
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels([u"排序", u"分类名称", u"匹配关键字 (逗号分隔)", u"顺序调整"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.table.verticalHeader().setVisible(False)  # 隐藏左侧默认原生行号，避免重叠
+        self.table.verticalHeader().setDefaultSectionSize(54)  # 舒适行高
+
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 70)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.table.setColumnWidth(1, 230)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.table.setColumnWidth(1, 180)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        self.table.setColumnWidth(3, 170)
+
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #0F172A;
@@ -109,14 +115,16 @@ class TakeoutSortingWidget(QWidget):
                 border-radius: 8px;
                 color: #F8FAFC;
                 gridline-color: #1E293B;
-                font-size: 13px;
+                font-size: 14px;
+                outline: none;
             }
             QHeaderView::section {
                 background-color: #1E293B;
                 color: #94A3B8;
                 font-weight: bold;
                 border: 1px solid #334155;
-                padding: 6px;
+                padding: 10px;
+                font-size: 13px;
             }
         """)
         tc_layout.addWidget(self.table, stretch=1)
@@ -129,8 +137,8 @@ class TakeoutSortingWidget(QWidget):
             "QFrame { background: #1E293B; border-radius: 10px; border: 1px solid #334155; }"
         )
         oc_layout = QHBoxLayout(opts_card)
-        oc_layout.setContentsMargins(14, 10, 14, 10)
-        oc_layout.setSpacing(16)
+        oc_layout.setContentsMargins(18, 12, 18, 12)
+        oc_layout.setSpacing(20)
 
         self.chk_pack = QCheckBox(u"“打包”与“忌口”置顶大字")
         self.chk_pack.setChecked(True)
@@ -153,7 +161,7 @@ class TakeoutSortingWidget(QWidget):
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.setStyleSheet(
             "QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; "
-            "border-radius: 6px; padding: 7px 18px; border: 1px solid #0369A1; }"
+            "border-radius: 6px; padding: 8px 20px; border: 1px solid #0369A1; }"
             "QPushButton:hover { background: #0369A1; }"
         )
         btn_save.clicked.connect(self._on_save_rules)
@@ -163,7 +171,7 @@ class TakeoutSortingWidget(QWidget):
         btn_test.setCursor(Qt.PointingHandCursor)
         btn_test.setStyleSheet(
             "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; "
-            "border-radius: 6px; padding: 7px 18px; border: 1px solid #059669; }"
+            "border-radius: 6px; padding: 8px 20px; border: 1px solid #059669; }"
             "QPushButton:hover { background: #059669; }"
         )
         btn_test.clicked.connect(self._on_test_print)
@@ -183,11 +191,12 @@ class TakeoutSortingWidget(QWidget):
             self.lbl_printer.setText(f"监听打印机: {printer_name or '默认打印机'}")
 
     def _load_table_data(self):
-        """填充分类表格数据"""
+        """填充分类表格数据，赋予舒适宽大的行高与内外边距"""
         self.table.setRowCount(0)
         for idx, cat in enumerate(self.categories):
             r = self.table.rowCount()
             self.table.insertRow(r)
+            self.table.setRowHeight(r, 52)  # 52px 宽大行高
 
             # 序号
             item_seq = QTableWidgetItem(f"#{r + 1}")
@@ -196,30 +205,48 @@ class TakeoutSortingWidget(QWidget):
 
             # 名称编辑
             txt_name = QLineEdit(cat.get("name", ""))
-            txt_name.setStyleSheet("QLineEdit { background: #0F172A; color: #F8FAFC; border: 1px solid #334155; padding: 4px; }")
+            txt_name.setStyleSheet(
+                "QLineEdit { background: #0F172A; color: #F8FAFC; border: 1px solid #334155; "
+                "border-radius: 6px; padding: 6px 10px; font-size: 14px; font-weight: bold; }"
+            )
             self.table.setCellWidget(r, 1, txt_name)
 
             # 关键字编辑
             kw_str = ", ".join(cat.get("keywords", []))
             txt_kw = QLineEdit(kw_str)
-            txt_kw.setStyleSheet("QLineEdit { background: #0F172A; color: #38BDF8; border: 1px solid #334155; padding: 4px; }")
+            txt_kw.setStyleSheet(
+                "QLineEdit { background: #0F172A; color: #38BDF8; border: 1px solid #334155; "
+                "border-radius: 6px; padding: 6px 10px; font-size: 13px; font-weight: bold; }"
+            )
             self.table.setCellWidget(r, 2, txt_kw)
 
             # 顺序调整按钮栏
             btn_w = QWidget()
             btn_l = QHBoxLayout(btn_w)
-            btn_l.setContentsMargins(2, 2, 2, 2)
-            btn_l.setSpacing(4)
+            btn_l.setContentsMargins(4, 4, 4, 4)
+            btn_l.setSpacing(6)
 
             btn_up = QPushButton(u"▲ 上移")
             btn_up.setEnabled(r > 0)
-            btn_up.setStyleSheet("QPushButton { background: #334155; color: #94A3B8; font-size: 11px; padding: 3px 6px; }")
+            btn_up.setCursor(Qt.PointingHandCursor)
+            btn_up.setStyleSheet(
+                "QPushButton { background: #334155; color: #F8FAFC; font-size: 12px; "
+                "font-weight: bold; padding: 6px 10px; border-radius: 4px; border: 1px solid #475569; }"
+                "QPushButton:hover { background: #475569; }"
+                "QPushButton:disabled { background: #1E293B; color: #475569; border-color: #334155; }"
+            )
             btn_up.clicked.connect(lambda _, row=r: self._move_row(row, -1))
             btn_l.addWidget(btn_up)
 
             btn_down = QPushButton(u"▼ 下移")
             btn_down.setEnabled(r < len(self.categories) - 1)
-            btn_down.setStyleSheet("QPushButton { background: #334155; color: #94A3B8; font-size: 11px; padding: 3px 6px; }")
+            btn_down.setCursor(Qt.PointingHandCursor)
+            btn_down.setStyleSheet(
+                "QPushButton { background: #334155; color: #F8FAFC; font-size: 12px; "
+                "font-weight: bold; padding: 6px 10px; border-radius: 4px; border: 1px solid #475569; }"
+                "QPushButton:hover { background: #475569; }"
+                "QPushButton:disabled { background: #1E293B; color: #475569; border-color: #334155; }"
+            )
             btn_down.clicked.connect(lambda _, row=r: self._move_row(row, 1))
             btn_l.addWidget(btn_down)
 
@@ -246,7 +273,6 @@ class TakeoutSortingWidget(QWidget):
         show_info(self, u"中继状态", u"外卖单中继已" + (u"开启" if is_on else u"关闭"))
 
     def _on_save_rules(self):
-        # 收集表格修改
         updated = []
         for r in range(self.table.rowCount()):
             name_widget = self.table.cellWidget(r, 1)
