@@ -83,7 +83,7 @@ class AutoSwitchController(QObject):
                     self._last_private_time = time.time()  # 刷新私域活动时间
                     # 决策分配给【私域 POS】 -> 自动将本系统弹出最前
                     bring_our_pos_to_front(self.main_window)
-                    self._update_floating_ball_status(is_private=True, reason="智能算法选择: 本单走私域")
+                    self._update_floating_ball_status(is_private=True, reason="智能算法选择: 本单走私域", show_checkmark=True)
                     msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
                     print(f"[AutoDecisionEngine] {msg}")
                     log_event(CAT_DECISION, f"决策: 走私域 POS", f"重量 {weight_kg:.2f}kg | 截留占比: {self.get_actual_private_ratio():.1f}%")
@@ -94,7 +94,7 @@ class AutoSwitchController(QObject):
                     ok = bring_official_to_front()
                     if not ok and self.main_window:
                         self.main_window.showMinimized()
-                    self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方")
+                    self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方", show_checkmark=True)
                     msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
                     print(f"[AutoDecisionEngine] {msg}")
                     log_event(CAT_DECISION, f"决策: 走官方系统", f"重量 {weight_kg:.2f}kg | 截留占比: {self.get_actual_private_ratio():.1f}%")
@@ -200,13 +200,15 @@ class AutoSwitchController(QObject):
             self.main_window.showMinimized()
         self._update_floating_ball_status(is_private=False, reason="出票延时结束")
 
-    def _update_floating_ball_status(self, is_private: bool, reason: str = ""):
+    def _update_floating_ball_status(self, is_private: bool, reason: str = "", show_checkmark: bool = False):
         """更新触屏悬浮球的状态与提示"""
         if hasattr(self.main_window, 'floating_ball') and self.main_window.floating_ball:
             fb = self.main_window.floating_ball
             fb.is_our_pos_active = is_private
             actual_pct = int(self.get_actual_private_ratio())
             fb.setToolTip(f"自动决策系统 | 当前私域比: {actual_pct}%\n{reason}\n轻触: 手动切换 | 长按/三连击: 紧急避险销毁")
+            if show_checkmark:
+                fb.show_decision_checkmark()
             fb.update()
 
     def update_config(self, config: dict):

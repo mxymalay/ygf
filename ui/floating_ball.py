@@ -64,6 +64,22 @@ class FloatingBall(QWidget):
         self._countdown_total_ms = 3000.0
         self._countdown_start_time = 0.0
 
+        # 决策通过的对钩指示符
+        self._show_checkmark = False
+        self._checkmark_timer = QTimer(self)
+        self._checkmark_timer.setSingleShot(True)
+        self._checkmark_timer.timeout.connect(self._hide_checkmark)
+
+    def show_decision_checkmark(self):
+        """显示右下角的决策对钩，1.5秒后消失"""
+        self._show_checkmark = True
+        self.update()
+        self._checkmark_timer.start(1500)
+
+    def _hide_checkmark(self):
+        self._show_checkmark = False
+        self.update()
+
     def start_countdown(self, seconds: float):
         """出票后启动边框隐退倒计时动效"""
         self._countdown_active = True
@@ -151,6 +167,16 @@ class FloatingBall(QWidget):
         painter.setPen(QColor(229, 231, 235, 220))
         rect_sub = QRect(0, 26, 88, 18)
         painter.drawText(rect_sub, Qt.AlignCenter, sub_text)
+
+        # 7. 右下角动态对钩 (决策成功指示)
+        if self._show_checkmark:
+            painter.setPen(QPen(QColor(34, 197, 94), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)) # 亮绿色对钩
+            path = QPainterPath()
+            # 绘制对钩在胶囊的右下角，坐标大致在 (72, 30) 区域
+            path.moveTo(68, 34)
+            path.lineTo(72, 38)
+            path.lineTo(79, 28)
+            painter.drawPath(path)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
