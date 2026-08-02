@@ -60,7 +60,7 @@ def _find_shouqianba_hwnd():
 
 
 def send_hotkey(hotkey_str: str):
-    """模拟键盘发送快捷键 - 优先精准发送到收钱吧窗口，降级才用全局广播"""
+    """模拟键盘发送快捷键 (使用全局 keybd_event 触发系统级热键)"""
     if not hotkey_str:
         return False
     try:
@@ -72,48 +72,30 @@ def send_hotkey(hotkey_str: str):
             return False
 
         KEYEVENTF_KEYUP = 0x0002
-        WM_KEYDOWN = 0x0100
-        WM_KEYUP = 0x0101
-        WM_SYSKEYDOWN = 0x0104
-        WM_SYSKEYUP = 0x0105
 
-        # 尝试精准定向发送到收钱吧窗口
-        sqb_hwnd = _find_shouqianba_hwnd()
-
-        if sqb_hwnd:
-            # 使用 PostMessage 精准向目标窗口发送按键，不干扰全局键鼠
-            for vk in vk_codes:
-                scan_code = user32.MapVirtualKeyW(vk, 0)
-                lParam_down = (1 | (scan_code << 16))
-                user32.PostMessageW(sqb_hwnd, WM_KEYDOWN, vk, lParam_down)
-                time.sleep(0.02)
-
-            time.sleep(0.05)
-
-            for vk in reversed(vk_codes):
-                scan_code = user32.MapVirtualKeyW(vk, 0)
-                lParam_up = (1 | (scan_code << 16) | (3 << 30))
-                user32.PostMessageW(sqb_hwnd, WM_KEYUP, vk, lParam_up)
-                time.sleep(0.02)
-
-            print(f"[快捷键唤起] 精准定向发送快捷键到收钱吧窗口: {hotkey_str}")
-            return True
-        else:
-            # 降级：收钱吧窗口未找到时，使用全局 keybd_event（仅在万不得已时）
+        # 为了防止修饰键(Shift/Ctrl/Alt)卡死导致鼠标键盘行为怪异，使用 try...finally 确保释放
+        try:
+            # 按下所有组合键
             for vk in vk_codes:
                 scan_code = user32.MapVirtualKeyW(vk, 0)
                 user32.keybd_event(vk, scan_code, 0, 0)
                 time.sleep(0.02)
 
             time.sleep(0.05)
-
+        finally:
+            # 逆序释放键，保证必定执行
             for vk in reversed(vk_codes):
                 scan_code = user32.MapVirtualKeyW(vk, 0)
                 user32.keybd_event(vk, scan_code, KEYEVENTF_KEYUP, 0)
                 time.sleep(0.02)
+                
+            # 额外保险：显式释放 Shift, Ctrl, Alt 防止卡死
+            user32.keybd_event(VK_MAPPING["SHIFT"], user32.MapVirtualKeyW(VK_MAPPING["SHIFT"], 0), KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_MAPPING["CTRL"], user32.MapVirtualKeyW(VK_MAPPING["CTRL"], 0), KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_MAPPING["ALT"], user32.MapVirtualKeyW(VK_MAPPING["ALT"], 0), KEYEVENTF_KEYUP, 0)
 
-            print(f"[快捷键唤起] 降级全局广播快捷键(未找到收钱吧窗口): {hotkey_str}")
-            return True
+        print(f"[快捷键唤起] 成功模拟发送全局快捷键: {hotkey_str}")
+        return True
     except Exception as e:
         logger.warning(f"发送快捷键 {hotkey_str} 异常: {e}")
         return False
