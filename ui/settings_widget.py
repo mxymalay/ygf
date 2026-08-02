@@ -361,10 +361,36 @@ class SettingsWidget(QWidget):
 
         layout.addLayout(grid)
 
-        btn_save_scale = QPushButton(u"💾 保存称重设置 (需重启)")
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_test_scale_com = QPushButton(u"⚡ 测试串口连接")
+        self.btn_test_scale_com.setCursor(Qt.PointingHandCursor)
+        self.btn_test_scale_com.setStyleSheet("""
+            QPushButton {
+                background-color: #0284C7;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #0369A1;
+            }
+        """)
+        self.btn_test_scale_com.clicked.connect(self._test_scale_com)
+        btn_box.addWidget(self.btn_test_scale_com)
+
+        btn_box.addStretch()
+
+        btn_save_scale = QPushButton(u"💾 保存称重设置")
         self._style_save_btn(btn_save_scale)
         btn_save_scale.clicked.connect(self._on_save_scale)
-        layout.addWidget(btn_save_scale, alignment=Qt.AlignRight)
+        btn_box.addWidget(btn_save_scale)
+
+        layout.addLayout(btn_box)
 
         # 初始化显示/隐藏
         self._on_scale_source_changed(self.cmb_scale_source.currentIndex())
@@ -804,6 +830,8 @@ class SettingsWidget(QWidget):
         self.btn_refresh_scale_ports.setVisible(is_com)
         self.lbl_scale_baud.setVisible(is_com)
         self.cmb_scale_baud.setVisible(is_com)
+        if hasattr(self, 'btn_test_scale_com'):
+            self.btn_test_scale_com.setVisible(is_com)
         if is_com:
             self.lbl_scale_hint.setText(
                 u"串口模式：直接连接电子秤的COM口读取重量数据，无需启动官方收银软件。\n"
@@ -813,6 +841,102 @@ class SettingsWidget(QWidget):
             self.lbl_scale_hint.setText(
                 u"官方模式：自动从杨国福官方收银系统的串口日志中实时读取重量，需先启动官方收银软件。"
             )
+
+    def _test_scale_com(self):
+        """实时测试当前配置的串口电子秤通信状态"""
+        port_text = self.cmb_scale_port.currentText().strip()
+        port = port_text.split("[")[0].strip()
+        try:
+            baudrate = int(self.cmb_scale_baud.currentText().strip())
+        except Exception:
+            baudrate = 9600
+
+        from ui.custom_dialog import show_info, show_error, show_warning
+        import time
+
+        try:
+            import serial
+        except ImportError:
+            show_error(self, u"依赖缺失", u"未找到 pyserial 模块，无法进行串口测试。")
+            return
+
+        try:
+            ser = serial.Serial(
+                port=port,
+                baudrate=baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=1.5
+            )
+        except Exception as e:
+            show_error(
+                self, u"串口连接失败",
+                f"无法打开端口【{port}】！\n\n原因: {str(e)}\n\n"
+                u"建议检查事项：\n"
+                u"1. 电子秤 USB/串口连接线是否接入电脑。\n"
+                u"2. 确认该串口未被其他收银软件或串口调试工具独占。"
+            )
+            return
+
+        # 尝试读取数据帧 1.5 秒
+        try:
+            start_t = time.time()
+            received_data = ""
+            weight_val = None
+
+            while time.time() - start_t < 1.5:
+                data = ser.read(64)
+                if data:
+                    received_data += data.decode("ascii", errors="ignore")
+                    if "\r" in received_data or "\n" in received_data:
+                        lines = received_data.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                        for line in lines:
+                            line = line.strip()
+                            if line:
+                                from core.scale_reader import ScaleReader
+                                temp_reader = ScaleReader(self.config)
+                                w = temp_reader._parse_com_weight(line)
+                                if w is not None:
+                                    weight_val = w
+                                    break
+                        if weight_val is not None:
+                            break
+                time.sleep(0.05)
+
+            ser.close()
+
+            if weight_val is not None:
+                show_info(
+                    self, u"测试连接成功",
+                    f"🎉 成功连通电子秤串口【{port}】！\n\n"
+                    f"• 通信端口: {port}\n"
+                    f"• 通信波特率: {baudrate}\n"
+                    f"• 捕获到的实时重量: {weight_val:.3f} kg\n\n"
+                    u"硬件通信完全正常，可随时保存使用！"
+                )
+            elif received_data:
+                show_warning(
+                    self, u"数据未匹配",
+                    f"⚠️ 已成功连通端口【{port}】并接收到数据，但未能解析为标准重量格式：\n\n"
+                    f"原始接收数据: \"{received_data[:100]}\"\n\n"
+                    u"建议检查波特率或电子秤通信协议。"
+                )
+            else:
+                show_warning(
+                    self, u"未接收到数据",
+                    f"⚠️ 已成功打开端口【{port}】，但在 1.5 秒内未接收到有效数据。\n\n"
+                    u"请检查：\n"
+                    u"1. 电子秤电源是否已打开。\n"
+                    u"2. 电子秤模式是否设置为【连续发送】，或尝试在秤上按下【打印/发送】键。"
+                )
+
+        except Exception as ex:
+            try:
+                ser.close()
+            except Exception:
+                pass
+            show_error(self, u"测试过程异常", f"通信读取过程发生错误: {str(ex)}")
 
     def _refresh_scale_com_ports(self, show_toast=False):
         """扫描可用COM端口 (称重秤专用)"""
