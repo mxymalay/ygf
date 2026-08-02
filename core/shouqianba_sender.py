@@ -444,6 +444,99 @@ def check_shouqianba_payment_success() -> bool:
         return False
 
 
+def check_shouqianba_payment_state() -> str:
+    """
+    三态全自动感知识别 (复用 OCR + Win32 双引擎)：
+    - "SUCCESS": 检测到【支付成功/收款成功】
+    - "WAITING": 检测到收钱吧【付款中/等待扫码/付款码框】界面 (保持静默等待)
+    - "CLOSED" : 收钱吧付款界面已关闭或未找到
+    """
+    import sys
+    if sys.platform != "win32":
+        return "CLOSED"
+
+    try:
+        user32 = ctypes.windll.user32
+        
+        success_keywords = ["支付成功", "收款成功", "交易成功", "收钱吧到账", "打印小票"]
+        waiting_keywords = [
+            "付款码", "支付方式", "显示虚拟键盘", "电脑扫码", "请扫码", "主扫", "被扫", 
+            "待支付", "输入密码", "倒计时", "EP99", "收款", "V4.0.4", "PC收款", "收钱吧"
+        ]
+
+        state = ["CLOSED"]
+
+        def get_text_from_hwnd(h):
+            texts = []
+            try:
+                l = user32.GetWindowTextLengthW(h)
+                if l > 0:
+                    buf = ctypes.create_unicode_buffer(l + 1)
+                    user32.GetWindowTextW(h, buf, l + 1)
+                    texts.append(buf.value.strip())
+            except Exception:
+                pass
+            return " ".join(texts)
+
+        def foreach_window(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                title_txt = get_text_from_hwnd(hwnd)
+                
+                # A. Win32 标题/子控件文本匹配
+                if title_txt:
+                    if any(sk in title_txt for sk in success_keywords):
+                        state[0] = "SUCCESS"
+                        return False
+                    if any(wk in title_txt for wk in waiting_keywords):
+                        state[0] = "WAITING"
+
+                # B. 视觉/RapidOCR 提取识别
+                rect = ctypes.wintypes.RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if 200 <= w <= 900 and 200 <= h <= 900:
+                    if _analyze_sqb_window_image_success(hwnd):
+                        state[0] = "SUCCESS"
+                        return False
+                        
+                    ocr_engine = _get_ocr_engine()
+                    if ocr_engine:
+                        try:
+                            from PyQt5.QtWidgets import QApplication
+                            screen = QApplication.primaryScreen()
+                            if screen:
+                                pixmap = screen.grabWindow(hwnd)
+                                if not pixmap.isNull() and pixmap.width() >= 120 and pixmap.height() >= 120:
+                                    qimg = pixmap.toImage().convertToFormat(4)
+                                    import numpy as np
+                                    ptr = qimg.bits()
+                                    ptr.setsize(qimg.height() * qimg.width() * 3)
+                                    img_np = np.frombuffer(ptr, np.uint8).reshape((qimg.height(), qimg.width(), 3))
+                                    result, _ = ocr_engine(img_np)
+                                    if result:
+                                        ocr_text = "".join([line[1] for line in result])
+                                        if any(sk in ocr_text for sk in success_keywords):
+                                            state[0] = "SUCCESS"
+                                            return False
+                                        if any(wk in ocr_text for wk in waiting_keywords):
+                                            state[0] = "WAITING"
+                        except Exception:
+                            pass
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
+        
+        if state[0] != "SUCCESS" and check_shouqianba_payment_success():
+            return "SUCCESS"
+            
+        return state[0]
+    except Exception as e:
+        logger.warning(f"三态检测收钱吧状态异常: {e}")
+        return "CLOSED"
+
+
 def _do_send_amount(amount: float, config: dict):
     """后台子线程多通道推送逻辑"""
     enabled = config.get("shouqianba_enabled", True)

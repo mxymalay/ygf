@@ -528,7 +528,7 @@ class CheckoutDialog(QDialog):
         if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
             self.lbl_sqb_desc.setText(u"⚡ 已调起收钱吧，等待扣款中...")
 
-        from core.shouqianba_sender import check_shouqianba_payment_success, is_shouqianba_window_open
+        from core.shouqianba_sender import check_shouqianba_payment_state
 
         monitoring_timer = QTimer(self)
         monitoring_timer.setInterval(250)
@@ -537,29 +537,25 @@ class CheckoutDialog(QDialog):
         def _check_status():
             elapsed_ms[0] += 250
             
-            # 1. 优先实时检测【支付成功】
-            if check_shouqianba_payment_success():
+            sqb_state = check_shouqianba_payment_state()
+
+            # 1. 检测到支付成功
+            if sqb_state == "SUCCESS":
                 monitoring_timer.stop()
                 print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
                 self._complete_checkout(method)
                 return
 
-            # 2. 前 2 秒：为收钱吧软件启动/唤起留出窗口显示缓冲时间
-            if elapsed_ms[0] < 2000:
-                return
-
-            # 3. 2 秒后判断收钱吧付款窗口是否依然存在
-            window_open = is_shouqianba_window_open()
-            
-            if window_open:
-                # 窗口正处于打开状态（顾客正在扫码/支付），继续后台静默等待
+            # 2. 检测到正在等待扣款 (付款码界面打开中)
+            if sqb_state == "WAITING":
                 if elapsed_ms[0] >= 60000: # 60 秒防卡死超时
                     monitoring_timer.stop()
                     self._restore_pay_buttons()
                     self._show_sqb_confirm_overlay(amount, method)
                 return
-            else:
-                # 窗口已被收银员或收钱吧关闭/消失，但并未检测到成功（说明取消支付或未到账）
+
+            # 3. 界面已关闭或未找到，在前 2.5 秒缓冲期过后显示确认卡片
+            if elapsed_ms[0] >= 2500:
                 monitoring_timer.stop()
                 print("[CheckoutDialog] ℹ️ 收钱吧付款窗口已关闭且未到账，弹窗供收银员确认。")
                 self._restore_pay_buttons()
