@@ -551,9 +551,9 @@ class CheckoutDialog(QDialog):
         dialog_layout = QHBoxLayout(mask_frame)
         dialog_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 变窄精致迷你确认卡片 (380px)
+        # 变窄精致迷你确认卡片 (420px)
         cd_outer = QFrame()
-        cd_outer.setFixedWidth(380)
+        cd_outer.setFixedWidth(420)
         cd_outer.setStyleSheet("""
             QFrame {
                 background: #1E293B;
@@ -565,14 +565,31 @@ class CheckoutDialog(QDialog):
 
         box = QVBoxLayout(cd_outer)
         box.setContentsMargins(20, 18, 20, 18)
-        box.setSpacing(12)
+        box.setSpacing(14)
 
-        lbl_icon = QLabel(u"⚡ 自动侦测收钱吧中...")
+        lbl_icon = QLabel(u"⚡ 请确认收钱吧收款状态")
         lbl_icon.setAlignment(Qt.AlignCenter)
-        lbl_icon.setStyleSheet("font-size: 16px; font-weight: 900; color: #F97316; border: none; background: transparent;")
+        lbl_icon.setStyleSheet("font-size: 17px; font-weight: 900; color: #F97316; border: none; background: transparent;")
         box.addWidget(lbl_icon)
 
-        btn_ok = QPushButton(u"✅ 听到语音到账 (手动打票)")
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        btn_cancel = QPushButton(u"❌ 点错了 / 未到账")
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setFocusPolicy(Qt.NoFocus)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444);
+                color: #FFFFFF; font-size: 14px; font-weight: bold;
+                border-radius: 10px; padding: 12px 10px; border: none; outline: none;
+            }
+            QPushButton:hover { background: #EF4444; }
+        """)
+        btn_cancel.clicked.connect(confirm_dialog.reject)
+        btn_row.addWidget(btn_cancel, stretch=1)
+
+        btn_ok = QPushButton(u"✅ 已听到收钱吧到账")
         btn_ok.setCursor(Qt.PointingHandCursor)
         btn_ok.setFocusPolicy(Qt.NoFocus)
         btn_ok.setStyleSheet("""
@@ -584,21 +601,9 @@ class CheckoutDialog(QDialog):
             QPushButton:hover { background: #10B981; }
         """)
         btn_ok.clicked.connect(confirm_dialog.accept)
-        box.addWidget(btn_ok)
+        btn_row.addWidget(btn_ok, stretch=1)
 
-        btn_cancel = QPushButton(u"❌ 未到账 / 退回点菜")
-        btn_cancel.setCursor(Qt.PointingHandCursor)
-        btn_cancel.setFocusPolicy(Qt.NoFocus)
-        btn_cancel.setStyleSheet("""
-            QPushButton {
-                background: rgba(220, 38, 38, 0.15);
-                color: #F87171; font-size: 13px; font-weight: bold;
-                border-radius: 8px; padding: 8px 10px; border: 1px solid #DC2626; outline: none;
-            }
-            QPushButton:hover { background: #DC2626; color: #FFFFFF; }
-        """)
-        btn_cancel.clicked.connect(confirm_dialog.reject)
-        box.addWidget(btn_cancel)
+        box.addLayout(btn_row)
 
         # 启动后台高频侦测：自动侦测收钱吧【收款成功/支付成功】窗口
         auto_check_timer = QTimer(confirm_dialog)
