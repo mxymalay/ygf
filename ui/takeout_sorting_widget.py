@@ -264,11 +264,11 @@ class TakeoutSortingWidget(QWidget):
 
         # 区域 2：⭐多份醒目标记与联数
         f_card2 = QFrame()
-        f_card2.setStyleSheet("QFrame { background: #0F172A; border-radius: 8px; border: 1px solid #334155; padding: 12px; }")
+        f_card2.setStyleSheet("QFrame { background: #0F172A; border-radius: 8px; border: 1px solid #334155; padding: 12px; } QLabel { border: none; background: transparent; }")
         fc2_lay = QVBoxLayout(f_card2)
         fc2_lay.setSpacing(10)
         lbl_fc2 = QLabel(u"⭐ 多份标记与打印联数")
-        lbl_fc2.setStyleSheet("font-size: 14px; font-weight: bold; color: #10B981; border: none;")
+        lbl_fc2.setStyleSheet("font-size: 14px; font-weight: bold; color: #10B981; border: none; background: transparent;")
         fc2_lay.addWidget(lbl_fc2)
 
         row_f2 = QHBoxLayout()
@@ -288,7 +288,7 @@ class TakeoutSortingWidget(QWidget):
 
         row_f3 = QHBoxLayout()
         lbl_k_cnt = QLabel(u"👨‍🍳 制作联份数:")
-        lbl_k_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
+        lbl_k_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.spn_kitchen_copies = QSpinBox()
         self.spn_kitchen_copies.setRange(0, 5)
         self.spn_kitchen_copies.setValue(self.config.get("takeout_kitchen_copies", 1))
@@ -296,7 +296,7 @@ class TakeoutSortingWidget(QWidget):
         self.spn_kitchen_copies.valueChanged.connect(self._auto_save_format_settings)
 
         lbl_c_cnt = QLabel(u"  🧾 存根联份数:")
-        lbl_c_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
+        lbl_c_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.spn_cust_copies = QSpinBox()
         self.spn_cust_copies.setRange(0, 5)
         self.spn_cust_copies.setValue(self.config.get("takeout_cust_copies", 0))

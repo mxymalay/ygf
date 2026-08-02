@@ -518,12 +518,53 @@ def apply_touch_checkbox_style(chk):
     """)
 
 
+def _ensure_arrow_icons():
+    """确保 data/icons/ 目录下存在高清晰度 Up/Down 箭头 PNG 图片"""
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        icon_dir = os.path.join(base_dir, "data", "icons")
+        os.makedirs(icon_dir, exist_ok=True)
+
+        files = {
+            "arrow_up.png": ("up", "#F8FAFC"),
+            "arrow_down.png": ("down", "#F8FAFC"),
+            "arrow_up_dark.png": ("up", "#0F172A"),
+            "arrow_down_dark.png": ("down", "#0F172A"),
+        }
+
+        for fname, (direction, color) in files.items():
+            fpath = os.path.join(icon_dir, fname)
+            if not os.path.exists(fpath):
+                pix = QPixmap(16, 16)
+                pix.fill(Qt.transparent)
+                p = QPainter(pix)
+                p.setRenderHint(QPainter.Antialiasing)
+                p.setBrush(QColor(color))
+                p.setPen(Qt.NoPen)
+                if direction == "up":
+                    poly = QPolygon([QPoint(8, 3), QPoint(2, 12), QPoint(14, 12)])
+                else:
+                    poly = QPolygon([QPoint(2, 4), QPoint(14, 4), QPoint(8, 13)])
+                p.drawPolygon(poly)
+                p.end()
+                pix.save(fpath, "PNG")
+        return icon_dir
+    except Exception:
+        return ""
+
+
 def apply_touch_spinbox_style(spin):
-    """为 QSpinBox / QDoubleSpinBox 强行应用触屏大字与加宽微调按钮 (带清晰高亮上下箭头)"""
+    """为 QSpinBox / QDoubleSpinBox 强行应用触屏大字与加宽微调按钮 (带高清晰矢量箭头)"""
     if not spin:
         return
-    spin.setStyleSheet("""
-        QSpinBox, QDoubleSpinBox {
+    icon_dir = _ensure_arrow_icons().replace("\\", "/")
+    up_path = f"{icon_dir}/arrow_up.png" if icon_dir else ""
+    down_path = f"{icon_dir}/arrow_down.png" if icon_dir else ""
+    up_dark = f"{icon_dir}/arrow_up_dark.png" if icon_dir else ""
+    down_dark = f"{icon_dir}/arrow_down_dark.png" if icon_dir else ""
+
+    spin.setStyleSheet(f"""
+        QSpinBox, QDoubleSpinBox {{
             background-color: #0F172A;
             color: #38BDF8;
             border: 1px solid #334155;
@@ -532,12 +573,12 @@ def apply_touch_spinbox_style(spin):
             font-size: 15px;
             font-weight: bold;
             min-height: 42px;
-        }
-        QSpinBox:focus, QDoubleSpinBox:focus {
+        }}
+        QSpinBox:focus, QDoubleSpinBox:focus {{
             border: 2px solid #38BDF8;
             background-color: #1E293B;
-        }
-        QSpinBox::up-button, QDoubleSpinBox::up-button {
+        }}
+        QSpinBox::up-button, QDoubleSpinBox::up-button {{
             subcontrol-origin: border;
             subcontrol-position: top right;
             width: 34px;
@@ -547,21 +588,19 @@ def apply_touch_spinbox_style(spin):
             border: none;
             margin-right: 1px;
             margin-top: 1px;
-        }
-        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {
+        }}
+        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {{
             background: #38BDF8;
-        }
-        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-            width: 0px;
-            height: 0px;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-bottom: 6px solid #F8FAFC;
-        }
-        QSpinBox::up-button:hover QSpinBox::up-arrow, QDoubleSpinBox::up-button:hover QDoubleSpinBox::up-arrow {
-            border-bottom-color: #0F172A;
-        }
-        QSpinBox::down-button, QDoubleSpinBox::down-button {
+        }}
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+            width: 12px;
+            height: 12px;
+            image: url({up_path});
+        }}
+        QSpinBox::up-button:hover QSpinBox::up-arrow, QDoubleSpinBox::up-button:hover QDoubleSpinBox::up-arrow {{
+            image: url({up_dark});
+        }}
+        QSpinBox::down-button, QDoubleSpinBox::down-button {{
             subcontrol-origin: border;
             subcontrol-position: bottom right;
             width: 34px;
@@ -571,18 +610,16 @@ def apply_touch_spinbox_style(spin):
             border: none;
             margin-right: 1px;
             margin-bottom: 1px;
-        }
-        QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+        }}
+        QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
             background: #38BDF8;
-        }
-        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-            width: 0px;
-            height: 0px;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 6px solid #F8FAFC;
-        }
-        QSpinBox::down-button:hover QSpinBox::down-arrow, QDoubleSpinBox::down-button:hover QDoubleSpinBox::down-arrow {
-            border-top-color: #0F172A;
-        }
+        }}
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+            width: 12px;
+            height: 12px;
+            image: url({down_path});
+        }}
+        QSpinBox::down-button:hover QSpinBox::down-arrow, QDoubleSpinBox::down-button:hover QDoubleSpinBox::down-arrow {{
+            image: url({down_dark});
+        }}
     """)
