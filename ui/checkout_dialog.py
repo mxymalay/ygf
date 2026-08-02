@@ -186,18 +186,18 @@ class CheckoutDialog(QDialog):
 
         badge_row = QHBoxLayout()
         badge_row.setSpacing(6)
-        lbl_sqb_title = QLabel(u"收钱吧 自动收款")
+        lbl_sqb_title = QLabel(u"收钱吧")
         lbl_sqb_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #FFFFFF; border: none; background: transparent;")
         badge_row.addWidget(lbl_sqb_title)
 
-        lbl_badge = QLabel(u" 主推荐入口 ")
+        lbl_badge = QLabel(u" 推荐 ")
         lbl_badge.setStyleSheet("background: #FEF08A; color: #854D0E; font-size: 11px; font-weight: 900; border-radius: 4px; padding: 2px 6px; border: none;")
         badge_row.addWidget(lbl_badge)
         badge_row.addStretch()
 
         sqb_text_col.addLayout(badge_row)
 
-        lbl_sqb_desc = QLabel(u"电脑扫码：自动唤起收钱吧PC客户端，推送订单金额并出票")
+        lbl_sqb_desc = QLabel(u"电脑扫码")
         lbl_sqb_desc.setStyleSheet("font-size: 13px; color: #FFEDD5; border: none; background: transparent;")
         sqb_text_col.addWidget(lbl_sqb_desc)
 
@@ -226,7 +226,7 @@ class CheckoutDialog(QDialog):
         line_l.setFrameShape(QFrame.HLine)
         line_l.setStyleSheet("border: none; border-top: 1px dashed #475569;")
 
-        lbl_sep_text = QLabel(u"--- 其它渠道 (跳过电脑助手·直接记账出票) ---")
+        lbl_sep_text = QLabel(u"--- 其它渠道 (直接记账出票) ---")
         lbl_sep_text.setStyleSheet("color: #94A3B8; font-size: 12px; font-weight: bold; border: none; background: transparent;")
 
         line_r = QFrame()

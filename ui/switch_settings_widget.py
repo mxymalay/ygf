@@ -244,7 +244,7 @@ class SwitchSettingsWidget(QWidget):
         left_layout.addWidget(scroll, stretch=1)
 
         # 底部保存按钮
-        self.btn_save = QPushButton(u"💾 保存并立即生效")
+        self.btn_save = QPushButton(u"💾 保存")
         self.btn_save.setFixedHeight(50)
         self.btn_save.setCursor(Qt.PointingHandCursor)
         self.btn_save.setStyleSheet("""

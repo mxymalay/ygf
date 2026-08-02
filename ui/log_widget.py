@@ -261,6 +261,10 @@ class LogWidget(QWidget):
         self.list_layout.setAlignment(Qt.AlignTop)
         self.scroll_area.setWidget(self.list_container)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._load_logs()
+
     def _load_logs(self):
         """加载/刷新日志列表"""
         cat_filter = self.combo_cat.currentData() or ""
