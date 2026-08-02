@@ -517,47 +517,32 @@ class CheckoutDialog(QDialog):
     def _start_sqb_smart_monitoring(self, amount, method):
         """
         智能无感感知模式：
-        1. 只要收钱吧【付款窗口存在/打开】，说明顾客正在扫码付款，POS 保持静默等待；
-        2. 后台侦测到【支付成功】，零弹窗直接完成结账并自动打印出票！
-        3. 只有当【付款窗口被关闭且未支付成功】或【异常超时】时，才弹出确认卡片。
+        1. 调起收钱吧后，POS 保持静默后台持续高频侦测【支付成功】；
+        2. 只要扫码支付成功（双引擎/RapidOCR精准侦测），零弹窗直接自动完成结账并打印出票！
+        3. 绝不上浮中途干扰弹窗，仅在长时间未扣款 (60s) 或收银员手动点击时才触发确认卡片。
         """
-        # 暂时禁用按钮，防止收银员重复点击
-        for btn in self.pay_buttons:
-            btn.setEnabled(False)
-
         if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
             self.lbl_sqb_desc.setText(u"⚡ 已调起收钱吧，等待扣款中...")
 
-        from core.shouqianba_sender import check_shouqianba_payment_state
+        from core.shouqianba_sender import check_shouqianba_payment_success
 
         monitoring_timer = QTimer(self)
-        monitoring_timer.setInterval(250)
+        monitoring_timer.setInterval(150)
         elapsed_ms = [0]
 
         def _check_status():
-            elapsed_ms[0] += 250
+            elapsed_ms[0] += 150
             
-            sqb_state = check_shouqianba_payment_state()
-
-            # 1. 检测到支付成功
-            if sqb_state == "SUCCESS":
+            # 1. 150ms 高频极速侦测【支付成功】
+            if check_shouqianba_payment_success():
                 monitoring_timer.stop()
                 print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
                 self._complete_checkout(method)
                 return
 
-            # 2. 检测到正在等待扣款 (付款码界面打开中)
-            if sqb_state == "WAITING":
-                if elapsed_ms[0] >= 60000: # 60 秒防卡死超时
-                    monitoring_timer.stop()
-                    self._restore_pay_buttons()
-                    self._show_sqb_confirm_overlay(amount, method)
-                return
-
-            # 3. 界面已关闭或未找到，在前 2.5 秒缓冲期过后显示确认卡片
-            if elapsed_ms[0] >= 2500:
+            # 2. 超长等待防卡死超时 (60 秒)
+            if elapsed_ms[0] >= 60000:
                 monitoring_timer.stop()
-                print("[CheckoutDialog] ℹ️ 收钱吧付款窗口已关闭且未到账，弹窗供收银员确认。")
                 self._restore_pay_buttons()
                 self._show_sqb_confirm_overlay(amount, method)
 
