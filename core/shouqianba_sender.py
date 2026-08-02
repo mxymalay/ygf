@@ -171,22 +171,40 @@ def bring_shouqianba_to_front():
             user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002) # HWND_TOPMOST
             user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002) # HWND_NOTOPMOST
             
-            # 突破 Windows 限制，强行附加线程抢夺真正的键盘输入焦点
-            foreground_thread = user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
+            # 突破 Windows 前台限制：必须同时附加“当前线程、原前台线程、
+            # 收钱吧窗口线程”的输入队列。旧实现只附加了原前台线程，导致
+            # SetFocus 跨线程失败而 Tab 实际仍发给本 POS。
+            foreground_hwnd = user32.GetForegroundWindow()
+            foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
             target_thread = user32.GetWindowThreadProcessId(hwnd, None)
             current_thread = kernel32.GetCurrentThreadId()
+            attached_foreground = False
+            attached_target = False
+            try:
+                if foreground_thread and foreground_thread != current_thread:
+                    attached_foreground = bool(user32.AttachThreadInput(
+                        current_thread, foreground_thread, True
+                    ))
+                if target_thread and target_thread != current_thread:
+                    attached_target = bool(user32.AttachThreadInput(
+                        current_thread, target_thread, True
+                    ))
 
-            if foreground_thread != current_thread:
-                user32.AttachThreadInput(current_thread, foreground_thread, True)
+                user32.BringWindowToTop(hwnd)
                 user32.SetForegroundWindow(hwnd)
                 user32.SetFocus(hwnd)
-                user32.AttachThreadInput(current_thread, foreground_thread, False)
-            else:
-                user32.SetForegroundWindow(hwnd)
-                user32.SetFocus(hwnd)
-
-            print(f"[收钱吧唤起] 已强行突破限制，为【PC收款】窗口注入真正的键盘焦点！")
-            return True
+                # SetForegroundWindow 没有抛异常也不表示成功；必须实际核验。
+                is_foreground = (user32.GetForegroundWindow() == hwnd)
+                if is_foreground:
+                    print(f"[收钱吧唤起] 已为【PC收款】窗口取得键盘焦点！")
+                else:
+                    logger.warning("收钱吧窗口已找到，但 Windows 拒绝切换到前台")
+                return is_foreground
+            finally:
+                if attached_target:
+                    user32.AttachThreadInput(current_thread, target_thread, False)
+                if attached_foreground:
+                    user32.AttachThreadInput(current_thread, foreground_thread, False)
     except Exception as e:
         logger.warning(f"强行唤起收钱吧窗口失败: {e}")
     return False
