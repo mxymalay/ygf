@@ -35,49 +35,14 @@ for i in range(10):
 
 
 def send_hotkey(hotkey_str: str):
-    """底层 SendInput 级按键触发 (支持 TAB / Shift+Q 等各类组合按键)"""
+    """底层物理 SendInput 按键驱动 (支持 Shift+Q, TAB 等所有唤起热键)"""
     if not hotkey_str:
         return False
     try:
+        import keyboard
         hotkey_clean = hotkey_str.strip().lower()
-        if hotkey_clean == "tab":
-            import keyboard
-            keyboard.send("tab")
-            print(f"[快捷键唤起] 成功物理 SendInput 发送: TAB")
-            return True
-
-        if hotkey_clean in ["enter", "space", "esc", "escape"]:
-            import keyboard
-            keyboard.send(hotkey_clean)
-            print(f"[快捷键唤起] 成功物理 SendInput 发送: {hotkey_str}")
-            return True
-
-        user32 = ctypes.windll.user32
-        parts = [p.strip().upper() for p in hotkey_str.split("+") if p.strip()]
-        vk_codes = [VK_MAPPING[p] for p in parts if p in VK_MAPPING]
-
-        if not vk_codes:
-            return False
-
-        KEYEVENTF_KEYUP = 0x0002
-
-        # 瞬间并发按下所有修饰键与字母键 (零 time.sleep 间隔)
-        for vk in vk_codes:
-            scan_code = user32.MapVirtualKeyW(vk, 0)
-            if scan_code == 0:
-                scan_code = vk
-            user32.keybd_event(vk, scan_code, 0, 0)
-
-        time.sleep(0.01)
-
-        # 瞬间释放所有按键
-        for vk in reversed(vk_codes):
-            scan_code = user32.MapVirtualKeyW(vk, 0)
-            if scan_code == 0:
-                scan_code = vk
-            user32.keybd_event(vk, scan_code, KEYEVENTF_KEYUP, 0)
-
-        print(f"[快捷键唤起] 瞬间唤起收钱吧: {hotkey_str}")
+        keyboard.send(hotkey_clean)
+        print(f"[快捷键唤起] 成功物理 SendInput 发送: {hotkey_str}")
         return True
     except Exception as e:
         logger.warning(f"发送快捷键 {hotkey_str} 异常: {e}")
@@ -422,18 +387,18 @@ def _do_send_amount(amount: float, config: dict):
         print("[收钱吧串口] 已完成静默 0.00 金额重置，隐藏前台唤起。")
         return
 
-    # 1. 优先使用 Win32 原生 API 唤起置顶
-    opened = bring_shouqianba_to_front()
-    if not opened:
-        # 2. 若收钱吧隐藏在系统右下角托盘中，瞬间触发快捷键唤起
-        hotkey = config.get("shouqianba_hotkey", "Shift+Q")
-        if hotkey:
-            send_hotkey(hotkey)
-            time.sleep(0.08)
-            bring_shouqianba_to_front()
+    # 1. 模拟唤起快捷键 (由 SendInput 级驱动，不触发中英文输入法切换)
+    hotkey = config.get("shouqianba_hotkey", "Shift+Q")
+    if hotkey:
+        send_hotkey(hotkey)
 
-    # 3. 唤起置顶后，等待 0.45 秒 (给收钱吧 V4.0.4 渲染界面时间)，精准发送 TAB 键 (光标强行跳到扫码框)
-    time.sleep(0.45)
+    # 2. 强制将收钱吧窗口置顶前台
+    bring_shouqianba_to_front()
+
+    # 3. 必须延迟 0.6 秒 (配合收钱吧 V4.0.4 渲染与焦点激活时间)
+    time.sleep(0.6)
+
+    # 4. 精准发送 TAB 键 (光标强行跳到扫码框)
     send_hotkey("TAB")
 
 
