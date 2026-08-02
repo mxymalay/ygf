@@ -252,6 +252,46 @@ def send_tab_to_shouqianba_focus() -> bool:
         return False
 
 
+def focus_shouqianba_payment_code() -> bool:
+    """点击收钱吧收款弹窗中的“付款码”输入框。
+
+    收钱吧 V4 的无标题栏收款弹窗会拦截程序投递的 Tab，但人工鼠标点击
+    付款码框始终有效。该输入框在弹窗宽度约 59%、高度约 50% 的位置；
+    使用窗口相对坐标可适配不同分辨率与 DPI 缩放。
+    """
+    try:
+        from ctypes import wintypes
+
+        hwnd = _find_shouqianba_hwnd()
+        if not hwnd:
+            return False
+
+        user32 = ctypes.windll.user32
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return False
+
+        width = rect.right - rect.left
+        height = rect.bottom - rect.top
+        # 仅对截图中这类中等尺寸的收款弹窗点击，避免窗口识别异常时误点。
+        if not (400 <= width <= 900 and 400 <= height <= 900):
+            logger.warning("收钱吧窗口尺寸异常（%sx%s），取消付款码框点击", width, height)
+            return False
+
+        x = rect.left + int(width * 0.59)
+        y = rect.top + int(height * 0.50)
+        user32.SetCursorPos(x, y)
+        time.sleep(0.05)
+        user32.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
+        user32.mouse_event(0x0004, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
+        logger.info("已点击收钱吧付款码输入框：(%s, %s)", x, y)
+        print("[收钱吧焦点] 已点击付款码输入框")
+        return True
+    except Exception as e:
+        logger.warning(f"点击收钱吧付款码输入框失败: {e}")
+        return False
+
+
 # 初始化全局 RapidOCR 算法引擎 (单例只加载一次，15ms 超高速文字识别)
 _rapid_ocr_engine = None
 
@@ -521,15 +561,15 @@ def _do_send_amount(amount: float, config: dict):
     # 立刻发 Tab，因为收钱吧往往会在稍后创建/激活新的收款窗口。
     bring_shouqianba_to_front()
 
-    # 4. 等待收款界面完成渲染后，再次置前，保证 Tab 发送给收钱吧而非
-    # 本 POS 或刚刚失焦的旧窗口。只发送一次，避免焦点跳过扫码栏。
+    # 4. 等待收款界面完成渲染后再次置前，并点击付款码输入框。该版本
+    # 收钱吧会拦截模拟 Tab，鼠标点击能稳定把扫码焦点落到正确控件。
     time.sleep(0.9)
     if bring_shouqianba_to_front():
         time.sleep(0.12)
-        if send_tab_to_shouqianba_focus():
-            logger.info("收钱吧收款界面已重新置前，已向焦点控件发送 Tab")
+        if focus_shouqianba_payment_code():
+            logger.info("收钱吧收款界面已重新置前，已点击付款码输入框")
         else:
-            logger.warning("收钱吧窗口已找到，但定向 Tab 投递失败")
+            logger.warning("收钱吧窗口已找到，但付款码输入框点击失败")
     else:
         logger.warning("快捷键后未找到收钱吧窗口，未发送 Tab 以免影响其他程序")
 
