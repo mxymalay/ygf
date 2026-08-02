@@ -33,8 +33,8 @@ class FloatingBall(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # 88x50 黄金比例胶囊尺寸
-        self.setFixedSize(88, 50)
+        # 88x68 黄金比例胶囊尺寸 (底部预留18px显示状态图标)
+        self.setFixedSize(88, 68)
 
         # 移动到屏幕右上角默认位置
         from PyQt5.QtWidgets import QApplication
@@ -165,7 +165,7 @@ class FloatingBall(QWidget):
         rect_title = QRect(6, 5, 82, 40) # 扩大标题矩形，使其完全居中
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        # 7. 右下角状态指示 (决策成功动态对钩 / 人工干预暂停图标 / 算法锁定锁头)
+        # 7. 悬浮球下方独立状态指示栏 (小灵动岛，不与主胶囊重叠)
         is_paused = False
         is_locked = False
         now_ts = time.time()
@@ -182,43 +182,45 @@ class FloatingBall(QWidget):
                     if cart_items and (now_ts - sc._last_private_time < sc._private_lock_sec):
                         is_locked = True
 
+        active_icons = []
         if is_paused:
-            # 绘制暂停图标 (两条垂直白线) ⏸
-            painter.setPen(QPen(QColor(0, 0, 0, 100), 3.0, Qt.SolidLine, Qt.RoundCap)) # 阴影
-            painter.drawLine(72, 30, 72, 36)
-            painter.drawLine(77, 30, 77, 36)
+            active_icons.append("PAUSE")
+        if is_locked:
+            active_icons.append("LOCK")
+        if self._show_checkmark:
+            active_icons.append("CHECK")
             
-            painter.setPen(QPen(QColor(255, 255, 255), 2.5, Qt.SolidLine, Qt.RoundCap))
-            painter.drawLine(71, 29, 71, 35)
-            painter.drawLine(76, 29, 76, 35)
+        if active_icons:
+            # 绘制底部的半透明黑色小胶囊背景 (动态宽度)
+            num_icons = len(active_icons)
+            bg_width = num_icons * 20 + 8
+            bg_x = 44 - bg_width // 2
+            painter.setBrush(QColor(0, 0, 0, 140))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(bg_x, 51, bg_width, 16, 8, 8)
             
-        elif is_locked:
-            # 绘制锁定图标 (带圆环的小锁) 🔒
-            painter.setPen(QPen(QColor(0, 0, 0, 100), 2.5, Qt.SolidLine, Qt.RoundCap))
-            painter.drawRect(72, 33, 6, 4)
-            painter.drawArc(73, 29, 4, 6, 0, 180 * 16)
-            
-            painter.setPen(QPen(QColor(255, 255, 255), 1.5, Qt.SolidLine, Qt.RoundCap))
-            painter.setBrush(QColor(255, 255, 255))
-            painter.drawRect(71, 32, 6, 4)
-            painter.setBrush(Qt.NoBrush)
-            painter.drawArc(72, 28, 4, 6, 0, 180 * 16)
-            
-        elif self._show_checkmark:
-            # 绘制决策通过的高亮对钩 (带黑色阴影增强对比度)
-            path_shadow = QPainterPath()
-            path_shadow.moveTo(69, 35)
-            path_shadow.lineTo(73, 39)
-            path_shadow.lineTo(80, 29)
-            painter.setPen(QPen(QColor(0, 0, 0, 100), 3.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            painter.drawPath(path_shadow)
-
-            painter.setPen(QPen(QColor(253, 224, 71), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)) # 亮黄色对钩
-            path = QPainterPath()
-            path.moveTo(68, 34)
-            path.lineTo(72, 38)
-            path.lineTo(79, 28)
-            painter.drawPath(path)
+            # 逐个绘制图标
+            icon_x = bg_x + 4 + 10  # 10 is the center offset of the first icon
+            for icon in active_icons:
+                if icon == "PAUSE":
+                    painter.setPen(QPen(QColor(255, 255, 255), 2.0, Qt.SolidLine, Qt.RoundCap))
+                    painter.drawLine(icon_x - 2, 55, icon_x - 2, 63)
+                    painter.drawLine(icon_x + 2, 55, icon_x + 2, 63)
+                elif icon == "LOCK":
+                    painter.setPen(QPen(QColor(255, 255, 255), 1.5, Qt.SolidLine, Qt.RoundCap))
+                    painter.setBrush(QColor(255, 255, 255))
+                    painter.drawRect(icon_x - 3, 59, 6, 4)
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawArc(icon_x - 2, 55, 4, 6, 0, 180 * 16)
+                elif icon == "CHECK":
+                    painter.setPen(QPen(QColor(253, 224, 71), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    path = QPainterPath()
+                    path.moveTo(icon_x - 4, 59)
+                    path.lineTo(icon_x - 1, 62)
+                    path.lineTo(icon_x + 4, 55)
+                    painter.drawPath(path)
+                
+                icon_x += 20
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
