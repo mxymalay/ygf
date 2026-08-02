@@ -609,6 +609,35 @@ class SettingsWidget(QWidget):
 
         grid.addLayout(hk_box, 4, 1, 1, 2)
 
+        # ── 收钱吧插件配置要点指南 ──
+        tip_frame = QFrame()
+        tip_frame.setStyleSheet("""
+            QFrame {
+                background-color: #0F172A;
+                border: 1px solid #38BDF8;
+                border-radius: 10px;
+            }
+        """)
+        tip_layout = QVBoxLayout(tip_frame)
+        tip_layout.setContentsMargins(16, 14, 16, 14)
+        tip_layout.setSpacing(8)
+
+        lbl_tip_title = QLabel(u"💡 收钱吧 PC 助手 / 插件配置必备说明：")
+        lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 15px; font-weight: 900; background: transparent;")
+        tip_layout.addWidget(lbl_tip_title)
+
+        tips = [
+            u"📌 <b>插件 - 打印机设置</b>：应选择为 <b>USB 模式</b>，不要选择兼容模式。",
+            u"📌 <b>插件 - 获取金额</b>：应使用<b>虚拟端口软件</b>将本 POS 设置的端口和插件设置的端口配对。",
+            u"📌 <b>插件 - 调出菜单</b>：应选择<b>快捷键菜单</b>，并且和本系统设置【唤起快捷键】保持一致。",
+        ]
+        for tip in tips:
+            lbl_tip_item = QLabel(tip)
+            lbl_tip_item.setWordWrap(True)
+            lbl_tip_item.setStyleSheet("color: #E2E8F0; font-size: 13px; background: transparent; line-height: 140%;")
+            tip_layout.addWidget(lbl_tip_item)
+
+        layout.addWidget(tip_frame)
         layout.addLayout(grid)
 
         btn_save_sqb = QPushButton(u"💾 保存收钱吧设置")
