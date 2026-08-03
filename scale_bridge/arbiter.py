@@ -38,6 +38,7 @@ class OfficialPriorityArbiter:
         self.last_weight_kg: Optional[float] = None
         self.suppressed_private_queries = 0
         self.invalid_frames = 0
+        self.valid_frames = 0
         self.mode = BridgeMode.UNKNOWN
 
     def official_is_active(self, now: Optional[float] = None) -> bool:
@@ -49,7 +50,12 @@ class OfficialPriorityArbiter:
     def refresh_mode(self, now: Optional[float] = None) -> BridgeMode:
         if self.mode in (BridgeMode.RECONNECTING, BridgeMode.FAULTED):
             return self.mode
-        self.mode = BridgeMode.OFFICIAL_ACTIVE if self.official_is_active(now) else BridgeMode.PRIVATE_ACTIVE
+        if self.official_is_active(now):
+            self.mode = BridgeMode.OFFICIAL_ACTIVE
+        elif self.last_official_poll is not None or self.last_private_poll is not None:
+            self.mode = BridgeMode.PRIVATE_ACTIVE
+        else:
+            self.mode = BridgeMode.UNKNOWN
         return self.mode
 
     def set_transport_state(self, mode: BridgeMode) -> None:
@@ -59,7 +65,7 @@ class OfficialPriorityArbiter:
 
     def transport_recovered(self) -> BridgeMode:
         self.mode = BridgeMode.UNKNOWN
-        return self.refresh_mode()
+        return self.mode
 
     def route_official(self, data: bytes, now: Optional[float] = None) -> bytes:
         """Official bytes are always forwarded and make the official channel active on `$`."""
@@ -103,15 +109,25 @@ class OfficialPriorityArbiter:
                 self.invalid_frames += 1
                 continue
             self.last_weight_kg = weight
+            self.valid_frames += 1
             parsed.append(weight)
         return parsed
 
     def status(self) -> dict:
-        self.refresh_mode()
+        now = self._clock()
+        self.refresh_mode(now)
+
+        def age_ms(value):
+            return None if value is None else max(0, int((now - value) * 1000))
+
         return {
             "mode": self.mode.value,
             "last_weight_kg": self.last_weight_kg,
             "suppressed_private_queries": self.suppressed_private_queries,
             "invalid_frames": self.invalid_frames,
+            "valid_frames": self.valid_frames,
             "official_active": self.official_is_active(),
+            "last_official_poll_age_ms": age_ms(self.last_official_poll),
+            "last_private_poll_age_ms": age_ms(self.last_private_poll),
+            "last_scale_reply_age_ms": age_ms(self.last_scale_reply),
         }

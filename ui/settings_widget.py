@@ -428,7 +428,7 @@ class SettingsWidget(QWidget):
         bridge_layout.setContentsMargins(16, 16, 16, 16)
         bridge_layout.setSpacing(12)
 
-        bridge_title = QLabel(u"🔀 ScaleBridge 双 POS 串口服务（迁移配置）")
+        bridge_title = QLabel(u"🔀 ScaleBridge 双 POS 串口服务（安装与维护）")
         bridge_title.setStyleSheet("font-size: 16px; color: #60A5FA; font-weight: bold;")
         bridge_layout.addWidget(bridge_title)
         bridge_desc = QLabel(
@@ -460,7 +460,7 @@ class SettingsWidget(QWidget):
         bridge_grid.addWidget(self.txt_bridge_official_pos, 1, 1)
         bridge_grid.addWidget(self._make_label(u"服务官方对端："), 1, 2)
         self.txt_bridge_official_peer = QLineEdit()
-        self.txt_bridge_official_peer.setPlaceholderText("例如 CNCB0")
+        self.txt_bridge_official_peer.setPlaceholderText("首次初始化时自动分配")
         bridge_grid.addWidget(self.txt_bridge_official_peer, 1, 3)
 
         bridge_grid.addWidget(self._make_label(u"私有 POS："), 2, 0)
@@ -469,7 +469,7 @@ class SettingsWidget(QWidget):
         bridge_grid.addWidget(self.txt_bridge_private_pos, 2, 1)
         bridge_grid.addWidget(self._make_label(u"服务私有对端："), 2, 2)
         self.txt_bridge_private_peer = QLineEdit()
-        self.txt_bridge_private_peer.setPlaceholderText("例如 CNCB1")
+        self.txt_bridge_private_peer.setPlaceholderText("首次初始化时自动分配")
         bridge_grid.addWidget(self.txt_bridge_private_peer, 2, 3)
 
         bridge_grid.addWidget(self._make_label(u"收钱吧发送端（可调）："), 3, 0)
@@ -501,6 +501,53 @@ class SettingsWidget(QWidget):
         bridge_buttons.addWidget(self.btn_check_scale_bridge_pairs)
         bridge_buttons.addStretch()
         bridge_layout.addLayout(bridge_buttons)
+
+        lifecycle_buttons = QHBoxLayout()
+        lifecycle_buttons.setSpacing(8)
+        self.btn_test_bridge_physical = QPushButton(u"⚡ 测试物理秤")
+        self.btn_test_bridge_physical.clicked.connect(self._test_scale_bridge_physical)
+        lifecycle_buttons.addWidget(self.btn_test_bridge_physical)
+        self.btn_test_payment_pair = QPushButton(u"↔ 测试支付配对")
+        self.btn_test_payment_pair.clicked.connect(self._test_scale_bridge_payment_pair)
+        lifecycle_buttons.addWidget(self.btn_test_payment_pair)
+        self.btn_initialize_scale_bridge = QPushButton(u"🧰 初始化 / 修复")
+        self.btn_initialize_scale_bridge.clicked.connect(self._initialize_scale_bridge)
+        lifecycle_buttons.addWidget(self.btn_initialize_scale_bridge)
+        self.btn_start_scale_bridge = QPushButton(u"▶ 启动服务")
+        self.btn_start_scale_bridge.clicked.connect(self._start_scale_bridge_service)
+        lifecycle_buttons.addWidget(self.btn_start_scale_bridge)
+        self.btn_stop_scale_bridge = QPushButton(u"■ 停止服务")
+        self.btn_stop_scale_bridge.clicked.connect(self._stop_scale_bridge_service)
+        lifecycle_buttons.addWidget(self.btn_stop_scale_bridge)
+        self.btn_export_scale_bridge_diagnostics = QPushButton(u"📋 生成诊断")
+        self.btn_export_scale_bridge_diagnostics.clicked.connect(self._export_scale_bridge_diagnostics)
+        lifecycle_buttons.addWidget(self.btn_export_scale_bridge_diagnostics)
+        self.btn_remove_scale_bridge = QPushButton(u"🗑 删除桥接功能")
+        self.btn_remove_scale_bridge.setStyleSheet(
+            "QPushButton { background: #7F1D1D; color: #FEE2E2; border-radius: 8px; padding: 10px 14px; }"
+            "QPushButton:hover { background: #991B1B; }"
+        )
+        self.btn_remove_scale_bridge.clicked.connect(self._remove_scale_bridge)
+        lifecycle_buttons.addWidget(self.btn_remove_scale_bridge)
+        bridge_layout.addLayout(lifecycle_buttons)
+
+        channel_test_buttons = QHBoxLayout()
+        channel_test_buttons.setSpacing(8)
+        self.btn_test_official_scale_channel = QPushButton(u"⇄ 测试官方秤通道")
+        self.btn_test_official_scale_channel.clicked.connect(
+            lambda _checked=False: self._test_scale_bridge_channel("official")
+        )
+        channel_test_buttons.addWidget(self.btn_test_official_scale_channel)
+        self.btn_test_private_scale_channel = QPushButton(u"⇄ 测试私有秤通道")
+        self.btn_test_private_scale_channel.clicked.connect(
+            lambda _checked=False: self._test_scale_bridge_channel("private")
+        )
+        channel_test_buttons.addWidget(self.btn_test_private_scale_channel)
+        channel_test_hint = QLabel(u"服务运行后执行；测试前关闭占用对应 POS 端口的软件")
+        channel_test_hint.setStyleSheet("color: #94A3B8; font-size: 12px;")
+        channel_test_buttons.addWidget(channel_test_hint)
+        channel_test_buttons.addStretch()
+        bridge_layout.addLayout(channel_test_buttons)
         layout.addWidget(bridge_panel)
 
         self._load_scale_bridge_form()
@@ -1066,7 +1113,7 @@ class SettingsWidget(QWidget):
             self.lbl_scale_hint.setText(
                 u"💡 私有 POS 串口模式：\n"
                 u"• DIBAL ACS-G315 已验证参数：9600、8N1；程序每 200ms 发送 $ 查询重量。\n"
-                u"• 使用分流/ScaleBridge 提供给私有 POS 的端口（建议 COM3），绝不填写物理秤口 COM1。\n"
+                u"• 使用 ScaleBridge 配置的私有 POS 虚拟端口，绝不填写实际物理秤端口。\n"
                 u"• 若采用 ScaleBridge，先点“查看桥接服务状态”确认服务已运行。"
             )
         else:
@@ -1093,14 +1140,28 @@ class SettingsWidget(QWidget):
         show_info(
             self, u"ScaleBridge 状态",
             u"模式: {mode}\n物理秤端口: {port}\n物理秤连接: {opened}\n"
-            u"最近重量: {weight}\n私有查询抑制次数: {suppressed}\n异常帧: {invalid}\n"
+            u"官方 POS / 服务端: {official_pos} / {official_peer}\n"
+            u"私有 POS / 服务端: {private_pos} / {private_peer}\n"
+            u"最近重量: {weight}\n最近官方查询: {official_age}\n最近私有查询: {private_age}\n"
+            u"最近秤回包: {reply_age}\n合法/异常帧: {valid}/{invalid}\n"
+            u"私有查询抑制次数: {suppressed}\n重连/重新定位: {reconnect}/{rebound}\n"
             u"最近错误: {error}".format(
                 mode=status.get("mode", "未知"),
                 port=status.get("physical_port", ""),
                 opened="是" if status.get("physical_open") else "否",
+                official_pos=status.get("official_pos_virtual_port", ""),
+                official_peer=status.get("official_bridge_port", ""),
+                private_pos=status.get("private_pos_virtual_port", ""),
+                private_peer=status.get("private_bridge_port", ""),
                 weight=status.get("last_weight_kg", "无"),
+                official_age=(str(status.get("last_official_poll_age_ms")) + " ms") if status.get("last_official_poll_age_ms") is not None else "无",
+                private_age=(str(status.get("last_private_poll_age_ms")) + " ms") if status.get("last_private_poll_age_ms") is not None else "无",
+                reply_age=(str(status.get("last_scale_reply_age_ms")) + " ms") if status.get("last_scale_reply_age_ms") is not None else "无",
                 suppressed=status.get("suppressed_private_queries", 0),
+                valid=status.get("valid_frames", 0),
                 invalid=status.get("invalid_frames", 0),
+                reconnect=status.get("reconnect_count", 0),
+                rebound=status.get("rebound_count", 0),
                 error=status.get("last_error") or "无",
             ),
         )
@@ -1124,9 +1185,9 @@ class SettingsWidget(QWidget):
         if bridge_config is None:
             return
         self.txt_bridge_official_pos.setText(bridge_config.official_pos_virtual_port)
-        self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port or "CNCB0")
+        self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
         self.txt_bridge_private_pos.setText(bridge_config.private_pos_virtual_port)
-        self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port or "CNCB1")
+        self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
         # On first setup, use the actual POS payment setting as the suggested
         # bridge endpoint.  Once saved, the bridge's own value remains editable
         # because the payment plugin pair may use a different peer.
@@ -1135,7 +1196,7 @@ class SettingsWidget(QWidget):
             else self.config.get("shouqianba_port", bridge_config.payment_pos_port)
         )
         self.txt_bridge_payment_peer.setText(bridge_config.payment_plugin_port)
-        self._refresh_scale_bridge_devices(silent=True, preferred_port=bridge_config.physical_scale_port or "COM1")
+        self._refresh_scale_bridge_devices(silent=True, preferred_port=bridge_config.physical_scale_port)
         exists = os.path.isfile(self._scale_bridge_config_path())
         self.lbl_scale_bridge_config.setText(
             u"%s：%s。已验证秤协议固定为 9600 / 8N1 / DTR 开 / RTS 关。"
@@ -1146,8 +1207,8 @@ class SettingsWidget(QWidget):
         """Discover only physical serial candidates and retain hardware identity in item data."""
         # `checked` is accepted because this method is also a QPushButton slot.
         del checked
-        from scale_bridge.device_discovery import enumerate_serial_ports
-        from ui.custom_dialog import show_info, show_warning
+        from scale_bridge.device_discovery import enumerate_serial_ports, probe_serial_port
+        from ui.custom_dialog import show_info, show_item_selection, show_warning
 
         current_port = self._bridge_port_text(preferred_port or self.cmb_bridge_physical_port.currentText())
         try:
@@ -1160,9 +1221,18 @@ class SettingsWidget(QWidget):
 
         self.cmb_bridge_physical_port.clear()
         known_ports = set()
+        display_items = []
+        availability = {}
         for candidate in candidates:
-            label = "%s  [%s]" % (candidate.port, candidate.friendly_name or candidate.port)
+            if silent:
+                can_open, state_text = True, u"未测试占用"
+            else:
+                can_open, detail = probe_serial_port(candidate.port)
+                state_text = u"可用" if can_open else u"被占用"
+                availability[candidate.port] = (can_open, detail)
+            label = "%s  [%s | %s]" % (candidate.port, candidate.friendly_name or candidate.port, state_text)
             self.cmb_bridge_physical_port.addItem(label, candidate)
+            display_items.append(label)
             known_ports.add(candidate.port.upper())
         if current_port and current_port not in known_ports:
             # Keep a previously configured physical COM name visible even while
@@ -1170,7 +1240,8 @@ class SettingsWidget(QWidget):
             # existing identity unless the operator selects a different port.
             self.cmb_bridge_physical_port.addItem(current_port)
         if not self.cmb_bridge_physical_port.count():
-            self.cmb_bridge_physical_port.addItem("COM1")
+            self.cmb_bridge_physical_port.addItem("")
+            self.cmb_bridge_physical_port.setEditText("")
         if current_port:
             for index in range(self.cmb_bridge_physical_port.count()):
                 if self._bridge_port_text(self.cmb_bridge_physical_port.itemText(index)) == current_port:
@@ -1179,8 +1250,32 @@ class SettingsWidget(QWidget):
 
         if not silent:
             if candidates:
-                details = "\n".join("• %s — %s" % (item.port, item.friendly_name) for item in candidates)
-                show_info(self, u"物理串口识别结果", u"已识别 %d 个非虚拟串口：\n\n%s" % (len(candidates), details))
+                selected, ok = show_item_selection(
+                    self,
+                    u"选择物理电子秤端口",
+                    u"已排除虚拟串口。请选择实际连接 DIBAL ACS-G315 的端口：",
+                    display_items,
+                    self.cmb_bridge_physical_port.currentText(),
+                )
+                if ok and selected:
+                    selected_port = self._bridge_port_text(selected)
+                    for index in range(self.cmb_bridge_physical_port.count()):
+                        if self._bridge_port_text(self.cmb_bridge_physical_port.itemText(index)) == selected_port:
+                            self.cmb_bridge_physical_port.setCurrentIndex(index)
+                            break
+                    item = next(candidate for candidate in candidates if candidate.port == selected_port)
+                    can_open, occupancy = availability.get(selected_port, (False, u"未知"))
+                    show_info(
+                        self, u"已选择物理电子秤端口",
+                        u"端口: %s\n名称: %s\n制造商: %s\nService: %s\nPNPDeviceID: %s\n"
+                        u"Hardware ID: %s\nVID/PID: %s/%s\nUSB 序列号: %s\n当前状态: %s%s"
+                        % (
+                            item.port, item.friendly_name or u"未知", item.manufacturer or u"未知",
+                            item.service or u"未知", item.pnp_device_id or u"未知", item.hardware_id or u"未知",
+                            item.vid or u"无", item.pid or u"无", item.serial_number or u"无",
+                            u"可用" if can_open else u"被占用", (u"（%s）" % occupancy) if not can_open else "",
+                        ),
+                    )
             else:
                 message = u"未识别到可作为物理秤的串口。虚拟串口会被刻意排除。"
                 if scan_error:
@@ -1192,6 +1287,10 @@ class SettingsWidget(QWidget):
         from scale_bridge.configuration import ScaleDeviceIdentity, load_config
 
         bridge_config = load_config(self._scale_bridge_config_path())
+        saved_official_pos = bridge_config.official_pos_virtual_port
+        saved_official_peer = bridge_config.official_bridge_port
+        saved_private_pos = bridge_config.private_pos_virtual_port
+        saved_private_peer = bridge_config.private_bridge_port
         physical_port = self._bridge_port_text(self.cmb_bridge_physical_port.currentText())
         candidate = self.cmb_bridge_physical_port.currentData()
         if candidate is not None and getattr(candidate, "port", "").upper() == physical_port:
@@ -1209,16 +1308,39 @@ class SettingsWidget(QWidget):
         bridge_config.private_bridge_port = self.txt_bridge_private_peer.text().strip().upper()
         bridge_config.payment_pos_port = self.txt_bridge_payment_pos.text().strip().upper()
         bridge_config.payment_plugin_port = self.txt_bridge_payment_peer.text().strip().upper()
+        if (
+            bridge_config.official_pos_virtual_port != saved_official_pos
+            and bridge_config.official_bridge_port == saved_official_peer
+        ):
+            bridge_config.official_bridge_port = ""
+        if (
+            bridge_config.private_pos_virtual_port != saved_private_pos
+            and bridge_config.private_bridge_port == saved_private_peer
+        ):
+            bridge_config.private_bridge_port = ""
         bridge_config.baudrate = int(self.cmb_scale_baud.currentText().strip() or "9600")
         return bridge_config
 
     def _save_scale_bridge_config(self):
-        from scale_bridge.configuration import save_config
-        from ui.custom_dialog import show_error, show_info
+        from scale_bridge.configuration import load_config, save_config
+        from scale_bridge.lifecycle import ScaleBridgeServiceController
+        from ui.custom_dialog import show_error, show_info, show_warning
 
         try:
             bridge_config = self._bridge_config_from_form()
-            bridge_config.validate()
+            bridge_config.validate_for_setup()
+            existing = load_config(self._scale_bridge_config_path())
+            service_state = ScaleBridgeServiceController().query()
+            if service_state.installed and (
+                not os.path.isfile(self._scale_bridge_config_path())
+                or bridge_config.to_dict() != existing.to_dict()
+            ):
+                show_warning(
+                    self, u"请使用初始化 / 修复应用变更",
+                    u"ScaleBridge 服务已经安装。端口变更必须同步检查配对并重启服务，"
+                    u"因此不能只保存配置。请直接点击“初始化 / 修复”。",
+                )
+                return
             save_config(bridge_config, self._scale_bridge_config_path())
         except Exception as exc:
             show_error(self, u"桥接配置无法保存", str(exc))
@@ -1231,7 +1353,229 @@ class SettingsWidget(QWidget):
             self, u"桥接配置已保存",
             u"已保存独立的 ScaleBridge 配置。\n\n"
             u"这一步不会切换当前 POS 的称来源、不会改写收钱吧端口、不会安装驱动，也不会创建或修改虚拟串口。\n"
-            u"迁移时请将私有 POS 设置为“com / COM3”，并按部署说明在维护窗口启动服务。",
+            u"初始化完成后，请将私有 POS 的称来源设为“com”，端口填写上方配置的私有 POS 虚拟端口。",
+        )
+
+    def _test_scale_bridge_physical(self):
+        """Direct first-run test; refuses to compete with a running service."""
+        from scale_bridge.lifecycle import ScaleBridgeServiceController, test_physical_scale
+        from ui.custom_dialog import show_error, show_info, show_warning
+
+        try:
+            bridge_config = self._bridge_config_from_form()
+            bridge_config.validate_for_setup()
+            service_state = ScaleBridgeServiceController().query()
+            if service_state.installed and service_state.state_code == 4:
+                show_warning(
+                    self, u"请先停止桥接服务",
+                    u"服务运行时由它独占物理秤端口。请点“停止服务”后再执行首次物理秤测试。",
+                )
+                return
+            result = test_physical_scale(bridge_config)
+        except Exception as exc:
+            show_error(self, u"物理秤测试失败", str(exc))
+            return
+        if result.ok:
+            show_info(
+                self, u"物理秤测试通过",
+                u"端口: %s\n重量: %.3f kg\n原始数据: %s\n\n已确认协议：9600 / 8N1 / DTR 开 / RTS 关 / 查询 24。"
+                % (result.port, result.weight_kg, result.raw_hex),
+            )
+        else:
+            show_error(
+                self, u"物理秤测试失败",
+                u"端口: %s\n原因: %s\n已接收数据: %s"
+                % (result.port, result.message, result.raw_hex or u"无"),
+            )
+
+    def _initialize_scale_bridge(self):
+        """Explicit, idempotent first-run/repair workflow."""
+        from scale_bridge.lifecycle import ScaleBridgeLifecycle
+        from ui.custom_dialog import show_error, show_info, show_question
+
+        if not show_question(
+            self, u"初始化或修复 ScaleBridge",
+            u"将依次测试物理秤、检查/安装 com0com、只创建缺失的虚拟端口、安装并启动 Windows 服务。\n\n"
+            u"不会修改现有 POS 设置；重复执行不会重复创建端口。是否继续？",
+        ):
+            return
+        try:
+            bridge_config = self._bridge_config_from_form()
+            bridge_config.validate_for_setup()
+            lifecycle = ScaleBridgeLifecycle(self._scale_bridge_config_path())
+            report = lifecycle.initialize(bridge_config)
+        except Exception as exc:
+            show_error(self, u"ScaleBridge 初始化失败", str(exc))
+            return
+
+        self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
+        self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
+        self.txt_bridge_payment_peer.setText(bridge_config.payment_plugin_port)
+        self.lbl_scale_bridge_config.setText(
+            u"✓ 初始化完成，服务已安装并运行。配置：%s" % self._scale_bridge_config_path()
+        )
+        created = u"、".join(report.pairs.created) or u"无（均已存在）"
+        existing = u"、".join(report.pairs.existing) or u"无"
+        removed = u"、".join(report.pairs.removed_obsolete) or u"无"
+        show_info(
+            self, u"ScaleBridge 初始化完成",
+            u"物理秤: %s，当前 %.3f kg\n新建配对: %s\n复用配对: %s\n清理旧配对: %s\n服务: %s"
+            % (
+                report.physical_test.port,
+                report.physical_test.weight_kg,
+                created,
+                existing,
+                removed,
+                u"已安装并启动" if report.service_installed else u"已存在并启动",
+            ),
+        )
+
+    def _test_scale_bridge_payment_pair(self):
+        from scale_bridge.lifecycle import test_virtual_pair
+        from ui.custom_dialog import show_error, show_info, show_question
+
+        side_a = self.txt_bridge_payment_pos.text().strip().upper()
+        side_b = self.txt_bridge_payment_peer.text().strip().upper()
+        if not show_question(
+            self, u"测试支付虚拟串口",
+            u"测试会短暂独占 %s 和 %s，并双向发送随机测试字节。\n"
+            u"请先关闭正在使用这两个端口的收钱吧及支付程序。是否继续？" % (side_a or u"未填写", side_b or u"未填写"),
+        ):
+            return
+        result = test_virtual_pair(side_a, side_b)
+        if result.ok:
+            show_info(self, u"支付配对测试通过", u"%s ↔ %s：双向透明通信正常。" % (side_a, side_b))
+        else:
+            show_error(
+                self, u"支付配对测试失败",
+                u"%s ↔ %s\n原因: %s\n\n请确认配对已创建且两个端口未被其他程序占用。"
+                % (side_a or u"未填写", side_b or u"未填写", result.message),
+            )
+
+    def _test_scale_bridge_channel(self, channel):
+        """End-to-end query through one POS-facing virtual scale port."""
+        import time
+        from scale_bridge.lifecycle import ScaleBridgeServiceController, test_scale_channel
+        from ui.custom_dialog import show_error, show_info, show_question
+
+        label = u"官方 POS" if channel == "official" else u"私有 POS"
+        if not show_question(
+            self,
+            u"测试%s秤通道" % label,
+            u"测试会短暂打开%s虚拟端口并发送已确认的 $ 查询。\n"
+            u"请先关闭占用该端口的软件；ScaleBridge 服务必须保持运行。是否继续？" % label,
+        ):
+            return
+        active_scale = None
+        try:
+            bridge_config = self._bridge_config_from_form()
+            bridge_config.validate()
+            state = ScaleBridgeServiceController().query()
+            if not state.installed or state.state_code != 4:
+                raise RuntimeError("ScaleBridge 服务未运行，请先点击“启动服务”")
+            port = (
+                bridge_config.official_pos_virtual_port
+                if channel == "official"
+                else bridge_config.private_pos_virtual_port
+            )
+            # The private POS may already own its endpoint through the live
+            # weighing reader. Pause it only for this test and restore it below.
+            if channel == "private":
+                parent_mw = self.window()
+                if hasattr(parent_mw, "sale_page") and hasattr(parent_mw.sale_page, "scale"):
+                    candidate = parent_mw.sale_page.scale
+                    if candidate and getattr(candidate, "_running", False):
+                        active_scale = candidate
+                        active_scale.stop()
+                        time.sleep(0.3)
+            result = test_scale_channel(bridge_config, port)
+        except Exception as exc:
+            show_error(self, u"%s秤通道测试失败" % label, str(exc))
+            return
+        finally:
+            if active_scale:
+                active_scale.start()
+
+        if result.ok:
+            show_info(
+                self,
+                u"%s秤通道正常" % label,
+                u"端口: %s\n重量: %.3f kg\n原始数据: %s\n\n已验证：POS 虚拟端口 → ScaleBridge → 物理秤 → 回包。"
+                % (result.port, result.weight_kg, result.raw_hex),
+            )
+        else:
+            show_error(
+                self,
+                u"%s秤通道测试失败" % label,
+                u"端口: %s\n原因: %s\n已接收数据: %s"
+                % (result.port, result.message, result.raw_hex or u"无"),
+            )
+
+    def _start_scale_bridge_service(self):
+        from scale_bridge.lifecycle import ScaleBridgeServiceController
+        from ui.custom_dialog import show_error, show_info
+        try:
+            changed = ScaleBridgeServiceController().start()
+        except Exception as exc:
+            show_error(self, u"服务启动失败", str(exc))
+            return
+        show_info(self, u"ScaleBridge 服务", u"服务已启动。" if changed else u"服务原本已在运行。")
+
+    def _stop_scale_bridge_service(self):
+        from scale_bridge.lifecycle import ScaleBridgeServiceController
+        from ui.custom_dialog import show_error, show_info
+        try:
+            changed = ScaleBridgeServiceController().stop()
+        except Exception as exc:
+            show_error(self, u"服务停止失败", str(exc))
+            return
+        show_info(self, u"ScaleBridge 服务", u"服务已停止。" if changed else u"服务未运行或尚未安装。")
+
+    def _export_scale_bridge_diagnostics(self):
+        from scale_bridge.lifecycle import collect_diagnostics, write_diagnostic_report
+        from ui.custom_dialog import show_error, show_info
+        path = os.path.join(DATA_DIR, "scale_bridge_diagnosis.json")
+        try:
+            bridge_config = self._bridge_config_from_form()
+            report = collect_diagnostics(bridge_config)
+            write_diagnostic_report(path, report)
+        except Exception as exc:
+            show_error(self, u"诊断报告生成失败", str(exc))
+            return
+        show_info(self, u"诊断报告已生成", u"报告路径：\n" + path)
+
+    def _remove_scale_bridge(self):
+        """Remove only owned bridge resources and its separate config."""
+        from scale_bridge.lifecycle import ScaleBridgeLifecycle
+        from ui.custom_dialog import show_error, show_info, show_question
+
+        if not show_question(
+            self, u"删除 ScaleBridge 桥接功能",
+            u"将停止并删除本产品创建的 ScaleBridge 服务、精确删除本产品记录的虚拟端口配对，"
+            u"并删除独立桥接配置。\n\n不会删除真实串口驱动，也不会修改其他 POS 设置。是否继续？",
+        ):
+            return
+        remove_driver = show_question(
+            self, u"是否同时卸载 com0com",
+            u"只有 com0com 由本产品安装且系统中没有任何剩余配对时才会卸载。\n"
+            u"选择“取消”将保留驱动，只删除桥接功能。",
+        )
+        try:
+            report = ScaleBridgeLifecycle(self._scale_bridge_config_path()).remove(remove_driver=remove_driver)
+        except Exception as exc:
+            show_error(self, u"删除桥接功能失败", str(exc))
+            return
+        self._load_scale_bridge_form()
+        show_info(
+            self, u"ScaleBridge 已删除",
+            u"服务删除: %s\n已删除配对: %s\n桥接配置删除: %s\ncom0com 驱动删除: %s%s"
+            % (
+                u"是" if report.service_removed else u"无需删除",
+                u"、".join(report.removed_pairs) or u"无",
+                u"是" if report.config_deleted else u"文件原本不存在",
+                u"是" if report.driver_removed else u"否（已保留）",
+                (u"\n保留原因: " + report.driver_retained_reason) if report.driver_retained_reason else "",
+            ),
         )
 
     def _check_scale_bridge_pairs(self):
@@ -1241,7 +1585,7 @@ class SettingsWidget(QWidget):
 
         try:
             bridge_config = self._bridge_config_from_form()
-            bridge_config.validate()
+            bridge_config.validate_for_setup()
             pairs = list_pairs()
         except Exception as exc:
             show_error(
@@ -1249,11 +1593,25 @@ class SettingsWidget(QWidget):
                 u"未改动任何端口。请确认 com0com 已由管理员安装，然后再检查。\n\n原因: " + str(exc),
             )
             return
+        from scale_bridge.com0com import find_pair_by_endpoint
+        if not bridge_config.official_bridge_port:
+            pair = find_pair_by_endpoint(bridge_config.official_pos_virtual_port, pairs)
+            if pair:
+                bridge_config.official_bridge_port = pair.other(bridge_config.official_pos_virtual_port) or ""
+                self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
+        if not bridge_config.private_bridge_port:
+            pair = find_pair_by_endpoint(bridge_config.private_pos_virtual_port, pairs)
+            if pair:
+                bridge_config.private_bridge_port = pair.other(bridge_config.private_pos_virtual_port) or ""
+                self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
         checks = [
             (u"官方 POS", check_pair(bridge_config.official_pos_virtual_port, bridge_config.official_bridge_port, pairs)),
             (u"私有 POS", check_pair(bridge_config.private_pos_virtual_port, bridge_config.private_bridge_port, pairs)),
-            (u"支付插件", check_pair(bridge_config.payment_pos_port, bridge_config.payment_plugin_port, pairs)),
         ]
+        if bridge_config.payment_pos_port:
+            checks.append(
+                (u"支付插件", check_pair(bridge_config.payment_pos_port, bridge_config.payment_plugin_port, pairs))
+            )
         lines = []
         for name, item in checks:
             suffix = u"（配对 #%d）" % item.pair.index if item.pair else ""

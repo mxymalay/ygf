@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import os
+import re
 import tempfile
 from typing import Any, Dict
 
@@ -71,26 +72,71 @@ class ScaleBridgeConfig:
     def physical_scale_port(self) -> str:
         return self.physical_scale.port
 
-    def validate(self) -> None:
+    def _validate(self, require_bridge_ports: bool) -> None:
         required = {
             "physical_scale.port": self.physical_scale.port,
             "official_pos_virtual_port": self.official_pos_virtual_port,
             "private_pos_virtual_port": self.private_pos_virtual_port,
-            "official_bridge_port": self.official_bridge_port,
-            "private_bridge_port": self.private_bridge_port,
         }
+        if require_bridge_ports:
+            required.update({
+                "official_bridge_port": self.official_bridge_port,
+                "private_bridge_port": self.private_bridge_port,
+            })
         missing = [name for name, value in required.items() if not value]
         if missing:
             raise ValueError("ScaleBridge configuration missing: " + ", ".join(missing))
         if bool(self.payment_pos_port) != bool(self.payment_plugin_port):
             raise ValueError("PaymentPosPort and PaymentPluginPort must both be configured or both be empty")
         ports = [value.upper() for value in required.values()]
+        if not require_bridge_ports:
+            ports.extend(
+                value.upper()
+                for value in (self.official_bridge_port, self.private_bridge_port)
+                if value
+            )
         if self.payment_pos_port:
             ports.extend([self.payment_pos_port.upper(), self.payment_plugin_port.upper()])
         if len(ports) != len(set(ports)):
             raise ValueError("ScaleBridge ports must be unique")
+        application_ports = {
+            "physical_scale.port": self.physical_scale.port,
+            "official_pos_virtual_port": self.official_pos_virtual_port,
+            "private_pos_virtual_port": self.private_pos_virtual_port,
+            "payment_pos_port": self.payment_pos_port,
+            "payment_plugin_port": self.payment_plugin_port,
+        }
+        for name, value in application_ports.items():
+            if value and not re.fullmatch(r"COM[1-9]\d*", value, re.IGNORECASE):
+                raise ValueError("%s must be a COM port name: %s" % (name, value))
+        for name, value in {
+            "official_bridge_port": self.official_bridge_port,
+            "private_bridge_port": self.private_bridge_port,
+        }.items():
+            if value and not re.fullmatch(r"(?:COM[1-9]\d*|CNC[AB]\d+)", value, re.IGNORECASE):
+                raise ValueError("%s is not a valid bridge endpoint: %s" % (name, value))
         if self.baudrate <= 0 or self.maximum_frame_length < 16:
             raise ValueError("Invalid serial or frame configuration")
+        if self.data_bits not in (5, 6, 7, 8):
+            raise ValueError("DataBits must be 5, 6, 7 or 8")
+        if self.parity not in ("N", "E", "O", "M", "S"):
+            raise ValueError("Parity must be N, E, O, M or S")
+        if self.stop_bits not in (1, 2):
+            raise ValueError("StopBits must be 1 or 2")
+        if self.official_active_timeout_ms <= 0 or self.reconnect_initial_delay_ms <= 0:
+            raise ValueError("Timeout and reconnect delays must be positive")
+        if self.reconnect_maximum_delay_ms < self.reconnect_initial_delay_ms:
+            raise ValueError("ReconnectMaximumDelayMs must not be below the initial delay")
+        if self.queue_maxsize <= 0:
+            raise ValueError("QueueMaxSize must be positive")
+
+    def validate(self) -> None:
+        """Validate a runtime-ready configuration with resolved bridge peers."""
+        self._validate(require_bridge_ports=True)
+
+    def validate_for_setup(self) -> None:
+        """Validate first-run fields before com0com assigns internal peers."""
+        self._validate(require_bridge_ports=False)
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -140,6 +186,9 @@ class ScaleBridgeConfig:
             manufacturer=str(raw.get("PhysicalScaleManufacturer", "")),
             service=str(raw.get("PhysicalScaleService", "")),
         )
+        parity = str(raw.get("Parity", "N")).upper()
+        if parity == "NONE":
+            parity = "N"
         cfg = cls(
             physical_scale=identity,
             official_pos_virtual_port=str(raw.get("OfficialPosVirtualPort", "COM2")).upper(),
@@ -150,7 +199,7 @@ class ScaleBridgeConfig:
             payment_plugin_port=str(raw.get("PaymentPluginPort", "COM11")).upper(),
             baudrate=int(raw.get("BaudRate", 9600)),
             data_bits=int(raw.get("DataBits", 8)),
-            parity=str(raw.get("Parity", "N")).upper(),
+            parity=parity,
             stop_bits=int(raw.get("StopBits", 1)),
             dtr_enable=_as_bool(raw.get("DtrEnable"), True),
             rts_enable=_as_bool(raw.get("RtsEnable"), False),

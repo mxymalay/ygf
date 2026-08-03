@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import os
 import re
 import subprocess
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
 
 SETUPC_CANDIDATES = (
@@ -28,6 +28,14 @@ class Com0ComPair:
 
     def contains(self, port: str) -> bool:
         return port.upper() in (self.side_a.upper(), self.side_b.upper())
+
+    def other(self, port: str) -> Optional[str]:
+        target = port.upper()
+        if self.side_a.upper() == target:
+            return self.side_b
+        if self.side_b.upper() == target:
+            return self.side_a
+        return None
 
 
 @dataclass(frozen=True)
@@ -50,6 +58,19 @@ def find_setupc(extra_paths: Iterable[str] = ()) -> Optional[str]:
         if path and os.path.isfile(path):
             return os.path.abspath(path)
     return None
+
+
+def find_pair_by_endpoint(port: str, pairs: Iterable[Com0ComPair]) -> Optional[Com0ComPair]:
+    target = port.upper()
+    return next((pair for pair in pairs if pair.contains(target)), None)
+
+
+def next_available_pair_index(pairs: Iterable[Com0ComPair], start: int = 0) -> int:
+    used = {pair.index for pair in pairs}
+    candidate = max(0, int(start))
+    while candidate in used:
+        candidate += 1
+    return candidate
 
 
 def parse_setupc_list(output: str) -> List[Com0ComPair]:
@@ -78,23 +99,39 @@ def parse_setupc_list(output: str) -> List[Com0ComPair]:
     return pairs
 
 
-def list_pairs(setupc_path: Optional[str] = None, timeout_seconds: int = 10) -> List[Com0ComPair]:
-    """Read installed pairs.  This operation never changes driver state."""
-    executable = setupc_path or find_setupc()
-    if not executable:
-        raise FileNotFoundError("com0com setupc.exe was not found; install/repair it in maintenance mode first")
+def _run_setupc(
+    executable: str,
+    arguments: Sequence[str],
+    timeout_seconds: int,
+    runner: Callable = subprocess.run,
+) -> str:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    result = subprocess.run(
-        [executable, "list"],
+    result = runner(
+        [executable] + list(arguments),
         capture_output=True,
         timeout=timeout_seconds,
         check=False,
         creationflags=flags,
     )
-    text = (result.stdout + result.stderr).decode("mbcs", errors="replace")
+    output = (result.stdout + result.stderr).decode("mbcs", errors="replace")
     if result.returncode:
-        raise RuntimeError("setupc list failed (%s): %s" % (result.returncode, text.strip()))
-    return parse_setupc_list(text)
+        raise RuntimeError(
+            "setupc %s failed (%s): %s"
+            % (arguments[0] if arguments else "command", result.returncode, output.strip())
+        )
+    return output
+
+
+def list_pairs(
+    setupc_path: Optional[str] = None,
+    timeout_seconds: int = 10,
+    runner: Callable = subprocess.run,
+) -> List[Com0ComPair]:
+    """Read installed pairs.  This operation never changes driver state."""
+    executable = setupc_path or find_setupc()
+    if not executable:
+        raise FileNotFoundError("com0com setupc.exe was not found; install/repair it in maintenance mode first")
+    return parse_setupc_list(_run_setupc(executable, ["list"], timeout_seconds, runner))
 
 
 def check_pair(client_port: str, bridge_port: str, pairs: Iterable[Com0ComPair]) -> PairCheck:
@@ -112,10 +149,14 @@ def create_pair(
     pair_index: int,
     setupc_path: Optional[str] = None,
     allow_mutation: bool = False,
+    runner: Callable = subprocess.run,
 ) -> None:
     """Create one explicitly requested named pair.
 
     The documented setupc form is used (`install <index> PortName=<name> -`).
+    If both endpoints are COM names, both names are passed explicitly.  If the
+    bridge endpoint is the natural CNCB name for the chosen index, `-` lets
+    com0com retain that internal name.
     `allow_mutation` has no default override so a normal POS/service execution
     cannot accidentally alter a driver or a live port mapping.
     """
@@ -129,25 +170,38 @@ def create_pair(
     for port in (client_port, bridge_port):
         if not re.match(r"^(COM\d+|CNC[AB]\d+)$", port.upper()):
             raise ValueError("invalid com0com endpoint: " + port)
+    client = client_port.upper()
+    bridge = bridge_port.upper()
     expected_bridge = "CNCB%s" % pair_index
-    if bridge_port.upper() != expected_bridge:
+    if bridge == expected_bridge:
+        bridge_argument = "-"
+    elif bridge.startswith("COM"):
+        bridge_argument = "PortName=" + bridge + ",EmuBR=yes"
+    else:
         raise ValueError(
-            "this safe create form produces %s as the bridge endpoint; requested %s"
-            % (expected_bridge, bridge_port.upper())
+            "a new internal bridge endpoint must match the selected pair index (%s); requested %s"
+            % (expected_bridge, bridge)
         )
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    # The second endpoint is '-' so com0com supplies its paired CNC endpoint;
-    # using two caller-visible COM names is avoided because it can collide with
-    # legacy hardware mappings.
-    result = subprocess.run(
-        [executable, "install", str(pair_index), "PortName=" + client_port.upper() + ",EmuBR=yes", "-"],
-        capture_output=True,
-        timeout=20,
-        check=False,
-        creationflags=flags,
+    _run_setupc(
+        executable,
+        ["install", str(pair_index), "PortName=" + client + ",EmuBR=yes", bridge_argument],
+        20,
+        runner,
     )
-    output = (result.stdout + result.stderr).decode("mbcs", errors="replace")
-    if result.returncode:
-        raise RuntimeError("setupc install failed (%s): %s" % (result.returncode, output.strip()))
-    # setupc chooses the CNC peer for the '-' side.  The caller must inspect
-    # list_pairs/check_pair and put that actual peer in bridge configuration.
+
+
+def remove_pair(
+    pair_index: int,
+    setupc_path: Optional[str] = None,
+    allow_mutation: bool = False,
+    runner: Callable = subprocess.run,
+) -> None:
+    """Remove exactly one indexed pair after ownership has been verified."""
+    if not allow_mutation:
+        raise PermissionError("com0com pair removal requires explicit maintenance authorisation")
+    executable = setupc_path or find_setupc()
+    if not executable:
+        raise FileNotFoundError("com0com setupc.exe was not found")
+    if pair_index < 0:
+        raise ValueError("pair_index must not be negative")
+    _run_setupc(executable, ["remove", str(pair_index)], 20, runner)

@@ -1,5 +1,5 @@
 {
-  "PhysicalScalePort": "COM1",
+  "PhysicalScalePort": "",
   "PhysicalScalePnpDeviceId": "",
   "PhysicalScaleHardwareId": "",
   "PhysicalScaleVid": "",
@@ -9,9 +9,9 @@
   "PhysicalScaleManufacturer": "",
   "PhysicalScaleService": "",
   "OfficialPosVirtualPort": "COM2",
-  "OfficialBridgePort": "CNCB0",
+  "OfficialBridgePort": "",
   "PrivatePosVirtualPort": "COM3",
-  "PrivateBridgePort": "CNCB1",
+  "PrivateBridgePort": "",
   "PaymentPosPort": "COM10",
   "PaymentPluginPort": "COM11",
   "BaudRate": 9600,

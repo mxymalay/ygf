@@ -75,7 +75,11 @@ if win32serviceutil:
             configure_logging()
             servicemanager.LogInfoMsg("%s starting" % SERVICE_NAME)
             config_path = default_config_path()
-            self._runtime = ScaleBridgeRuntime(load_config(config_path), config_path=config_path)
+            config = load_config(config_path)
+            if config.enable_debug_hex_log:
+                logging.getLogger("ScaleBridge").setLevel(logging.DEBUG)
+            logging.getLogger("ScaleBridge").info("loading configuration: %s", config_path)
+            self._runtime = ScaleBridgeRuntime(config, config_path=config_path)
             self._pipe = StatusPipeServer(lambda: self._runtime.status().to_dict())
             self._pipe.start()
             try:
@@ -114,13 +118,22 @@ def run_foreground(config_path: Optional[str] = None) -> None:
 
 def main(argv=None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    # A frozen service executable is launched by the Windows Service Control
+    # Manager with no arguments.  HandleCommandLine is only for maintenance
+    # commands; with no arguments it prints usage and exits instead of hosting.
+    if getattr(sys, "frozen", False) and not args:
+        if not servicemanager or not ScaleBridgeWindowsService:
+            raise RuntimeError("pywin32 service dispatcher is unavailable")
+        servicemanager.Initialize()
+        servicemanager.PrepareToHostSingle(ScaleBridgeWindowsService)
+        servicemanager.StartServiceCtrlDispatcher()
+        return 0
     if args[:1] == ["debug"]:
         run_foreground(args[1] if len(args) > 1 else None)
         return 0
     if not win32serviceutil:
         raise RuntimeError("pywin32 is required to install or host ScaleBridge as a Windows service")
-    win32serviceutil.HandleCommandLine(ScaleBridgeWindowsService)
-    return 0
+    return int(win32serviceutil.HandleCommandLine(ScaleBridgeWindowsService) or 0)
 
 
 if __name__ == "__main__":

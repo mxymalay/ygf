@@ -83,7 +83,8 @@ class StatusPipeServer:
 
 def read_status(pipe_name: str = DEFAULT_PIPE_NAME, timeout_ms: int = 1500) -> Dict:
     """Read a single local status snapshot without touching serial ports."""
-    _pywintypes, win32file, _win32pipe = _win32_modules()
+    _pywintypes, win32file, win32pipe = _win32_modules()
+    win32pipe.WaitNamedPipe(pipe_name, int(timeout_ms))
     handle = win32file.CreateFile(
         pipe_name,
         win32file.GENERIC_READ,

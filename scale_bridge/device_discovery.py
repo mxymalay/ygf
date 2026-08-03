@@ -140,6 +140,34 @@ def port_is_available(port_name: str, candidates: Optional[Iterable[SerialPortCa
     return all(candidate.port.upper() != target for candidate in candidates)
 
 
+def probe_serial_port(port_name: str, serial_factory=None) -> Tuple[bool, str]:
+    """Briefly open a candidate without transmitting data to report occupancy."""
+    if serial_factory is None:
+        import serial
+        serial_factory = serial.Serial
+    ser = None
+    try:
+        try:
+            ser = serial_factory(port=None, timeout=0, write_timeout=0)
+            ser.port = port_name
+            ser.dtr = False
+            ser.rts = False
+            ser.open()
+        except TypeError:
+            # Small injected factories used by diagnostics/tests may only
+            # accept an immediately opened port.
+            ser = serial_factory(port=port_name, timeout=0, write_timeout=0)
+        return True, "可用"
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        if ser is not None:
+            try:
+                ser.close()
+            except Exception:
+                pass
+
+
 def _identity_score(saved: ScaleDeviceIdentity, candidate: SerialPortCandidate) -> int:
     score = 0
     if saved.pnp_device_id and saved.pnp_device_id.lower() == candidate.pnp_device_id.lower():
@@ -178,3 +206,13 @@ def resolve_saved_device(
     if len(winners) == 1 and best_score >= 60:
         return winners[0], []
     return None, winners
+
+
+def has_saved_hardware_identity(saved: ScaleDeviceIdentity) -> bool:
+    """Whether a configured COM name is backed by identity evidence."""
+    return bool(
+        saved.pnp_device_id
+        or saved.serial_number
+        or saved.hardware_id
+        or (saved.vid and saved.pid)
+    )

@@ -18,8 +18,10 @@
 
 | 硬件 | 设备型号 | 通信方式 | 端口/驱动名称 | 说明 |
 |------|----------|----------|---------------|------|
-| **电子计价秤** | DIBAL ACS-G315 | RS-232 串口 | `COM1` (9600 bps) | 支持 DIBAL 多协议格式解析 + 原始数据日志 |
+| **电子计价秤** | DIBAL ACS-G315 | RS-232 串口 | 现场识别、不固定 COM 号（9600 bps） | 支持 DIBAL 多协议格式解析 + 原始数据日志 |
 | **小票打印机** | Xprinter XP-A160M / XP-80C | USB 驱动 | `shouyin` | 支持 Windows 驱动无冲突共享打印 |
+
+双 POS 电子秤桥接的完整安装、测试、修复与安全删除步骤见 [ScaleBridge Windows 7 操作手册](docs/scale_bridge_win7.md)，故障处理见 [ScaleBridge 故障排查](docs/scale_bridge_troubleshooting.md)。
 
 ---
 
