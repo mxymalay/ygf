@@ -404,11 +404,17 @@ class SettingsWidget(QWidget):
         self.btn_pick_official_log_dir.clicked.connect(self._pick_official_log_dir)
         grid.addWidget(self.btn_pick_official_log_dir, 3, 2)
 
+        self.lbl_official_window_keywords = self._make_label(u"官方窗口识别词（可选）：")
+        grid.addWidget(self.lbl_official_window_keywords, 4, 0)
+        self.txt_official_window_keywords = QLineEdit(", ".join(self.config.get("official_pos_window_keywords", [])))
+        self.txt_official_window_keywords.setPlaceholderText(u"例如：新官方窗口标题词，多个用逗号分隔")
+        grid.addWidget(self.txt_official_window_keywords, 4, 1, 1, 2)
+
         # 提示信息
         self.lbl_scale_hint = QLabel("")
         self.lbl_scale_hint.setWordWrap(True)
         self.lbl_scale_hint.setStyleSheet("color: #CBD5E1; font-size: 15px; padding: 14px 16px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
-        grid.addWidget(self.lbl_scale_hint, 4, 0, 1, 3)
+        grid.addWidget(self.lbl_scale_hint, 5, 0, 1, 3)
 
         layout.addLayout(grid)
 
@@ -1357,6 +1363,8 @@ class SettingsWidget(QWidget):
         self.lbl_official_log_dir.setVisible(not is_com)
         self.txt_official_log_dir.setVisible(not is_com)
         self.btn_pick_official_log_dir.setVisible(not is_com)
+        self.lbl_official_window_keywords.setVisible(not is_com)
+        self.txt_official_window_keywords.setVisible(not is_com)
         if hasattr(self, 'btn_test_scale_com'):
             self.btn_test_scale_com.setVisible(is_com)
         if hasattr(self, 'btn_go_scale_bridge'):
@@ -2205,6 +2213,9 @@ class SettingsWidget(QWidget):
         if selected_mode == "official":
             self.config["scale_source"] = "official"
             self.config["official_pos_log_dir"] = self.txt_official_log_dir.text().strip()
+            self.config["official_pos_window_keywords"] = [
+                value.strip() for value in self.txt_official_window_keywords.text().split(",") if value.strip()
+            ]
             success_message = u"已切换为跟随官方 POS 读取重量，无需配置 COM。"
         elif selected_mode == "direct":
             if not port_text:

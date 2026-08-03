@@ -9,10 +9,10 @@ from PyQt5.QtWidgets import (
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
     QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QTextEdit, QScrollArea
 )
-from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text
+from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text, build_takeout_escpos_ticket
+from core.takeout_jobs import TakeoutJobStore
 from config import save_config
-from utils.window_utils import find_official_window_handle, find_official_pids
-from ui.custom_dialog import show_info, show_warning
+from ui.custom_dialog import show_info, show_warning, show_question
 
 
 # 样例外卖小票文本
@@ -37,10 +37,13 @@ SAMPLE_RAW_TAKEOUT = """美团外卖  #18存根联
 class TakeoutSortingWidget(QWidget):
     """外卖小票排序与排版预览面板 (支持触屏滚动)。"""
 
-    def __init__(self, config=None, printer=None, parent=None):
+    def __init__(self, config=None, printer=None, interceptor=None, parent=None):
         super().__init__(parent)
         self.config = config or {}
         self.printer = printer
+        self.interceptor = interceptor
+        self.job_store = TakeoutJobStore()
+        self.last_job = None
 
         saved_cats = self.config.get("takeout_categories")
         if saved_cats and isinstance(saved_cats, list) and len(saved_cats) > 0:
@@ -52,6 +55,15 @@ class TakeoutSortingWidget(QWidget):
         self._refresh_printer_info()
         self._load_table_data()
         self._update_live_preview()
+        recent_jobs = self.job_store.get_recent(1)
+        if recent_jobs:
+            self.last_job = recent_jobs[0]
+            self.lbl_last_job.setText(
+                u"最近任务：%s %s（%s，已打印 %d 联）" % (
+                    self.last_job.get("platform", u"外卖"), self.last_job.get("order_no", u"#---"),
+                    self.last_job.get("last_result", u"待打印"), self.last_job.get("print_count", 0),
+                )
+            )
         self._check_official_pos_status()
 
     def showEvent(self, event):
@@ -78,22 +90,25 @@ class TakeoutSortingWidget(QWidget):
         hc_layout = QHBoxLayout(header_card)
         hc_layout.setContentsMargins(16, 10, 16, 10)
 
-        lbl_title = QLabel(u"🛵 外卖排序与排版设置")
+        lbl_title = QLabel(u"🛵 外卖打印中继与排序")
         lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none;")
         hc_layout.addWidget(lbl_title)
 
         hc_layout.addStretch()
 
-        self.lbl_pos_status = QLabel(u"本页不接管官方 POS 打印")
+        self.lbl_pos_status = QLabel(u"中继未启动")
         self.lbl_pos_status.setStyleSheet("font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: none;")
         hc_layout.addWidget(self.lbl_pos_status)
 
-        self.lbl_printer = QLabel(u"当前仅支持测试打印与排版预览")
+        self.lbl_printer = QLabel(u"目标打印机：检测中...")
         self.lbl_printer.setStyleSheet("font-size: 13px; color: #38BDF8; font-weight: bold; border: none;")
         hc_layout.addWidget(self.lbl_printer)
 
-        is_active = self.config.get("takeout_interceptor_enabled", True)
-        self.btn_toggle = QPushButton(u"已启用预览规则" if is_active else u"已关闭预览规则")
+        is_active = bool(
+            self.config.get("takeout_interceptor_enabled", False)
+            and str(self.config.get("takeout_proxy_queue_name", "")).strip()
+        )
+        self.btn_toggle = QPushButton(u"停止中继" if is_active else u"启动中继")
         self.btn_toggle.setCheckable(True)
         self.btn_toggle.setChecked(is_active)
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
@@ -108,6 +123,65 @@ class TakeoutSortingWidget(QWidget):
         hc_layout.addWidget(self.btn_toggle)
 
         main_layout.addWidget(header_card)
+
+        proxy_card = QFrame()
+        proxy_card.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #0EA5E9; padding: 10px; }")
+        proxy_layout = QVBoxLayout(proxy_card)
+        proxy_layout.setSpacing(8)
+        proxy_title = QLabel(u"先配置一次：让官方 POS 的外卖单先进入本中继")
+        proxy_title.setStyleSheet("font-size: 16px; font-weight: 900; color: #38BDF8; border: none;")
+        proxy_layout.addWidget(proxy_title)
+        proxy_hint = QLabel(
+            u"1. 启动中继；2. 在 Windows 新建一个“外卖中继”打印队列，端口为标准 TCP/IP：127.0.0.1；"
+            u"端口填下方数值，并使用能保留 RAW/ESC-POS 数据的热敏打印驱动；3. 官方 POS 的外卖打印选择该队列；"
+            u"4. 本 POS 的打印机设置仍选择真实物理打印机。原始外卖单不会直达物理机，中继会重排后再打印。"
+        )
+        proxy_hint.setWordWrap(True)
+        proxy_hint.setStyleSheet("font-size: 13px; color: #CBD5E1; border: none;")
+        proxy_layout.addWidget(proxy_hint)
+        proxy_row = QHBoxLayout()
+        proxy_row.addWidget(QLabel(u"中继端口："))
+        self.spn_proxy_port = QSpinBox()
+        self.spn_proxy_port.setRange(1024, 65535)
+        self.spn_proxy_port.setValue(int(self.config.get("takeout_proxy_port", 9101)))
+        proxy_row.addWidget(self.spn_proxy_port)
+        proxy_row.addWidget(QLabel(u"Windows 中继队列名："))
+        self.txt_proxy_queue = QLineEdit(self.config.get("takeout_proxy_queue_name", ""))
+        self.txt_proxy_queue.setPlaceholderText(u"例如：YGF 外卖中继（用于防止输出回环）")
+        proxy_row.addWidget(self.txt_proxy_queue)
+        self.chk_auto_print = QCheckBox(u"识别到外卖单后自动打印制作联/存根联")
+        self.chk_auto_print.setChecked(self.config.get("takeout_auto_print", True))
+        proxy_row.addWidget(self.chk_auto_print)
+        proxy_row.addStretch()
+        proxy_layout.addLayout(proxy_row)
+
+        proxy_action_row = QHBoxLayout()
+        proxy_action_row.addStretch()
+        self.btn_test_proxy = QPushButton(u"🧪 测试中继识别")
+        self.btn_test_proxy.clicked.connect(self._on_test_proxy)
+        proxy_action_row.addWidget(self.btn_test_proxy)
+        self.btn_reprint_last = QPushButton(u"重打最近外卖单")
+        self.btn_reprint_last.clicked.connect(self._on_reprint_last)
+        proxy_action_row.addWidget(self.btn_reprint_last)
+        self.btn_check_proxy = QPushButton(u"检查 Windows 队列")
+        self.btn_check_proxy.clicked.connect(self._check_proxy_setup)
+        proxy_action_row.addWidget(self.btn_check_proxy)
+        self.btn_reset_proxy = QPushButton(u"清除本页中继配置")
+        self.btn_reset_proxy.clicked.connect(self._on_reset_proxy_config)
+        proxy_action_row.addWidget(self.btn_reset_proxy)
+        for button in (
+            self.btn_toggle, self.btn_test_proxy, self.btn_reprint_last,
+            self.btn_check_proxy, self.btn_reset_proxy,
+        ):
+            button.setMinimumHeight(52)
+            button.setCursor(Qt.PointingHandCursor)
+        self.spn_proxy_port.setMinimumHeight(52)
+        self.txt_proxy_queue.setMinimumHeight(52)
+        proxy_layout.addLayout(proxy_action_row)
+        self.lbl_last_job = QLabel(u"最近任务：无")
+        self.lbl_last_job.setStyleSheet("color: #94A3B8; font-size: 13px; border: none;")
+        proxy_layout.addWidget(self.lbl_last_job)
+        main_layout.addWidget(proxy_card)
 
         # ── 2. Tab 选项卡配置板块 ──
         self.tabs = QTabWidget()
@@ -416,9 +490,10 @@ class TakeoutSortingWidget(QWidget):
             spin.wheelEvent = lambda event, w=spin: event.ignore()
 
     def _check_official_pos_status(self):
-        self.lbl_pos_status.setText(u"ⓘ 本页不监听或拦截官方 POS 的系统打印队列")
-        self.lbl_pos_status.setStyleSheet("color: #38BDF8; background: rgba(14,165,233,0.15); font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px;")
-        self.btn_toggle.setEnabled(True)
+        if self.interceptor and self.interceptor._running:
+            self.on_interceptor_status(u"● 中继运行中：127.0.0.1:%d" % self.interceptor.port)
+        else:
+            self.on_interceptor_status(u"○ 中继未启动；官方 POS 外卖单不会被拦截")
 
     def _refresh_printer_info(self):
         printer_name = self.config.get("printer_name", "")
@@ -427,11 +502,11 @@ class TakeoutSortingWidget(QWidget):
             default_p = win32print.GetDefaultPrinter()
             actual_name = printer_name if printer_name else default_p
             if hasattr(self, 'lbl_printer'):
-                self.lbl_printer.setText(f"测试打印机: {actual_name}")
+                self.lbl_printer.setText(f"中继输出到真实打印机：{actual_name}")
         except Exception:
             try:
                 if hasattr(self, 'lbl_printer'):
-                    self.lbl_printer.setText(f"测试打印机: {printer_name or '默认打印机'}")
+                    self.lbl_printer.setText(f"中继输出到真实打印机：{printer_name or '默认打印机'}")
             except Exception:
                 pass
 
@@ -570,10 +645,17 @@ class TakeoutSortingWidget(QWidget):
         self.config["takeout_show_time"] = self.chk_time.isChecked()
         self.config["takeout_show_full_id"] = self.chk_full_id.isChecked()
         self.config["takeout_show_preorder"] = self.chk_preorder.isChecked()
+        self.config["takeout_proxy_port"] = self.spn_proxy_port.value()
+        self.config["takeout_proxy_queue_name"] = self.txt_proxy_queue.text().strip()
+        self.config["takeout_auto_print"] = self.chk_auto_print.isChecked()
 
         save_config(self.config)
 
     def _update_live_preview(self):
+        parsed = self._parse_text(SAMPLE_RAW_TAKEOUT)
+        self.txt_preview.setPlainText(parsed.get("sorted_text", ""))
+
+    def _parse_text(self, raw_text):
         opts = {
             "mark_multi_qty_star": self.chk_star.isChecked(),
             "show_prices": self.chk_prices.isChecked(),
@@ -581,17 +663,99 @@ class TakeoutSortingWidget(QWidget):
             "show_order_time": self.chk_time.isChecked(),
             "show_full_order_id": self.chk_full_id.isChecked(),
             "show_preorder_alert": self.chk_preorder.isChecked(),
-            "custom_categories": self.categories
+            "custom_categories": self.categories,
+            "takeout_match_mode": "contains" if self.cmb_match_mode.currentIndex() == 0 else "exact",
         }
-        res = parse_and_sort_takeout_text(SAMPLE_RAW_TAKEOUT, opts)
-        self.txt_preview.setPlainText(res.get("sorted_text", ""))
+        return parse_and_sort_takeout_text(raw_text, opts)
+
+    def on_interceptor_status(self, status):
+        self.lbl_pos_status.setText(status)
+        color = "#10B981" if status.startswith((u"●", u"✓")) else ("#EF4444" if status.startswith(u"✕") else "#F59E0B")
+        self.lbl_pos_status.setStyleSheet(
+            "color: %s; background: rgba(14,165,233,0.15); font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px;" % color
+        )
+
+    def on_order_intercepted(self, parsed):
+        raw_text = parsed.get("raw_text", "")
+        dry_run = bool(parsed.get("dry_run"))
+        parsed = self._parse_text(raw_text)
+        job, created = self.job_store.create_or_get(parsed, raw_text)
+        self.last_job = job
+        self.txt_preview.setPlainText(parsed.get("sorted_text", ""))
+        duplicate_tip = u"（重复任务，未自动重打）" if not created else u""
+        self.lbl_last_job.setText(
+            u"最近任务：%s %s，%d 项 %s" % (
+                job.get("platform", u"外卖"), job.get("order_no", u"#---"), parsed.get("item_count", 0), duplicate_tip
+            )
+        )
+        if parsed.get("item_count", 0) <= 0:
+            show_warning(self, u"外卖单待人工核对", u"中继收到任务，但没有识别到菜品；未自动打印。请核对官方 POS 的打印驱动是否输出 RAW 文本。")
+            return
+        if created and not dry_run and self.chk_auto_print.isChecked():
+            self._print_job(job, parsed, reprint=False)
+
+    def _print_job(self, job, parsed, reprint=False):
+        if not self.printer:
+            show_warning(self, u"无法打印", u"没有可用的小票打印机。请先在系统设置中选择真实物理打印机。")
+            return False
+        proxy_queue_name = self.txt_proxy_queue.text().strip().casefold()
+        physical_printer = str(self.config.get("printer_name", "")).strip().casefold()
+        if proxy_queue_name and proxy_queue_name == physical_printer:
+            show_warning(
+                self, u"已阻止打印回环",
+                u"系统设置中的真实打印机不能等于外卖中继队列。请把系统打印机改回物理热敏打印机后重试。",
+            )
+            return False
+        kitchen = self.spn_kitchen_copies.value()
+        stub = self.spn_cust_copies.value()
+        if kitchen + stub <= 0:
+            show_warning(self, u"未设置打印联数", u"制作联和存根联至少保留一联，否则中继收到订单后无法输出。")
+            return False
+        all_bytes = bytearray()
+        for _ in range(kitchen):
+            all_bytes.extend(build_takeout_escpos_ticket(parsed.get("sorted_text", ""), self.config, "kitchen"))
+        for _ in range(stub):
+            all_bytes.extend(build_takeout_escpos_ticket(parsed.get("sorted_text", ""), self.config, "stub"))
+        success = self.printer.print_raw(bytes(all_bytes))
+        updated = self.job_store.update_print_result(
+            job.get("id"), success, kitchen + stub, getattr(self.printer, "last_error", "")
+        )
+        self.last_job = updated or job
+        if success:
+            suffix = u"重打" if reprint else u"已打印"
+            self.lbl_last_job.setText(u"最近任务：%s %s，%s %d 联" % (
+                job.get("platform", u"外卖"), job.get("order_no", u"#---"), suffix, kitchen + stub
+            ))
+        else:
+            show_warning(self, u"外卖单打印失败", getattr(self.printer, "last_error", u"打印机未返回成功"))
+        return success
 
     def _on_toggle(self):
         is_on = self.btn_toggle.isChecked()
+        queue_name = self.txt_proxy_queue.text().strip()
+        if is_on and not queue_name:
+            self.btn_toggle.setChecked(False)
+            show_warning(
+                self, u"请先填写中继队列名",
+                u"请填写刚在 Windows 创建、并供官方 POS 选择的外卖中继打印队列名。这样程序才能防止把转发单又打回中继队列。",
+            )
+            return
         self.config["takeout_interceptor_enabled"] = is_on
+        self.config["takeout_proxy_port"] = self.spn_proxy_port.value()
+        self.config["takeout_proxy_queue_name"] = queue_name
+        self.config["takeout_auto_print"] = self.chk_auto_print.isChecked()
         save_config(self.config)
-        self.btn_toggle.setText(u"已启用预览规则" if is_on else u"已关闭预览规则")
-        show_info(self, u"预览规则", u"外卖排版预览规则已" + (u"开启" if is_on else u"关闭") + u"。\n当前版本不会拦截官方 POS 的真实打印任务。")
+        self.btn_toggle.setText(u"停止中继" if is_on else u"启动中继")
+        if self.interceptor:
+            self.interceptor.update_config(self.config)
+            if is_on and not self.interceptor._running:
+                self.btn_toggle.setChecked(False)
+                self.config["takeout_interceptor_enabled"] = False
+                save_config(self.config)
+                self.btn_toggle.setText(u"启动中继")
+                show_warning(self, u"中继未启动", self.interceptor.last_error or u"端口被占用或不可用")
+        else:
+            show_warning(self, u"中继服务未加载", u"请重启 POS 后再启动外卖中继。")
 
     def _on_save_rules(self):
         self._auto_save_categories()
@@ -600,28 +764,76 @@ class TakeoutSortingWidget(QWidget):
         show_info(self, u"配置保存", u"所有排版、字号、多份⭐标记与元数据规则已自动保存！")
 
     def _on_test_print(self):
-        if self.printer:
-            try:
-                opts = {
-                    "mark_multi_qty_star": self.chk_star.isChecked(),
-                    "show_prices": self.chk_prices.isChecked(),
-                    "show_address": self.chk_address.isChecked(),
-                    "show_order_time": self.chk_time.isChecked(),
-                    "show_full_order_id": self.chk_full_id.isChecked(),
-                    "show_preorder_alert": self.chk_preorder.isChecked(),
-                    "custom_categories": self.categories
-                }
-                res = parse_and_sort_takeout_text(SAMPLE_RAW_TAKEOUT, opts)
-                sorted_txt = res.get("sorted_text", "")
-                
-                raw_bytes = bytearray()
-                raw_bytes += b'\x1b\x40\x1b\x61\x00'
-                raw_bytes += sorted_txt.encode("gbk", errors="ignore")
-                raw_bytes += b'\x1b\x64\x04\x1d\x56\x01'
-                
-                self.printer._send_raw_to_windows(bytes(raw_bytes))
-                show_info(self, u"测试打印", u"已向物理打印机发送测试小票！")
-            except Exception as e:
-                show_warning(self, u"打印失败", str(e))
-        else:
-            show_info(self, u"测试", u"模拟打票完成")
+        parsed = self._parse_text(SAMPLE_RAW_TAKEOUT)
+        job, _created = self.job_store.create_or_get(parsed, SAMPLE_RAW_TAKEOUT)
+        self._print_job(job, parsed, reprint=True)
+
+    def _on_test_proxy(self):
+        parsed = self._parse_text(SAMPLE_RAW_TAKEOUT)
+        parsed["raw_text"] = SAMPLE_RAW_TAKEOUT
+        parsed["dry_run"] = True
+        self.on_order_intercepted(parsed)
+        show_info(self, u"中继识别测试", u"已完成本地识别测试，未发送物理打印。确认预览正确后，再在官方 POS 打印一张外卖单验证拦截。")
+
+    def _on_reprint_last(self):
+        if not self.last_job:
+            show_warning(self, u"没有可重打的外卖单", u"本机还没有保存外卖中继任务。请先拦截一张外卖单。")
+            return
+        raw_text = self.last_job.get("raw_text", "")
+        if not raw_text:
+            show_warning(self, u"任务内容不完整", u"该历史任务没有原始订单文本，无法安全重打。")
+            return
+        parsed = self._parse_text(raw_text)
+        if not parsed.get("item_count"):
+            show_warning(self, u"订单无法识别", u"历史订单未识别到菜品，已阻止重打。")
+            return
+        self._print_job(self.last_job, parsed, reprint=True)
+
+    def _check_proxy_setup(self):
+        queue_name = self.txt_proxy_queue.text().strip()
+        physical_name = str(self.config.get("printer_name", "")).strip()
+        if not queue_name:
+            show_warning(self, u"缺少中继队列名", u"请填写 Windows 中供官方 POS 使用的外卖中继打印队列名。")
+            return
+        if queue_name.casefold() == physical_name.casefold():
+            show_warning(self, u"配置错误", u"外卖中继队列与真实物理打印机不能相同，否则会形成无限打印回环。")
+            return
+        try:
+            import win32print
+            names = [entry[2] for entry in win32print.EnumPrinters(
+                win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS, None, 1
+            )]
+        except Exception as exc:
+            show_warning(self, u"无法读取 Windows 打印机", str(exc))
+            return
+        if queue_name not in names:
+            show_warning(
+                self, u"未找到中继队列",
+                u"Windows 中没有找到“%s”。请先按页面步骤创建本机 TCP/IP 队列，再让官方 POS 选择它。" % queue_name,
+            )
+            return
+        running = bool(self.interceptor and self.interceptor._running)
+        show_info(
+            self, u"中继配置检查通过",
+            u"中继队列：%s\n真实输出打印机：%s\n本地监听端口：127.0.0.1:%d\n服务状态：%s\n\n"
+            u"下一步：在官方 POS 打印一张外卖单；本页“最近任务”应出现该订单，物理机只会收到重排后的单据。"
+            % (queue_name, physical_name or u"默认打印机", self.spn_proxy_port.value(), u"运行中" if running else u"未启动"),
+        )
+
+    def _on_reset_proxy_config(self):
+        if not show_question(
+            self, u"清除中继配置",
+            u"将停止本 POS 的外卖中继并清除队列名称/端口配置。不会删除 Windows 中的打印队列，避免误删物理打印机。确定继续吗？",
+        ):
+            return
+        self.config["takeout_interceptor_enabled"] = False
+        self.config["takeout_proxy_queue_name"] = ""
+        self.config["takeout_proxy_port"] = 9101
+        save_config(self.config)
+        self.txt_proxy_queue.clear()
+        self.spn_proxy_port.setValue(9101)
+        self.btn_toggle.setChecked(False)
+        self.btn_toggle.setText(u"启动中继")
+        if self.interceptor:
+            self.interceptor.update_config(self.config)
+        self.on_interceptor_status(u"○ 已清除本 POS 中继配置；Windows 队列未删除")

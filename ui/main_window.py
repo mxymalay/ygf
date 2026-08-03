@@ -76,9 +76,17 @@ class MainWindow(QMainWindow):
         self.report_page = ReportWidget(self.db, printer=self.sale_page.printer, config=self.config)
         self.stack.addWidget(self.report_page)
 
-        # 页面 3: 外卖小票排序与中继拦截
+        # 页面 3: 外卖 RAW 打印中继与排序
         from ui.takeout_sorting_widget import TakeoutSortingWidget
-        self.takeout_page = TakeoutSortingWidget(config=self.config, printer=self.sale_page.printer)
+        from core.takeout_interceptor import TakeoutPrintInterceptor
+        self.takeout_interceptor = TakeoutPrintInterceptor(self.config, self)
+        self.takeout_page = TakeoutSortingWidget(
+            config=self.config, printer=self.sale_page.printer, interceptor=self.takeout_interceptor
+        )
+        self.takeout_interceptor.order_intercepted.connect(self.takeout_page.on_order_intercepted)
+        self.takeout_interceptor.status_changed.connect(self.takeout_page.on_interceptor_status)
+        if self.config.get("takeout_interceptor_enabled", False) and self.config.get("takeout_proxy_queue_name", "").strip():
+            self.takeout_interceptor.start()
         self.stack.addWidget(self.takeout_page)
 
         # 页面 4: 叫号设置 (独立叫号避重菜单)
@@ -201,13 +209,11 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setText(now)
 
     def _on_page_changed(self, index):
-        page_names = {0: "收银台", 1: "订单查询", 2: "交班报表", 3: "外卖排序", 4: "叫号设置", 5: "切换算法", 6: "系统设置", 7: "日志信息"}
+        page_names = {0: "收银台", 1: "订单查询", 2: "交班报表", 3: "外卖中继", 4: "叫号设置", 5: "切换算法", 6: "系统设置", 7: "日志信息"}
         from core.app_logger import log_event, CAT_USER
         log_event(CAT_USER, f"切换页面: {page_names.get(index, index)}", "")
         self.stack.setCurrentIndex(index)
-        if index == 0:
-            self.sale_page.restart_scale()
-        elif index == 1:
+        if index == 1:
             self.history_page._on_query()
         elif index == 2:
             self.report_page.reload_report()
@@ -251,4 +257,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.sale_page.cleanup()
+        if hasattr(self, "takeout_interceptor"):
+            self.takeout_interceptor.stop()
         super().closeEvent(event)

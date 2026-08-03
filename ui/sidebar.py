@@ -108,8 +108,8 @@ class SideNavBar(QWidget):
         layout.addWidget(item_report)
         self._items.append(item_report)
 
-        # 3: 外卖排序
-        item_takeout = SideNavItem(u"🛵", u"外卖排序", 3)
+        # 3: 外卖 RAW 打印中继
+        item_takeout = SideNavItem(u"🛵", u"外卖中继", 3)
         item_takeout.clicked.connect(lambda: self._select_page(3))
         layout.addWidget(item_takeout)
         self._items.append(item_takeout)

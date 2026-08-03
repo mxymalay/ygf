@@ -3,10 +3,11 @@
 外卖打印中继与菜品智能排序核心引擎
 外卖单默认即为【外卖打包】，自动包含打包醒目提醒与分类重排
 """
-import time
 import re
+import time
 import threading
-from PyQt5.QtCore import QObject, pyqtSignal, QThread
+import socket
+from PyQt5.QtCore import QObject, pyqtSignal
 
 
 # 默认菜品分类关键词规则
@@ -41,10 +42,41 @@ def clean_dish_name(raw_name: str) -> str:
     # 2. 剔除数量后缀 (如 x 2, ×1, 2份)
     s = re.sub(r"[xX*×]\s*\d+|\d+\s*份", "", s)
     # 3. 剔除价格 (￥30.00)
-    s = re.sub(r"￥\s*\d+(\.\d+)?", "", s)
+    s = re.sub(r"[￥¥]\s*\d+(\.\d+)?", "", s)
     # 4. 剔除所有全角/半角空格、换行符
     s = re.sub(r"\s+", "", s)
     return s.lower()
+
+
+def _is_takeout_metadata_line(line: str) -> bool:
+    """Exclude platform headers/totals without discarding actual dish names."""
+    compact = re.sub(r"\s+", "", line)
+    if not compact or re.fullmatch(r"[-=*_]+", compact):
+        return True
+    if compact.startswith("[") and compact.endswith("]"):
+        return True
+    prefixes = (
+        "美团", "饿了么", "外卖订单", "订单号", "订单编号", "实付", "应付", "原价",
+        "合计", "配送费", "包装费", "下单时间", "订单时间", "送餐地址", "收货地址",
+        "地址", "联系电话", "顾客", "备注", "预计送达", "送达时间", "商家",
+    )
+    return compact.startswith(prefixes)
+
+
+def _format_item_line(line: str, show_prices: bool, mark_star: bool):
+    """Return printable food text and quantity, or ``('', 0)`` for metadata."""
+    if _is_takeout_metadata_line(line):
+        return "", 0
+    qty_match = re.search(r"(?:[xX*×]\s*(\d+)|(\d+)\s*份)", line)
+    qty = int(qty_match.group(1) or qty_match.group(2)) if qty_match else 1
+    text = re.sub(r"^\s*(?:\d+\s*[\.、]|#\s*\d+\s*)", "", line).strip()
+    if not show_prices:
+        text = re.sub(r"\s*[￥¥]\s*\d+(?:\.\d+)?", "", text).strip()
+    if not text or len(clean_dish_name(text)) < 1:
+        return "", 0
+    if mark_star and qty >= 2:
+        text = "⭐ 【多份x%d】 %s" % (qty, text)
+    return text, qty
 
 
 def classify_item(item_name: str, custom_categories: list = None, match_mode: str = "contains") -> str:
@@ -85,8 +117,9 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     match_mode = opts.get("takeout_match_mode", "contains")
     custom_categories = opts.get("custom_categories", DEFAULT_CATEGORIES)
 
+    raw_text = str(raw_text or "").replace("\r\n", "\n").strip()
     is_meituan = "美团外卖" in raw_text or "美团" in raw_text
-    is_eleme = "饿了么" in raw_text or "ELE" in raw_text
+    is_eleme = "饿了么" in raw_text or "ELE" in raw_text or "饿了么" in raw_text
     is_waimai = is_meituan or is_eleme or "外卖" in raw_text
 
     # 识别是否预订单 / 定时单
@@ -95,11 +128,11 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     preorder_time_str = preorder_time_match.group(1) if preorder_time_match else ""
 
     # 提取单号 (如 #18)
-    order_no_match = re.search(r"#\s*(\d+)", raw_text)
+    order_no_match = re.search(r"(?:#\s*|取餐号[:：]?\s*)([A-Za-z0-9-]+)", raw_text)
     order_no = f"#{order_no_match.group(1)}" if order_no_match else "#---"
 
     # 提取地址
-    address_match = re.search(r"地址[:：]\s*(.+)", raw_text)
+    address_match = re.search(r"(?:送餐|收货|配送)?地址[:：]\s*([^\n]+)", raw_text)
     address_str = address_match.group(1).strip() if address_match else "默认地址 / 门自取"
 
     # 提取下单时间
@@ -107,7 +140,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     order_time_str = time_match.group(0) if time_match else time.strftime("%Y-%m-%d %H:%M:%S")
 
     # 提取完整订单号
-    full_id_match = re.search(r"订单号[:：]\s*(\d+)", raw_text)
+    full_id_match = re.search(r"(?:订单号|订单编号)[:：]\s*([A-Za-z0-9_-]{4,})", raw_text)
     full_order_id = full_id_match.group(1) if full_id_match else ""
 
     lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
@@ -116,38 +149,24 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     categorized_items = {cat.get("id"): [] for cat in custom_categories}
     categorized_items["other"] = []
 
+    item_count = 0
     for line in lines:
-        if any(skip in line for skip in ["美团外卖", "饿了么", "存根", "联", "实付", "原价", "配送费", "下单时间", "地址"]):
+        formatted_line, qty = _format_item_line(line, show_prices, mark_star)
+        if not formatted_line:
             continue
-
-        # 尝试正则匹配数量 (如 肥牛 x 2 或 肥牛 2份)
-        qty_match = re.search(r"[xX*×]\s*(\d+)|(\d+)\s*份", line)
-        qty = 1
-        if qty_match:
-            qty_str = qty_match.group(1) or qty_match.group(2)
-            qty = int(qty_str)
-
-        # 同菜品多份加 ⭐ 标记
-        formatted_line = line
-        if mark_star and qty >= 2:
-            formatted_line = f"⭐ 【多份x{qty}】 {line}"
-
-        # 价格隐藏处理
-        if not show_prices:
-            formatted_line = re.sub(r"￥\s*\d+(\.\d+)?", "", formatted_line).strip()
-
-        cat_id = classify_item(line, custom_categories, match_mode=match_mode)
+        cat_id = classify_item(formatted_line, custom_categories, match_mode=match_mode)
         if cat_id in categorized_items:
             categorized_items[cat_id].append(formatted_line)
         else:
             categorized_items["other"].append(formatted_line)
+        item_count += qty
 
     # 组装票据文本
     platform_name = "美团外卖" if is_meituan else ("饿了么" if is_eleme else "外卖订单")
     sorted_lines = []
 
     # 1. 顶端默认密集【外卖打包】提醒
-    sorted_lines.append("外卖打包  " * 6)
+    sorted_lines.append("【外卖打包】" * 4)
 
     if is_preorder and show_preorder_alert:
         p_str = f"⏰ 预订单 ({preorder_time_str} 前送达)" if preorder_time_str else "⏰ 预订单 (定时送达)"
@@ -157,7 +176,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
 
     # 2. 头部标题
     sorted_lines.append("================================================")
-    sorted_lines.append(f"      【{platform_name} {order_no} 检菜单-外卖打包】")
+    sorted_lines.append(f"      【{platform_name} {order_no} 制作单】")
     sorted_lines.append("================================================")
 
     # 3. 元数据：下单时间 & 地址
@@ -188,7 +207,9 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     if show_full_order_id and full_order_id:
         sorted_lines.append(f"完整订单号：{full_order_id}")
 
-    sorted_lines.append("外卖打包  " * 6)
+    if item_count == 0:
+        sorted_lines.append("⚠ 未识别到菜品，请人工核对原始文本")
+    sorted_lines.append("【外卖打包】" * 4)
 
     sorted_text = "\n".join(sorted_lines)
 
@@ -200,41 +221,185 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
         "address": address_str,
         "order_time": order_time_str,
         "full_order_id": full_order_id,
+        "item_count": item_count,
         "raw_text": raw_text,
         "sorted_text": sorted_text,
     }
 
 
-class TakeoutPrintInterceptor(QThread):
-    """Windows 打印机中继拦截服务线程"""
-    order_intercepted = pyqtSignal(dict)
+def escpos_payload_to_text(payload: bytes) -> str:
+    """Best-effort extraction of printable GBK text from an ESC/POS RAW job."""
+    data = bytearray(payload or b"")
+    output = bytearray()
+    index = 0
+    while index < len(data):
+        current = data[index]
+        if current == 0x1B:  # ESC commands are usually 2-3 bytes.
+            if index + 1 < len(data) and data[index + 1] in (0x40, 0x61, 0x21, 0x45, 0x64, 0x33):
+                index += 3 if data[index + 1] in (0x21, 0x61, 0x45, 0x64, 0x33) else 2
+            else:
+                index += 2
+            continue
+        if current == 0x1D:  # GS commands, including cut and size controls.
+            if index + 1 < len(data) and data[index + 1] in (0x21, 0x56):
+                index += 3
+            else:
+                index += 2
+            continue
+        if current >= 0x20 or current in (0x0A, 0x0D, 0x09):
+            output.append(current)
+        index += 1
+    return bytes(output).decode("gbk", errors="ignore").replace("\r", "\n")
+
+
+def build_takeout_escpos_ticket(sorted_text: str, config: dict, ticket_kind="kitchen") -> bytes:
+    """Render a sorted takeout order with the configured ESC/POS emphasis."""
+    config = config or {}
+    header_size = (0x00, 0x20, 0x30)[min(2, max(0, int(config.get("takeout_font_hdr", 1))))]
+    category_size = (0x00, 0x08, 0x10)[min(2, max(0, int(config.get("takeout_font_cat", 1))))]
+    item_size = (0x00, 0x10, 0x30)[min(2, max(0, int(config.get("takeout_font_item", 1))))]
+    label = "制作联" if ticket_kind == "kitchen" else "存根联"
+    data = bytearray(b"\x1b@\x1ba\x01\x1b!" + bytes([header_size]))
+    data += ("【外卖%s】\n" % label).encode("gbk", errors="ignore")
+    data += b"\x1b!\x00\x1ba\x00"
+    for line in str(sorted_text or "").splitlines():
+        if not line:
+            data += b"\n"
+            continue
+        if "【" in line or "外卖打包" in line or "制作单" in line:
+            size = header_size
+            bold = True
+        elif "共 " in line or "其它项目" in line or line.startswith(("🍲", "🥩", "🥬", "🥤")):
+            size = category_size
+            bold = True
+        else:
+            size = item_size
+            bold = False
+        data += b"\x1b!" + bytes([size]) + (b"\x1bE\x01" if bold else b"\x1bE\x00")
+        data += (line + "\n").encode("gbk", errors="ignore")
+    data += b"\x1b!\x00\x1bE\x00\x1bd\x04\x1dV\x01"
+    return bytes(data)
+
+
+class TakeoutPrintInterceptor(QObject):
+    """A local RAW TCP proxy for an official-POS takeout printer queue.
+
+    Windows cannot reliably intercept and rewrite a job that has already been
+    sent to a physical printer.  The official POS therefore prints to a local
+    TCP/IP queue (127.0.0.1:<port>); this proxy receives the RAW ESC/POS data
+    first, extracts the order text and emits it for reformatting/reprinting.
+    The physical receipt printer remains the target configured in this POS.
+    """
+    order_intercepted = pyqtSignal(object)
     status_changed = pyqtSignal(str)
 
     def __init__(self, config=None, parent=None):
         super().__init__(parent)
         self.config = config or {}
-        self.is_enabled = self.config.get("takeout_interceptor_enabled", True)
-        self.printer_name = self.config.get("printer_name", "shouyin")
-        self._running = True
+        self.is_enabled = bool(self.config.get("takeout_interceptor_enabled", False))
+        self._listener = None
+        self._thread = None
+        self._running = False
+        self.last_error = ""
+
+    @property
+    def port(self):
+        try:
+            return int(self.config.get("takeout_proxy_port", 9101))
+        except (TypeError, ValueError):
+            return 9101
 
     def set_enabled(self, enabled: bool):
         self.is_enabled = enabled
-        status_str = "● 中继就绪 (监听中...)" if enabled else "○ 中继关闭 (官方POS直连)"
-        self.status_changed.emit(status_str)
+        if enabled:
+            self.start()
+        else:
+            self.stop()
 
-    def run(self):
-        self.set_enabled(self.is_enabled)
+    def update_config(self, config):
+        old_port = self.port
+        self.config = config or {}
+        self.is_enabled = bool(self.config.get("takeout_interceptor_enabled", False))
+        if self._running and (not self.is_enabled or self.port != old_port):
+            self.stop()
+        if self.is_enabled and not self._running:
+            self.start()
+
+    def start(self):
+        if not self.is_enabled or self._running:
+            return self._running
+        try:
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", self.port))
+            listener.listen(5)
+            listener.settimeout(0.5)
+            self._listener = listener
+            self._running = True
+            self.last_error = ""
+            self._thread = threading.Thread(target=self._serve, name="TakeoutRawProxy", daemon=True)
+            self._thread.start()
+            self.status_changed.emit("● 中继运行中：127.0.0.1:%d" % self.port)
+            return True
+        except OSError as exc:
+            self.last_error = str(exc)
+            self._running = False
+            self.status_changed.emit("✕ 中继无法启动：%s" % self.last_error)
+            return False
+
+    def _serve(self):
         while self._running:
             try:
-                if not self.is_enabled:
-                    time.sleep(1)
+                try:
+                    client, _address = self._listener.accept()
+                except socket.timeout:
                     continue
-                time.sleep(2)
-            except Exception as e:
-                print(f"[TakeoutInterceptor] 监听异常: {e}")
-                time.sleep(2)
+                with client:
+                    client.settimeout(0.8)
+                    chunks = []
+                    size = 0
+                    while size < 1024 * 1024:
+                        try:
+                            part = client.recv(min(8192, 1024 * 1024 - size))
+                        except socket.timeout:
+                            break
+                        if not part:
+                            break
+                        chunks.append(part)
+                        size += len(part)
+                    self._handle_payload(b"".join(chunks))
+            except OSError:
+                if self._running:
+                    self.last_error = "中继套接字异常"
+                    self.status_changed.emit("✕ " + self.last_error)
+            except Exception as exc:
+                self.last_error = str(exc)
+                self.status_changed.emit("✕ 中继处理失败：%s" % self.last_error)
+
+    def _handle_payload(self, payload):
+        if not payload:
+            return
+        text = escpos_payload_to_text(payload)
+        parsed = parse_and_sort_takeout_text(text)
+        if not parsed.get("is_waimai") or not parsed.get("item_count"):
+            self.status_changed.emit("ⓘ 已忽略非外卖或无法识别的打印任务")
+            return
+        parsed["raw_text"] = text
+        parsed["payload_size"] = len(payload)
+        self.order_intercepted.emit(parsed)
+        self.status_changed.emit("✓ 已拦截 %s %s（%d 项）" % (
+            parsed.get("platform"), parsed.get("order_no"), parsed.get("item_count", 0)
+        ))
 
     def stop(self):
         self._running = False
-        self.quit()
-        self.wait()
+        if self._listener:
+            try:
+                self._listener.close()
+            except OSError:
+                pass
+        self._listener = None
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.5)
+        self._thread = None
+        self.status_changed.emit("○ 外卖中继已停止")

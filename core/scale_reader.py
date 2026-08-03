@@ -322,33 +322,40 @@ class ScaleReader(QObject):
     def _read_from_ygf_log(self, target_file: str):
         """从官方系统实时日志中拉取重量 (Windows 共享无锁模式)"""
         self.status_changed.emit(True, "● 已连接官方称重服务 (%s)" % os.path.basename(target_file))
-        last_weight = None
+        last_signature = None
 
         while self._running:
             current_log = self._find_active_ygf_log()
             if not current_log:
                 break  # 官方系统关闭
 
+            # Never replay a cached weight while the official log is idle.
+            # Replaying it made an old reading appear fresh and could let an
+            # operator add a stale weight after the official POS stopped.
+            try:
+                stat = os.stat(current_log)
+                signature = (current_log, stat.st_mtime, stat.st_size)
+            except OSError:
+                time.sleep(0.2)
+                continue
+            if signature == last_signature:
+                time.sleep(0.2)
+                continue
+            last_signature = signature
+
             content = read_file_shared(current_log)
             if content:
                 lines = content.strip().splitlines()
-                found_new = False
                 for line in reversed(lines[-50:]):
                     raw_w = self._parse_ygf_log_line(line)
                     if raw_w is not None:
                         w = self._apply_fluctuation_filter(raw_w)
                         self.weight_updated.emit(w)
                         self._check_stability(w)
-                        last_weight = w
-                        found_new = True
                         self.status_changed.emit(
                             True, "● 已同步官方收银称重 | 读数: %.3f kg" % w
                         )
                         break
-
-                if not found_new and last_weight is not None:
-                    self.weight_updated.emit(last_weight)
-                    self._check_stability(last_weight)
 
             time.sleep(0.2)
 

@@ -350,6 +350,28 @@ class ReceiptPrinter:
             return False
         return False
 
+    def print_raw(self, raw_data):
+        """Send a preformatted ESC/POS ticket through the configured printer.
+
+        Used by takeout preparation only.  Routing through this public method
+        preserves Windows/network/serial configuration instead of silently
+        forcing the Windows spooler.
+        """
+        if self.config.get("is_mock_mode", False):
+            return True
+        try:
+            printer_type = self.config.get("printer_type", "windows")
+            if printer_type == "windows":
+                return self._send_raw_to_windows(raw_data)
+            if printer_type == "network":
+                return self._send_raw_to_network(raw_data)
+            if printer_type == "serial":
+                return self._send_raw_to_serial(raw_data)
+            self.last_error = "未知打印机类型: %s" % printer_type
+        except Exception as exc:
+            self.last_error = str(exc)
+        return False
+
     def _send_raw_to_windows(self, raw_data):
         try:
             import win32print

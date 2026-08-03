@@ -14,20 +14,24 @@ except Exception:
     user32 = None
 
 # 常用的官方收银系统可能出现的窗口标题关键词或类名
-OFFICIAL_WINDOW_TITLES = [
-    "杨国福", "收银系统", "POS", "官方收银", "店长端", "餐饮管理", "收银", "YGF"
-]
+OFFICIAL_WINDOW_TITLES = ["杨国福", "官方收银", "店长端", "餐饮管理"]
 
 # 官方收银系统的可执行进程名列表
-OFFICIAL_PROCESS_NAMES = [
-    "yangguofu.exe", "ygf-pos.exe", "ygf.exe", "pos.exe", "cashier.exe"
-]
+OFFICIAL_PROCESS_NAMES = ["yangguofu.exe", "ygf-pos.exe", "ygf.exe"]
 
 
-def find_official_pids():
+def _configured_keywords(config, key, defaults):
+    values = (config or {}).get(key, defaults)
+    if isinstance(values, str):
+        values = [item.strip() for item in values.split(",")]
+    return [str(item).strip().lower() for item in values if str(item).strip()]
+
+
+def find_official_pids(config=None):
     """通过系统进程列表精准获取官方收银软件的 PID 集合"""
     pids = set()
     try:
+        process_names = _configured_keywords(config, "official_pos_process_keywords", OFFICIAL_PROCESS_NAMES)
         cmd = 'tasklist /NH /FO CSV'
         output = subprocess.check_output(cmd, shell=True).decode('gbk', errors='ignore')
         current_pid = os.getpid()
@@ -35,7 +39,7 @@ def find_official_pids():
             line_lower = line.lower()
             if 'python' in line_lower:
                 continue
-            for proc_name in OFFICIAL_PROCESS_NAMES:
+            for proc_name in process_names:
                 if proc_name in line_lower and "uninstall" not in line_lower:
                     parts = line.split('","')
                     if len(parts) >= 2:
@@ -50,7 +54,7 @@ def find_official_pids():
     return pids
 
 
-def find_official_window_handle():
+def find_official_window_handle(config=None):
     """查找官方收银软件的窗口句柄 (HWND) - 优先纯 Win32 零阻塞匹配，匹配失败才回退进程列表"""
     if not user32:
         return None
@@ -58,7 +62,9 @@ def find_official_window_handle():
     found_hwnd = [None]
     current_pid = os.getpid()
 
-    # 1. 优先极速遍历窗口标题 (纯 C API，耗时 < 0.1ms，绝不阻塞主线程)
+    title_keywords = _configured_keywords(config, "official_pos_window_keywords", OFFICIAL_WINDOW_TITLES)
+
+    # 1. 优先极速遍历窗口标题；不再用“POS/收银”等通用词误匹配其它软件。
     def enum_title_callback(hwnd, lparam):
         if not user32.IsWindowVisible(hwnd):
             return True
@@ -76,8 +82,9 @@ def find_official_window_handle():
         user32.GetWindowTextW(hwnd, buffer, length + 1)
         title = buffer.value
 
-        for kw in OFFICIAL_WINDOW_TITLES:
-            if kw in title and "免安装" not in title and "辅助" not in title and "排序" not in title:
+        title_lower = title.lower()
+        for kw in title_keywords:
+            if kw in title_lower and "免安装" not in title and "辅助" not in title and "排序" not in title:
                 found_hwnd[0] = hwnd
                 return False
 
@@ -91,7 +98,7 @@ def find_official_window_handle():
         return found_hwnd[0]
 
     # 2. 若标题未命中，回退到进程 PID 检测
-    official_pids = find_official_pids()
+    official_pids = find_official_pids(config)
     if not official_pids:
         return None
 
@@ -110,12 +117,12 @@ def find_official_window_handle():
     return found_hwnd[0]
 
 
-def bring_official_to_front():
+def bring_official_to_front(config=None):
     """强行将官方收银系统拉至最前"""
     if not user32:
         return False
 
-    hwnd = find_official_window_handle()
+    hwnd = find_official_window_handle(config)
     if hwnd:
         try:
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE = 9 还原窗口

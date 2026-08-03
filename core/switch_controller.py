@@ -92,7 +92,7 @@ class AutoSwitchController(QObject):
                         self.main_window.status.showMessage(msg, 5000)
                 else:
                     # 决策分配给【官方系统】 -> 本系统隐藏在后台，保持/拉出官方界面
-                    ok = bring_official_to_front()
+                    ok = bring_official_to_front(self.config)
                     if not ok and self.main_window:
                         self.main_window.showMinimized()
                     self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方", show_checkmark=True)
@@ -136,13 +136,16 @@ class AutoSwitchController(QObject):
                     log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
                     return True
                 else:
-                    # 购物车超时未结账，自动清空防止死锁
-                    print(f"[AutoDecisionEngine] 私域购物车超时 {self._private_lock_sec} 秒未结账，自动清空释放锁！")
-                    log_event(CAT_DECISION, "私域超时死锁清理", f"超过 {self._private_lock_sec}s 未结账，自动清空购物车")
-                    try:
-                        self.main_window.sale_page._on_clear()
-                    except Exception as e:
-                        print(f"清空购物车失败: {e}")
+                    # A timeout must never erase an unfinished customer order.
+                    # Preserve the basket/draft and keep the POS on this order
+                    # until the cashier explicitly clears or checks out.
+                    self._last_private_time = now_ts
+                    log_event(
+                        CAT_DECISION,
+                        "私域未结订单保护",
+                        f"购物车超过 {self._private_lock_sec}s 未结账，已保留订单并暂停自动切换",
+                    )
+                    return True
 
         # 规则 0B：官方多碗/连续开单保护 (如果上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
         if now_ts - self._last_official_time < self._official_lock_sec:
@@ -213,7 +216,7 @@ class AutoSwitchController(QObject):
         """延时结束，隐退切回官方系统"""
         print("[AutoSwitch] 延时结束，自动隐退切回官方收银界面")
         log_event(CAT_SWITCH, f"自动隐退切回官方系统", f"延时 {self._auto_hide_delay_sec} 秒结束")
-        ok = bring_official_to_front()
+        ok = bring_official_to_front(self.config)
         if not ok and self.main_window:
             self.main_window.showMinimized()
         self._update_floating_ball_status(is_private=False, reason="出票延时结束")

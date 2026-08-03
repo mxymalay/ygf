@@ -25,11 +25,15 @@
   "private_ratio_percent": 30,
   "min_private_weight_kg": 0.25,
   "shouqianba_enabled": true,
-  "shouqianba_port": "COM1",
+  "shouqianba_port": "COM10",
   "shouqianba_baudrate": 2400,
   "shouqianba_format": "QA",
   "shouqianba_hotkey": "Shift+Q",
-  "takeout_interceptor_enabled": true,
+  "takeout_interceptor_enabled": false,
+  "takeout_proxy_port": 9101,
+  "takeout_proxy_queue_name": "",
+  "takeout_proxy_mode_version": 1,
+  "takeout_auto_print": true,
   "takeout_categories": [
     {
       "id": "cat_1",

@@ -278,7 +278,7 @@ class FloatingBall(QWidget):
             self.main_window.switch_controller.notify_manual_switch()
             
         if self.is_our_pos_active:
-            success = bring_official_to_front()
+            success = bring_official_to_front(getattr(self.main_window, "config", None))
             if not success and self.main_window:
                 self.main_window.showMinimized()
             self.is_our_pos_active = False

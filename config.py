@@ -71,6 +71,11 @@ DEFAULT_CONFIG = {
     # 官方 POS 升级后可在设置页选择新的 serial 日志目录；留空时仅尝试
     # 兼容的历史路径和受限自动发现，不会每秒扫描整块硬盘。
     "official_pos_log_dir": "",
+    # Optional comma-separated identifiers used only by the foreground switch.
+    # Keep generic names such as "POS" out of the defaults to avoid stealing
+    # focus from unrelated payment applications after an official POS upgrade.
+    "official_pos_process_keywords": ["yangguofu.exe", "ygf-pos.exe", "ygf.exe"],
+    "official_pos_window_keywords": ["杨国福", "官方收银", "店长端", "餐饮管理"],
     "config_schema_version": CONFIG_SCHEMA_VERSION,
 
     # 2. 切换算法配置 (algo.json)
@@ -89,8 +94,13 @@ DEFAULT_CONFIG = {
     "shouqianba_format": "QA",
     "shouqianba_hotkey": "Shift+Q",
 
-    # 4. 外卖排序与中继配置 (takeout.json)
-    "takeout_interceptor_enabled": True,
+    # 4. 外卖 RAW 打印中继与排序配置 (takeout.json)
+    # 默认关闭：必须先把官方 POS 的外卖打印机改为本机 TCP 中继队列后才启用。
+    "takeout_interceptor_enabled": False,
+    "takeout_proxy_port": 9101,
+    "takeout_proxy_queue_name": "",
+    "takeout_proxy_mode_version": 1,
+    "takeout_auto_print": True,
     "takeout_categories": [
         {"id": "cat_1", "name": u"主食类", "keywords": [u"面", u"米饭", u"粉丝", u"年糕", u"方便面"]},
         {"id": "cat_2", "name": u"肉类", "keywords": [u"牛肉", u"肥牛", u"羊肉", u"鸡肉", u"培根", u"火腿", u"肉丸"]},
@@ -213,6 +223,16 @@ def load_config() -> dict:
     merged.pop("simulation_mode", None)
     # 模拟模式是一次运行的临时状态，绝不能写入正式门店配置。
     merged.pop("is_mock_mode", None)
+    # Before v1.2 the same flag only controlled a non-functional preview
+    # thread.  Never reinterpret an old "enabled" value as permission to
+    # start a real local printer proxy after upgrade.
+    try:
+        takeout_proxy_mode_version = int(merged.get("takeout_proxy_mode_version", 0) or 0)
+    except (TypeError, ValueError):
+        takeout_proxy_mode_version = 0
+    if takeout_proxy_mode_version < 1:
+        merged["takeout_interceptor_enabled"] = False
+        merged["takeout_proxy_mode_version"] = 1
     merged["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
     # 4. 自动拆分并同步写回 data/settings/ 目录下各个模块文件 (自动迁移逻辑)
