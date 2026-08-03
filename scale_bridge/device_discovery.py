@@ -10,7 +10,7 @@ from .configuration import ScaleDeviceIdentity
 
 _COM_RE = re.compile(r"^COM\d+$", re.IGNORECASE)
 _VID_PID_RE = re.compile(r"VID_([0-9A-F]{4}).*PID_([0-9A-F]{4})", re.IGNORECASE)
-_VIRTUAL_MARKERS = ("com0com", "cnca", "cncb", "vspd", "virtual serial", "eltima", "pair")
+_VIRTUAL_MARKERS = ("com0com", "cnca", "cncb", "virtual serial", "pair")
 
 
 @dataclass

@@ -413,9 +413,9 @@ class SettingsWidget(QWidget):
 
         layout.addLayout(btn_box)
 
-        # ScaleBridge is deliberately kept separate from the normal POS
-        # settings above: saving it must never silently replace a live VSPD
-        # split or install/modify a Windows driver.
+        # ScaleBridge is deliberately kept separate from normal POS settings:
+        # saving it must never alter the current POS configuration or install
+        # / modify a Windows driver.
         bridge_panel = QFrame()
         bridge_panel.setObjectName("ScaleBridgePanel")
         bridge_panel.setStyleSheet("""
@@ -432,7 +432,7 @@ class SettingsWidget(QWidget):
         bridge_title.setStyleSheet("font-size: 16px; color: #60A5FA; font-weight: bold;")
         bridge_layout.addWidget(bridge_title)
         bridge_desc = QLabel(
-            u"仅配置未来的 Windows 服务，不会触碰当前 VSPD。服务唯一打开物理秤口；"
+            u"配置独立的 Windows 服务，不会触碰当前 POS 设置。服务唯一打开物理秤口；"
             u"官方/私有 POS 分别使用虚拟端口。"
         )
         bridge_desc.setWordWrap(True)
@@ -1086,7 +1086,7 @@ class SettingsWidget(QWidget):
             show_warning(
                 self, u"桥接服务未连接",
                 u"无法读取 ScaleBridge 服务状态。\n\n"
-                u"这不会影响当前 VSPD 分流；若已迁移到 ScaleBridge，请确认 Windows 服务已启动。\n\n"
+                u"这不会修改现有 POS 设置；若已配置 ScaleBridge，请确认 Windows 服务已启动。\n\n"
                 u"原因: " + str(exc),
             )
             return
@@ -1182,7 +1182,7 @@ class SettingsWidget(QWidget):
                 details = "\n".join("• %s — %s" % (item.port, item.friendly_name) for item in candidates)
                 show_info(self, u"物理串口识别结果", u"已识别 %d 个非虚拟串口：\n\n%s" % (len(candidates), details))
             else:
-                message = u"未识别到可作为物理秤的串口。VSPD/com0com 虚拟口会被刻意排除。"
+                message = u"未识别到可作为物理秤的串口。虚拟串口会被刻意排除。"
                 if scan_error:
                     message += u"\n\n原因: " + scan_error
                 show_warning(self, u"未识别到物理秤", message)
@@ -1224,7 +1224,7 @@ class SettingsWidget(QWidget):
             show_error(self, u"桥接配置无法保存", str(exc))
             return
         self.lbl_scale_bridge_config.setText(
-            u"✓ 已保存桥接配置：%s。尚未启动服务，也未变更 VSPD 或任何 COM 映射。"
+            u"✓ 已保存桥接配置：%s。尚未启动服务，也未变更任何现有 POS 设置或 COM 映射。"
             % self._scale_bridge_config_path()
         )
         show_info(
