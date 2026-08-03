@@ -39,3 +39,8 @@ ThirdParty/**/*.exe
 ThirdParty/**/*.msi
 ThirdParty/**/*.zip
 ThirdParty/**/*.rar
+
+# The store-approved Shouqianba assistant is explicitly bundled and exposed
+# from the settings page; all other third-party executables remain ignored.
+!ThirdParty/shouqianba/
+!ThirdParty/shouqianba/PC收款安装包v4.0.4.exe

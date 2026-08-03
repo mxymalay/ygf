@@ -153,6 +153,23 @@ def main():
         bundled_com0com = os.path.join(package_dir, "ThirdParty", "com0com")
         os.makedirs(bundled_com0com, exist_ok=True)
         shutil.copy2(installer_candidates[0], os.path.join(bundled_com0com, os.path.basename(installer_candidates[0])))
+
+        # Bundle the exact Shouqianba PC assistant installer used by the store
+        # so the settings page can copy it to the operator's desktop.  It is
+        # never executed silently by the POS.
+        sqb_installer = os.path.join("ThirdParty", "shouqianba", "PC收款安装包v4.0.4.exe")
+        expected_sqb_hash = "666EFBA745C7D20D33C22B65E765B027D431E32B7C8CAA4BF8B65A86AD6F15AC"
+        if not os.path.isfile(sqb_installer):
+            print("[X] 部署包缺少收钱吧 PC 助手安装包: %s" % sqb_installer)
+            return 4
+        with open(sqb_installer, "rb") as sqb_handle:
+            sqb_hash = hashlib.sha256(sqb_handle.read()).hexdigest().upper()
+        if sqb_hash != expected_sqb_hash:
+            print("[X] 收钱吧安装包 SHA-256 不匹配，拒绝加入部署包: %s" % sqb_hash)
+            return 5
+        bundled_sqb = os.path.join(package_dir, "ThirdParty", "shouqianba")
+        os.makedirs(bundled_sqb, exist_ok=True)
+        shutil.copy2(sqb_installer, os.path.join(bundled_sqb, os.path.basename(sqb_installer)))
         bundled_data = os.path.join(package_dir, "data")
         os.makedirs(bundled_data, exist_ok=True)
         shutil.copy2(os.path.join("data", "scale_bridge.example.json"), os.path.join(bundled_data, "scale_bridge.example.json"))

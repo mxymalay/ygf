@@ -4,6 +4,8 @@ PyQt5 + Python 3.8 兼容
 """
 import os
 import re
+import hashlib
+import shutil
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -11,14 +13,18 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtGui import QKeySequence, QDesktopServices
 
 from config import (
-    DATA_DIR, save_config, reset_module_config, reset_all_config,
+    BASE_DIR, DATA_DIR, save_config, reset_module_config, reset_all_config,
     export_config_bundle, import_config_bundle, backup_config_bundle,
 )
 from utils.port_scanner import scan_printers
+
+
+SQB_INSTALLER_NAME = u"PC收款安装包v4.0.4.exe"
+SQB_INSTALLER_SHA256 = "666EFBA745C7D20D33C22B65E765B027D431E32B7C8CAA4BF8B65A86AD6F15AC"
 
 
 class HotKeyRecorderEdit(QLineEdit):
@@ -828,6 +834,37 @@ class SettingsWidget(QWidget):
         )
         layout.addWidget(intro)
 
+        # 随系统部署的收钱吧 PC 助手安装包：只提供下载/打开目录，不在
+        # POS 内静默执行安装，避免管理员权限和正在运行的插件被强行打断。
+        installer_panel = QFrame()
+        installer_panel.setStyleSheet(
+            "QFrame { background: #1E1B4B; border: 2px solid #8B5CF6; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        installer_layout = QVBoxLayout(installer_panel)
+        installer_layout.setContentsMargins(18, 16, 18, 16)
+        installer_layout.setSpacing(10)
+        installer_title = QLabel(u"📦 收钱吧 PC 助手安装包（v4.0.4）")
+        installer_title.setStyleSheet("color: #DDD6FE; font-size: 18px; font-weight: 900;")
+        installer_layout.addWidget(installer_title)
+        self.lbl_sqb_installer_status = QLabel("")
+        self.lbl_sqb_installer_status.setWordWrap(True)
+        self.lbl_sqb_installer_status.setStyleSheet("color: #C4B5FD; font-size: 14px;")
+        installer_layout.addWidget(self.lbl_sqb_installer_status)
+        installer_buttons = QHBoxLayout()
+        installer_buttons.setSpacing(12)
+        self.btn_sqb_download = QPushButton(u"下载到桌面")
+        self._style_touch_action_btn(self.btn_sqb_download, "purple")
+        self.btn_sqb_download.clicked.connect(self._download_sqb_installer)
+        installer_buttons.addWidget(self.btn_sqb_download)
+        self.btn_sqb_open_folder = QPushButton(u"打开安装包目录")
+        self._style_touch_action_btn(self.btn_sqb_open_folder, "purple")
+        self.btn_sqb_open_folder.clicked.connect(self._open_sqb_installer_folder)
+        installer_buttons.addWidget(self.btn_sqb_open_folder)
+        installer_layout.addLayout(installer_buttons)
+        layout.addWidget(installer_panel)
+        self._refresh_sqb_installer_status()
+
         sqb_step1_title = QLabel(u"步骤 1　选择连接方式并填写两端参数")
         sqb_step1_title.setStyleSheet("font-size: 18px; color: #5EEAD4; font-weight: 900;")
         layout.addWidget(sqb_step1_title)
@@ -1212,6 +1249,101 @@ class SettingsWidget(QWidget):
                     self.cmb_sqb_port.setCurrentText(selected_port)
             else:
                 show_info(self, u"扫描提示", u"未检测到现有 COM。若尚未建立收钱吧配对，请选择“由本系统创建”，端口当前不存在是正常的。")
+
+    # ─── 收钱吧 PC 助手安装包 ────────────────────────
+    def _sqb_installer_path(self):
+        """Locate the deployment asset in both source and frozen layouts."""
+        candidates = [
+            os.path.join(BASE_DIR, "ThirdParty", "shouqianba", SQB_INSTALLER_NAME),
+            os.path.join(os.path.dirname(BASE_DIR), "ThirdParty", "shouqianba", SQB_INSTALLER_NAME),
+        ]
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+        return candidates[0]
+
+    @staticmethod
+    def _sha256_file(path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest().upper()
+
+    def _refresh_sqb_installer_status(self):
+        path = self._sqb_installer_path()
+        if not os.path.isfile(path):
+            self.lbl_sqb_installer_status.setText(
+                u"未找到随系统部署的安装包。请确认 ThirdParty\\shouqianba\\%s 存在。" % SQB_INSTALLER_NAME
+            )
+            self.lbl_sqb_installer_status.setStyleSheet("color: #FCA5A5; font-size: 14px;")
+            self.btn_sqb_download.setEnabled(False)
+            self.btn_sqb_open_folder.setEnabled(False)
+            return False
+        try:
+            actual_hash = self._sha256_file(path)
+            size_mb = os.path.getsize(path) / (1024.0 * 1024.0)
+        except (OSError, IOError) as exc:
+            self.lbl_sqb_installer_status.setText(u"安装包读取失败：%s" % exc)
+            self.lbl_sqb_installer_status.setStyleSheet("color: #FCA5A5; font-size: 14px;")
+            self.btn_sqb_download.setEnabled(False)
+            self.btn_sqb_open_folder.setEnabled(False)
+            return False
+        if actual_hash != SQB_INSTALLER_SHA256:
+            self.lbl_sqb_installer_status.setText(
+                u"安装包校验失败，已禁止复制。当前 SHA-256：%s" % actual_hash
+            )
+            self.lbl_sqb_installer_status.setStyleSheet("color: #FCA5A5; font-size: 14px;")
+            self.btn_sqb_download.setEnabled(False)
+            self.btn_sqb_open_folder.setEnabled(True)
+            return False
+        self.lbl_sqb_installer_status.setText(
+            u"已集成到系统（%.1f MB），校验通过。点击“下载到桌面”即可复制给门店安装。" % size_mb
+        )
+        self.lbl_sqb_installer_status.setStyleSheet("color: #C4B5FD; font-size: 14px;")
+        self.btn_sqb_download.setEnabled(True)
+        self.btn_sqb_open_folder.setEnabled(True)
+        return True
+
+    @staticmethod
+    def _desktop_path():
+        user_profile = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+        return os.path.join(user_profile, "Desktop")
+
+    def _download_sqb_installer(self):
+        from ui.custom_dialog import show_info, show_warning
+        source = self._sqb_installer_path()
+        if not self._refresh_sqb_installer_status():
+            show_warning(self, u"安装包不可用", u"安装包不存在或校验失败，未执行复制。")
+            return
+        desktop = self._desktop_path()
+        try:
+            os.makedirs(desktop, exist_ok=True)
+            destination = os.path.join(desktop, SQB_INSTALLER_NAME)
+            if os.path.isfile(destination):
+                if self._sha256_file(destination) == SQB_INSTALLER_SHA256:
+                    show_info(self, u"安装包已存在", u"桌面已有相同版本安装包：\n%s" % destination)
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(desktop))
+                    return
+                stem, ext = os.path.splitext(SQB_INSTALLER_NAME)
+                index = 1
+                while os.path.exists(destination):
+                    destination = os.path.join(desktop, "%s(%d)%s" % (stem, index, ext))
+                    index += 1
+            shutil.copy2(source, destination)
+            show_info(self, u"下载完成", u"安装包已复制到桌面：\n%s" % destination)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(desktop))
+        except (OSError, IOError) as exc:
+            show_warning(self, u"下载失败", str(exc))
+
+    def _open_sqb_installer_folder(self):
+        from ui.custom_dialog import show_warning
+        path = self._sqb_installer_path()
+        folder = os.path.dirname(path)
+        if not os.path.isdir(folder):
+            show_warning(self, u"目录不存在", folder)
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     # ─── 刷新打印机列表 ──────────────────────────────
     def _refresh_printers(self, show_toast=False):

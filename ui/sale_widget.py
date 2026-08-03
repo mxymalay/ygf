@@ -9,7 +9,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
-    QScrollArea, QDialog, QLineEdit, QButtonGroup
+    QScrollArea, QDialog, QLineEdit, QComboBox, QListView
 )
 from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
 
@@ -37,7 +37,7 @@ class ManualWeightDialog(QDialog):
         card = QFrame(self)
         card.setObjectName("ManualWeightCard")
         card.setStyleSheet(
-            "QFrame#ManualWeightCard { background: #1E293B; border: 2px solid #F97316; border-radius: 18px; }"
+            "QFrame#ManualWeightCard { background: #1E293B; border: 2px solid #8B5CF6; border-radius: 18px; }"
             "QLabel { border: none; background: transparent; }"
         )
         root = QVBoxLayout(self)
@@ -53,7 +53,7 @@ class ManualWeightDialog(QDialog):
         title.setAlignment(Qt.AlignCenter)
         body.addWidget(title)
 
-        hint = QLabel(u"单位：千克（kg），例如输入 0.500")
+        hint = QLabel(u"单位：千克（kg），按数字从右向左累加，例如 5-0-0 = 0.500")
         hint.setStyleSheet("color: #CBD5E1; font-size: 14px;")
         hint.setAlignment(Qt.AlignCenter)
         body.addWidget(hint)
@@ -64,7 +64,7 @@ class ManualWeightDialog(QDialog):
         self.display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.display.setMinimumHeight(66)
         self.display.setStyleSheet(
-            "QLineEdit { background: #0F172A; color: #F59E0B; border: 2px solid #F97316; "
+            "QLineEdit { background: #0F172A; color: #DDD6FE; border: 2px solid #8B5CF6; "
             "border-radius: 10px; padding: 6px 14px; font-size: 32px; font-weight: 900; "
             "font-family: 'Consolas', monospace; }"
         )
@@ -81,7 +81,7 @@ class ManualWeightDialog(QDialog):
                 button.setStyleSheet(
                     "QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; "
                     "border-radius: 10px; font-size: 22px; font-weight: 900; }"
-                    "QPushButton:pressed { background: #EA580C; }"
+                    "QPushButton:pressed { background: #7C3AED; }"
                 )
                 button.clicked.connect(lambda _checked=False, value=key: self._press(value))
                 grid.addWidget(button, row, col)
@@ -807,11 +807,11 @@ class SaleWidget(QWidget):
 
         left_layout.addWidget(self.call_detail_box)
 
-        # 橙色重量 LED 横幅卡片
+        # 紫色重量 LED 横幅卡片
         led_banner = QFrame()
         led_banner.setStyleSheet(
             "QFrame { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "stop:0 #EA580C, stop:1 #C2410C); border-radius: 8px; padding: 8px 14px; border: none; }"
+            "stop:0 #6D28D9, stop:1 #4C1D95); border-radius: 8px; padding: 8px 14px; border: none; }"
         )
         led_layout = QHBoxLayout(led_banner)
         led_layout.setContentsMargins(12, 4, 12, 4)
@@ -822,34 +822,45 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
-        # 模拟调试模式下显示的重量模式与触屏操作按钮
+        # 模拟调试模式下显示的重量模式列表与触屏操作按钮
         mode_box = QVBoxLayout()
         mode_box.setSpacing(4)
         mode_title = QLabel(u"模拟模式")
         mode_title.setAlignment(Qt.AlignCenter)
-        mode_title.setStyleSheet("color: #FED7AA; font-size: 11px; font-weight: bold; border: none;")
+        mode_title.setStyleSheet("color: #DDD6FE; font-size: 11px; font-weight: bold; border: none;")
         mode_box.addWidget(mode_title)
-        self.lbl_mock_mode_title = mode_title
-        self.mock_mode_group = QButtonGroup(self)
-        self.mock_mode_group.setExclusive(True)
-        mode_buttons = (
-            ("manual", u"手动输入"),
-            ("random", u"随机重量"),
+        self.cmb_mock_weight_mode = QComboBox()
+        self.cmb_mock_weight_mode.addItem(u"手动输入重量（默认）", "manual")
+        self.cmb_mock_weight_mode.addItem(u"随机生成重量", "random")
+        self.cmb_mock_weight_mode.setMinimumHeight(56)
+        self.cmb_mock_weight_mode.setMinimumWidth(150)
+        self.cmb_mock_weight_mode.setFocusPolicy(Qt.NoFocus)
+        self.cmb_mock_weight_mode.setStyleSheet(
+            "QComboBox { background: #2E1065; color: #F5F3FF; border: 2px solid #8B5CF6; "
+            "border-radius: 9px; padding: 7px 12px; font-size: 14px; font-weight: 900; }"
+            "QComboBox:focus { border: 2px solid #C4B5FD; background: #4C1D95; }"
+            "QComboBox::drop-down { width: 36px; border: none; }"
+            "QComboBox QAbstractItemView { background: #1E1B4B; color: #F5F3FF; "
+            "border: 2px solid #8B5CF6; border-radius: 10px; padding: 6px; outline: none; }"
+            "QListView::item { min-height: 56px; padding: 14px 16px; margin: 2px 4px; "
+            "border-radius: 8px; font-size: 16px; }"
+            "QListView::item:selected, QListView::item:hover { background: #7C3AED; color: #FFFFFF; }"
         )
-        self.mock_mode_buttons = {}
-        for mode_id, label in mode_buttons:
-            mode_button = QPushButton(label)
-            mode_button.setCheckable(True)
-            mode_button.setProperty("mock_mode", mode_id)
-            mode_button.setMinimumHeight(46)
-            mode_button.setMinimumWidth(92)
-            mode_button.setFocusPolicy(Qt.NoFocus)
-            self.mock_mode_group.addButton(mode_button)
-            self.mock_mode_buttons[mode_id] = mode_button
-            mode_box.addWidget(mode_button)
-        self.mock_mode_group.buttonClicked.connect(self._on_mock_mode_button_clicked)
+        mode_view = QListView()
+        mode_view.setStyleSheet(
+            "QListView { background: #1E1B4B; color: #F5F3FF; border: 2px solid #8B5CF6; "
+            "border-radius: 10px; padding: 6px; outline: none; }"
+            "QListView::item { min-height: 56px; padding: 14px 16px; margin: 2px 4px; "
+            "border-radius: 8px; font-size: 16px; }"
+            "QListView::item:selected, QListView::item:hover { background: #7C3AED; color: #FFFFFF; }"
+        )
+        self.cmb_mock_weight_mode.setView(mode_view)
+        self.cmb_mock_weight_mode.setMaxVisibleItems(2)
+        self.cmb_mock_weight_mode.currentIndexChanged.connect(self._on_mock_weight_mode_changed)
+        mode_box.addWidget(self.cmb_mock_weight_mode)
         led_layout.addLayout(mode_box)
         self.mock_mode_box = mode_box
+        self.lbl_mock_mode_title = mode_title
 
         self.btn_random_weight = QPushButton(u"🎲 随机重量")
         self.btn_random_weight.setToolTip(u"手动模式：打开触屏数字键盘；随机模式：生成测试重量")
@@ -857,11 +868,11 @@ class SaleWidget(QWidget):
         self.btn_random_weight.setFocusPolicy(Qt.NoFocus)
         self.btn_random_weight.setStyleSheet("""
             QPushButton {
-                background-color: #D97706; color: #FFFFFF; font-size: 13px; font-weight: bold;
-                padding: 5px 12px; border-radius: 6px; border: 1px solid #F59E0B; outline: none;
+                background-color: #6D28D9; color: #FFFFFF; font-size: 13px; font-weight: bold;
+                padding: 5px 12px; border-radius: 6px; border: 1px solid #A78BFA; outline: none;
             }
-            QPushButton:hover { background-color: #F59E0B; }
-            QPushButton:pressed { background-color: #B45309; }
+            QPushButton:hover { background-color: #7C3AED; }
+            QPushButton:pressed { background-color: #5B21B6; }
         """)
         self.btn_random_weight.clicked.connect(self._on_random_weight_click)
         self.btn_random_weight.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -870,18 +881,14 @@ class SaleWidget(QWidget):
 
         if self.config.get("is_mock_mode", False):
             self.lbl_scale_status_icon.hide()
-            self.mock_mode_box.setEnabled(True)
+            self.cmb_mock_weight_mode.show()
             self.lbl_mock_mode_title.show()
-            for mode_button in self.mock_mode_buttons.values():
-                mode_button.show()
             self.btn_random_weight.show()
-            self.mock_mode_buttons["manual"].setChecked(True)
-            self._set_mock_weight_mode("manual")
+            self.cmb_mock_weight_mode.setCurrentIndex(0)
+            self._on_mock_weight_mode_changed(0)
         else:
-            self.mock_mode_box.setEnabled(False)
+            self.cmb_mock_weight_mode.hide()
             self.lbl_mock_mode_title.hide()
-            for mode_button in self.mock_mode_buttons.values():
-                mode_button.hide()
             self.btn_random_weight.hide()
 
         self.lbl_weight = QLabel("00.000 kg")
@@ -1813,26 +1820,9 @@ class SaleWidget(QWidget):
         w = max(0.100, w)
         self._apply_mock_weight(w)
 
-    def _on_mock_mode_button_clicked(self, button):
-        self._set_mock_weight_mode(button.property("mock_mode") or "manual")
-
-    def _set_mock_weight_mode(self, mode):
+    def _on_mock_weight_mode_changed(self, index):
         """Switch the mock action between manual keypad and random generation."""
-        self.mock_weight_mode = "random" if mode == "random" else "manual"
-        for mode_id, mode_button in getattr(self, "mock_mode_buttons", {}).items():
-            selected = mode_id == self.mock_weight_mode
-            mode_button.setChecked(selected)
-            if selected:
-                mode_button.setStyleSheet(
-                    "QPushButton { background: #F59E0B; color: #431407; border: 2px solid #FFEDD5; "
-                    "border-radius: 8px; font-size: 13px; font-weight: 900; }"
-                )
-            else:
-                mode_button.setStyleSheet(
-                    "QPushButton { background: #7C2D12; color: #FED7AA; border: 1px solid #F59E0B; "
-                    "border-radius: 8px; font-size: 13px; font-weight: bold; }"
-                    "QPushButton:pressed { background: #EA580C; color: #FFFFFF; }"
-                )
+        self.mock_weight_mode = "random" if int(index) == 1 else "manual"
         if not hasattr(self, "btn_random_weight"):
             return
         if self.mock_weight_mode == "manual":
@@ -1861,7 +1851,7 @@ class SaleWidget(QWidget):
         menu.setStyleSheet("""
             QMenu { background-color: #1E293B; color: #F9FAFB; border: 1px solid #334155; border-radius: 6px; padding: 4px 0; }
             QMenu::item { padding: 6px 20px; font-size: 13px; }
-            QMenu::item:selected { background-color: #EA580C; color: white; }
+            QMenu::item:selected { background-color: #7C3AED; color: white; }
         """)
         
         for preset in [0.120, 0.300, 0.500, 0.800, 1.000, 1.200]:
@@ -1872,7 +1862,7 @@ class SaleWidget(QWidget):
             
         act_custom = menu.addAction(u"自定义输入克数...")
         def ask_custom():
-            val, ok = get_int_input(self, u"自定义重量", u"请输入克数 (例: 500 表示 0.5kg):", 500, 1, 99999)
+            val, ok = get_int_input(self, u"自定义重量", u"请输入克数（1–9999，例：500 表示 0.5kg）:", 500, 1, 9999)
             if ok:
                 w = round(val / 1000.0, 3)
                 self._apply_mock_weight(w)
