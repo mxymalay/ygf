@@ -436,6 +436,7 @@ def apply_touch_combo_style(combo, item_height=52):
     if not combo:
         return
     from PyQt5.QtWidgets import QListView
+    from PyQt5.QtCore import Qt
 
     # 1. 先设 combo 自身样式（在替换 view 之前）
     combo.setStyleSheet("""
@@ -446,6 +447,15 @@ def apply_touch_combo_style(combo, item_height=52):
         }
         QComboBox:focus { border: 2px solid #38BDF8; background-color: #0F172A; }
         QComboBox::drop-down { border: none; width: 32px; }
+        /* Editable COM/printer combos use a child QLineEdit.  Give that
+           child the same vertical metrics, otherwise Win7 can paint the
+           value at the bottom edge or clip it inside the combo frame. */
+        QComboBox QLineEdit {
+            background: transparent; color: #F8FAFC; border: none;
+            padding: 0px 10px; min-height: 46px; font-size: 16px;
+            selection-background-color: #0284C7;
+        }
+        QComboBox QLineEdit:focus { border: none; background: transparent; }
         QComboBox QAbstractItemView {
             background-color: #1E293B;
             color: #F8FAFC;
@@ -485,6 +495,11 @@ def apply_touch_combo_style(combo, item_height=52):
     # 3. 最后才替换 view
     combo.setView(view)
     combo.setMaxVisibleItems(10)
+    combo.setMinimumHeight(max(combo.minimumHeight(), item_height))
+    if combo.isEditable() and combo.lineEdit():
+        combo.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        combo.lineEdit().setMinimumHeight(max(42, item_height - 4))
+        combo.lineEdit().setContentsMargins(0, 0, 0, 0)
 
 
 def apply_touch_checkbox_style(chk):

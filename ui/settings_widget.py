@@ -326,6 +326,7 @@ class SettingsWidget(QWidget):
             apply_touch_spinbox_style(spin)
         for text_input in self.findChildren(QLineEdit):
             text_input.setMinimumHeight(56)
+            text_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         for action_btn in self.findChildren(QPushButton):
             if action_btn not in self.nav_buttons:
                 action_btn.setMinimumHeight(max(action_btn.minimumHeight(), 54))

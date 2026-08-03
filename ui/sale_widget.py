@@ -9,7 +9,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
-    QScrollArea, QDialog, QLineEdit, QComboBox
+    QScrollArea, QDialog, QLineEdit, QButtonGroup
 )
 from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
 
@@ -32,6 +32,7 @@ class ManualWeightDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
         self.weight_kg = 0.0
+        self._digits = ""
 
         card = QFrame(self)
         card.setObjectName("ManualWeightCard")
@@ -84,16 +85,6 @@ class ManualWeightDialog(QDialog):
                 )
                 button.clicked.connect(lambda _checked=False, value=key: self._press(value))
                 grid.addWidget(button, row, col)
-        dot = QPushButton(".")
-        dot.setMinimumHeight(58)
-        dot.setFocusPolicy(Qt.NoFocus)
-        dot.setStyleSheet(
-            "QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; "
-            "border-radius: 10px; font-size: 22px; font-weight: 900; }"
-            "QPushButton:pressed { background: #EA580C; }"
-        )
-        dot.clicked.connect(lambda: self._press("."))
-        grid.addWidget(dot, 3, 3)
         body.addLayout(grid)
 
         actions = QHBoxLayout()
@@ -116,40 +107,34 @@ class ManualWeightDialog(QDialog):
         body.addLayout(actions)
         self.resize(430, 610)
 
-        try:
-            value = float(initial_kg)
-        except (TypeError, ValueError):
-            value = 0.0
-        if value > 0:
-            self.display.setText("%.3f" % min(value, 20.0))
+        # Weight entry follows a scale keypad: digits are appended from the
+        # right in grams.  1 -> 0.001 kg, then 1 -> 0.011 kg, etc.
 
     def _press(self, key):
         text = self.display.text()
         if key == "清空":
+            self._digits = ""
             self.display.setText("0.000")
             return
         if key == "⌫":
-            text = text[:-1]
-            self.display.setText(text if text and text != "-" else "0.000")
+            self._digits = self._digits[:-1]
+            self._refresh_display()
             return
-        if text == "0.000":
-            text = ""
-        if key == "." and "." in text:
+        if not key.isdigit() or len(self._digits) >= 4:
             return
-        if key == "." and not text:
-            text = "0"
-        if "." in text and len(text.split(".", 1)[1]) >= 3:
-            return
-        if len(text.replace(".", "")) >= 6:
-            return
-        self.display.setText(text + key)
+        self._digits += key
+        self._refresh_display()
+
+    def _refresh_display(self):
+        grams = int(self._digits or "0")
+        self.display.setText("%.3f" % (grams / 1000.0))
 
     def _confirm(self):
         try:
-            value = float(self.display.text())
+            value = int(self._digits or "0") / 1000.0
         except (TypeError, ValueError):
             value = 0.0
-        if value <= 0 or value > 20.0:
+        if value <= 0 or value > 9.999:
             return
         self.weight_kg = round(value, 3)
         self.accept()
@@ -838,17 +823,33 @@ class SaleWidget(QWidget):
         led_layout.addWidget(self.lbl_scale_status_icon)
 
         # 模拟调试模式下显示的重量模式与触屏操作按钮
-        self.cmb_mock_weight_mode = QComboBox()
-        self.cmb_mock_weight_mode.addItems([u"手动输入重量（默认）", u"随机生成重量"])
-        self.cmb_mock_weight_mode.setMinimumHeight(48)
-        self.cmb_mock_weight_mode.setMinimumWidth(155)
-        self.cmb_mock_weight_mode.setFocusPolicy(Qt.NoFocus)
-        self.cmb_mock_weight_mode.setStyleSheet(
-            "QComboBox { background: #7C2D12; color: #FFFFFF; border: 1px solid #F59E0B; "
-            "border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: bold; }"
+        mode_box = QVBoxLayout()
+        mode_box.setSpacing(4)
+        mode_title = QLabel(u"模拟模式")
+        mode_title.setAlignment(Qt.AlignCenter)
+        mode_title.setStyleSheet("color: #FED7AA; font-size: 11px; font-weight: bold; border: none;")
+        mode_box.addWidget(mode_title)
+        self.lbl_mock_mode_title = mode_title
+        self.mock_mode_group = QButtonGroup(self)
+        self.mock_mode_group.setExclusive(True)
+        mode_buttons = (
+            ("manual", u"手动输入"),
+            ("random", u"随机重量"),
         )
-        self.cmb_mock_weight_mode.currentIndexChanged.connect(self._on_mock_weight_mode_changed)
-        led_layout.addWidget(self.cmb_mock_weight_mode)
+        self.mock_mode_buttons = {}
+        for mode_id, label in mode_buttons:
+            mode_button = QPushButton(label)
+            mode_button.setCheckable(True)
+            mode_button.setProperty("mock_mode", mode_id)
+            mode_button.setMinimumHeight(46)
+            mode_button.setMinimumWidth(92)
+            mode_button.setFocusPolicy(Qt.NoFocus)
+            self.mock_mode_group.addButton(mode_button)
+            self.mock_mode_buttons[mode_id] = mode_button
+            mode_box.addWidget(mode_button)
+        self.mock_mode_group.buttonClicked.connect(self._on_mock_mode_button_clicked)
+        led_layout.addLayout(mode_box)
+        self.mock_mode_box = mode_box
 
         self.btn_random_weight = QPushButton(u"🎲 随机重量")
         self.btn_random_weight.setToolTip(u"手动模式：打开触屏数字键盘；随机模式：生成测试重量")
@@ -869,11 +870,18 @@ class SaleWidget(QWidget):
 
         if self.config.get("is_mock_mode", False):
             self.lbl_scale_status_icon.hide()
-            self.cmb_mock_weight_mode.show()
+            self.mock_mode_box.setEnabled(True)
+            self.lbl_mock_mode_title.show()
+            for mode_button in self.mock_mode_buttons.values():
+                mode_button.show()
             self.btn_random_weight.show()
-            self._on_mock_weight_mode_changed(self.cmb_mock_weight_mode.currentIndex())
+            self.mock_mode_buttons["manual"].setChecked(True)
+            self._set_mock_weight_mode("manual")
         else:
-            self.cmb_mock_weight_mode.hide()
+            self.mock_mode_box.setEnabled(False)
+            self.lbl_mock_mode_title.hide()
+            for mode_button in self.mock_mode_buttons.values():
+                mode_button.hide()
             self.btn_random_weight.hide()
 
         self.lbl_weight = QLabel("00.000 kg")
@@ -1805,9 +1813,26 @@ class SaleWidget(QWidget):
         w = max(0.100, w)
         self._apply_mock_weight(w)
 
-    def _on_mock_weight_mode_changed(self, index):
+    def _on_mock_mode_button_clicked(self, button):
+        self._set_mock_weight_mode(button.property("mock_mode") or "manual")
+
+    def _set_mock_weight_mode(self, mode):
         """Switch the mock action between manual keypad and random generation."""
-        self.mock_weight_mode = "random" if int(index) == 1 else "manual"
+        self.mock_weight_mode = "random" if mode == "random" else "manual"
+        for mode_id, mode_button in getattr(self, "mock_mode_buttons", {}).items():
+            selected = mode_id == self.mock_weight_mode
+            mode_button.setChecked(selected)
+            if selected:
+                mode_button.setStyleSheet(
+                    "QPushButton { background: #F59E0B; color: #431407; border: 2px solid #FFEDD5; "
+                    "border-radius: 8px; font-size: 13px; font-weight: 900; }"
+                )
+            else:
+                mode_button.setStyleSheet(
+                    "QPushButton { background: #7C2D12; color: #FED7AA; border: 1px solid #F59E0B; "
+                    "border-radius: 8px; font-size: 13px; font-weight: bold; }"
+                    "QPushButton:pressed { background: #EA580C; color: #FFFFFF; }"
+                )
         if not hasattr(self, "btn_random_weight"):
             return
         if self.mock_weight_mode == "manual":
@@ -1824,7 +1849,7 @@ class SaleWidget(QWidget):
 
     def _prompt_manual_weight(self):
         """Open the large touch keypad and apply the entered kg value."""
-        dlg = ManualWeightDialog(self.current_weight, self)
+        dlg = ManualWeightDialog(parent=self)
         if dlg.exec_() != QDialog.Accepted or dlg.weight_kg <= 0:
             return False
         self._apply_mock_weight(dlg.weight_kg)
