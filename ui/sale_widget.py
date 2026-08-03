@@ -824,11 +824,7 @@ class SaleWidget(QWidget):
 
         # 模拟调试模式下显示的重量模式列表与触屏操作按钮
         mode_box = QVBoxLayout()
-        mode_box.setSpacing(4)
-        mode_title = QLabel(u"模拟模式")
-        mode_title.setAlignment(Qt.AlignCenter)
-        mode_title.setStyleSheet("color: #DDD6FE; font-size: 11px; font-weight: bold; border: none;")
-        mode_box.addWidget(mode_title)
+        mode_box.setSpacing(0)
         self.cmb_mock_weight_mode = QComboBox()
         self.cmb_mock_weight_mode.addItem(u"手动输入重量（默认）", "manual")
         self.cmb_mock_weight_mode.addItem(u"随机生成重量", "random")
@@ -860,7 +856,6 @@ class SaleWidget(QWidget):
         mode_box.addWidget(self.cmb_mock_weight_mode)
         led_layout.addLayout(mode_box)
         self.mock_mode_box = mode_box
-        self.lbl_mock_mode_title = mode_title
 
         self.btn_random_weight = QPushButton(u"🎲 随机重量")
         self.btn_random_weight.setToolTip(u"手动模式：打开触屏数字键盘；随机模式：生成测试重量")
@@ -882,13 +877,11 @@ class SaleWidget(QWidget):
         if self.config.get("is_mock_mode", False):
             self.lbl_scale_status_icon.hide()
             self.cmb_mock_weight_mode.show()
-            self.lbl_mock_mode_title.show()
             self.btn_random_weight.show()
             self.cmb_mock_weight_mode.setCurrentIndex(0)
             self._on_mock_weight_mode_changed(0)
         else:
             self.cmb_mock_weight_mode.hide()
-            self.lbl_mock_mode_title.hide()
             self.btn_random_weight.hide()
 
         self.lbl_weight = QLabel("00.000 kg")
