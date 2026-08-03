@@ -78,13 +78,14 @@ class MainWindow(QMainWindow):
 
         # 页面 3: 外卖 RAW 打印中继与排序
         from ui.takeout_sorting_widget import TakeoutSortingWidget
-        from core.takeout_interceptor import TakeoutPrintInterceptor
-        self.takeout_interceptor = TakeoutPrintInterceptor(self.config, self)
+        from core.takeout_proxy_host import TakeoutProxyController
+        # This object only controls a detached per-user proxy host.  It does
+        # not own the TCP listener, so closing this window cannot cut off the
+        # official POS's configured external-order printer channel.
+        self.takeout_interceptor = TakeoutProxyController(self.config)
         self.takeout_page = TakeoutSortingWidget(
             config=self.config, printer=self.sale_page.printer, interceptor=self.takeout_interceptor
         )
-        self.takeout_interceptor.order_intercepted.connect(self.takeout_page.on_order_intercepted)
-        self.takeout_interceptor.status_changed.connect(self.takeout_page.on_interceptor_status)
         if self.config.get("takeout_interceptor_enabled", False) and self.config.get("takeout_proxy_queue_name", "").strip():
             self.takeout_interceptor.start()
         self.stack.addWidget(self.takeout_page)
@@ -257,6 +258,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.sale_page.cleanup()
-        if hasattr(self, "takeout_interceptor"):
-            self.takeout_interceptor.stop()
+        # Do not stop the detached takeout proxy here.  Official POS may still
+        # print external orders after this UI is closed or during an update.
         super().closeEvent(event)

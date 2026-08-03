@@ -3,6 +3,7 @@ import socket
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from PyQt5.QtCore import QCoreApplication
 
@@ -13,6 +14,7 @@ from core.takeout_interceptor import (
     parse_and_sort_takeout_text,
 )
 from core.takeout_jobs import TakeoutJobStore
+from core.takeout_proxy_host import TakeoutProxyHost
 
 
 SAMPLE = """美团外卖 #18存根联
@@ -80,6 +82,43 @@ class TakeoutInterceptionTests(unittest.TestCase):
             updated = store.update_print_result(first["id"], True, 2)
             self.assertEqual(updated["last_result"], "PRINTED")
             self.assertEqual(updated["print_count"], 2)
+
+    def test_detached_host_forwards_without_a_widget(self):
+        """The host owns forwarding; the PyQt page is not in this path."""
+        config = {
+            "takeout_interceptor_enabled": True,
+            "takeout_proxy_port": 19091,
+            "takeout_proxy_queue_name": "YGF 外卖中继",
+            "printer_name": "真实热敏打印机",
+            "takeout_auto_print": True,
+            "takeout_kitchen_copies": 1,
+            "takeout_cust_copies": 1,
+            "takeout_categories": [{"id": "food", "name": "菜品", "keywords": ["牛", "可乐"]}],
+        }
+
+        class FakePrinter:
+            sent = []
+            last_error = ""
+
+            def __init__(self, _config):
+                pass
+
+            def print_raw(self, data):
+                self.sent.append(data)
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch("core.takeout_proxy_host.load_config", return_value=config), \
+                    mock.patch("core.takeout_proxy_host.ReceiptPrinter", FakePrinter):
+                host = TakeoutProxyHost()
+                host.jobs = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+                host._handle_order({"raw_text": SAMPLE})
+
+            job = host.jobs.get_recent(1)[0]
+            self.assertEqual(job["last_result"], "PRINTED")
+            self.assertEqual(job["print_count"], 2)
+            self.assertEqual(len(FakePrinter.sent), 1)
+            self.assertIn("肥牛".encode("gbk"), FakePrinter.sent[0])
 
 
 if __name__ == "__main__":

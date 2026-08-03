@@ -30,6 +30,9 @@ data/*.jsonl
 data/scale_bridge.json
 data/scale_bridge_installation.json
 data/scale_bridge_diagnosis.json
+data/takeout_jobs.json
+data/takeout_proxy_status.json
+data/takeout_proxy_control.json
 
 # Local deployment dependencies. Keep licensed driver binaries out of Git.
 ThirdParty/**/*.exe

@@ -18,6 +18,12 @@ from core.app_logger import log_event, cleanup_old_logs, CAT_SYSTEM
 
 
 def main():
+    # The RAW listener intentionally runs outside the PyQt POS process.  It
+    # must remain available when the cashier closes/restarts the main screen.
+    if "--takeout-proxy-host" in sys.argv:
+        from core.takeout_proxy_host import run_takeout_proxy_host
+        sys.exit(run_takeout_proxy_host())
+
     # 加载配置
     config = load_config()
 

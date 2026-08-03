@@ -65,6 +65,12 @@ class TakeoutSortingWidget(QWidget):
                 )
             )
         self._check_official_pos_status()
+        # The listener now lives in a detached per-user process.  Polling its
+        # compact status file keeps this settings page truthful without making
+        # the page itself responsible for keeping the channel alive.
+        self._proxy_status_timer = QTimer(self)
+        self._proxy_status_timer.timeout.connect(self._check_official_pos_status)
+        self._proxy_status_timer.start(1000)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -134,7 +140,8 @@ class TakeoutSortingWidget(QWidget):
         proxy_hint = QLabel(
             u"1. 启动中继；2. 在 Windows 新建一个“外卖中继”打印队列，端口为标准 TCP/IP：127.0.0.1；"
             u"端口填下方数值，并使用能保留 RAW/ESC-POS 数据的热敏打印驱动；3. 官方 POS 的外卖打印选择该队列；"
-            u"4. 本 POS 的打印机设置仍选择真实物理打印机。原始外卖单不会直达物理机，中继会重排后再打印。"
+            u"4. 本 POS 的打印机设置仍选择真实物理打印机。启动后中继守护进程会独立运行；即使退出本 POS 界面，"
+            u"官方 POS 的外卖通道仍保持可用。原始外卖单不会直达物理机，中继会重排后再打印。"
         )
         proxy_hint.setWordWrap(True)
         proxy_hint.setStyleSheet("font-size: 13px; color: #CBD5E1; border: none;")
@@ -490,10 +497,28 @@ class TakeoutSortingWidget(QWidget):
             spin.wheelEvent = lambda event, w=spin: event.ignore()
 
     def _check_official_pos_status(self):
-        if self.interceptor and self.interceptor._running:
-            self.on_interceptor_status(u"● 中继运行中：127.0.0.1:%d" % self.interceptor.port)
-        else:
-            self.on_interceptor_status(u"○ 中继未启动；官方 POS 外卖单不会被拦截")
+        if not self.interceptor:
+            self.on_interceptor_status(u"✕ 外卖中继守护进程未加载")
+            return
+        state = self.interceptor.get_status()
+        if state.get("running"):
+            self.btn_toggle.setChecked(True)
+            self.btn_toggle.setText(u"停止中继")
+            self.on_interceptor_status(u"● 守护中继运行中：127.0.0.1:%d" % self.interceptor.port)
+            last_order = state.get("last_order", "")
+            if last_order:
+                self.lbl_last_job.setText(u"守护中继最新：%s" % last_order)
+            return
+        if state.get("last_error"):
+            # A checked toggle would make the next touch stop an already-dead
+            # host.  Present a clear retry action instead.
+            self.btn_toggle.setChecked(False)
+            self.btn_toggle.setText(u"重新启动中继")
+            self.on_interceptor_status(u"✕ 中继异常：%s" % state.get("last_error"))
+            return
+        self.btn_toggle.setChecked(False)
+        self.btn_toggle.setText(u"启动中继")
+        self.on_interceptor_status(u"○ 中继未启动；官方 POS 外卖单不会被拦截")
 
     def _refresh_printer_info(self):
         printer_name = self.config.get("printer_name", "")
@@ -747,13 +772,17 @@ class TakeoutSortingWidget(QWidget):
         save_config(self.config)
         self.btn_toggle.setText(u"停止中继" if is_on else u"启动中继")
         if self.interceptor:
-            self.interceptor.update_config(self.config)
-            if is_on and not self.interceptor._running:
+            started = self.interceptor.update_config(self.config)
+            if is_on and not started:
                 self.btn_toggle.setChecked(False)
                 self.config["takeout_interceptor_enabled"] = False
                 save_config(self.config)
                 self.btn_toggle.setText(u"启动中继")
                 show_warning(self, u"中继未启动", self.interceptor.last_error or u"端口被占用或不可用")
+            elif is_on:
+                self.on_interceptor_status(u"ⓘ 正在启动独立中继守护进程…")
+            else:
+                self.on_interceptor_status(u"○ 已请求停止中继守护进程")
         else:
             show_warning(self, u"中继服务未加载", u"请重启 POS 后再启动外卖中继。")
 
@@ -815,8 +844,9 @@ class TakeoutSortingWidget(QWidget):
         running = bool(self.interceptor and self.interceptor._running)
         show_info(
             self, u"中继配置检查通过",
-            u"中继队列：%s\n真实输出打印机：%s\n本地监听端口：127.0.0.1:%d\n服务状态：%s\n\n"
+            u"中继队列：%s\n真实输出打印机：%s\n本地监听端口：127.0.0.1:%d\n守护进程状态：%s\n\n"
             u"下一步：在官方 POS 打印一张外卖单；本页“最近任务”应出现该订单，物理机只会收到重排后的单据。"
+            u"中继启动后可以关闭本 POS 界面，守护进程不会随界面退出。"
             % (queue_name, physical_name or u"默认打印机", self.spn_proxy_port.value(), u"运行中" if running else u"未启动"),
         )
 

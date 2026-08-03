@@ -293,9 +293,13 @@ class TakeoutPrintInterceptor(QObject):
     order_intercepted = pyqtSignal(object)
     status_changed = pyqtSignal(str)
 
-    def __init__(self, config=None, parent=None):
+    def __init__(self, config=None, parent=None, on_order=None):
         super().__init__(parent)
         self.config = config or {}
+        # The listener is also used by the detached proxy host, where there is
+        # deliberately no Qt event loop.  A regular Python callback keeps the
+        # essential forwarding path independent from the POS window.
+        self.on_order = on_order
         self.is_enabled = bool(self.config.get("takeout_interceptor_enabled", False))
         self._listener = None
         self._thread = None
@@ -386,6 +390,13 @@ class TakeoutPrintInterceptor(QObject):
             return
         parsed["raw_text"] = text
         parsed["payload_size"] = len(payload)
+        if self.on_order:
+            try:
+                self.on_order(parsed)
+            except Exception as exc:
+                self.last_error = "外卖任务处理失败：%s" % exc
+                self.status_changed.emit("✕ " + self.last_error)
+                return
         self.order_intercepted.emit(parsed)
         self.status_changed.emit("✓ 已拦截 %s %s（%d 项）" % (
             parsed.get("platform"), parsed.get("order_no"), parsed.get("item_count", 0)
