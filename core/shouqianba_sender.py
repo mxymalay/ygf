@@ -659,7 +659,7 @@ def _do_send_amount(amount: float, config: dict):
         return
 
     # 1. 串口推送逻辑 (先通过COM发送金额)
-    port = config.get("shouqianba_port", "COM1")
+    port = config.get("shouqianba_port", "COM10")
     baudrate = int(config.get("shouqianba_baudrate", 2400))  # 默认 2400
     fmt = config.get("shouqianba_format", "QA")               # "QA" 或 "FLOAT"
     reset_payload, payload = _build_sqb_amount_payloads(amount, fmt)
@@ -732,7 +732,7 @@ def test_shouqianba_port(config: dict):
     if not enabled:
         return False, "功能已禁用"
 
-    port = config.get("shouqianba_port", "COM1")
+    port = config.get("shouqianba_port", "COM10")
     baudrate = int(config.get("shouqianba_baudrate", 2400))
     fmt = config.get("shouqianba_format", "QA")
 

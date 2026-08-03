@@ -85,6 +85,22 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(cfg.dtr_enable)
         self.assertTrue(cfg.rts_enable)
 
+    def test_payment_pair_is_configurable_or_can_be_unused(self):
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="CNCB0",
+            private_bridge_port="CNCB1",
+            payment_pos_port="",
+            payment_plugin_port="",
+        )
+        cfg.validate()
+        cfg.payment_pos_port = "COM12"
+        cfg.payment_plugin_port = "COM13"
+        cfg.validate()
+        cfg.payment_plugin_port = ""
+        with self.assertRaises(ValueError):
+            cfg.validate()
+
 
 class Com0ComTests(unittest.TestCase):
     def test_parse_and_check_named_pair(self):

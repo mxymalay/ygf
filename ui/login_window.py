@@ -483,7 +483,7 @@ class LoginWindow(QDialog):
             self.lbl_badge3.setText(u"✔ 串口通畅")
             self.lbl_badge3.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
-            port = self.config.get("shouqianba_port", "COM1")
+            port = self.config.get("shouqianba_port", "COM10")
             self.lbl_badge3.setText(f"⚠️ {port} 未连通")
             self.lbl_badge3.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
             self.hardware_warnings.append(f"收钱吧 {port} 未连通")

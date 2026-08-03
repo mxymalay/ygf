@@ -472,13 +472,13 @@ class SettingsWidget(QWidget):
         self.txt_bridge_private_peer.setPlaceholderText("例如 CNCB1")
         bridge_grid.addWidget(self.txt_bridge_private_peer, 2, 3)
 
-        bridge_grid.addWidget(self._make_label(u"收钱吧 POS 端："), 3, 0)
+        bridge_grid.addWidget(self._make_label(u"收钱吧发送端（可调）："), 3, 0)
         self.txt_bridge_payment_pos = QLineEdit()
-        self.txt_bridge_payment_pos.setPlaceholderText("例如 COM10")
+        self.txt_bridge_payment_pos.setPlaceholderText("例如 COM10（以收钱吧设置为准）")
         bridge_grid.addWidget(self.txt_bridge_payment_pos, 3, 1)
-        bridge_grid.addWidget(self._make_label(u"支付插件对端："), 3, 2)
+        bridge_grid.addWidget(self._make_label(u"支付插件对端（可调）："), 3, 2)
         self.txt_bridge_payment_peer = QLineEdit()
-        self.txt_bridge_payment_peer.setPlaceholderText("例如 COM11")
+        self.txt_bridge_payment_peer.setPlaceholderText("例如 COM11（可调整）")
         bridge_grid.addWidget(self.txt_bridge_payment_peer, 3, 3)
         bridge_layout.addLayout(bridge_grid)
 
@@ -956,7 +956,7 @@ class SettingsWidget(QWidget):
                 all_ports.append(p)
         for p in sorted(all_ports, key=lambda x: int(x.replace("COM", "")) if x.startswith("COM") and x[3:].isdigit() else 99):
             self.cmb_sqb_port.addItem(p)
-        cur = self.config.get("shouqianba_port", "COM1")
+        cur = self.config.get("shouqianba_port", "COM10")
         if cur:
             self.cmb_sqb_port.setCurrentText(cur)
 
@@ -1127,7 +1127,13 @@ class SettingsWidget(QWidget):
         self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port or "CNCB0")
         self.txt_bridge_private_pos.setText(bridge_config.private_pos_virtual_port)
         self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port or "CNCB1")
-        self.txt_bridge_payment_pos.setText(bridge_config.payment_pos_port)
+        # On first setup, use the actual POS payment setting as the suggested
+        # bridge endpoint.  Once saved, the bridge's own value remains editable
+        # because the payment plugin pair may use a different peer.
+        self.txt_bridge_payment_pos.setText(
+            bridge_config.payment_pos_port if os.path.isfile(self._scale_bridge_config_path())
+            else self.config.get("shouqianba_port", bridge_config.payment_pos_port)
+        )
         self.txt_bridge_payment_peer.setText(bridge_config.payment_plugin_port)
         self._refresh_scale_bridge_devices(silent=True, preferred_port=bridge_config.physical_scale_port or "COM1")
         exists = os.path.isfile(self._scale_bridge_config_path())
@@ -1224,7 +1230,7 @@ class SettingsWidget(QWidget):
         show_info(
             self, u"桥接配置已保存",
             u"已保存独立的 ScaleBridge 配置。\n\n"
-            u"这一步不会切换当前 POS 的称来源、不会安装驱动，也不会创建或修改虚拟串口。\n"
+            u"这一步不会切换当前 POS 的称来源、不会改写收钱吧端口、不会安装驱动，也不会创建或修改虚拟串口。\n"
             u"迁移时请将私有 POS 设置为“com / COM3”，并按部署说明在维护窗口启动服务。",
         )
 

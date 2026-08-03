@@ -49,6 +49,7 @@ class ScaleBridgeConfig:
     private_pos_virtual_port: str = "COM3"
     official_bridge_port: str = ""
     private_bridge_port: str = ""
+    # Suggested defaults only.  The deployed payment endpoint is configurable.
     payment_pos_port: str = "COM10"
     payment_plugin_port: str = "COM11"
     baudrate: int = 9600
@@ -81,8 +82,11 @@ class ScaleBridgeConfig:
         missing = [name for name, value in required.items() if not value]
         if missing:
             raise ValueError("ScaleBridge configuration missing: " + ", ".join(missing))
+        if bool(self.payment_pos_port) != bool(self.payment_plugin_port):
+            raise ValueError("PaymentPosPort and PaymentPluginPort must both be configured or both be empty")
         ports = [value.upper() for value in required.values()]
-        ports.extend([self.payment_pos_port.upper(), self.payment_plugin_port.upper()])
+        if self.payment_pos_port:
+            ports.extend([self.payment_pos_port.upper(), self.payment_plugin_port.upper()])
         if len(ports) != len(set(ports)):
             raise ValueError("ScaleBridge ports must be unique")
         if self.baudrate <= 0 or self.maximum_frame_length < 16:

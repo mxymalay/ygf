@@ -69,7 +69,8 @@ DEFAULT_CONFIG = {
 
     # 3. 收钱吧配置 (shouqianba.json)
     "shouqianba_enabled": True,
-    "shouqianba_port": "COM1",
+    # 店内当前默认值；设置页可随时改为任意可用 COM 口。
+    "shouqianba_port": "COM10",
     "shouqianba_baudrate": 2400,
     "shouqianba_format": "QA",
     "shouqianba_hotkey": "Shift+Q",
