@@ -60,6 +60,9 @@ DEFAULT_CONFIG = {
     "panic_hotkey": "F10",
     "auto_hide_delay_sec": 3,
     "scale_source": "official",
+    # COM 模式再区分“直接独占物理秤”和“使用 ScaleBridge 虚拟端口”。
+    # 旧配置没有该字段时按 direct 兼容。
+    "scale_connection_mode": "direct",
     "scale_port": "COM2",
     "scale_baudrate": 9600,
 
@@ -69,9 +72,11 @@ DEFAULT_CONFIG = {
 
     # 3. 收钱吧配置 (shouqianba.json)
     "shouqianba_enabled": True,
+    # managed: 由本系统创建并维护一对虚拟串口；existing: 使用现场已有配对。
+    "shouqianba_pair_mode": "managed",
     # 店内当前默认值；设置页可随时改为任意可用 COM 口。
     "shouqianba_port": "COM10",
-    # 收钱吧插件监听端；只在“收钱吧插件”页的可选支付配对中使用。
+    # 收钱吧插件监听端；与 shouqianba_port 是同一虚拟串口配对的两端。
     "shouqianba_plugin_port": "COM11",
     "shouqianba_baudrate": 2400,
     "shouqianba_format": "QA",

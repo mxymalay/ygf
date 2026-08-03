@@ -1,0 +1,117 @@
+import os
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt5.QtWidgets import QApplication
+
+from config import DEFAULT_CONFIG
+from ui.login_window import LoginWindow
+from ui.settings_widget import SettingsWidget
+
+
+def _fake_scale_ports(widget, show_toast=False):
+    del show_toast
+    widget.cmb_scale_port.clear()
+    widget.cmb_scale_port.addItem(widget.config.get("scale_port", "COM2"))
+
+
+def _fake_sqb_ports(widget, show_toast=False):
+    del show_toast
+    widget.cmb_sqb_port.clear()
+    widget.cmb_sqb_port.addItem(widget.config.get("shouqianba_port", "COM10"))
+
+
+class SettingsWorkflowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _create_widget(self, bridge_ready=False):
+        bridge_config = SimpleNamespace(
+            private_pos_virtual_port="COM4",
+            official_pos_virtual_port="COM2",
+            physical_scale_port="COM1",
+            official_bridge_port="CNCB0",
+            private_bridge_port="CNCB1",
+            baudrate=9600,
+        )
+        runtime = (bridge_config, bridge_ready, "桥接已就绪" if bridge_ready else "尚未初始化")
+        config = dict(DEFAULT_CONFIG)
+        with patch.object(SettingsWidget, "_refresh_scale_com_ports", _fake_scale_ports), patch.object(
+            SettingsWidget, "_refresh_com_ports", _fake_sqb_ports
+        ), patch.object(SettingsWidget, "_refresh_printers", lambda *_args, **_kwargs: None), patch.object(
+            SettingsWidget, "_load_scale_bridge_form", lambda _self: None
+        ), patch.object(SettingsWidget, "_scale_bridge_runtime_state", return_value=runtime):
+            return SettingsWidget(config)
+
+    def test_scale_modes_only_request_a_port_when_needed(self):
+        widget = self._create_widget(bridge_ready=False)
+        self.addCleanup(widget.deleteLater)
+
+        self.assertTrue(widget.cmb_scale_port.isHidden())
+
+        widget.cmb_scale_source.setCurrentIndex(1)
+        self.assertFalse(widget.cmb_scale_port.isHidden())
+        self.assertTrue(widget.cmb_scale_port.isEnabled())
+        self.assertFalse(widget.btn_refresh_scale_ports.isHidden())
+
+        widget.cmb_scale_source.setCurrentIndex(2)
+        self.assertFalse(widget.cmb_scale_port.isHidden())
+        self.assertFalse(widget.cmb_scale_port.isEnabled())
+        self.assertEqual(widget.cmb_scale_port.currentText(), "COM4")
+        self.assertTrue(widget.btn_refresh_scale_ports.isHidden())
+        self.assertFalse(widget.btn_go_scale_bridge.isHidden())
+
+    def test_shouqianba_pair_mode_exposes_only_relevant_actions(self):
+        widget = self._create_widget()
+        self.addCleanup(widget.deleteLater)
+
+        self.assertFalse(widget.btn_initialize_payment_pair.isHidden())
+        self.assertTrue(widget.btn_refresh_sqb_ports.isHidden())
+
+        widget.cmb_sqb_pair_mode.setCurrentIndex(1)
+        self.assertTrue(widget.btn_initialize_payment_pair.isHidden())
+        self.assertFalse(widget.btn_refresh_sqb_ports.isHidden())
+        self.assertTrue(widget.btn_remove_payment_pair.isHidden())
+
+        widget.cmb_sqb_enable.setCurrentIndex(1)
+        self.assertTrue(widget.cmb_sqb_enable.isEnabled())
+        self.assertFalse(widget.cmb_sqb_port.isEnabled())
+        self.assertFalse(widget.btn_check_payment_pair.isEnabled())
+
+    def test_login_official_mode_does_not_probe_an_unrelated_com(self):
+        config = dict(DEFAULT_CONFIG)
+        config["scale_source"] = "official"
+        dialog = LoginWindow(config)
+        self.addCleanup(dialog.deleteLater)
+
+        with patch("ui.login_window.check_ygf_official_running", return_value=True), patch(
+            "ui.login_window.check_dibal_scale_connection"
+        ) as scale_check, patch("ui.login_window.QTimer.singleShot"):
+            dialog._do_check_official_software()
+
+        scale_check.assert_not_called()
+        self.assertTrue(dialog.official_ok)
+        self.assertIn("无需独立 COM", dialog.lbl_badge1_sub.text())
+
+    def test_login_com_mode_uses_the_selected_scale_port(self):
+        config = dict(DEFAULT_CONFIG)
+        config["scale_source"] = "com"
+        dialog = LoginWindow(config)
+        self.addCleanup(dialog.deleteLater)
+
+        with patch("ui.login_window.check_ygf_official_running", return_value=True), patch(
+            "ui.login_window.check_dibal_scale_connection", return_value=False
+        ) as scale_check, patch("ui.login_window.QTimer.singleShot"):
+            dialog._do_check_official_software()
+
+        scale_check.assert_called_once_with(config)
+        self.assertFalse(dialog.official_ok)
+        self.assertTrue(any("秤串口检测失败" in item for item in dialog.hardware_warnings))
+
+
+if __name__ == "__main__":
+    unittest.main()

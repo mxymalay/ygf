@@ -422,7 +422,10 @@ class LoginWindow(QDialog):
     def _do_check_official_software(self):
         self.progress_bar.setValue(35)
         official_running = check_ygf_official_running()
-        scale_ok = check_dibal_scale_connection(self.config)
+        scale_source = self.config.get("scale_source", "official")
+        # 官方模式只检查官方 POS，不应再打开一条与当前模式无关的旧 COM；
+        # 直连或桥接模式才实际查询配置中的秤端口。
+        scale_ok = check_dibal_scale_connection(self.config) if scale_source == "com" else False
 
         # 1. 官方 POS 运行状态指示
         if official_running:
@@ -434,7 +437,10 @@ class LoginWindow(QDialog):
 
         # 2. COM 电子秤串口连接指示
         port = self.config.get("scale_port", "COM3")
-        if scale_ok:
+        if scale_source != "com":
+            self.lbl_badge1_sub.setText(u"— 官方模式无需独立 COM")
+            self.lbl_badge1_sub.setStyleSheet("color: #BAE6FD; background-color: #0C4A6E; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0284C7;")
+        elif scale_ok:
             self.lbl_badge1_sub.setText(f"✔ {port} 秤连通")
             self.lbl_badge1_sub.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
@@ -442,11 +448,14 @@ class LoginWindow(QDialog):
             self.lbl_badge1_sub.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
 
         # 3. 准入判决：官方 POS 运行 或 COM 秤串口连通 任意满足其一即可准入进入系统
-        if official_running or scale_ok:
+        if (scale_source == "official" and official_running) or (scale_source == "com" and scale_ok):
             self.official_ok = True
         else:
             self.official_ok = False
-            self.hardware_warnings.append("官方收银未运行且称重串口检测失败")
+            if scale_source == "official":
+                self.hardware_warnings.append("当前选择跟随官方 POS，但官方收银未运行")
+            else:
+                self.hardware_warnings.append("当前选择 COM 称重，但秤串口检测失败")
             
         QTimer.singleShot(250, self._check_printer)
 

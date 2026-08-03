@@ -3,6 +3,7 @@
 PyQt5 + Python 3.8 兼容
 """
 import os
+import re
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -284,7 +285,7 @@ class SettingsWidget(QWidget):
         main_layout.addWidget(self.stacked_widget, stretch=1)
 
         # 绑定导航栏切换
-        self.btn_group.buttonClicked[int].connect(self.stacked_widget.setCurrentIndex)
+        self.btn_group.buttonClicked[int].connect(self._on_settings_page_changed)
         self.nav_buttons[0].setChecked(True)
 
         # 全局触控下拉框、选择框与数字框统一美化
@@ -321,7 +322,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_scale_page(self):
         card, layout = self._create_section_card(
-            u"⚖️", u"称重数据源设置", u"配置硬件电子秤接口或官方收银系统串口日志抓取"
+            u"⚖️", u"电子秤使用方式", u"先选择实际使用方式；只有需要串口时才显示端口"
         )
         grid = QGridLayout()
         grid.setSpacing(18)
@@ -330,18 +331,18 @@ class SettingsWidget(QWidget):
 
         grid.addWidget(self._make_label(u"数据来源："), 0, 0)
         self.cmb_scale_source = QComboBox()
-        self.cmb_scale_source.addItems([
-            u"official - 官方收银系统 (OCR读取日志)",
-            u"com - 串口直连电子秤 (COM口)"
-        ])
+        self.cmb_scale_source.addItem(u"跟随官方 POS 读取重量（无需选择 COM，推荐）", "official")
+        self.cmb_scale_source.addItem(u"本 POS 独占物理电子秤（不能与官方 POS 同时读秤）", "direct")
+        self.cmb_scale_source.addItem(u"官方 POS 与本 POS 同时读秤（先初始化 POS 称桥接）", "bridge")
         source = self.config.get("scale_source", "official")
         if source == "com":
-            self.cmb_scale_source.setCurrentIndex(1)
+            connection_mode = self.config.get("scale_connection_mode", "direct")
+            self.cmb_scale_source.setCurrentIndex(2 if connection_mode == "bridge" else 1)
         self.cmb_scale_source.currentIndexChanged.connect(self._on_scale_source_changed)
         grid.addWidget(self.cmb_scale_source, 0, 1, 1, 2)
 
         # COM口配置 (仅串口模式可见)
-        self.lbl_scale_port = self._make_label(u"秤串口 (COM端口)：")
+        self.lbl_scale_port = self._make_label(u"电子秤端口：")
         grid.addWidget(self.lbl_scale_port, 1, 0)
         self.cmb_scale_port = QComboBox()
         self.cmb_scale_port.setEditable(True)
@@ -392,8 +393,18 @@ class SettingsWidget(QWidget):
                 background-color: #0369A1;
             }
         """)
-        self.btn_test_scale_com.clicked.connect(self._test_scale_com)
+        self.btn_test_scale_com.clicked.connect(self._test_selected_scale_source)
         btn_box.addWidget(self.btn_test_scale_com)
+
+        self.btn_go_scale_bridge = QPushButton(u"前往 POS 称桥接")
+        self.btn_go_scale_bridge.setCursor(Qt.PointingHandCursor)
+        self.btn_go_scale_bridge.setStyleSheet(
+            "QPushButton { background: #7C3AED; color: white; border: none; border-radius: 8px; "
+            "padding: 10px 20px; font-weight: bold; font-size: 14px; }"
+            "QPushButton:hover { background: #6D28D9; }"
+        )
+        self.btn_go_scale_bridge.clicked.connect(lambda: self._open_settings_page(1))
+        btn_box.addWidget(self.btn_go_scale_bridge)
 
         btn_box.addStretch()
 
@@ -418,9 +429,10 @@ class SettingsWidget(QWidget):
         )
 
         overview = QLabel(
-            u"<b>只处理电子秤，不处理收钱吧。</b><br>"
-            u"请严格按 1 → 2 → 3 → 4 操作。ScaleBridge 服务独占物理秤，"
-            u"官方 POS 与本 POS 分别连接自己的虚拟端口。收钱吧端口请到左侧“收钱吧插件”设置。"
+            u"<b>什么时候使用本页？</b><br>"
+            u"只有“官方 POS 和本 POS 必须同时读取同一台电子秤”时才需要桥接。"
+            u"如果本 POS 跟随官方 POS 取重量，或只让本 POS 独占电子秤，请返回“电子秤设置”，无需配置本页。"
+            u"<br><b>本页只处理电子秤，与收钱吧完全无关。</b>"
         )
         overview.setWordWrap(True)
         overview.setStyleSheet(
@@ -428,6 +440,14 @@ class SettingsWidget(QWidget):
             "border-radius: 10px; padding: 14px; font-size: 14px;"
         )
         layout.addWidget(overview)
+
+        self.lbl_scale_bridge_overall_status = QLabel("")
+        self.lbl_scale_bridge_overall_status.setWordWrap(True)
+        self.lbl_scale_bridge_overall_status.setStyleSheet(
+            "color: #FDE68A; background: #422006; border: 1px solid #A16207; "
+            "border-radius: 10px; padding: 12px 14px; font-size: 14px; font-weight: bold;"
+        )
+        layout.addWidget(self.lbl_scale_bridge_overall_status)
 
         def step_panel(number, title, description):
             panel = QFrame()
@@ -471,34 +491,30 @@ class SettingsWidget(QWidget):
         # Step 2: only the two POS-facing endpoints are operator choices.
         step2, step2_layout = step_panel(
             2,
-            u"填写两个 POS 使用的端口",
-            u"官方 POS 和本 POS 必须使用不同且未被真实设备占用的 COM 号。服务对端由初始化自动生成，无需填写。",
+            u"填写准备创建给两个 POS 的端口号",
+            u"这里填写的是“希望初始化时新建的虚拟 COM 名称”，不是从当前已有串口中选择。"
+            u"端口现在不存在是正常的；官方 POS 和本 POS 必须使用不同的名称。",
         )
         port_grid = QGridLayout()
         port_grid.setHorizontalSpacing(12)
         port_grid.setVerticalSpacing(10)
         port_grid.setColumnStretch(1, 1)
-        port_grid.setColumnStretch(3, 1)
-        port_grid.addWidget(self._make_label(u"官方 POS 使用："), 0, 0)
+        port_grid.addWidget(self._make_label(u"为官方 POS 创建："), 0, 0)
         self.txt_bridge_official_pos = QLineEdit()
-        self.txt_bridge_official_pos.setPlaceholderText("例如 COM2")
-        port_grid.addWidget(self.txt_bridge_official_pos, 0, 1)
-        port_grid.addWidget(self._make_label(u"服务自动对端："), 0, 2)
-        self.txt_bridge_official_peer = QLineEdit()
+        self.txt_bridge_official_pos.setPlaceholderText("例如 COM2（当前不存在也正常）")
+        port_grid.addWidget(self.txt_bridge_official_pos, 0, 1, 1, 3)
+        self.txt_bridge_official_peer = QLineEdit(step2)
         self.txt_bridge_official_peer.setReadOnly(True)
-        self.txt_bridge_official_peer.setPlaceholderText("初始化后自动显示")
-        port_grid.addWidget(self.txt_bridge_official_peer, 0, 3)
-        port_grid.addWidget(self._make_label(u"本 POS 使用："), 1, 0)
+        self.txt_bridge_official_peer.hide()
+        port_grid.addWidget(self._make_label(u"为本 POS 创建："), 1, 0)
         self.txt_bridge_private_pos = QLineEdit()
-        self.txt_bridge_private_pos.setPlaceholderText("例如 COM3")
-        port_grid.addWidget(self.txt_bridge_private_pos, 1, 1)
-        port_grid.addWidget(self._make_label(u"服务自动对端："), 1, 2)
-        self.txt_bridge_private_peer = QLineEdit()
+        self.txt_bridge_private_pos.setPlaceholderText("例如 COM3（当前不存在也正常）")
+        port_grid.addWidget(self.txt_bridge_private_pos, 1, 1, 1, 3)
+        self.txt_bridge_private_peer = QLineEdit(step2)
         self.txt_bridge_private_peer.setReadOnly(True)
-        self.txt_bridge_private_peer.setPlaceholderText("初始化后自动显示")
-        port_grid.addWidget(self.txt_bridge_private_peer, 1, 3)
+        self.txt_bridge_private_peer.hide()
         step2_layout.addLayout(port_grid)
-        self.btn_save_scale_bridge = QPushButton(u"仅保存草稿（不安装、不建端口）")
+        self.btn_save_scale_bridge = QPushButton(u"可选：保存草稿，稍后继续（不会创建端口）")
         self.btn_save_scale_bridge.clicked.connect(self._save_scale_bridge_config)
         step2_layout.addWidget(self.btn_save_scale_bridge, alignment=Qt.AlignRight)
         layout.addWidget(step2)
@@ -545,6 +561,11 @@ class SettingsWidget(QWidget):
         )
         check_grid.addWidget(self.btn_test_private_scale_channel, 1, 1)
         step4_layout.addLayout(check_grid)
+
+        self.btn_use_scale_bridge = QPushButton(u"⑤ 验收完成，让本 POS 使用桥接端口")
+        self._style_save_btn(self.btn_use_scale_bridge)
+        self.btn_use_scale_bridge.clicked.connect(self._activate_scale_bridge_for_pos)
+        step4_layout.addWidget(self.btn_use_scale_bridge)
         layout.addWidget(step4)
 
         maintenance = QFrame()
@@ -575,6 +596,7 @@ class SettingsWidget(QWidget):
         layout.addWidget(maintenance)
 
         self._load_scale_bridge_form()
+        self._refresh_scale_bridge_overall_status()
         return self._wrap_in_scroll(card)
 
     # ────────────────────────────────────────────────────────────
@@ -747,43 +769,81 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_sqb_page(self):
         card, layout = self._create_section_card(
-            u"💵", u"收钱吧 PC收款助手", u"配置自动向收钱吧软件推送金额及呼起热键"
+            u"💵", u"收钱吧 PC 收款助手", u"按“理解两个端口 → 保存参数 → 创建或检查配对 → 测试”的顺序配置"
         )
+
+        intro = QLabel(
+            u"<b>为什么这里有两个 COM？</b><br>"
+            u"本 POS 把结账金额写入“本 POS 发送端”，收钱吧插件从“插件接收端”读取。"
+            u"两个端口之间必须是一条成对的虚拟串口线，不能填写同一个 COM。<br>"
+            u"如果现场已经用其他软件建好了配对，就选“使用已有配对”；如果没有，就选“由本系统创建”。"
+            u"<br><b>收钱吧配对与电子秤桥接互不影响。</b>"
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet(
+            "color: #E0F2FE; background: #0C4A6E; border: 1px solid #0284C7; "
+            "border-radius: 10px; padding: 14px; font-size: 14px;"
+        )
+        layout.addWidget(intro)
+
+        layout.addWidget(QLabel(u"步骤 1　选择连接方式并填写两端参数"))
+
+        self.sqb_connection_panel = QFrame()
+        self.sqb_connection_panel.setStyleSheet(
+            "QFrame { background: #132235; border: 1px solid #334155; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        connection_layout = QVBoxLayout(self.sqb_connection_panel)
+        connection_layout.setContentsMargins(16, 14, 16, 14)
         grid = QGridLayout()
         grid.setSpacing(18)
         grid.setColumnStretch(0, 0)
         grid.setColumnStretch(1, 1)
 
-        grid.addWidget(self._make_label(u"自动推送金额："), 0, 0)
+        grid.addWidget(self._make_label(u"功能开关："), 0, 0)
         self.cmb_sqb_enable = QComboBox()
         self.cmb_sqb_enable.addItems([u"开启 - 自动推送结账金额到收钱吧", u"关闭 - 不推送"])
         if not self.config.get("shouqianba_enabled", True):
             self.cmb_sqb_enable.setCurrentIndex(1)
         grid.addWidget(self.cmb_sqb_enable, 0, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"串口 (COM端口)："), 1, 0)
+        grid.addWidget(self._make_label(u"虚拟串口来源："), 1, 0)
+        self.cmb_sqb_pair_mode = QComboBox()
+        self.cmb_sqb_pair_mode.addItem(u"还没有配对，由本系统创建（首次配置推荐）", "managed")
+        self.cmb_sqb_pair_mode.addItem(u"现场已有配对，只填写并检查", "existing")
+        if self.config.get("shouqianba_pair_mode", "managed") == "existing":
+            self.cmb_sqb_pair_mode.setCurrentIndex(1)
+        grid.addWidget(self.cmb_sqb_pair_mode, 1, 1, 1, 2)
+
+        grid.addWidget(self._make_label(u"本 POS 发送端："), 2, 0)
         self.cmb_sqb_port = QComboBox()
         self.cmb_sqb_port.setEditable(True)
         self._refresh_com_ports()
-        grid.addWidget(self.cmb_sqb_port, 1, 1)
+        grid.addWidget(self.cmb_sqb_port, 2, 1)
 
-        btn_refresh_ports = QPushButton(u"🔄 扫描COM端口")
-        btn_refresh_ports.setCursor(Qt.PointingHandCursor)
-        btn_refresh_ports.setStyleSheet("""
+        self.btn_refresh_sqb_ports = QPushButton(u"扫描现场已有 COM")
+        self.btn_refresh_sqb_ports.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh_sqb_ports.setStyleSheet("""
             QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
             QPushButton:hover { background: #38BDF8; color: #0F172A; }
         """)
-        btn_refresh_ports.clicked.connect(lambda: self._refresh_com_ports(show_toast=True))
-        grid.addWidget(btn_refresh_ports, 1, 2)
+        self.btn_refresh_sqb_ports.clicked.connect(lambda: self._refresh_com_ports(show_toast=True))
+        grid.addWidget(self.btn_refresh_sqb_ports, 2, 2)
 
-        grid.addWidget(self._make_label(u"波特率 (Baudrate)："), 2, 0)
+        grid.addWidget(self._make_label(u"收钱吧插件接收端："), 3, 0)
+        self.txt_sqb_payment_peer = QLineEdit()
+        self.txt_sqb_payment_peer.setPlaceholderText("例如 COM11（必须与发送端不同）")
+        self.txt_sqb_payment_peer.setText(str(self.config.get("shouqianba_plugin_port", "COM11")))
+        grid.addWidget(self.txt_sqb_payment_peer, 3, 1, 1, 2)
+
+        grid.addWidget(self._make_label(u"波特率："), 4, 0)
         self.cmb_sqb_baud = QComboBox()
         self.cmb_sqb_baud.addItems(["2400", "9600", "19200", "38400", "115200"])
         cur_baud = str(self.config.get("shouqianba_baudrate", 2400))
         self.cmb_sqb_baud.setCurrentText(cur_baud)
-        grid.addWidget(self.cmb_sqb_baud, 2, 1, 1, 2)
+        grid.addWidget(self.cmb_sqb_baud, 4, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"解析规则："), 3, 0)
+        grid.addWidget(self._make_label(u"金额格式："), 5, 0)
         self.cmb_sqb_fmt = QComboBox()
         self.cmb_sqb_fmt.addItems([
             u"QA - QA标记 (例如 QA12.50)",
@@ -792,9 +852,9 @@ class SettingsWidget(QWidget):
         fmt = self.config.get("shouqianba_format", "QA")
         if fmt == "FLOAT":
             self.cmb_sqb_fmt.setCurrentIndex(1)
-        grid.addWidget(self.cmb_sqb_fmt, 3, 1, 1, 2)
+        grid.addWidget(self.cmb_sqb_fmt, 5, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"唤起快捷键："), 4, 0)
+        grid.addWidget(self._make_label(u"唤起快捷键："), 6, 0)
         
         hk_box = QHBoxLayout()
         self.txt_sqb_hotkey = HotKeyRecorderEdit()
@@ -803,6 +863,7 @@ class SettingsWidget(QWidget):
         hk_box.addWidget(self.txt_sqb_hotkey, stretch=2)
 
         # 快速预设按钮
+        self.sqb_hotkey_preset_buttons = []
         for hk_item in ["Shift+Q", "F12", "Ctrl+F12", "Alt+S"]:
             btn_hk = QPushButton(hk_item)
             btn_hk.setCursor(Qt.PointingHandCursor)
@@ -814,44 +875,12 @@ class SettingsWidget(QWidget):
                 QPushButton:hover { background: #38BDF8; color: #0F172A; }
             """)
             btn_hk.clicked.connect(lambda chk, t=hk_item: self.txt_sqb_hotkey.setText(t))
+            self.sqb_hotkey_preset_buttons.append(btn_hk)
             hk_box.addWidget(btn_hk)
 
-        grid.addLayout(hk_box, 4, 1, 1, 2)
-
-        # ── 收钱吧插件配置要点指南 ──
-        tip_frame = QFrame()
-        tip_frame.setObjectName("SqbTipFrame")
-        tip_frame.setStyleSheet("""
-            QFrame#SqbTipFrame {
-                background-color: #0F172A;
-                border: 1px solid #0284C7;
-                border-radius: 10px;
-            }
-            QFrame#SqbTipFrame QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
-        tip_layout = QVBoxLayout(tip_frame)
-        tip_layout.setContentsMargins(16, 14, 16, 14)
-        tip_layout.setSpacing(8)
-
-        lbl_tip_title = QLabel(u"💡 收钱吧 PC 助手 / 插件配置必备说明：")
-        lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 15px; font-weight: 900; border: none; background: transparent;")
-        tip_layout.addWidget(lbl_tip_title)
-
-        tips = [
-            u"📌 <b>插件 - 打印机设置</b>：应选择为 <b>USB 模式</b>，不要选择兼容模式。",
-            u"📌 <b>插件 - 获取金额</b>：应使用<b>虚拟端口软件</b>将本 POS 设置的端口和插件设置的端口配对。",
-            u"📌 <b>插件 - 调出菜单</b>：应选择<b>快捷键菜单</b>，并且和本系统设置【唤起快捷键】保持一致。",
-        ]
-        for tip in tips:
-            lbl_tip_item = QLabel(tip)
-            lbl_tip_item.setWordWrap(True)
-            lbl_tip_item.setStyleSheet("color: #E2E8F0; font-size: 13px; border: none; background: transparent; line-height: 140%;")
-            tip_layout.addWidget(lbl_tip_item)
-
-        layout.addLayout(grid)
+        grid.addLayout(hk_box, 6, 1, 1, 2)
+        connection_layout.addLayout(grid)
+        layout.addWidget(self.sqb_connection_panel)
 
         btn_save_sqb = QPushButton(u"① 保存收钱吧设置")
         self._style_save_btn(btn_save_sqb)
@@ -871,54 +900,53 @@ class SettingsWidget(QWidget):
         payment_layout = QVBoxLayout(payment_panel)
         payment_layout.setContentsMargins(16, 14, 16, 14)
         payment_layout.setSpacing(10)
-        payment_title = QLabel(u"可选：收钱吧金额虚拟串口配对")
+        payment_title = QLabel(u"步骤 2　创建或检查虚拟串口配对")
         payment_title.setStyleSheet("color: #5EEAD4; font-size: 16px; font-weight: 900;")
         payment_layout.addWidget(payment_title)
-        payment_desc = QLabel(
-            u"仅在收钱吧插件监听另一个 COM 端口时使用。顺序：①保存上方收钱吧设置 → "
-            u"②填写插件接收端 → ③创建/修复配对 → ④关闭占用两端的软件后测试。"
-            u"这里与“POS 称桥接”完全分开。"
-        )
-        payment_desc.setWordWrap(True)
-        payment_desc.setStyleSheet("color: #CBD5E1; font-size: 13px;")
-        payment_layout.addWidget(payment_desc)
-
-        payment_ports = QHBoxLayout()
-        self.lbl_sqb_payment_sender = QLabel(
-            u"发送端：%s（取自上方串口）" % self.cmb_sqb_port.currentText().strip()
-        )
-        self.lbl_sqb_payment_sender.setStyleSheet("color: #E2E8F0; font-weight: bold;")
-        payment_ports.addWidget(self.lbl_sqb_payment_sender)
-        payment_ports.addWidget(self._make_label(u"② 插件接收端："))
-        self.txt_sqb_payment_peer = QLineEdit()
-        self.txt_sqb_payment_peer.setPlaceholderText("例如 COM11")
-        self.txt_sqb_payment_peer.setText(
-            str(self.config.get("shouqianba_plugin_port", "COM11"))
-        )
-        payment_ports.addWidget(self.txt_sqb_payment_peer, stretch=1)
-        payment_layout.addLayout(payment_ports)
-        self.cmb_sqb_port.currentTextChanged.connect(
-            lambda value: self.lbl_sqb_payment_sender.setText(
-                u"发送端：%s（取自上方串口）" % value.strip()
-            )
-        )
+        self.lbl_sqb_pair_guidance = QLabel("")
+        self.lbl_sqb_pair_guidance.setWordWrap(True)
+        self.lbl_sqb_pair_guidance.setStyleSheet("color: #CBD5E1; font-size: 13px;")
+        payment_layout.addWidget(self.lbl_sqb_pair_guidance)
 
         payment_buttons = QGridLayout()
-        self.btn_initialize_payment_pair = QPushButton(u"③ 创建 / 修复支付配对")
+        self.btn_initialize_payment_pair = QPushButton(u"② 创建 / 修复虚拟串口")
         self.btn_initialize_payment_pair.clicked.connect(self._initialize_payment_pair)
         payment_buttons.addWidget(self.btn_initialize_payment_pair, 0, 0)
-        self.btn_check_payment_pair = QPushButton(u"检查支付配对")
+        self.btn_check_payment_pair = QPushButton(u"③ 检查这两个端口是否成对")
         self.btn_check_payment_pair.clicked.connect(self._check_payment_pair)
         payment_buttons.addWidget(self.btn_check_payment_pair, 0, 1)
-        self.btn_test_payment_pair = QPushButton(u"④ 双向测试支付配对")
+        self.btn_test_payment_pair = QPushButton(u"④ 关闭两端软件后双向测试")
         self.btn_test_payment_pair.clicked.connect(self._test_scale_bridge_payment_pair)
         payment_buttons.addWidget(self.btn_test_payment_pair, 1, 0)
-        self.btn_remove_payment_pair = QPushButton(u"删除支付配对")
+        self.btn_remove_payment_pair = QPushButton(u"删除本系统创建的收钱吧配对")
         self.btn_remove_payment_pair.clicked.connect(self._remove_payment_pair)
         payment_buttons.addWidget(self.btn_remove_payment_pair, 1, 1)
         payment_layout.addLayout(payment_buttons)
         layout.addWidget(payment_panel)
+
+        tip_frame = QFrame()
+        tip_frame.setStyleSheet(
+            "QFrame { background-color: #0F172A; border: 1px solid #0284C7; border-radius: 10px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        tip_layout = QVBoxLayout(tip_frame)
+        lbl_tip_title = QLabel(u"步骤 3　到收钱吧 PC 助手中完成对应设置")
+        lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 15px; font-weight: 900;")
+        tip_layout.addWidget(lbl_tip_title)
+        for tip in [
+            u"• 【获取金额】选择上方填写的“收钱吧插件接收端”，不要选择本 POS 发送端。",
+            u"• 【调出菜单】选择快捷键菜单，并与上方“唤起快捷键”保持一致。",
+            u"• 【打印机设置】使用 USB 模式，不要选择兼容模式。",
+        ]:
+            label = QLabel(tip)
+            label.setWordWrap(True)
+            label.setStyleSheet("color: #E2E8F0; font-size: 13px;")
+            tip_layout.addWidget(label)
         layout.addWidget(tip_frame)
+
+        self.cmb_sqb_enable.currentIndexChanged.connect(self._on_sqb_mode_changed)
+        self.cmb_sqb_pair_mode.currentIndexChanged.connect(self._on_sqb_mode_changed)
+        self._on_sqb_mode_changed()
 
         return self._wrap_in_scroll(card)
 
@@ -1071,6 +1099,43 @@ class SettingsWidget(QWidget):
             widget.wheelEvent = lambda event, w=widget: event.ignore()
 
     # ─── 刷新 COM 串口列表 ──────────────────────────
+    def _on_sqb_mode_changed(self, _index=None):
+        """收钱吧先选是否启用、再选配对由谁维护，避免把高级操作混进基础参数。"""
+        enabled = self.cmb_sqb_enable.currentIndex() == 0
+        managed = self.cmb_sqb_pair_mode.currentIndex() == 0
+        self.sqb_connection_panel.setEnabled(True)
+        for widget in (
+            self.cmb_sqb_pair_mode,
+            self.cmb_sqb_port,
+            self.btn_refresh_sqb_ports,
+            self.txt_sqb_payment_peer,
+            self.cmb_sqb_baud,
+            self.cmb_sqb_fmt,
+            self.txt_sqb_hotkey,
+        ):
+            widget.setEnabled(enabled)
+        for button in self.sqb_hotkey_preset_buttons:
+            button.setEnabled(enabled)
+        self.btn_initialize_payment_pair.setVisible(managed)
+        self.btn_remove_payment_pair.setVisible(managed)
+        self.btn_refresh_sqb_ports.setVisible(not managed)
+        self.btn_check_payment_pair.setEnabled(enabled)
+        self.btn_test_payment_pair.setEnabled(enabled)
+        self.btn_initialize_payment_pair.setEnabled(enabled)
+        self.btn_remove_payment_pair.setEnabled(enabled)
+        if not enabled:
+            self.lbl_sqb_pair_guidance.setText(u"收钱吧金额推送已关闭；保存后无需配置下面的配对。")
+        elif managed:
+            self.lbl_sqb_pair_guidance.setText(
+                u"当前选择“由本系统创建”。先保存参数，再点击创建/修复；端口现在不存在是正常的。"
+                u"创建完成后，将“插件接收端”填写到收钱吧 PC 助手。"
+            )
+        else:
+            self.lbl_sqb_pair_guidance.setText(
+                u"当前选择“使用现场已有配对”。本系统不会创建或删除端口；请填写配对两端后先检查。"
+                u"如果检查显示不存在，请改选“由本系统创建”。"
+            )
+
     def _refresh_com_ports(self, show_toast=False):
         self.cmb_sqb_port.clear()
         try:
@@ -1093,13 +1158,14 @@ class SettingsWidget(QWidget):
             if ports:
                 selected_port, ok = show_item_selection(
                     self, u"选择收钱吧串口", 
-                    f"成功检测到 {len(ports)} 个活跃物理串口！请直接点击要启用的串口：", 
+                    f"检测到 {len(ports)} 个当前系统 COM。这里可能同时包含物理端口和虚拟端口，"
+                    u"仅在确认现场已有配对时选择本 POS 的发送端：",
                     ports, self.cmb_sqb_port.currentText()
                 )
                 if ok and selected_port:
                     self.cmb_sqb_port.setCurrentText(selected_port)
             else:
-                show_info(self, u"扫描提示", u"未检测到可用物理串口，已更新默认端口列表 COM1 ~ COM12。")
+                show_info(self, u"扫描提示", u"未检测到现有 COM。若尚未建立收钱吧配对，请选择“由本系统创建”，端口当前不存在是正常的。")
 
     # ─── 刷新打印机列表 ──────────────────────────────
     def _refresh_printers(self, show_toast=False):
@@ -1180,29 +1246,132 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"系统运行与智能切换设置已保存！")
 
+    def _open_settings_page(self, index):
+        """从说明或下一步按钮跳转到指定的系统设置二级页面。"""
+        if index < 0 or index >= self.stacked_widget.count():
+            return
+        self._on_settings_page_changed(index)
+        button = self.btn_group.button(index)
+        if button is not None:
+            button.setChecked(True)
+
+    def _on_settings_page_changed(self, index):
+        self.stacked_widget.setCurrentIndex(index)
+        if index == 0 and self.cmb_scale_source.currentIndex() == 2:
+            self._on_scale_source_changed(2)
+        elif index == 1:
+            self._refresh_scale_bridge_overall_status()
+        elif index == 5:
+            self._on_sqb_mode_changed()
+
+    def _scale_bridge_runtime_state(self):
+        """返回桥接配置、是否可供本 POS 使用及面向操作员的状态文字。"""
+        if not os.path.isfile(self._scale_bridge_config_path()):
+            return None, False, u"尚未初始化 POS 称桥接"
+        try:
+            from scale_bridge.configuration import load_config
+            bridge_config = load_config(self._scale_bridge_config_path())
+        except Exception as exc:
+            return None, False, u"桥接配置无法读取：%s" % exc
+
+        configured = bool(
+            bridge_config.physical_scale_port
+            and bridge_config.official_pos_virtual_port
+            and bridge_config.private_pos_virtual_port
+            and bridge_config.official_bridge_port
+            and bridge_config.private_bridge_port
+        )
+        if not configured:
+            return bridge_config, False, u"桥接配置尚未完成初始化"
+        try:
+            from scale_bridge.lifecycle import ScaleBridgeServiceController
+            service_state = ScaleBridgeServiceController().query()
+            running = bool(service_state.installed and service_state.state_code == 4)
+            if running:
+                return bridge_config, True, u"桥接已就绪，服务正在运行"
+            return bridge_config, False, u"桥接端口已创建，但 Windows 服务未运行"
+        except Exception as exc:
+            return bridge_config, False, u"桥接配置已存在，但无法确认服务状态：%s" % exc
+
+    def _sync_scale_bridge_port_to_form(self):
+        """桥接模式的 COM 由桥接结果决定，不让用户再猜或手填。"""
+        bridge_config, ready, status = self._scale_bridge_runtime_state()
+        port = bridge_config.private_pos_virtual_port if bridge_config is not None else ""
+        self.cmb_scale_port.setEditable(True)
+        if port:
+            self.cmb_scale_port.setEditText(port)
+        else:
+            self.cmb_scale_port.setEditText(u"等待桥接初始化")
+        self.cmb_scale_port.setEnabled(False)
+        return bridge_config, ready, status
+
     def _on_scale_source_changed(self, index):
-        """切换称重数据源时，显示/隐藏COM口配置"""
-        is_com = (index == 1)
+        """按官方、物理直连、桥接三种互斥方式显示所需字段。"""
+        is_com = index in (1, 2)
+        is_direct = index == 1
+        is_bridge = index == 2
         self.lbl_scale_port.setVisible(is_com)
         self.cmb_scale_port.setVisible(is_com)
-        self.btn_refresh_scale_ports.setVisible(is_com)
+        self.btn_refresh_scale_ports.setVisible(is_direct)
         self.lbl_scale_baud.setVisible(is_com)
         self.cmb_scale_baud.setVisible(is_com)
         if hasattr(self, 'btn_test_scale_com'):
             self.btn_test_scale_com.setVisible(is_com)
-        if is_com:
+        if hasattr(self, 'btn_go_scale_bridge'):
+            self.btn_go_scale_bridge.setVisible(is_bridge)
+
+        if is_direct:
+            self.lbl_scale_port.setText(u"物理电子秤 COM：")
+            self.cmb_scale_port.setEditable(True)
+            self.cmb_scale_port.setEnabled(True)
+            self._refresh_scale_com_ports()
+            self.cmb_scale_baud.setEnabled(True)
+            self.btn_test_scale_com.setText(u"⚡ 测试物理秤连接")
             self.lbl_scale_hint.setText(
-                u"💡 本 POS 串口模式：\n"
+                u"💡 本 POS 独占物理秤：\n"
                 u"• DIBAL ACS-G315 已验证参数：9600、8N1；程序每 200ms 发送 $ 查询重量。\n"
-                u"• 若要和官方 POS 共享一台秤，请先到左侧“POS 称桥接”按 1→4 完成配置。\n"
-                u"• 此处填写“POS 称桥接”页面显示的本 POS 端口，绝不填写实际物理秤端口。"
+                u"• 此处选择电子秤真实连接的 COM；使用期间官方 POS 不能同时占用这台秤。\n"
+                u"• 如果两个 POS 都要读取重量，请改选“同时读秤”，不要在这里选择虚拟端口。"
+            )
+        elif is_bridge:
+            self.lbl_scale_port.setText(u"本 POS 桥接端口：")
+            bridge_config, ready, status = self._sync_scale_bridge_port_to_form()
+            self.cmb_scale_baud.setEnabled(False)
+            if bridge_config is not None:
+                self.cmb_scale_baud.setCurrentText(str(bridge_config.baudrate))
+            self.btn_test_scale_com.setText(u"⚡ 测试本 POS 桥接通道")
+            status_icon = u"✅" if ready else u"⚠️"
+            port_text = (
+                bridge_config.private_pos_virtual_port
+                if bridge_config is not None and bridge_config.private_pos_virtual_port
+                else u"尚未生成"
+            )
+            self.lbl_scale_hint.setText(
+                u"%s %s\n"
+                u"• 本 POS 端口由“POS 称桥接”初始化结果自动填写：%s。\n"
+                u"• 桥接未完成前不能保存此模式，也不需要从 COM 列表里猜端口。\n"
+                u"• 点击“前往 POS 称桥接”，完成后再返回本页启用。"
+                % (status_icon, status, port_text)
             )
         else:
+            self.cmb_scale_port.setEnabled(True)
+            self.cmb_scale_baud.setEnabled(True)
             self.lbl_scale_hint.setText(
                 u"💡 官方模式 (推荐·零配置·无冲突)：\n"
-                u"• 从官方收银软件生成的串口日志读取重量，官方软件必须保持运行。\n"
-                u"• 若需要私有 POS 单独或并行读取，请切换为上方的 COM 串口直连模式。"
+                u"• 本 POS 直接读取官方收银软件生成的串口日志，不需要选择任何 COM。\n"
+                u"• 官方 POS 必须保持运行；如果希望本 POS 单独读秤或两个 POS 同时读秤，请选择对应方式。"
             )
+
+    def _test_selected_scale_source(self):
+        if self.cmb_scale_source.currentIndex() == 2:
+            _bridge_config, ready, status = self._scale_bridge_runtime_state()
+            if not ready:
+                from ui.custom_dialog import show_warning
+                show_warning(self, u"POS 称桥接尚未就绪", status + u"\n\n请先完成 POS 称桥接初始化。")
+                return
+            self._test_scale_bridge_channel("private")
+            return
+        self._test_scale_com()
 
     def _show_scale_bridge_status(self):
         """Read service status through its local named pipe; never opens a serial port."""
@@ -1275,6 +1444,36 @@ class SettingsWidget(QWidget):
             u"%s：%s。已验证秤协议固定为 9600 / 8N1 / DTR 开 / RTS 关。"
             % (u"已加载桥接配置" if exists else u"尚未保存桥接配置（显示默认值）", self._scale_bridge_config_path())
         )
+
+    def _refresh_scale_bridge_overall_status(self):
+        """用一句话显示当前能否真正启用桥接，避免把草稿误认为已完成。"""
+        _bridge_config, ready, status = self._scale_bridge_runtime_state()
+        if ready:
+            self.lbl_scale_bridge_overall_status.setText(u"✅ 当前状态：%s。可以按步骤 4 验收并启用。" % status)
+            self.lbl_scale_bridge_overall_status.setStyleSheet(
+                "color: #A7F3D0; background: #064E3B; border: 1px solid #059669; "
+                "border-radius: 10px; padding: 12px 14px; font-size: 14px; font-weight: bold;"
+            )
+        else:
+            self.lbl_scale_bridge_overall_status.setText(
+                u"⚠️ 当前状态：%s。桥接尚不可用，请从步骤 1 开始。" % status
+            )
+            self.lbl_scale_bridge_overall_status.setStyleSheet(
+                "color: #FDE68A; background: #422006; border: 1px solid #A16207; "
+                "border-radius: 10px; padding: 12px 14px; font-size: 14px; font-weight: bold;"
+            )
+
+    def _activate_scale_bridge_for_pos(self):
+        """验收后的明确收尾动作：自动使用初始化生成的本 POS 端口。"""
+        bridge_config, ready, status = self._scale_bridge_runtime_state()
+        if not ready or bridge_config is None:
+            from ui.custom_dialog import show_warning
+            show_warning(self, u"桥接尚不可启用", status + u"\n\n请先完成初始化并确认服务正在运行。")
+            return
+        self.cmb_scale_source.setCurrentIndex(2)
+        self._on_scale_source_changed(2)
+        self._on_save_scale()
+        self._open_settings_page(0)
 
     def _refresh_scale_bridge_devices(self, checked=False, silent=False, preferred_port=None):
         """Discover only physical serial candidates and retain hardware identity in item data."""
@@ -1424,11 +1623,12 @@ class SettingsWidget(QWidget):
             u"✓ 已保存桥接配置：%s。尚未启动服务，也未变更任何现有 POS 设置或 COM 映射。"
             % self._scale_bridge_config_path()
         )
+        self._refresh_scale_bridge_overall_status()
         show_info(
             self, u"桥接配置已保存",
             u"已保存独立的 ScaleBridge 配置。\n\n"
             u"这一步不会切换当前 POS 的称来源、不会改写收钱吧端口、不会安装驱动，也不会创建或修改虚拟串口。\n"
-            u"初始化完成后，请将私有 POS 的称来源设为“com”，端口填写上方配置的私有 POS 虚拟端口。",
+            u"下一步请点击“③ 初始化 / 修复 POS 称桥接”。初始化和验收后，点击步骤 4 下方的“⑤”即可自动让本 POS 使用桥接端口。",
         )
 
     def _test_scale_bridge_physical(self):
@@ -1489,12 +1689,16 @@ class SettingsWidget(QWidget):
         self.lbl_scale_bridge_config.setText(
             u"✓ 初始化完成，服务已安装并运行。配置：%s" % self._scale_bridge_config_path()
         )
+        self._refresh_scale_bridge_overall_status()
+        if self.cmb_scale_source.currentIndex() == 2:
+            self._on_scale_source_changed(2)
         created = u"、".join(report.pairs.created) or u"无（均已存在）"
         existing = u"、".join(report.pairs.existing) or u"无"
         removed = u"、".join(report.pairs.removed_obsolete) or u"无"
         show_info(
             self, u"POS 称桥接初始化完成",
-            u"物理秤: %s，当前 %.3f kg\n新建配对: %s\n复用配对: %s\n清理旧配对: %s\n服务: %s"
+            u"物理秤: %s，当前 %.3f kg\n新建配对: %s\n复用配对: %s\n清理旧配对: %s\n服务: %s\n\n"
+            u"下一步：按步骤 4 完成测试，再点击“⑤ 让本 POS 使用桥接端口”。"
             % (
                 report.physical_test.port,
                 report.physical_test.weight_kg,
@@ -1523,6 +1727,7 @@ class SettingsWidget(QWidget):
             report = PaymentPairLifecycle().initialize(sender, plugin)
             self.config["shouqianba_port"] = sender
             self.config["shouqianba_plugin_port"] = plugin
+            self.config["shouqianba_pair_mode"] = "managed"
             save_config(self.config)
         except Exception as exc:
             show_error(self, u"支付配对创建失败", str(exc))
@@ -1558,7 +1763,12 @@ class SettingsWidget(QWidget):
         if result.present:
             show_info(self, u"支付配对正常", message)
         else:
-            show_warning(self, u"支付配对缺失", message + u"\n请点击“创建 / 修复支付配对”。")
+            next_step = (
+                u"请点击“② 创建 / 修复虚拟串口”。"
+                if self.cmb_sqb_pair_mode.currentIndex() == 0
+                else u"现场填写的两个端口并未成对；请核对原配对，或改选“由本系统创建”。"
+            )
+            show_warning(self, u"支付配对缺失", message + u"\n" + next_step)
 
     def _remove_payment_pair(self):
         from scale_bridge.lifecycle import PaymentPairLifecycle
@@ -1674,6 +1884,7 @@ class SettingsWidget(QWidget):
         except Exception as exc:
             show_error(self, u"服务启动失败", str(exc))
             return
+        self._refresh_scale_bridge_overall_status()
         show_info(self, u"ScaleBridge 服务", u"服务已启动。" if changed else u"服务原本已在运行。")
 
     def _stop_scale_bridge_service(self):
@@ -1684,6 +1895,7 @@ class SettingsWidget(QWidget):
         except Exception as exc:
             show_error(self, u"服务停止失败", str(exc))
             return
+        self._refresh_scale_bridge_overall_status()
         show_info(self, u"ScaleBridge 服务", u"服务已停止。" if changed else u"服务未运行或尚未安装。")
 
     def _export_scale_bridge_diagnostics(self):
@@ -1716,6 +1928,7 @@ class SettingsWidget(QWidget):
             show_error(self, u"删除桥接功能失败", str(exc))
             return
         self._load_scale_bridge_form()
+        self._refresh_scale_bridge_overall_status()
         show_info(
             self, u"POS 称桥接已删除",
             u"服务删除: %s\n已删除称重配对: %s\n称桥接配置删除: %s\n"
@@ -1876,7 +2089,8 @@ class SettingsWidget(QWidget):
                     f"⚠️ 已成功打开端口【{port}】，但在 2 秒内未接收到有效数据。\n\n"
                     u"请检查：\n"
                     u"1. 电子秤电源是否已打开。\n"
-                    u"2. 当前选择的是分流给私有 POS 的端口（建议 COM3）；官方 POS 在 COM2 可保持运行。"
+                    u"2. 当前选择的是电子秤真实 COM，且官方 POS 或其他软件没有同时占用它。\n"
+                    u"3. 如果两个 POS 要同时读秤，请退出直连模式并先配置“POS 称桥接”。"
                 )
 
         except Exception as ex:
@@ -1918,7 +2132,8 @@ class SettingsWidget(QWidget):
             if active_ports:
                 selected_port, ok = show_item_selection(
                     self, u"选择电子秤串口", 
-                    f"成功检测到 {len(active_ports)} 个活跃物理串口！请直接点击选择要连接的电子秤串口：", 
+                    f"检测到 {len(active_ports)} 个当前系统 COM。请选择真实电子秤直接连接的端口；"
+                    u"桥接端口请通过“同时读秤”模式自动带入：",
                     active_ports, self.cmb_scale_port.currentText().split("[")[0].strip()
                 )
                 if ok and selected_port:
@@ -1927,17 +2142,46 @@ class SettingsWidget(QWidget):
                             self.cmb_scale_port.setCurrentIndex(i)
                             break
             else:
-                show_info(self, u"串口扫描提示", u"未检测到任何活跃物理串口，已更新默认端口列表 COM1 ~ COM12。")
+                show_info(self, u"串口扫描提示", u"未检测到现有 COM。请检查电子秤连接和驱动；桥接模式无需在这里手动选择端口。")
 
     def _on_save_scale(self):
         """保存称重数据源设置"""
-        source_text = self.cmb_scale_source.currentText()
-        self.config["scale_source"] = source_text.split(" - ")[0].strip()
+        from ui.custom_dialog import show_info, show_warning
+
+        selected_mode = self.cmb_scale_source.currentData() or "official"
         port_text = self.cmb_scale_port.currentText().strip()
         port_text = port_text.split("[")[0].strip()
-        self.config["scale_port"] = port_text
+
+        if selected_mode == "official":
+            self.config["scale_source"] = "official"
+            success_message = u"已切换为跟随官方 POS 读取重量，无需配置 COM。"
+        elif selected_mode == "direct":
+            if not port_text:
+                show_warning(self, u"尚未选择物理电子秤", u"请先选择真实电子秤 COM，并测试读到重量后再保存。")
+                return
+            self.config["scale_source"] = "com"
+            self.config["scale_connection_mode"] = "direct"
+            self.config["scale_port"] = port_text
+            success_message = u"已切换为本 POS 独占物理秤：%s。" % port_text
+        else:
+            bridge_config, ready, status = self._scale_bridge_runtime_state()
+            if not ready or bridge_config is None:
+                show_warning(
+                    self,
+                    u"不能启用桥接模式",
+                    status + u"\n\n本设置没有保存。请先到“POS 称桥接”完成初始化。",
+                )
+                self._open_settings_page(1)
+                return
+            self.config["scale_source"] = "com"
+            self.config["scale_connection_mode"] = "bridge"
+            self.config["scale_port"] = bridge_config.private_pos_virtual_port
+            self.config["scale_baudrate"] = bridge_config.baudrate
+            success_message = u"已切换为 POS 称桥接，本 POS 自动使用 %s。" % bridge_config.private_pos_virtual_port
+
         try:
-            self.config["scale_baudrate"] = int(self.cmb_scale_baud.currentText().strip())
+            if selected_mode != "bridge":
+                self.config["scale_baudrate"] = int(self.cmb_scale_baud.currentText().strip())
         except Exception:
             self.config["scale_baudrate"] = 9600
         save_config(self.config)
@@ -1946,13 +2190,36 @@ class SettingsWidget(QWidget):
         if hasattr(parent_mw, 'sale_page') and hasattr(parent_mw.sale_page, 'restart_scale'):
             parent_mw.sale_page.restart_scale()
 
-        from ui.custom_dialog import show_info
-        show_info(self, u"保存成功", u"称重数据源设置已保存并即时生效！")
+        show_info(self, u"电子秤设置已生效", success_message)
 
     def _on_save_sqb(self):
-        self.config["shouqianba_enabled"] = (self.cmb_sqb_enable.currentIndex() == 0)
-        self.config["shouqianba_port"] = self.cmb_sqb_port.currentText().strip()
-        self.config["shouqianba_plugin_port"] = self.txt_sqb_payment_peer.text().strip().upper()
+        from ui.custom_dialog import show_info, show_warning
+
+        enabled = self.cmb_sqb_enable.currentIndex() == 0
+        pair_mode = self.cmb_sqb_pair_mode.currentData() or "managed"
+        sender = self.cmb_sqb_port.currentText().strip().upper()
+        plugin = self.txt_sqb_payment_peer.text().strip().upper()
+        if enabled:
+            invalid = [value for value in (sender, plugin) if not re.fullmatch(r"COM[1-9]\d*", value)]
+            if invalid:
+                show_warning(
+                    self,
+                    u"收钱吧端口填写不完整",
+                    u"发送端和插件接收端都必须填写标准 COM 名称，例如 COM10、COM11。",
+                )
+                return
+            if sender == plugin:
+                show_warning(
+                    self,
+                    u"两个端口不能相同",
+                    u"本 POS 发送端与收钱吧插件接收端必须是虚拟串口配对的两端。",
+                )
+                return
+
+        self.config["shouqianba_enabled"] = enabled
+        self.config["shouqianba_pair_mode"] = pair_mode
+        self.config["shouqianba_port"] = sender
+        self.config["shouqianba_plugin_port"] = plugin
         try:
             self.config["shouqianba_baudrate"] = int(self.cmb_sqb_baud.currentText().strip())
         except Exception:
@@ -1961,11 +2228,16 @@ class SettingsWidget(QWidget):
         self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
         self.config["shouqianba_hotkey"] = self.txt_sqb_hotkey.text().strip()
         save_config(self.config)
-        from ui.custom_dialog import show_info
+        if not enabled:
+            message = u"收钱吧金额推送已关闭。端口参数已保留，未创建或删除任何配对。"
+        elif pair_mode == "managed":
+            message = u"参数已保存。下一步请点击“② 创建 / 修复虚拟串口”。"
+        else:
+            message = u"参数已保存。下一步请点击“③ 检查这两个端口是否成对”。"
         show_info(
             self,
             u"保存成功",
-            u"收钱吧设置已保存。此操作只保存参数，不会创建或修改虚拟串口配对。",
+            message,
         )
 
     def _on_export_config(self):
