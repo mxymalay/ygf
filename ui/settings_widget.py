@@ -89,22 +89,23 @@ class SettingsWidget(QWidget):
         self._build_ui()
 
     def _make_label(self, text):
-        """统一生成右对齐、无黑框颜色的优雅 Label"""
+        """统一生成适合触屏收银机阅读的字段标签。"""
         lbl = QLabel(text)
         lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lbl.setStyleSheet("color: #94A3B8; font-size: 14px; font-weight: 600; background: transparent; padding-right: 4px;")
+        lbl.setStyleSheet("color: #CBD5E1; font-size: 16px; font-weight: 700; background: transparent; padding-right: 8px;")
         return lbl
 
     def _style_save_btn(self, btn):
         btn.setCursor(Qt.PointingHandCursor)
+        btn.setMinimumHeight(60)
         btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10B981);
                 color: #FFFFFF;
-                font-size: 15px;
+                font-size: 17px;
                 font-weight: bold;
-                padding: 12px 28px;
-                border-radius: 10px;
+                padding: 14px 28px;
+                border-radius: 12px;
                 border: none;
             }
             QPushButton:hover {
@@ -114,6 +115,25 @@ class SettingsWidget(QWidget):
                 background: #047857;
             }
         """)
+
+    def _style_touch_action_btn(self, btn, tone="secondary"):
+        """为设置页的非保存操作提供足够大的触屏点击区域。"""
+        palettes = {
+            "secondary": ("#334155", "#F8FAFC", "#475569", "#475569"),
+            "blue": ("#0369A1", "#FFFFFF", "#0284C7", "#0284C7"),
+            "purple": ("#6D28D9", "#FFFFFF", "#7C3AED", "#7C3AED"),
+            "danger": ("#7F1D1D", "#FEE2E2", "#DC2626", "#991B1B"),
+        }
+        background, color, border, hover = palettes.get(tone, palettes["secondary"])
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setMinimumHeight(56)
+        btn.setStyleSheet(
+            "QPushButton { background: %s; color: %s; border: 1px solid %s; "
+            "border-radius: 10px; padding: 12px 18px; font-size: 16px; font-weight: bold; }"
+            "QPushButton:hover { background: %s; }"
+            "QPushButton:pressed { padding-top: 14px; padding-bottom: 10px; }"
+            % (background, color, border, hover)
+        )
 
     def _create_section_card(self, title_icon, title_text, subtitle_text=""):
         """创建一个高端卡片容器"""
@@ -136,12 +156,12 @@ class SettingsWidget(QWidget):
         header_box.setSpacing(6)
         
         lbl_head = QLabel(f"{title_icon} {title_text}")
-        lbl_head.setStyleSheet("font-size: 22px; font-weight: 900; color: #F8FAFC; border: none; background: transparent;")
+        lbl_head.setStyleSheet("font-size: 24px; font-weight: 900; color: #F8FAFC; border: none; background: transparent;")
         header_box.addWidget(lbl_head)
 
         if subtitle_text:
             lbl_sub = QLabel(subtitle_text)
-            lbl_sub.setStyleSheet("font-size: 13px; color: #94A3B8; border: none; background: transparent;")
+            lbl_sub.setStyleSheet("font-size: 15px; color: #94A3B8; border: none; background: transparent;")
             header_box.addWidget(lbl_sub)
 
         # 分割线
@@ -164,7 +184,7 @@ class SettingsWidget(QWidget):
         # 左侧导航栏 (Left Sidebar)
         # ════════════════════════════════════════════════════════════
         sidebar = QFrame()
-        sidebar.setFixedWidth(190)
+        sidebar.setFixedWidth(220)
         sidebar.setStyleSheet("""
             QFrame#SettingsSidebar {
                 background-color: #0F172A;
@@ -177,12 +197,12 @@ class SettingsWidget(QWidget):
         sidebar.setObjectName("SettingsSidebar")
 
         sb_layout = QVBoxLayout(sidebar)
-        sb_layout.setContentsMargins(16, 24, 16, 24)
-        sb_layout.setSpacing(10)
+        sb_layout.setContentsMargins(14, 18, 14, 18)
+        sb_layout.setSpacing(8)
 
         # 侧边栏标题
         lbl_sb_title = QLabel(u"⚙️ 系统设置")
-        lbl_sb_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #F8FAFC; padding-left: 8px; margin-bottom: 12px;")
+        lbl_sb_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #F8FAFC; padding-left: 8px; margin-bottom: 8px;")
         sb_layout.addWidget(lbl_sb_title)
 
         # 导航按钮组
@@ -193,11 +213,12 @@ class SettingsWidget(QWidget):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(56)
             btn.setStyleSheet("""
                 QPushButton {
                     text-align: left;
-                    padding: 14px 16px;
-                    font-size: 15px;
+                    padding: 12px 14px;
+                    font-size: 17px;
                     font-weight: 600;
                     color: #94A3B8;
                     background-color: transparent;
@@ -238,7 +259,7 @@ class SettingsWidget(QWidget):
             }
             QLabel {
                 color: #E2E8F0;
-                font-size: 14px;
+                font-size: 16px;
                 background: transparent;
             }
             QLineEdit, QSpinBox, QDoubleSpinBox {
@@ -246,8 +267,9 @@ class SettingsWidget(QWidget):
                 color: #F8FAFC;
                 border: 1px solid #334155;
                 border-radius: 10px;
-                padding: 10px 16px;
-                font-size: 14px;
+                padding: 12px 16px;
+                font-size: 16px;
+                min-height: 30px;
             }
             QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
                 border: 2px solid #38BDF8;
@@ -292,11 +314,18 @@ class SettingsWidget(QWidget):
         from ui.styles import apply_touch_combo_style, apply_touch_checkbox_style, apply_touch_spinbox_style
         from PyQt5.QtWidgets import QCheckBox
         for combo in self.findChildren(QComboBox):
-            apply_touch_combo_style(combo, item_height=48)
+            combo.setMinimumHeight(56)
+            apply_touch_combo_style(combo, item_height=60)
         for chk in self.findChildren(QCheckBox):
             apply_touch_checkbox_style(chk)
         for spin in self.findChildren((QSpinBox, QDoubleSpinBox)):
+            spin.setMinimumHeight(56)
             apply_touch_spinbox_style(spin)
+        for text_input in self.findChildren(QLineEdit):
+            text_input.setMinimumHeight(56)
+        for action_btn in self.findChildren(QPushButton):
+            if action_btn not in self.nav_buttons:
+                action_btn.setMinimumHeight(max(action_btn.minimumHeight(), 54))
 
         self._disable_wheel_events()
 
@@ -350,11 +379,7 @@ class SettingsWidget(QWidget):
         grid.addWidget(self.cmb_scale_port, 1, 1)
 
         self.btn_refresh_scale_ports = QPushButton(u"🔄 扫描COM端口")
-        self.btn_refresh_scale_ports.setCursor(Qt.PointingHandCursor)
-        self.btn_refresh_scale_ports.setStyleSheet("""
-            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
-            QPushButton:hover { background: #38BDF8; color: #0F172A; }
-        """)
+        self._style_touch_action_btn(self.btn_refresh_scale_ports)
         self.btn_refresh_scale_ports.clicked.connect(lambda: self._refresh_scale_com_ports(show_toast=True))
         grid.addWidget(self.btn_refresh_scale_ports, 1, 2)
 
@@ -369,49 +394,31 @@ class SettingsWidget(QWidget):
         # 提示信息
         self.lbl_scale_hint = QLabel("")
         self.lbl_scale_hint.setWordWrap(True)
-        self.lbl_scale_hint.setStyleSheet("color: #94A3B8; font-size: 13px; padding: 10px 14px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
+        self.lbl_scale_hint.setStyleSheet("color: #CBD5E1; font-size: 15px; padding: 14px 16px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
         grid.addWidget(self.lbl_scale_hint, 3, 0, 1, 3)
 
         layout.addLayout(grid)
 
-        btn_box = QHBoxLayout()
-        btn_box.setSpacing(12)
+        btn_box = QGridLayout()
+        btn_box.setHorizontalSpacing(12)
+        btn_box.setVerticalSpacing(12)
+        btn_box.setColumnStretch(0, 1)
+        btn_box.setColumnStretch(1, 1)
 
         self.btn_test_scale_com = QPushButton(u"⚡ 测试串口连接")
-        self.btn_test_scale_com.setCursor(Qt.PointingHandCursor)
-        self.btn_test_scale_com.setStyleSheet("""
-            QPushButton {
-                background-color: #0284C7;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #0369A1;
-            }
-        """)
+        self._style_touch_action_btn(self.btn_test_scale_com, "blue")
         self.btn_test_scale_com.clicked.connect(self._test_selected_scale_source)
-        btn_box.addWidget(self.btn_test_scale_com)
+        btn_box.addWidget(self.btn_test_scale_com, 0, 0)
 
         self.btn_go_scale_bridge = QPushButton(u"前往 POS 称桥接")
-        self.btn_go_scale_bridge.setCursor(Qt.PointingHandCursor)
-        self.btn_go_scale_bridge.setStyleSheet(
-            "QPushButton { background: #7C3AED; color: white; border: none; border-radius: 8px; "
-            "padding: 10px 20px; font-weight: bold; font-size: 14px; }"
-            "QPushButton:hover { background: #6D28D9; }"
-        )
+        self._style_touch_action_btn(self.btn_go_scale_bridge, "purple")
         self.btn_go_scale_bridge.clicked.connect(lambda: self._open_settings_page(1))
-        btn_box.addWidget(self.btn_go_scale_bridge)
-
-        btn_box.addStretch()
+        btn_box.addWidget(self.btn_go_scale_bridge, 0, 1)
 
         btn_save_scale = QPushButton(u"💾 保存称重设置")
         self._style_save_btn(btn_save_scale)
         btn_save_scale.clicked.connect(self._on_save_scale)
-        btn_box.addWidget(btn_save_scale)
+        btn_box.addWidget(btn_save_scale, 1, 0, 1, 2)
 
         layout.addLayout(btn_box)
 
@@ -437,7 +444,7 @@ class SettingsWidget(QWidget):
         overview.setWordWrap(True)
         overview.setStyleSheet(
             "color: #E0F2FE; background: #0C4A6E; border: 1px solid #0284C7; "
-            "border-radius: 10px; padding: 14px; font-size: 14px;"
+            "border-radius: 12px; padding: 16px; font-size: 16px;"
         )
         layout.addWidget(overview)
 
@@ -445,7 +452,7 @@ class SettingsWidget(QWidget):
         self.lbl_scale_bridge_overall_status.setWordWrap(True)
         self.lbl_scale_bridge_overall_status.setStyleSheet(
             "color: #FDE68A; background: #422006; border: 1px solid #A16207; "
-            "border-radius: 10px; padding: 12px 14px; font-size: 14px; font-weight: bold;"
+            "border-radius: 12px; padding: 14px 16px; font-size: 16px; font-weight: bold;"
         )
         layout.addWidget(self.lbl_scale_bridge_overall_status)
 
@@ -457,14 +464,14 @@ class SettingsWidget(QWidget):
                 "QLabel { border: none; background: transparent; }"
             )
             panel_layout = QVBoxLayout(panel)
-            panel_layout.setContentsMargins(16, 14, 16, 14)
-            panel_layout.setSpacing(10)
+            panel_layout.setContentsMargins(18, 16, 18, 16)
+            panel_layout.setSpacing(12)
             title_label = QLabel(u"步骤 %s　%s" % (number, title))
-            title_label.setStyleSheet("font-size: 16px; color: #60A5FA; font-weight: 900;")
+            title_label.setStyleSheet("font-size: 18px; color: #60A5FA; font-weight: 900;")
             panel_layout.addWidget(title_label)
             description_label = QLabel(description)
             description_label.setWordWrap(True)
-            description_label.setStyleSheet("color: #CBD5E1; font-size: 13px;")
+            description_label.setStyleSheet("color: #CBD5E1; font-size: 15px;")
             panel_layout.addWidget(description_label)
             return panel, panel_layout
 
@@ -474,18 +481,23 @@ class SettingsWidget(QWidget):
             u"选择并测试物理电子秤",
             u"先关闭可能占用真实串口的软件。点击识别后选择 DIBAL ACS-G315，再测试到出现实时重量。",
         )
-        physical_row = QHBoxLayout()
-        physical_row.addWidget(self._make_label(u"物理秤端口："))
+        physical_grid = QGridLayout()
+        physical_grid.setHorizontalSpacing(12)
+        physical_grid.setVerticalSpacing(12)
+        physical_grid.setColumnStretch(0, 1)
+        physical_grid.addWidget(self._make_label(u"物理秤端口："), 0, 0)
         self.cmb_bridge_physical_port = QComboBox()
         self.cmb_bridge_physical_port.setEditable(True)
-        physical_row.addWidget(self.cmb_bridge_physical_port, stretch=1)
+        physical_grid.addWidget(self.cmb_bridge_physical_port, 1, 0)
         self.btn_refresh_bridge_devices = QPushButton(u"① 识别物理设备")
+        self._style_touch_action_btn(self.btn_refresh_bridge_devices, "blue")
         self.btn_refresh_bridge_devices.clicked.connect(self._refresh_scale_bridge_devices)
-        physical_row.addWidget(self.btn_refresh_bridge_devices)
+        physical_grid.addWidget(self.btn_refresh_bridge_devices, 2, 0)
         self.btn_test_bridge_physical = QPushButton(u"② 测试物理秤")
+        self._style_touch_action_btn(self.btn_test_bridge_physical, "purple")
         self.btn_test_bridge_physical.clicked.connect(self._test_scale_bridge_physical)
-        physical_row.addWidget(self.btn_test_bridge_physical)
-        step1_layout.addLayout(physical_row)
+        physical_grid.addWidget(self.btn_test_bridge_physical, 3, 0)
+        step1_layout.addLayout(physical_grid)
         layout.addWidget(step1)
 
         # Step 2: only the two POS-facing endpoints are operator choices.
@@ -515,8 +527,9 @@ class SettingsWidget(QWidget):
         self.txt_bridge_private_peer.hide()
         step2_layout.addLayout(port_grid)
         self.btn_save_scale_bridge = QPushButton(u"可选：保存草稿，稍后继续（不会创建端口）")
+        self._style_touch_action_btn(self.btn_save_scale_bridge)
         self.btn_save_scale_bridge.clicked.connect(self._save_scale_bridge_config)
-        step2_layout.addWidget(self.btn_save_scale_bridge, alignment=Qt.AlignRight)
+        step2_layout.addWidget(self.btn_save_scale_bridge)
         layout.addWidget(step2)
 
         # Step 3: one explicit button performs the complete idempotent setup.
@@ -532,7 +545,7 @@ class SettingsWidget(QWidget):
         self.lbl_scale_bridge_config = QLabel("")
         self.lbl_scale_bridge_config.setWordWrap(True)
         self.lbl_scale_bridge_config.setStyleSheet(
-            "color: #BFDBFE; font-size: 12px; padding: 8px 10px; background: #0F172A; border-radius: 8px;"
+            "color: #BFDBFE; font-size: 14px; padding: 12px 14px; background: #0F172A; border-radius: 8px;"
         )
         step3_layout.addWidget(self.lbl_scale_bridge_config)
         layout.addWidget(step3)
@@ -544,18 +557,24 @@ class SettingsWidget(QWidget):
             u"先检查服务与配对，再分别关闭占用对应端口的 POS，测试官方通道和本 POS 通道。四项都通过才算完成。",
         )
         check_grid = QGridLayout()
+        check_grid.setHorizontalSpacing(12)
+        check_grid.setVerticalSpacing(12)
         self.btn_scale_bridge_status = QPushButton(u"④-1 查看服务状态")
+        self._style_touch_action_btn(self.btn_scale_bridge_status)
         self.btn_scale_bridge_status.clicked.connect(self._show_scale_bridge_status)
         check_grid.addWidget(self.btn_scale_bridge_status, 0, 0)
         self.btn_check_scale_bridge_pairs = QPushButton(u"④-2 检查两组端口配对")
+        self._style_touch_action_btn(self.btn_check_scale_bridge_pairs)
         self.btn_check_scale_bridge_pairs.clicked.connect(self._check_scale_bridge_pairs)
         check_grid.addWidget(self.btn_check_scale_bridge_pairs, 0, 1)
         self.btn_test_official_scale_channel = QPushButton(u"④-3 测试官方 POS 秤通道")
+        self._style_touch_action_btn(self.btn_test_official_scale_channel, "blue")
         self.btn_test_official_scale_channel.clicked.connect(
             lambda _checked=False: self._test_scale_bridge_channel("official")
         )
         check_grid.addWidget(self.btn_test_official_scale_channel, 1, 0)
         self.btn_test_private_scale_channel = QPushButton(u"④-4 测试本 POS 秤通道")
+        self._style_touch_action_btn(self.btn_test_private_scale_channel, "blue")
         self.btn_test_private_scale_channel.clicked.connect(
             lambda _checked=False: self._test_scale_bridge_channel("private")
         )
@@ -574,24 +593,27 @@ class SettingsWidget(QWidget):
         )
         maintenance_layout = QVBoxLayout(maintenance)
         maintenance_title = QLabel(u"维护操作（正常首次安装不需要使用）")
-        maintenance_title.setStyleSheet("color: #94A3B8; font-weight: bold; border: none;")
+        maintenance_title.setStyleSheet("color: #CBD5E1; font-size: 16px; font-weight: bold; border: none;")
         maintenance_layout.addWidget(maintenance_title)
-        maintenance_buttons = QHBoxLayout()
+        maintenance_buttons = QGridLayout()
+        maintenance_buttons.setHorizontalSpacing(12)
+        maintenance_buttons.setVerticalSpacing(12)
         self.btn_start_scale_bridge = QPushButton(u"启动服务")
+        self._style_touch_action_btn(self.btn_start_scale_bridge)
         self.btn_start_scale_bridge.clicked.connect(self._start_scale_bridge_service)
-        maintenance_buttons.addWidget(self.btn_start_scale_bridge)
+        maintenance_buttons.addWidget(self.btn_start_scale_bridge, 0, 0)
         self.btn_stop_scale_bridge = QPushButton(u"停止服务")
+        self._style_touch_action_btn(self.btn_stop_scale_bridge)
         self.btn_stop_scale_bridge.clicked.connect(self._stop_scale_bridge_service)
-        maintenance_buttons.addWidget(self.btn_stop_scale_bridge)
+        maintenance_buttons.addWidget(self.btn_stop_scale_bridge, 0, 1)
         self.btn_export_scale_bridge_diagnostics = QPushButton(u"生成诊断报告")
+        self._style_touch_action_btn(self.btn_export_scale_bridge_diagnostics)
         self.btn_export_scale_bridge_diagnostics.clicked.connect(self._export_scale_bridge_diagnostics)
-        maintenance_buttons.addWidget(self.btn_export_scale_bridge_diagnostics)
+        maintenance_buttons.addWidget(self.btn_export_scale_bridge_diagnostics, 1, 0)
         self.btn_remove_scale_bridge = QPushButton(u"删除 POS 称桥接")
-        self.btn_remove_scale_bridge.setStyleSheet(
-            "QPushButton { background: #7F1D1D; color: #FEE2E2; border-radius: 8px; padding: 10px 14px; }"
-        )
+        self._style_touch_action_btn(self.btn_remove_scale_bridge, "danger")
         self.btn_remove_scale_bridge.clicked.connect(self._remove_scale_bridge)
-        maintenance_buttons.addWidget(self.btn_remove_scale_bridge)
+        maintenance_buttons.addWidget(self.btn_remove_scale_bridge, 1, 1)
         maintenance_layout.addLayout(maintenance_buttons)
         layout.addWidget(maintenance)
 
@@ -782,11 +804,13 @@ class SettingsWidget(QWidget):
         intro.setWordWrap(True)
         intro.setStyleSheet(
             "color: #E0F2FE; background: #0C4A6E; border: 1px solid #0284C7; "
-            "border-radius: 10px; padding: 14px; font-size: 14px;"
+            "border-radius: 12px; padding: 16px; font-size: 16px;"
         )
         layout.addWidget(intro)
 
-        layout.addWidget(QLabel(u"步骤 1　选择连接方式并填写两端参数"))
+        sqb_step1_title = QLabel(u"步骤 1　选择连接方式并填写两端参数")
+        sqb_step1_title.setStyleSheet("font-size: 18px; color: #5EEAD4; font-weight: 900;")
+        layout.addWidget(sqb_step1_title)
 
         self.sqb_connection_panel = QFrame()
         self.sqb_connection_panel.setStyleSheet(
@@ -794,9 +818,10 @@ class SettingsWidget(QWidget):
             "QLabel { border: none; background: transparent; }"
         )
         connection_layout = QVBoxLayout(self.sqb_connection_panel)
-        connection_layout.setContentsMargins(16, 14, 16, 14)
+        connection_layout.setContentsMargins(18, 16, 18, 16)
         grid = QGridLayout()
-        grid.setSpacing(18)
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(14)
         grid.setColumnStretch(0, 0)
         grid.setColumnStretch(1, 1)
 
@@ -822,11 +847,7 @@ class SettingsWidget(QWidget):
         grid.addWidget(self.cmb_sqb_port, 2, 1)
 
         self.btn_refresh_sqb_ports = QPushButton(u"扫描现场已有 COM")
-        self.btn_refresh_sqb_ports.setCursor(Qt.PointingHandCursor)
-        self.btn_refresh_sqb_ports.setStyleSheet("""
-            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
-            QPushButton:hover { background: #38BDF8; color: #0F172A; }
-        """)
+        self._style_touch_action_btn(self.btn_refresh_sqb_ports)
         self.btn_refresh_sqb_ports.clicked.connect(lambda: self._refresh_com_ports(show_toast=True))
         grid.addWidget(self.btn_refresh_sqb_ports, 2, 2)
 
@@ -856,27 +877,26 @@ class SettingsWidget(QWidget):
 
         grid.addWidget(self._make_label(u"唤起快捷键："), 6, 0)
         
-        hk_box = QHBoxLayout()
+        hk_box = QVBoxLayout()
+        hk_box.setSpacing(10)
         self.txt_sqb_hotkey = HotKeyRecorderEdit()
         cur_hk = str(self.config.get("shouqianba_hotkey", "Shift+Q"))
         self.txt_sqb_hotkey.setText(cur_hk)
-        hk_box.addWidget(self.txt_sqb_hotkey, stretch=2)
+        hk_box.addWidget(self.txt_sqb_hotkey)
 
         # 快速预设按钮
         self.sqb_hotkey_preset_buttons = []
+        hotkey_presets = QGridLayout()
+        hotkey_presets.setHorizontalSpacing(10)
+        hotkey_presets.setVerticalSpacing(10)
         for hk_item in ["Shift+Q", "F12", "Ctrl+F12", "Alt+S"]:
             btn_hk = QPushButton(hk_item)
-            btn_hk.setCursor(Qt.PointingHandCursor)
-            btn_hk.setStyleSheet("""
-                QPushButton {
-                    background: #334155; color: #F8FAFC; border: 1px solid #475569;
-                    border-radius: 8px; padding: 8px 14px; font-weight: bold;
-                }
-                QPushButton:hover { background: #38BDF8; color: #0F172A; }
-            """)
+            self._style_touch_action_btn(btn_hk)
             btn_hk.clicked.connect(lambda chk, t=hk_item: self.txt_sqb_hotkey.setText(t))
             self.sqb_hotkey_preset_buttons.append(btn_hk)
-            hk_box.addWidget(btn_hk)
+            index = len(self.sqb_hotkey_preset_buttons) - 1
+            hotkey_presets.addWidget(btn_hk, index // 2, index % 2)
+        hk_box.addLayout(hotkey_presets)
 
         grid.addLayout(hk_box, 6, 1, 1, 2)
         connection_layout.addLayout(grid)
@@ -885,7 +905,7 @@ class SettingsWidget(QWidget):
         btn_save_sqb = QPushButton(u"① 保存收钱吧设置")
         self._style_save_btn(btn_save_sqb)
         btn_save_sqb.clicked.connect(self._on_save_sqb)
-        layout.addWidget(btn_save_sqb, alignment=Qt.AlignRight)
+        layout.addWidget(btn_save_sqb)
 
         payment_panel = QFrame()
         payment_panel.setObjectName("PaymentPairPanel")
@@ -898,27 +918,33 @@ class SettingsWidget(QWidget):
             QFrame#PaymentPairPanel QLabel { border: none; background: transparent; }
         """)
         payment_layout = QVBoxLayout(payment_panel)
-        payment_layout.setContentsMargins(16, 14, 16, 14)
-        payment_layout.setSpacing(10)
+        payment_layout.setContentsMargins(18, 16, 18, 16)
+        payment_layout.setSpacing(12)
         payment_title = QLabel(u"步骤 2　创建或检查虚拟串口配对")
-        payment_title.setStyleSheet("color: #5EEAD4; font-size: 16px; font-weight: 900;")
+        payment_title.setStyleSheet("color: #5EEAD4; font-size: 18px; font-weight: 900;")
         payment_layout.addWidget(payment_title)
         self.lbl_sqb_pair_guidance = QLabel("")
         self.lbl_sqb_pair_guidance.setWordWrap(True)
-        self.lbl_sqb_pair_guidance.setStyleSheet("color: #CBD5E1; font-size: 13px;")
+        self.lbl_sqb_pair_guidance.setStyleSheet("color: #CBD5E1; font-size: 15px;")
         payment_layout.addWidget(self.lbl_sqb_pair_guidance)
 
         payment_buttons = QGridLayout()
+        payment_buttons.setHorizontalSpacing(12)
+        payment_buttons.setVerticalSpacing(12)
         self.btn_initialize_payment_pair = QPushButton(u"② 创建 / 修复虚拟串口")
+        self._style_touch_action_btn(self.btn_initialize_payment_pair, "purple")
         self.btn_initialize_payment_pair.clicked.connect(self._initialize_payment_pair)
         payment_buttons.addWidget(self.btn_initialize_payment_pair, 0, 0)
         self.btn_check_payment_pair = QPushButton(u"③ 检查这两个端口是否成对")
+        self._style_touch_action_btn(self.btn_check_payment_pair, "blue")
         self.btn_check_payment_pair.clicked.connect(self._check_payment_pair)
         payment_buttons.addWidget(self.btn_check_payment_pair, 0, 1)
         self.btn_test_payment_pair = QPushButton(u"④ 关闭两端软件后双向测试")
+        self._style_touch_action_btn(self.btn_test_payment_pair, "blue")
         self.btn_test_payment_pair.clicked.connect(self._test_scale_bridge_payment_pair)
         payment_buttons.addWidget(self.btn_test_payment_pair, 1, 0)
         self.btn_remove_payment_pair = QPushButton(u"删除本系统创建的收钱吧配对")
+        self._style_touch_action_btn(self.btn_remove_payment_pair, "danger")
         self.btn_remove_payment_pair.clicked.connect(self._remove_payment_pair)
         payment_buttons.addWidget(self.btn_remove_payment_pair, 1, 1)
         payment_layout.addLayout(payment_buttons)
@@ -931,7 +957,7 @@ class SettingsWidget(QWidget):
         )
         tip_layout = QVBoxLayout(tip_frame)
         lbl_tip_title = QLabel(u"步骤 3　到收钱吧 PC 助手中完成对应设置")
-        lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 15px; font-weight: 900;")
+        lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 18px; font-weight: 900;")
         tip_layout.addWidget(lbl_tip_title)
         for tip in [
             u"• 【获取金额】选择上方填写的“收钱吧插件接收端”，不要选择本 POS 发送端。",
@@ -940,7 +966,7 @@ class SettingsWidget(QWidget):
         ]:
             label = QLabel(tip)
             label.setWordWrap(True)
-            label.setStyleSheet("color: #E2E8F0; font-size: 13px;")
+            label.setStyleSheet("color: #E2E8F0; font-size: 15px;")
             tip_layout.addWidget(label)
         layout.addWidget(tip_frame)
 

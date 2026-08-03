@@ -82,6 +82,20 @@ class SettingsWorkflowTests(unittest.TestCase):
         self.assertFalse(widget.cmb_sqb_port.isEnabled())
         self.assertFalse(widget.btn_check_payment_pair.isEnabled())
 
+    def test_settings_use_large_touch_targets(self):
+        widget = self._create_widget()
+        self.addCleanup(widget.deleteLater)
+
+        self.assertTrue(all(button.minimumHeight() >= 56 for button in widget.nav_buttons))
+        self.assertGreaterEqual(widget.cmb_scale_source.minimumHeight(), 56)
+        self.assertGreaterEqual(widget.cmb_sqb_port.minimumHeight(), 56)
+        self.assertGreaterEqual(widget.txt_sqb_payment_peer.minimumHeight(), 56)
+        self.assertGreaterEqual(widget.btn_initialize_scale_bridge.minimumHeight(), 60)
+        self.assertGreaterEqual(widget.btn_test_payment_pair.minimumHeight(), 56)
+        self.assertTrue(
+            all(button.minimumHeight() >= 54 for button in widget.sqb_hotkey_preset_buttons)
+        )
+
     def test_login_official_mode_does_not_probe_an_unrelated_com(self):
         config = dict(DEFAULT_CONFIG)
         config["scale_source"] = "official"
