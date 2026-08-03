@@ -274,6 +274,7 @@ class ReportWidget(QWidget):
 
     def _load_data(self):
         stats = self.db.get_stats_by_date(self.start_date_str, self.end_date_str)
+        refunds = self.db.get_refund_stats_by_date(self.start_date_str, self.end_date_str)
         count = stats.get("count", 0)
         a_sum = stats.get("amount_sum", 0.0)
         avg = a_sum / count if count > 0 else 0.0
@@ -281,6 +282,8 @@ class ReportWidget(QWidget):
         self.lbl_rev.setText("¥ %.2f" % a_sum)
         self.lbl_cnt.setText("%d" % count)
         self.lbl_avg.setText("¥ %.2f" % avg)
+        self.lbl_ref_amt.setText("¥ %.2f" % refunds.get("amount_sum", 0.0))
+        self.lbl_ref_cnt.setText("%d" % refunds.get("count", 0))
         self.lbl_pay_total.setText("¥ %.2f" % a_sum)
 
         # 结账方式明细
@@ -301,6 +304,9 @@ class ReportWidget(QWidget):
 
     def _on_print_click(self):
         stats = self.db.get_stats_by_date(self.start_date_str, self.end_date_str)
+        refunds = self.db.get_refund_stats_by_date(self.start_date_str, self.end_date_str)
+        stats["refund_amount_sum"] = refunds.get("amount_sum", 0.0)
+        stats["refund_count"] = refunds.get("count", 0)
         stats["date_str"] = self.start_date_str if self.start_date_str == self.end_date_str else f"{self.start_date_str} to {self.end_date_str}"
         if self.printer:
             if hasattr(self.printer, "print_shift_report"):

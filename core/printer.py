@@ -309,8 +309,8 @@ class ReceiptPrinter:
         d += fmt_lr_48("营业收入：", "¥ %.2f" % rev_amt).encode("gbk", errors="ignore") + b"\n"
         d += fmt_lr_48("订单数量：", "%d" % count).encode("gbk", errors="ignore") + b"\n"
         d += fmt_lr_48("客单价：", "¥ %.2f" % avg).encode("gbk", errors="ignore") + b"\n"
-        d += fmt_lr_48("退单金额：", "¥ 0.00").encode("gbk", errors="ignore") + b"\n"
-        d += fmt_lr_48("退单数量：", "0").encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("退款金额：", "¥ %.2f" % report_data.get("refund_amount_sum", 0.0)).encode("gbk", errors="ignore") + b"\n"
+        d += fmt_lr_48("退款数量：", "%d" % report_data.get("refund_count", 0)).encode("gbk", errors="ignore") + b"\n"
 
         # 4. 收入明细 (总结)
         d += self.BOLD_ON

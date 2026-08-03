@@ -3,21 +3,24 @@
 PyQt5 + Python 3.8 兼容
 """
 import random
+import time
+import uuid
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
     QScrollArea, QDialog
 )
-from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
 
 from core.calculator import calculate_price, weight_display, price_unit_label
 from core.database import Database
 from core.printer import ReceiptPrinter
 from core.scale_reader import ScaleReader
 from core.call_number_manager import CallNumberManager
+from core.order_draft import clear_draft, load_draft, save_draft
 from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
-from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER
+from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER, CAT_SYSTEM
 
 
 class TasteSelectionDialog(QDialog):
@@ -551,6 +554,9 @@ class SaleWidget(QWidget):
         self.current_weight = 0.0
         self._stable_weight = 0.0
         self._is_stable = False
+        self._scale_connected = False
+        self._last_weight_monotonic = 0.0
+        self._checkout_active = False
         
         # 购物车项目列表与选中项目索引与分页状态
         self.cart_items = []
@@ -559,13 +565,51 @@ class SaleWidget(QWidget):
         self.menu_buttons = {}
 
         self.temp_order_no = self._gen_temp_order_no()
+        self.current_order_id = uuid.uuid4().hex
         self._detail_expanded = False
         self._resize_timer = None
         self._cart_dirty = True
+        self._draft_signature = ""
+        self._draft_timer = QTimer(self)
+        self._draft_timer.setSingleShot(True)
+        self._draft_timer.timeout.connect(self._save_draft_now)
 
         self._build_ui()
+        self._restore_draft()
         self._setup_scale()
         self.refresh_call_number_display()
+
+    def _restore_draft(self):
+        """Restore an unfinished basket after an abnormal POS exit."""
+        draft = load_draft()
+        if not draft or not draft.get("cart_items"):
+            return
+        self.cart_items = draft["cart_items"]
+        self.temp_order_no = draft.get("temp_order_no") or self._gen_temp_order_no()
+        self.current_order_id = draft.get("order_id") or uuid.uuid4().hex
+        self.selected_item_index = len(self.cart_items) - 1
+        for item in self.cart_items:
+            btn = self.menu_buttons.get(item.get("key_id"))
+            if btn:
+                btn.set_count(btn.count + max(1, int(item.get("qty", 1))))
+        self._auto_focus_requested = True
+        self._update_price_display()
+        QTimer.singleShot(350, lambda: self._show_toast(u"已恢复上次未结账订单，请核对后再收款"))
+
+    def _schedule_draft_save(self):
+        """Coalesce frequent touch edits into one atomic draft write."""
+        self._draft_timer.start(250)
+
+    def _save_draft_now(self):
+        try:
+            import json
+            signature = json.dumps(self.cart_items, ensure_ascii=False, sort_keys=True)
+            if signature == self._draft_signature:
+                return
+            self._draft_signature = signature
+            save_draft(self.current_order_id, self.temp_order_no, self.cart_items)
+        except Exception as exc:
+            log_event(CAT_SYSTEM, "订单草稿保存失败", str(exc))
 
     def update_theme(self, is_dark_mode: bool):
         """响应主题切换事件"""
@@ -1035,6 +1079,13 @@ class SaleWidget(QWidget):
             if self.current_weight <= 0.0005:
                 show_warning(self, u"请先称重", u"当前电子秤读数为 0.000 kg，请先将麻辣烫放置在电子秤上！")
                 return
+            if not self.config.get("is_mock_mode", False):
+                if not self._scale_connected or time.monotonic() - self._last_weight_monotonic > 2.0:
+                    show_warning(self, u"称重读数不可用", u"电子秤读数已断开或超过 2 秒未更新。请确认电子秤连接正常后重新称重。")
+                    return
+                if not self._is_stable:
+                    show_warning(self, u"请等待稳定", u"电子秤读数正在变化，请等待绿色稳定标记出现后再加入汤底。")
+                    return
 
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
@@ -1052,6 +1103,7 @@ class SaleWidget(QWidget):
                 "name": soup_clean_name,
                 "tag": "" if skip_flavor_popup else dlg.get_tag_string(),
                 "weight": w,
+                "weight_captured_at": datetime.now().isoformat(timespec="seconds"),
                 "base_price": b_price,
                 "price": b_price,
                 "unit_price": soup_unit_price,
@@ -1422,6 +1474,7 @@ class SaleWidget(QWidget):
 
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
         self.lbl_price.setText(u"￥%.2f" % total_price)
+        self._schedule_draft_save()
 
     def _rebuild_cart_cards(self, start_idx, end_idx):
         """高效重建当前页购物车卡片"""
@@ -1520,6 +1573,7 @@ class SaleWidget(QWidget):
     @pyqtSlot(float)
     def _on_weight_update(self, weight_kg):
         self.current_weight = weight_kg
+        self._last_weight_monotonic = time.monotonic()
         self.lbl_weight.setText("%06.3f kg" % weight_kg)
 
         if abs(weight_kg - self._stable_weight) <= 0.005:
@@ -1536,6 +1590,7 @@ class SaleWidget(QWidget):
 
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
+        self._scale_connected = connected
         is_mock = self.config.get("is_mock_mode", False)
         if is_mock:
             self.lbl_scale_status_icon.hide()
@@ -1551,6 +1606,7 @@ class SaleWidget(QWidget):
                 self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"电子秤串口正常连通: %s" % msg)
         else:
+            self._is_stable = False
             self.lbl_scale_status_icon.setText(u"✕")
             self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"电子秤连接提示: %s" % msg)
@@ -1644,6 +1700,9 @@ class SaleWidget(QWidget):
 
     def _open_checkout_dialog(self, mode="OTHER", auto_method=None):
         """统一结账弹窗控制核心逻辑"""
+        if self._checkout_active:
+            self._show_toast(u"正在处理本笔订单，请勿重复结账")
+            return
         if not self.cart_items:
             show_warning(self, u"提示", u"没有加入任何东西，<span style='font-size: 22px; font-weight: 900; color: #EF4444;'>0元</span> 无法结账")
             return
@@ -1675,12 +1734,13 @@ class SaleWidget(QWidget):
             for item in self.cart_items
         )
 
+        order_weight = round(sum(float(item.get("weight", 0.0)) for item in self.cart_items if item.get("type") == "soup"), 3)
         sale_data = {
             "shop_name": self.config.get("shop_name", u"杨国福麻辣烫"),
             "shop_subtitle": self.config.get("shop_subtitle", ""),
             "call_no": call_no_str,
             "cart_items": list(self.cart_items),
-            "weight_kg": self.current_weight,
+            "weight_kg": order_weight,
             "unit_price": unit_price,
             "price_unit": price_unit,
             "total_price": total_price,
@@ -1692,21 +1752,34 @@ class SaleWidget(QWidget):
         from ui.checkout_dialog import CheckoutDialog
 
         def handle_payment(payment_method):
+            import json
+            existing = self.db.get_sale_by_order_id(self.current_order_id)
+            if existing:
+                log_event(CAT_ORDER, "拦截重复结账", "订单标识: %s" % self.current_order_id)
+                self._on_clear()
+                return True
+
             actual_num = self.call_mgr.get_next_number()
             sale_data["call_no"] = "%02d" % actual_num
-
-            import json
             cart_items_json = json.dumps(sale_data["cart_items"], ensure_ascii=False)
-
-            record = self.db.insert_sale(
-                weight_kg=self.current_weight,
-                unit_price=unit_price,
-                price_unit=price_unit,
-                total_price=total_price,
-                remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary),
-                cart_items_json=cart_items_json,
-                payment_method=payment_method
-            )
+            try:
+                record, created = self.db.insert_sale(
+                    weight_kg=order_weight,
+                    unit_price=unit_price,
+                    price_unit=price_unit,
+                    total_price=total_price,
+                    remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary),
+                    cart_items_json=cart_items_json,
+                    payment_method=payment_method,
+                    order_id=self.current_order_id,
+                )
+            except Exception as exc:
+                log_event(CAT_ORDER, "订单入库失败", str(exc))
+                show_warning(self, u"订单未完成", u"本地账本写入失败，订单未清空。请检查磁盘和数据库后重试。\n%s" % exc)
+                return False
+            if not created:
+                self._on_clear()
+                return True
             log_event(CAT_ORDER, f"订单成交入库: 叫号#{sale_data['call_no']}", f"支付方式: {payment_method} | 实付: ¥{total_price:.2f} | 明细: {items_summary}")
 
             full_sale = dict(record)
@@ -1720,10 +1793,12 @@ class SaleWidget(QWidget):
                 success = False
                 self.printer.last_error = str(e)
 
+            self.db.mark_print_result(record["id"], success, getattr(self.printer, "last_error", ""))
+            self._on_clear()
+            self.refresh_call_number_display()
+
             if success:
                 log_event(CAT_PRINT, f"小票驱动出票成功: 叫号#{sale_data['call_no']}", f"出票完成，启动 3 秒全自动退场倒计时")
-                self._on_clear()
-                self.refresh_call_number_display()
                 parent_mw = self.window()
                 if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
                     parent_mw.switch_controller.on_receipt_printed()
@@ -1738,6 +1813,7 @@ class SaleWidget(QWidget):
                     u"请检查打印机驱动名称与物理硬件连接！\n"
                     u"（注：本次消费记录已安全存入本地数据库，不会丢单）"
                 )
+            return True
 
         if mode == "SCAN_CODE":
             try:
@@ -1746,8 +1822,12 @@ class SaleWidget(QWidget):
             except Exception as e:
                 print(f"[SaleWidget] 唤起收钱吧金额失败: {e}")
 
-        dlg = CheckoutDialog(sale_data, on_payment_callback=handle_payment, parent=self, mode=mode)
-        dlg.exec_()
+        self._checkout_active = True
+        try:
+            dlg = CheckoutDialog(sale_data, on_payment_callback=handle_payment, parent=self, mode=mode)
+            dlg.exec_()
+        finally:
+            self._checkout_active = False
 
     def _on_cash_checkout(self):
         """去现金结账"""
@@ -1760,6 +1840,9 @@ class SaleWidget(QWidget):
         for b in self.menu_buttons.values():
             b.set_count(0)
         self.temp_order_no = self._gen_temp_order_no()
+        self.current_order_id = uuid.uuid4().hex
+        self._draft_signature = ""
+        clear_draft()
         self._update_price_display()
         
         # 清空购物车时，重置所有自动切换锁，允许即刻重新评估下一碗

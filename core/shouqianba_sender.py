@@ -42,11 +42,16 @@ for i in range(10):
     VK_MAPPING[str(i)] = 0x30 + i
 
 
-def _find_shouqianba_hwnd():
-    """查找收钱吧主窗口句柄 (支持进程名 + 窗口标题多维精准识别)"""
+def _find_shouqianba_hwnds():
+    """Return only top-level windows that belong to the 收钱吧 process.
+
+    Payment completion must never inspect unrelated programs.  收钱吧 has no
+    callback API in this deployment, so its own window identity is the first
+    guard before the colour detector is allowed to run.
+    """
     try:
         user32 = ctypes.windll.user32
-        target_hwnd = [None]
+        target_hwnds = []
 
         # 1. 获取收钱吧相关进程 PID 集合 (bqsqq / shouqianba / sqb)
         sqb_pids = set()
@@ -59,7 +64,8 @@ def _find_shouqianba_hwnd():
         except Exception:
             pass
 
-        keywords = ["收款", "收钱吧", "PC收款", "收款助手", "Shouqianba", "bqsqq", "V4.", "V3."]
+        # Do not match a generic "收款" title; many POS and banking windows use it.
+        keywords = ["收钱吧", "PC收款", "收款助手", "Shouqianba", "bqsqq"]
 
         def foreach_window(hwnd, lParam):
             if user32.IsWindowVisible(hwnd):
@@ -68,8 +74,8 @@ def _find_shouqianba_hwnd():
                     pid = ctypes.c_ulong()
                     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                     if pid.value in sqb_pids:
-                        target_hwnd[0] = hwnd
-                        return False
+                        target_hwnds.append(hwnd)
+                        return True
 
                 # 文本标题匹配
                 length = user32.GetWindowTextLengthW(hwnd)
@@ -78,15 +84,20 @@ def _find_shouqianba_hwnd():
                     user32.GetWindowTextW(hwnd, buf, length + 1)
                     title = buf.value
                     if any(kw in title for kw in keywords):
-                        target_hwnd[0] = hwnd
-                        return False
+                        target_hwnds.append(hwnd)
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
-        return target_hwnd[0]
+        return target_hwnds
     except Exception:
-        return None
+        return []
+
+
+def _find_shouqianba_hwnd():
+    """Return the first identified 收钱吧 window for focus and barcode input."""
+    windows = _find_shouqianba_hwnds()
+    return windows[0] if windows else None
 
 
 def send_hotkey(hotkey_str: str):
@@ -96,10 +107,9 @@ def send_hotkey(hotkey_str: str):
     try:
         user32 = ctypes.windll.user32
         parts = [p.strip().upper() for p in hotkey_str.split("+") if p.strip()]
-        vk_codes = [VK_MAPPING[p] for p in parts if p in VK_MAPPING]
-
-        if not vk_codes:
+        if not parts or any(p not in VK_MAPPING for p in parts):
             return False
+        vk_codes = [VK_MAPPING[p] for p in parts]
 
         KEYEVENTF_KEYUP = 0x0002
 
@@ -129,6 +139,12 @@ def send_hotkey(hotkey_str: str):
     except Exception as e:
         logger.warning(f"发送快捷键 {hotkey_str} 异常: {e}")
         return False
+
+
+def is_supported_hotkey(hotkey_str: str) -> bool:
+    """Validate a stored hotkey without injecting it into the system."""
+    parts = [part.strip().upper() for part in str(hotkey_str or "").split("+") if part.strip()]
+    return bool(parts) and all(part in VK_MAPPING for part in parts)
 
 
 def get_available_com_ports():
@@ -361,6 +377,10 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
 
 def check_shouqianba_payment_success() -> bool:
     """双引擎侦测：Win32底层文本 + 视觉图像色彩精准识别【收钱吧 PC版 V4.0.4】支付成功弹窗"""
+    # 收钱吧是独立插件且没有回调；只信任已确认属于收钱吧进程的窗口色彩。
+    return get_sqb_overall_status() == "SUCCESS"
+
+    # Historical implementation retained below for compatibility reference only.
     import sys
     if sys.platform != "win32":
         return False
@@ -457,6 +477,8 @@ def check_shouqianba_payment_state() -> str:
     - "WAITING": 检测到收钱吧【付款中/等待扫码/付款码框】界面 (保持静默等待)
     - "CLOSED" : 收钱吧付款界面已关闭或未找到
     """
+    return get_sqb_overall_status()
+
     import sys
     if sys.platform != "win32":
         return "CLOSED"
@@ -543,11 +565,62 @@ def check_shouqianba_payment_state() -> str:
         return "CLOSED"
 
 
+def _analyze_sqb_window_colour_status(hwnd) -> str:
+    """Classify the known 收钱吧 window by its V4 visual colours only.
+
+    OCR is intentionally excluded: the deployed V4 client renders text in a
+    way that produces unreliable OCR.  Green must also appear in the lower
+    action area, which avoids treating a random green title bar as a payment.
+    """
+    try:
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance()
+        screen = QApplication.primaryScreen() if app else None
+        if not screen:
+            return "NONE"
+        pixmap = screen.grabWindow(hwnd)
+        if pixmap.isNull() or pixmap.width() < 120 or pixmap.height() < 120:
+            return "NONE"
+        qimg = pixmap.toImage()
+        w, h = qimg.width(), qimg.height()
+        header_h = max(20, int(h * 0.25))
+        green = blue = samples = 0
+        for x in range(10, max(11, w - 10), 6):
+            for y in range(10, max(11, header_h - 5), 6):
+                pixel = qimg.pixelColor(x, y)
+                r, g, b = pixel.red(), pixel.green(), pixel.blue()
+                samples += 1
+                if g > r + 30 and g > b + 30 and g > 100:
+                    green += 1
+                elif b > r + 30 and b > g + 30 and b > 100:
+                    blue += 1
+        if not samples:
+            return "NONE"
+        if green / samples > 0.30:
+            button_green = button_samples = 0
+            for x in range(int(w * 0.20), int(w * 0.80), 5):
+                for y in range(int(h * 0.62), max(int(h * 0.62) + 1, h - 8), 5):
+                    pixel = qimg.pixelColor(x, y)
+                    r, g, b = pixel.red(), pixel.green(), pixel.blue()
+                    button_samples += 1
+                    if g > r + 30 and g > b + 30 and g > 100:
+                        button_green += 1
+            if button_samples and button_green / button_samples > 0.04:
+                return "SUCCESS"
+        if blue / samples > 0.30:
+            return "WAITING"
+    except Exception as exc:
+        logger.warning("收钱吧颜色状态识别异常: %s", exc)
+    return "NONE"
+
+
 def _analyze_sqb_window_image_status(hwnd) -> str:
     """
     复用 RapidOCR + 宝蓝/亮绿顶栏色彩双引擎深度分类收钱吧窗口状态:
     返回 "SUCCESS" / "WAITING" / "NONE"
     """
+    return _analyze_sqb_window_colour_status(hwnd)
+
     try:
         from PyQt5.QtWidgets import QApplication
         app = QApplication.instance()
@@ -627,6 +700,16 @@ def get_sqb_overall_status() -> str:
     - "WAITING" : 付款码弹窗显示中 (蓝顶/付款文本)
     - "CLOSED"  : 无付款弹窗
     """
+    # Never enumerate all visible Windows windows here: only the verified
+    # 收钱吧 process/window is eligible for visual payment detection.
+    for hwnd in _find_shouqianba_hwnds():
+        result = _analyze_sqb_window_colour_status(hwnd)
+        if result == "SUCCESS":
+            return "SUCCESS"
+        if result == "WAITING":
+            return "WAITING"
+    return "CLOSED"
+
     import sys
     if sys.platform != "win32":
         return "CLOSED"

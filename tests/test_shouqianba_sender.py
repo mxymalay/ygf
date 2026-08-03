@@ -5,6 +5,13 @@ from pathlib import Path
 
 
 class ShouqianbaSenderImportTests(unittest.TestCase):
+    def test_hotkey_must_contain_only_supported_keys(self):
+        from core import shouqianba_sender as sender
+        # Avoid exercising Windows keyboard injection in a unit test; validate
+        # the supported vocabulary instead.
+        self.assertTrue(sender.is_supported_hotkey("Shift+Q"))
+        self.assertFalse(sender.is_supported_hotkey("Ctrl+BadKey"))
+
     def test_keyboard_dependency_is_optional(self):
         repo_root = Path(__file__).resolve().parents[1]
         script = r'''

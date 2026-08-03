@@ -11,8 +11,9 @@ from PyQt5.QtGui import QColor, QFont
 
 from utils.port_scanner import scan_printers
 from config import load_config
+from core.official_pos import find_active_official_log
 
-def check_ygf_official_running() -> bool:
+def check_ygf_official_running(config=None) -> bool:
     """检测官方收银系统主程序是否正在运行"""
     try:
         cmd = 'tasklist /NH /FO CSV'
@@ -26,18 +27,7 @@ def check_ygf_official_running() -> bool:
     except Exception:
         pass
 
-    serial_dir = r"C:\\YANGGUOFU-POS\\serial"
-    if os.path.exists(serial_dir):
-        try:
-            for fname in os.listdir(serial_dir):
-                if fname.startswith("log_serial_ports"):
-                    fp = os.path.join(serial_dir, fname)
-                    if os.path.isfile(fp) and (time.time() - os.path.getmtime(fp) < 5.0):
-                        return True
-        except Exception:
-            pass
-
-    return False
+    return find_active_official_log(config) is not None
 
 
 def check_dibal_scale_connection(config) -> bool:
@@ -421,7 +411,7 @@ class LoginWindow(QDialog):
         
     def _do_check_official_software(self):
         self.progress_bar.setValue(35)
-        official_running = check_ygf_official_running()
+        official_running = check_ygf_official_running(self.config)
         scale_source = self.config.get("scale_source", "official")
         # 官方模式只检查官方 POS，不应再打开一条与当前模式无关的旧 COM；
         # 直连或桥接模式才实际查询配置中的秤端口。

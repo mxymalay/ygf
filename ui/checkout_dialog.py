@@ -125,6 +125,10 @@ class CheckoutDialog(QDialog):
         self.config = config or (parent.config if parent and hasattr(parent, 'config') else {})
         self.mode = mode  # "OTHER" | "SCAN_CODE"
         self.selected_payment_method = ""
+        self._checkout_finalizing = False
+        self._checkout_completed = False
+        self._cancelled = False
+        self._payment_monitors = []
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
@@ -568,18 +572,27 @@ class CheckoutDialog(QDialog):
         from core.shouqianba_sender import get_sqb_overall_status
 
         monitoring_timer = QTimer(self)
-        monitoring_timer.setInterval(100)
+        self._payment_monitors.append(monitoring_timer)
+        monitoring_timer.setInterval(250)
         elapsed_ms = [0]
         window_ever_seen = [False]
         closed_count = [0]
+        success_hits = [0]
 
         def _check_status():
-            elapsed_ms[0] += 100
+            if self._cancelled or self._checkout_completed:
+                monitoring_timer.stop()
+                return
+            elapsed_ms[0] += 250
             
             sqb_status = get_sqb_overall_status()
 
             # 1. 优先检测【支付成功】
             if sqb_status == "SUCCESS":
+                # 收钱吧无回调，颜色信号至少连续命中两次才作为自动入账依据。
+                success_hits[0] += 1
+                if success_hits[0] < 2:
+                    return
                 monitoring_timer.stop()
                 print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
                 if hasattr(self, 'status_widget') and self.status_widget:
@@ -588,6 +601,7 @@ class CheckoutDialog(QDialog):
                     self.lbl_sqb_desc.setText(u"🎉 支付成功！已自动完成出票")
                 QTimer.singleShot(600, lambda: self._complete_checkout(method))
                 return
+            success_hits[0] = 0
 
             # 2. 识别到正处于【付款界面】 (宝蓝顶栏 / 付款码 OCR)
             if sqb_status == "WAITING":
@@ -600,7 +614,7 @@ class CheckoutDialog(QDialog):
                 return
 
             # 3. 前 500ms 为窗口唤起留缓冲
-            if elapsed_ms[0] < 500:
+            if elapsed_ms[0] < 750:
                 return
 
             # 4. 如果窗口出现过且被关闭，300ms 极速响应弹出确认卡片
@@ -623,6 +637,9 @@ class CheckoutDialog(QDialog):
 
     def _complete_checkout(self, method):
         """执行最终结账、发送打印指令与飞出出票动画"""
+        if self._checkout_completed or self._checkout_finalizing or self._cancelled:
+            return False
+        self._checkout_finalizing = True
         # 禁用所有按钮，防止重复点击
         for btn in self.pay_buttons:
             btn.setEnabled(False)
@@ -631,11 +648,39 @@ class CheckoutDialog(QDialog):
             )
 
         # 立即回调发送打印指令与保存数据库
-        if self.on_payment_callback:
-            self.on_payment_callback(method)
+        try:
+            completed = self.on_payment_callback(method) if self.on_payment_callback else True
+        except Exception:
+            completed = False
+        if completed is False:
+            self._checkout_finalizing = False
+            self._restore_pay_buttons()
+            return False
+        self._checkout_completed = True
+        self._stop_payment_monitors()
 
         # 启动飞出动画
         QTimer.singleShot(100, self._start_fly_animation)
+        return True
+
+    def _stop_payment_monitors(self):
+        for timer in self._payment_monitors:
+            timer.stop()
+        self._payment_monitors = []
+
+    def reject(self):
+        """Cancel never records a sale; a scan payment also clears the plugin amount."""
+        if self._checkout_completed:
+            return
+        self._cancelled = True
+        self._stop_payment_monitors()
+        if self.mode == "SCAN_CODE":
+            try:
+                from core.shouqianba_sender import clear_shouqianba_amount
+                clear_shouqianba_amount(self.config)
+            except Exception:
+                pass
+        super().reject()
 
     def _show_sqb_confirm_overlay(self, amount, method):
         """精致嵌入式等待/确认框：放大卡片尺寸 (580x420) + 展示金额 + 无盖遮罩嵌入付款界面中"""
@@ -777,10 +822,8 @@ class CheckoutDialog(QDialog):
             # 确认付款成功 → 执行结账出票
             self._complete_checkout(method)
         else:
-            # 支付失败/退回 → 重置收钱吧金额，并直接关闭结账弹窗，退出到点菜界面
+            # 支付失败/退回：取消结账并重置插件金额。
             print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，已清空收钱吧金额并退出至点菜界面。")
-            from core.shouqianba_sender import clear_shouqianba_amount
-            clear_shouqianba_amount(self.config)
             self.reject()
 
     def _start_fly_animation(self):

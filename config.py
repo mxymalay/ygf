@@ -7,9 +7,12 @@ import json
 import shutil
 import zipfile
 import sys
+import copy
+from datetime import datetime
 
 # ─── 应用版本号 ───────────────────────────────────────
-APP_VERSION = "v1.1.0"
+APP_VERSION = "v1.2.0"
+CONFIG_SCHEMA_VERSION = 2
 
 # ─── 路径 ───────────────────────────────────────────
 if getattr(sys, 'frozen', False):
@@ -65,6 +68,10 @@ DEFAULT_CONFIG = {
     "scale_connection_mode": "direct",
     "scale_port": "COM2",
     "scale_baudrate": 9600,
+    # 官方 POS 升级后可在设置页选择新的 serial 日志目录；留空时仅尝试
+    # 兼容的历史路径和受限自动发现，不会每秒扫描整块硬盘。
+    "official_pos_log_dir": "",
+    "config_schema_version": CONFIG_SCHEMA_VERSION,
 
     # 2. 切换算法配置 (algo.json)
     "private_ratio_percent": 30,
@@ -120,44 +127,93 @@ def _get_module_name(key: str) -> str:
     return "sys"
 
 
+def _atomic_json_write(filepath: str, data: dict):
+    """Never leave a half-written configuration file after a power loss."""
+    directory = os.path.dirname(filepath)
+    os.makedirs(directory, exist_ok=True)
+    temporary = filepath + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, filepath)
+
+
+def _backup_paths(paths, reason="config"):
+    existing = [path for path in paths if os.path.isfile(path)]
+    if not existing:
+        return ""
+    backup_dir = os.path.join(DATA_DIR, "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target = os.path.join(backup_dir, "%s_%s.zip" % (reason, stamp))
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in existing:
+            archive.write(path, arcname=os.path.join("settings", os.path.basename(path)))
+    return target
+
+
+def backup_config_bundle(reason="manual"):
+    """Create a recoverable snapshot before import or reset."""
+    return _backup_paths(list(MODULE_FILES.values()) + [CONFIG_FILE], reason)
+
+
+def _load_json_object(path, label):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = json.load(f)
+        if not isinstance(value, dict):
+            raise ValueError("根节点必须是对象")
+        return value
+    except Exception as exc:
+        # Do not silently overwrite a malformed store configuration.  Keep an
+        # exact copy for recovery, then continue with defaults.
+        backup_dir = os.path.join(DATA_DIR, "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = os.path.join(backup_dir, "%s_corrupt_%s.json" % (label, stamp))
+        try:
+            shutil.copy2(path, backup)
+        except Exception:
+            backup = ""
+        print("[配置 Warning] 无法读取 %s: %s%s" % (
+            path, exc, ("，已备份到 " + backup) if backup else ""
+        ))
+        return None
+
+
 def load_config() -> dict:
     """从模板、旧版大 settings.json 以及 data/settings/ 拆分模块文件中加载配置
     若检测到旧版 settings.json，将自动拆分并迁移至 data/settings/ 下各模块 JSON 文件
     """
-    base_defaults = DEFAULT_CONFIG.copy()
+    base_defaults = copy.deepcopy(DEFAULT_CONFIG)
 
     # 1. 检查 template 模板
     if os.path.exists(TEMPLATE_FILE):
-        try:
-            with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
-                template_data = json.load(f)
-                base_defaults.update(template_data)
-        except Exception:
-            pass
+        template_data = _load_json_object(TEMPLATE_FILE, "template")
+        if template_data:
+            base_defaults.update(template_data)
 
     merged = base_defaults.copy()
     has_legacy_config = os.path.exists(CONFIG_FILE)
 
     # 2. 读取旧的 data/settings.json (包含历史全量配置)
     if has_legacy_config:
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-                merged.update(saved)
-        except Exception:
-            pass
+        saved = _load_json_object(CONFIG_FILE, "legacy")
+        if saved:
+            merged.update(saved)
 
     # 3. 读取拆分后的 data/settings/*.json (模块化文件覆盖)
     for mod, path in MODULE_FILES.items():
         if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    mod_data = json.load(f)
-                    merged.update(mod_data)
-            except Exception:
-                pass
+            mod_data = _load_json_object(path, mod)
+            if mod_data:
+                merged.update(mod_data)
 
     merged.pop("simulation_mode", None)
+    # 模拟模式是一次运行的临时状态，绝不能写入正式门店配置。
+    merged.pop("is_mock_mode", None)
+    merged["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
     # 4. 自动拆分并同步写回 data/settings/ 目录下各个模块文件 (自动迁移逻辑)
     save_config(merged)
@@ -165,8 +221,9 @@ def load_config() -> dict:
     # 5. 若存在旧版 settings.json 大文件，完成迁移后自动删除清理
     if has_legacy_config:
         try:
+            backup = _backup_paths([CONFIG_FILE], "legacy_migration")
             os.remove(CONFIG_FILE)
-            print(f"[配置迁移] 已成功将大配置文件 {CONFIG_FILE} 拆分迁移至 {SETTINGS_DIR}/ 目录，并已清理旧版 settings.json！")
+            print(f"[配置迁移] 已迁移旧配置并保留备份: {backup or '未生成'}")
         except Exception as e:
             print(f"[配置迁移 Warning] 物理删除旧配置文件失败: {e}")
 
@@ -176,6 +233,8 @@ def load_config() -> dict:
 def save_config(cfg: dict):
     """保存配置：按模块拆分保存到 data/settings/*.json 文件"""
     cfg.pop("simulation_mode", None)
+    cfg.pop("is_mock_mode", None)
+    cfg["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
     # 按模块拆分保存到 data/settings/*.json
     module_buckets = {"sys": {}, "takeout": {}, "algo": {}, "shouqianba": {}}
@@ -185,18 +244,23 @@ def save_config(cfg: dict):
 
     for mod, bucket in module_buckets.items():
         filepath = MODULE_FILES[mod]
-        try:
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(bucket, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        _atomic_json_write(filepath, bucket)
 
 
 def reset_module_config(cfg: dict, module_name: str) -> dict:
     """还原指定模块的配置为出厂默认值"""
     for k, v in DEFAULT_CONFIG.items():
         if _get_module_name(k) == module_name:
-            cfg[k] = v
+            cfg[k] = copy.deepcopy(v)
+    save_config(cfg)
+    return cfg
+
+
+def reset_all_config(cfg: dict) -> dict:
+    """Restore all modular settings while retaining a dated backup bundle."""
+    backup_config_bundle("before_factory_reset")
+    cfg.clear()
+    cfg.update(copy.deepcopy(DEFAULT_CONFIG))
     save_config(cfg)
     return cfg
 
@@ -211,20 +275,40 @@ def export_config_bundle(cfg: dict, target_file_path: str):
                 if os.path.exists(path):
                     zipf.write(path, arcname=f"settings/{os.path.basename(path)}")
     else:
-        with open(target_file_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        _atomic_json_write(target_file_path, cfg)
 
 
 def import_config_bundle(file_path: str) -> dict:
     """导入配置包，还原并合并 settings"""
     if file_path.endswith(".zip"):
         with zipfile.ZipFile(file_path, 'r') as zipf:
-            zipf.extractall(DATA_DIR)
-        return load_config()
+            allowed = {
+                "settings/base.json": "sys",
+                "settings/takeout.json": "takeout",
+                "settings/algo.json": "algo",
+                "settings/shouqianba.json": "shouqianba",
+            }
+            names = set(zipf.namelist())
+            unknown = [name for name in names if name.rstrip("/") and name not in allowed]
+            if unknown:
+                raise ValueError("配置包包含不允许的文件：%s" % ", ".join(unknown[:3]))
+            if not names.intersection(allowed):
+                raise ValueError("配置包中没有可识别的 settings/*.json")
+            imported = {}
+            for archive_name in names.intersection(allowed):
+                raw = zipf.read(archive_name).decode("utf-8")
+                value = json.loads(raw)
+                if not isinstance(value, dict):
+                    raise ValueError("%s 不是有效配置对象" % archive_name)
+                imported.update(value)
     else:
         with open(file_path, "r", encoding="utf-8") as f:
             imported = json.load(f)
-        current = load_config()
-        current.update(imported)
-        save_config(current)
-        return current
+        if not isinstance(imported, dict):
+            raise ValueError("配置文件根节点必须是对象")
+    backup_config_bundle("before_import")
+    current = load_config()
+    current.update(imported)
+    current.pop("is_mock_mode", None)
+    save_config(current)
+    return current

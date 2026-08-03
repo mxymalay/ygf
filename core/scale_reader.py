@@ -11,6 +11,7 @@ import threading
 from ctypes import wintypes
 from PyQt5.QtCore import QObject, pyqtSignal
 from config import save_config
+from core.official_pos import find_active_official_log
 
 
 def read_file_shared(filepath: str) -> str:
@@ -84,7 +85,6 @@ class ScaleReader(QObject):
         self._stable_count = config.get("stable_count", 5)
 
         self._locked_weight = -1.0
-        self._ygf_serial_dir = r"C:\YANGGUOFU-POS\serial"
 
     def start(self):
         """启动称重读取"""
@@ -107,7 +107,9 @@ class ScaleReader(QObject):
     def restart(self):
         """重新连接称重服务"""
         self.stop()
-        time.sleep(0.3)
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+        self._thread = None
         self.start()
 
     def _apply_fluctuation_filter(self, w: float) -> float:
@@ -274,28 +276,8 @@ class ScaleReader(QObject):
         return None
 
     def _find_active_ygf_log(self) -> str:
-        """扫描 C:\\YANGGUOFU-POS\\serial 目录下最新更新的日志文件"""
-        if not os.path.exists(self._ygf_serial_dir):
-            return None
-
-        try:
-            candidates = []
-            for fname in os.listdir(self._ygf_serial_dir):
-                if fname.startswith("log_serial_ports"):
-                    full_path = os.path.join(self._ygf_serial_dir, fname)
-                    if os.path.isfile(full_path):
-                        mtime = os.path.getmtime(full_path)
-                        # 官方收银开着时每秒写入，5 秒内有写入判定为活跃
-                        if time.time() - mtime < 5.0:
-                            candidates.append((mtime, full_path))
-
-            if candidates:
-                candidates.sort(key=lambda x: x[0], reverse=True)
-                return candidates[0][1]
-        except Exception:
-            pass
-
-        return None
+        """Find the configured or compatible official POS log location."""
+        return find_active_official_log(self.config)
 
     def _parse_ygf_log_line(self, line: str):
         """从日志行中提取重量: 例如 '["00.350","00.350",...] --- 6' 或 '[Sat Aug 01...] DI_BAO read - 000.350'"""

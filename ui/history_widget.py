@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor, QFont
 
-from core.database import Database
+from core.database import Database, REFUNDED
 
 
 class OrderCard(QFrame):
@@ -76,6 +76,9 @@ class OrderCard(QFrame):
         except Exception:
             pass
 
+        is_refunded = r.get("payment_status") == REFUNDED
+        if is_refunded:
+            tag_text, tag_color = u"已退款", "#EF4444"
         lbl_status = QLabel(tag_text)
         lbl_status.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {tag_color}; border: 1px solid {tag_color}; border-radius: 4px; padding: 2px 6px; background: transparent;")
 
@@ -100,8 +103,10 @@ class OrderCard(QFrame):
         lbl_time = QLabel(created_at)
         lbl_time.setStyleSheet("font-size: 12px; color: #9CA3AF; border: none; background: transparent;")
 
-        lbl_amount = QLabel(u"实收：¥ %.2f" % r.get("total_price", 0.0))
-        lbl_amount.setStyleSheet("font-size: 13px; font-weight: bold; color: #D1D5DB; border: none; background: transparent;")
+        amount_prefix = u"已退：" if is_refunded else u"实收："
+        amount_color = "#FCA5A5" if is_refunded else "#D1D5DB"
+        lbl_amount = QLabel(u"%s¥ %.2f" % (amount_prefix, r.get("total_price", 0.0)))
+        lbl_amount.setStyleSheet("font-size: 13px; font-weight: bold; color: %s; border: none; background: transparent;" % amount_color)
 
         row2.addWidget(lbl_time)
         row2.addStretch()
@@ -652,6 +657,7 @@ class HistoryWidget(QWidget):
             self.lbl_create_time.setText(u"创建时间：---")
             self.lbl_item_total.setText(u"商品金额：¥ 0.00")
             self.lbl_final_total.setText(u"实收金额：¥ 0.00")
+            self.lbl_remark_info.setText(u"备注信息：")
 
             # 清空商品卡片
             self._clear_layout(self.items_layout)
@@ -670,7 +676,18 @@ class HistoryWidget(QWidget):
         # 结账方式
         pm = record.get("payment_method", "")
         pm_display = {"shouqianba": "收钱吧", "scan": "手持机器", "cash": "现金", "qr": "被扫"}
+        payment_state = record.get("payment_status", "PAID")
         self.lbl_payment_method.setText(u"结账方式：%s" % pm_display.get(pm, "未记录"))
+        if payment_state == REFUNDED:
+            self.lbl_remark_info.setText(
+                u"退款：%s；原因：%s" % (
+                    record.get("refunded_at") or u"已退款",
+                    record.get("refund_reason") or u"门店退单",
+                )
+            )
+        else:
+            print_state = record.get("print_status", "")
+            self.lbl_remark_info.setText(u"打印状态：%s" % ({"PRINTED": u"已打印", "FAILED": u"打印失败，可补打", "PENDING": u"待打印"}.get(print_state, u"未记录")))
         
         import json
         tag_text = u"已支付"
@@ -703,12 +720,14 @@ class HistoryWidget(QWidget):
         except Exception:
             pass
 
+        if payment_state == REFUNDED:
+            tag_text, tag_color = u"⛔ 已退款", "#EF4444"
         self.lbl_header_status.setText(tag_text)
         self.lbl_header_status.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {tag_color}; border: 1px solid {tag_color}; border-radius: 4px; padding: 2px 8px; background: transparent;")
         tot = record.get("total_price", 0.0)
         self.lbl_item_total.setText(u"商品金额：¥ %.2f" % tot)
         self.lbl_discount_total.setText(u"折扣金额：¥ 0.00")
-        self.lbl_final_total.setText(u"实收金额：¥ %.2f" % tot)
+        self.lbl_final_total.setText((u"退款金额：¥ %.2f" if payment_state == REFUNDED else u"实收金额：¥ %.2f") % tot)
 
         # 渲染右侧商品列表
         self._clear_layout(self.items_layout)
@@ -943,6 +962,7 @@ class HistoryWidget(QWidget):
             }
 
             success = self.printer.print_receipt(sale_data, print_type=ptype)
+            self.db.mark_print_result(r["id"], success, getattr(self.printer, "last_error", ""))
             if success:
                 from ui.custom_dialog import show_info
                 show_info(self, u"打印成功", u"订单小票已成功重发至打印机！")
@@ -956,7 +976,15 @@ class HistoryWidget(QWidget):
             show_warning(self, u"提示", u"请先选择要处理的订单！")
             return
 
-        from ui.custom_dialog import show_question
-        if show_question(self, u"确认退单", u"确定要撤销并退单该笔交易吗？"):
-            self.db.delete_sale(self.selected_record["id"])
-            self._on_query()
+        if self.selected_record.get("payment_status") == REFUNDED:
+            from ui.custom_dialog import show_warning
+            show_warning(self, u"无需重复退款", u"该笔订单已经标记为退款，交易记录会永久保留以便对账。")
+            return
+
+        from ui.custom_dialog import show_question, show_info, show_warning
+        if show_question(self, u"确认退款", u"确认将本订单标记为已退款吗？\n\n退款不会删除订单、小票和操作记录。请先在实际支付渠道完成退款。"):
+            if self.db.refund_sale(self.selected_record["id"], reason=u"前台退单"):
+                show_info(self, u"已标记退款", u"订单已保留并显示为“已退款”，报表会自动从实收中扣除。")
+                self._on_query()
+            else:
+                show_warning(self, u"退款未完成", u"订单状态已变化，请刷新后确认。")

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-外卖小票中继与菜品排序配置页面
+外卖小票排版预览与菜品排序配置页面
 支持触摸屏垂直滚动 (QScrollArea)、下置大高度小票预览、自动【外卖打包】标识
 """
 from PyQt5.QtCore import Qt, QTimer
@@ -35,7 +35,7 @@ SAMPLE_RAW_TAKEOUT = """美团外卖  #18存根联
 
 
 class TakeoutSortingWidget(QWidget):
-    """外卖小票排序与中继拦截设置面板 (支持触屏滚动)"""
+    """外卖小票排序与排版预览面板 (支持触屏滚动)。"""
 
     def __init__(self, config=None, printer=None, parent=None):
         super().__init__(parent)
@@ -84,16 +84,16 @@ class TakeoutSortingWidget(QWidget):
 
         hc_layout.addStretch()
 
-        self.lbl_pos_status = QLabel(u"检测官方 POS 中...")
+        self.lbl_pos_status = QLabel(u"本页不接管官方 POS 打印")
         self.lbl_pos_status.setStyleSheet("font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: none;")
         hc_layout.addWidget(self.lbl_pos_status)
 
-        self.lbl_printer = QLabel(u"监听打印机: 检测中...")
+        self.lbl_printer = QLabel(u"当前仅支持测试打印与排版预览")
         self.lbl_printer.setStyleSheet("font-size: 13px; color: #38BDF8; font-weight: bold; border: none;")
         hc_layout.addWidget(self.lbl_printer)
 
         is_active = self.config.get("takeout_interceptor_enabled", True)
-        self.btn_toggle = QPushButton(u"已开启中继" if is_active else u"已关闭中继")
+        self.btn_toggle = QPushButton(u"已启用预览规则" if is_active else u"已关闭预览规则")
         self.btn_toggle.setCheckable(True)
         self.btn_toggle.setChecked(is_active)
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
@@ -416,24 +416,9 @@ class TakeoutSortingWidget(QWidget):
             spin.wheelEvent = lambda event, w=spin: event.ignore()
 
     def _check_official_pos_status(self):
-        try:
-            hwnd = find_official_window_handle()
-            pids = find_official_pids()
-            is_pos_running = bool(hwnd or pids)
-
-            if is_pos_running:
-                self.lbl_pos_status.setText(u"● 官方 POS 运行中 (中继可就绪)")
-                self.lbl_pos_status.setStyleSheet("color: #10B981; background: rgba(16,185,129,0.15); font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px;")
-                self.btn_toggle.setEnabled(True)
-            else:
-                self.lbl_pos_status.setText(u"⚠️ 未检测到官方 POS (中继已禁关)")
-                self.lbl_pos_status.setStyleSheet("color: #F59E0B; background: rgba(245,158,11,0.15); font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px;")
-                if self.btn_toggle.isChecked():
-                    self.btn_toggle.setChecked(False)
-                    self.btn_toggle.setText(u"中继不可用 (官方POS未开启)")
-                self.btn_toggle.setEnabled(False)
-        except Exception as e:
-            print("[TakeoutSortingWidget] 官方 POS 运行检测异常:", e)
+        self.lbl_pos_status.setText(u"ⓘ 本页不监听或拦截官方 POS 的系统打印队列")
+        self.lbl_pos_status.setStyleSheet("color: #38BDF8; background: rgba(14,165,233,0.15); font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px;")
+        self.btn_toggle.setEnabled(True)
 
     def _refresh_printer_info(self):
         printer_name = self.config.get("printer_name", "")
@@ -442,11 +427,11 @@ class TakeoutSortingWidget(QWidget):
             default_p = win32print.GetDefaultPrinter()
             actual_name = printer_name if printer_name else default_p
             if hasattr(self, 'lbl_printer'):
-                self.lbl_printer.setText(f"监听打印机: {actual_name}")
+                self.lbl_printer.setText(f"测试打印机: {actual_name}")
         except Exception:
             try:
                 if hasattr(self, 'lbl_printer'):
-                    self.lbl_printer.setText(f"监听打印机: {printer_name or '默认打印机'}")
+                    self.lbl_printer.setText(f"测试打印机: {printer_name or '默认打印机'}")
             except Exception:
                 pass
 
@@ -605,8 +590,8 @@ class TakeoutSortingWidget(QWidget):
         is_on = self.btn_toggle.isChecked()
         self.config["takeout_interceptor_enabled"] = is_on
         save_config(self.config)
-        self.btn_toggle.setText(u"已开启中继" if is_on else u"已关闭中继")
-        show_info(self, u"中继状态", u"外卖单中继已" + (u"开启" if is_on else u"关闭"))
+        self.btn_toggle.setText(u"已启用预览规则" if is_on else u"已关闭预览规则")
+        show_info(self, u"预览规则", u"外卖排版预览规则已" + (u"开启" if is_on else u"关闭") + u"。\n当前版本不会拦截官方 POS 的真实打印任务。")
 
     def _on_save_rules(self):
         self._auto_save_categories()

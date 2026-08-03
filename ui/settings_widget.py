@@ -14,7 +14,10 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
 
-from config import DATA_DIR, save_config, reset_module_config, export_config_bundle, import_config_bundle
+from config import (
+    DATA_DIR, save_config, reset_module_config, reset_all_config,
+    export_config_bundle, import_config_bundle, backup_config_bundle,
+)
 from utils.port_scanner import scan_printers
 
 
@@ -391,11 +394,21 @@ class SettingsWidget(QWidget):
         self.cmb_scale_baud.setCurrentText(cur_baud)
         grid.addWidget(self.cmb_scale_baud, 2, 1, 1, 2)
 
+        self.lbl_official_log_dir = self._make_label(u"官方日志目录（可选）：")
+        grid.addWidget(self.lbl_official_log_dir, 3, 0)
+        self.txt_official_log_dir = QLineEdit(self.config.get("official_pos_log_dir", ""))
+        self.txt_official_log_dir.setPlaceholderText(u"留空自动兼容旧目录；官方升级后在此选择 serial 文件夹")
+        grid.addWidget(self.txt_official_log_dir, 3, 1)
+        self.btn_pick_official_log_dir = QPushButton(u"选择目录")
+        self._style_touch_action_btn(self.btn_pick_official_log_dir, "blue")
+        self.btn_pick_official_log_dir.clicked.connect(self._pick_official_log_dir)
+        grid.addWidget(self.btn_pick_official_log_dir, 3, 2)
+
         # 提示信息
         self.lbl_scale_hint = QLabel("")
         self.lbl_scale_hint.setWordWrap(True)
         self.lbl_scale_hint.setStyleSheet("color: #CBD5E1; font-size: 15px; padding: 14px 16px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
-        grid.addWidget(self.lbl_scale_hint, 3, 0, 1, 3)
+        grid.addWidget(self.lbl_scale_hint, 4, 0, 1, 3)
 
         layout.addLayout(grid)
 
@@ -1341,6 +1354,9 @@ class SettingsWidget(QWidget):
         self.btn_refresh_scale_ports.setVisible(is_direct)
         self.lbl_scale_baud.setVisible(is_com)
         self.cmb_scale_baud.setVisible(is_com)
+        self.lbl_official_log_dir.setVisible(not is_com)
+        self.txt_official_log_dir.setVisible(not is_com)
+        self.btn_pick_official_log_dir.setVisible(not is_com)
         if hasattr(self, 'btn_test_scale_com'):
             self.btn_test_scale_com.setVisible(is_com)
         if hasattr(self, 'btn_go_scale_bridge'):
@@ -1385,8 +1401,16 @@ class SettingsWidget(QWidget):
             self.lbl_scale_hint.setText(
                 u"💡 官方模式 (推荐·零配置·无冲突)：\n"
                 u"• 本 POS 直接读取官方收银软件生成的串口日志，不需要选择任何 COM。\n"
-                u"• 官方 POS 必须保持运行；如果希望本 POS 单独读秤或两个 POS 同时读秤，请选择对应方式。"
+                u"• 官方 POS 必须保持运行；若官方升级改变安装目录，请选择它的 serial 日志文件夹。\n"
+                u"• 如果希望本 POS 单独读秤或两个 POS 同时读秤，请选择对应方式。"
             )
+
+    def _pick_official_log_dir(self):
+        selected = QFileDialog.getExistingDirectory(
+            self, u"选择官方 POS 的 serial 日志文件夹", self.txt_official_log_dir.text() or "C:\\"
+        )
+        if selected:
+            self.txt_official_log_dir.setText(selected)
 
     def _test_selected_scale_source(self):
         if self.cmb_scale_source.currentIndex() == 2:
@@ -2180,6 +2204,7 @@ class SettingsWidget(QWidget):
 
         if selected_mode == "official":
             self.config["scale_source"] = "official"
+            self.config["official_pos_log_dir"] = self.txt_official_log_dir.text().strip()
             success_message = u"已切换为跟随官方 POS 读取重量，无需配置 COM。"
         elif selected_mode == "direct":
             if not port_text:
@@ -2241,6 +2266,14 @@ class SettingsWidget(QWidget):
                     u"本 POS 发送端与收钱吧插件接收端必须是虚拟串口配对的两端。",
                 )
                 return
+            from core.shouqianba_sender import is_supported_hotkey
+            if not is_supported_hotkey(self.txt_sqb_hotkey.text()):
+                show_warning(
+                    self,
+                    u"快捷键不受支持",
+                    u"请使用 Ctrl、Alt、Shift、F1-F12、字母、数字、Tab 或 Enter 的组合，例如 Shift+Q。",
+                )
+                return
 
         self.config["shouqianba_enabled"] = enabled
         self.config["shouqianba_pair_mode"] = pair_mode
@@ -2291,8 +2324,16 @@ class SettingsWidget(QWidget):
         if not show_question(self, u"导入确认", u"确定要导入并覆盖当前系统的配置参数吗？导入后系统将自动更新。"):
             return
         try:
-            self.config = import_config_bundle(file_path)
-            show_info(self, u"导入成功", u"设置文件已成功导入并刷新应用！请重新启动或刷新界面以套用新设置。")
+            imported = import_config_bundle(file_path)
+            # Keep the shared dictionary object: MainWindow, SaleWidget,
+            # printer and scale reader all hold this same reference.
+            self.config.clear()
+            self.config.update(imported)
+            show_info(
+                self, u"导入成功",
+                u"导入前的配置已自动备份到 data/backups。\n"
+                u"新参数已写入；为保证电子秤、打印机和页面控件全部重新加载，请重启 POS。",
+            )
         except Exception as e:
             show_error(self, u"导入失败", f"导入配置文件包时发生错误: {e}")
 
@@ -2302,8 +2343,9 @@ class SettingsWidget(QWidget):
         if not show_question(self, u"还原确认", u"确定要将【系统与硬件配置】还原为出厂默认设置吗？"):
             return
         try:
+            backup_config_bundle("before_reset_sys")
             self.config = reset_module_config(self.config, "sys")
-            show_info(self, u"还原成功", u"【系统与硬件配置】(data/settings/base.json) 已成功还原为出厂默认值！")
+            show_info(self, u"还原成功", u"已先创建配置备份。系统与硬件参数已恢复默认；请重启 POS 重新连接设备。")
         except Exception as e:
             show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
 
@@ -2313,6 +2355,7 @@ class SettingsWidget(QWidget):
         if not show_question(self, u"还原确认", u"确定要将【外卖中继与排序规则】还原为出厂默认设置吗？"):
             return
         try:
+            backup_config_bundle("before_reset_takeout")
             self.config = reset_module_config(self.config, "takeout")
             show_info(self, u"还原成功", u"【外卖中继与排序规则】(data/settings/takeout.json) 已成功还原为出厂默认值！")
         except Exception as e:
@@ -2324,6 +2367,7 @@ class SettingsWidget(QWidget):
         if not show_question(self, u"还原确认", u"确定要将【私域切屏算法规则】还原为出厂默认设置吗？"):
             return
         try:
+            backup_config_bundle("before_reset_algo")
             self.config = reset_module_config(self.config, "algo")
             show_info(self, u"还原成功", u"【私域切屏算法规则】(data/settings/algo.json) 已成功还原为出厂默认值！")
         except Exception as e:
@@ -2335,6 +2379,7 @@ class SettingsWidget(QWidget):
         if not show_question(self, u"还原确认", u"确定要将【收钱吧插件配置】还原为出厂默认设置吗？"):
             return
         try:
+            backup_config_bundle("before_reset_shouqianba")
             self.config = reset_module_config(self.config, "shouqianba")
             show_info(self, u"还原成功", u"【收钱吧插件配置】(data/settings/shouqianba.json) 已成功还原为出厂默认值！")
         except Exception as e:
@@ -2358,14 +2403,23 @@ class SettingsWidget(QWidget):
     def _on_reset_db(self):
         """仅重置销售数据库"""
         from ui.custom_dialog import show_question, show_info, show_error
-        if not show_question(self, u"清空数据库确认", u"确定要删除本地所有的历史点餐与交易记录数据库 (pos.db) 吗？此操作不可逆！"):
+        if not show_question(self, u"清空数据库确认", u"确定要清空当前本地销售账本吗？旧账本会先归档到 data/backups，便于恢复。"):
             return
         try:
-            import os
-            from config import DB_PATH
-            if os.path.exists(DB_PATH):
-                os.remove(DB_PATH)
-            show_info(self, u"清空成功", u"历史销售记录数据库已成功删除！下次开单时将自动建立新库。")
+            from core.database import archive_database_files
+            backup_path = archive_database_files(reason="manual_clear")
+            parent_mw = self.window()
+            if hasattr(parent_mw, "db"):
+                parent_mw.db._init_db()
+            if hasattr(parent_mw, "history_page"):
+                parent_mw.history_page.reload_orders()
+            if hasattr(parent_mw, "report_page"):
+                parent_mw.report_page.reload_report()
+            show_info(
+                self, u"清空成功",
+                u"当前销售库已建立为空账本，可以立即继续开单。\n"
+                u"为防误操作，旧库已归档到：\n%s" % (backup_path or u"无需归档（原库不存在）"),
+            )
         except Exception as e:
             show_error(self, u"操作异常", f"清空数据库时发生错误: {e}")
 
@@ -2375,11 +2429,8 @@ class SettingsWidget(QWidget):
         if not show_question(self, u"恢复默认设置确认", u"确定要重置配置文件 (config.json) 为出厂默认参数吗？软件即将关闭以应用初始设置。"):
             return
         try:
-            import os
-            from config import CONFIG_FILE
-            if os.path.exists(CONFIG_FILE):
-                os.remove(CONFIG_FILE)
-            show_info(self, u"重置成功", u"系统设置已成功恢复默认！程序即刻关闭，请手动重新启动。")
+            reset_all_config(self.config)
+            show_info(self, u"重置成功", u"原模块化设置已备份，新的出厂设置已写入。程序即刻关闭，请手动重新启动。")
             from PyQt5.QtWidgets import QApplication
             QApplication.quit()
         except Exception as e:
@@ -2413,19 +2464,9 @@ class SettingsWidget(QWidget):
         
         try:
             import os
-            from config import DB_PATH, CONFIG_FILE
-            
-            if os.path.exists(DB_PATH):
-                try:
-                    os.remove(DB_PATH)
-                except Exception as e:
-                    print(f"Failed to remove DB: {e}")
-                    
-            if os.path.exists(CONFIG_FILE):
-                try:
-                    os.remove(CONFIG_FILE)
-                except Exception as e:
-                    print(f"Failed to remove config: {e}")
+            from core.database import archive_database_files
+            archive_database_files(reason="factory_reset")
+            reset_all_config(self.config)
 
             try:
                 from core.app_logger import clear_all_logs
@@ -2435,7 +2476,8 @@ class SettingsWidget(QWidget):
             
             QMessageBox.information(
                 self, u"重置成功", 
-                u"软件已成功重置所有数据！\n程序即将关闭，请手动重新打开以生成全新的环境。"
+                u"软件已恢复初始设置。为防误操作，旧销售库和配置均已归档到 data/backups。\n"
+                u"程序即将关闭，请手动重新打开。"
             )
             from PyQt5.QtWidgets import QApplication
             QApplication.quit()

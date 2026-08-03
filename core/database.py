@@ -1,187 +1,354 @@
+"""SQLite 交易账本。
+
+订单一旦确认支付便不能物理删除；打印和退款是订单上的状态变化。这样在
+打印机故障、重复点击或程序重启后，门店仍能找到同一笔交易并继续处理。
 """
-SQLite 数据库模块 — 销售记录的持久化存储
-兼容 Python 3.8+
-"""
-import sqlite3
 import os
-from datetime import datetime, date
-from config import DB_PATH
+import shutil
+import sqlite3
+from datetime import date, datetime
+
+from config import DATA_DIR, DB_PATH
+
+
+PAID = "PAID"
+REFUNDED = "REFUNDED"
+PRINT_PENDING = "PENDING"
+PRINTED = "PRINTED"
+PRINT_FAILED = "FAILED"
+
+
+def _now_text():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def archive_database_files(db_path=DB_PATH, reason="manual_reset"):
+    """Move the SQLite database and sidecars to a dated backup folder.
+
+    Moving rather than unlinking makes the explicit "clear data" action
+    recoverable if it was pressed by mistake.  The caller must ensure no
+    active database transaction is in progress.
+    """
+    if not os.path.exists(db_path) and not any(
+        os.path.exists(db_path + suffix) for suffix in ("-wal", "-shm")
+    ):
+        return ""
+    backup_dir = os.path.join(DATA_DIR, "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target_dir = os.path.join(backup_dir, "sales_%s_%s" % (reason, stamp))
+    os.makedirs(target_dir, exist_ok=False)
+    moved = False
+    for suffix in ("", "-wal", "-shm"):
+        source = db_path + suffix
+        if os.path.exists(source):
+            shutil.move(source, os.path.join(target_dir, os.path.basename(source)))
+            moved = True
+    return target_dir if moved else ""
 
 
 class Database:
-    """本地 SQLite 数据库，管理销售记录"""
+    """本地 SQLite 销售账本。"""
 
     def __init__(self, db_path=DB_PATH):
         self.db_path = db_path
         self._init_db()
 
     def _get_conn(self):
-        conn = sqlite3.connect(self.db_path)
+        # A short busy timeout makes two UI actions fail gracefully instead of
+        # immediately raising "database is locked" on slower Win7 machines.
+        conn = sqlite3.connect(self.db_path, timeout=8)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=8000")
         return conn
 
+    @staticmethod
+    def _ensure_column(conn, name, definition):
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sales)")}
+        if name not in columns:
+            conn.execute("ALTER TABLE sales ADD COLUMN %s %s" % (name, definition))
+
     def _init_db(self):
-        """初始化数据库表结构"""
+        """Create and transactionally migrate the append-only order schema."""
         conn = self._get_conn()
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS sales (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                sale_no     TEXT    UNIQUE NOT NULL,
-                weight_kg   REAL    NOT NULL,
-                unit_price  REAL    NOT NULL,
-                price_unit  TEXT    NOT NULL DEFAULT 'per_jin',
-                total_price REAL    NOT NULL,
-                remark      TEXT    DEFAULT '',
-                created_at  TEXT    NOT NULL,
-                printed     INTEGER DEFAULT 1
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_sales_date
-                ON sales(created_at);
-
-            CREATE INDEX IF NOT EXISTS idx_sales_no
-                ON sales(sale_no);
-        """)
-        conn.commit()
-
-        # 安全升级：尝试添加 cart_items_json 列，如果已存在则忽略
         try:
-            conn.execute("ALTER TABLE sales ADD COLUMN cart_items_json TEXT")
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS sales (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sale_no         TEXT UNIQUE NOT NULL,
+                    order_id        TEXT UNIQUE,
+                    weight_kg       REAL NOT NULL,
+                    unit_price      REAL NOT NULL,
+                    price_unit      TEXT NOT NULL DEFAULT 'per_jin',
+                    total_price     REAL NOT NULL,
+                    remark          TEXT DEFAULT '',
+                    created_at      TEXT NOT NULL,
+                    payment_method  TEXT DEFAULT '',
+                    payment_status  TEXT NOT NULL DEFAULT 'PAID',
+                    payment_confirmed_at TEXT DEFAULT '',
+                    cart_items_json TEXT,
+                    printed         INTEGER NOT NULL DEFAULT 0,
+                    print_status    TEXT NOT NULL DEFAULT 'PENDING',
+                    print_attempts  INTEGER NOT NULL DEFAULT 0,
+                    last_printed_at TEXT DEFAULT '',
+                    print_error     TEXT DEFAULT '',
+                    refunded_at     TEXT DEFAULT '',
+                    refund_reason   TEXT DEFAULT '',
+                    refund_operator TEXT DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(created_at);
+                CREATE INDEX IF NOT EXISTS idx_sales_no ON sales(sale_no);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_order_id
+                    ON sales(order_id) WHERE order_id IS NOT NULL;
+                """
+            )
+
+            # Existing stores upgrade in place.  Legacy completed orders are
+            # preserved as paid/printed instead of being guessed as failures.
+            upgrades = {
+                "order_id": "TEXT",
+                "cart_items_json": "TEXT",
+                "payment_method": "TEXT DEFAULT ''",
+                "payment_status": "TEXT NOT NULL DEFAULT 'PAID'",
+                "payment_confirmed_at": "TEXT DEFAULT ''",
+                "print_status": "TEXT NOT NULL DEFAULT 'PENDING'",
+                "print_attempts": "INTEGER NOT NULL DEFAULT 0",
+                "last_printed_at": "TEXT DEFAULT ''",
+                "print_error": "TEXT DEFAULT ''",
+                "refunded_at": "TEXT DEFAULT ''",
+                "refund_reason": "TEXT DEFAULT ''",
+                "refund_operator": "TEXT DEFAULT ''",
+            }
+            for name, definition in upgrades.items():
+                self._ensure_column(conn, name, definition)
+            conn.execute(
+                "UPDATE sales SET order_id = 'LEGACY-' || id "
+                "WHERE order_id IS NULL OR order_id = ''"
+            )
+            conn.execute(
+                "UPDATE sales SET payment_status = ? "
+                "WHERE payment_status IS NULL OR payment_status = ''",
+                (PAID,),
+            )
+            conn.execute(
+                "UPDATE sales SET print_status = ?, printed = 1 "
+                "WHERE (print_status IS NULL OR print_status = '') AND printed = 1",
+                (PRINTED,),
+            )
+            conn.execute(
+                "UPDATE sales SET print_status = ? "
+                "WHERE print_status IS NULL OR print_status = ''",
+                (PRINT_PENDING,),
+            )
             conn.commit()
-        except sqlite3.OperationalError:
-            pass
+        finally:
+            conn.close()
 
-        # 安全升级：尝试添加 payment_method 列 (结账方式：scan/cash/qr)
-        try:
-            conn.execute("ALTER TABLE sales ADD COLUMN payment_method TEXT DEFAULT ''")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        conn.close()
-
-    def generate_sale_no(self):
-        """生成格式为 YGF + 日期 + 3位序号 的单号"""
+    @staticmethod
+    def _next_sale_no(conn):
         today_str = datetime.now().strftime("%Y%m%d")
         prefix = "YGF%s" % today_str
-
-        conn = self._get_conn()
         row = conn.execute(
             "SELECT sale_no FROM sales WHERE sale_no LIKE ? ORDER BY id DESC LIMIT 1",
-            ("%s%%" % prefix,)
+            ("%s%%" % prefix,),
         ).fetchone()
-        conn.close()
+        try:
+            sequence = int(row["sale_no"][-3:]) + 1 if row else 1
+        except (TypeError, ValueError):
+            sequence = 1
+        return "%s%03d" % (prefix, sequence)
 
-        if row:
-            last_seq = int(row["sale_no"][-3:])
-            seq = last_seq + 1
-        else:
-            seq = 1
-
-        return "%s%03d" % (prefix, seq)
-
-    def insert_sale(self, weight_kg, unit_price, price_unit, total_price, remark="", cart_items_json=None, payment_method=""):
-        """插入一条销售记录，返回完整记录字典"""
-        sale_no = self.generate_sale_no()
-        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+    def generate_sale_no(self):
+        """Preview only. insert_sale generates the final number atomically."""
         conn = self._get_conn()
-        conn.execute(
-            """INSERT INTO sales
-               (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json, payment_method)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (sale_no, weight_kg, unit_price, price_unit, total_price, remark, created_at, cart_items_json, payment_method)
-        )
-        conn.commit()
+        try:
+            return self._next_sale_no(conn)
+        finally:
+            conn.close()
 
-        row = conn.execute(
-            "SELECT * FROM sales WHERE sale_no = ?", (sale_no,)
-        ).fetchone()
-        conn.close()
+    def get_sale_by_order_id(self, order_id):
+        if not order_id:
+            return None
+        conn = self._get_conn()
+        try:
+            row = conn.execute("SELECT * FROM sales WHERE order_id = ?", (order_id,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
 
-        return dict(row)
+    def insert_sale(
+        self,
+        weight_kg,
+        unit_price,
+        price_unit,
+        total_price,
+        remark="",
+        cart_items_json=None,
+        payment_method="",
+        order_id=None,
+    ):
+        """Create one paid order, returning ``(record, created)``.
+
+        ``order_id`` is created before the payment dialog opens.  A repeated
+        callback for the same dialog therefore returns the original order and
+        cannot create a second sale number or consume a second call number.
+        """
+        if not order_id:
+            raise ValueError("订单缺少唯一标识，拒绝入库")
+        conn = self._get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute("SELECT * FROM sales WHERE order_id = ?", (order_id,)).fetchone()
+            if existing:
+                conn.commit()
+                return dict(existing), False
+
+            sale_no = self._next_sale_no(conn)
+            created_at = _now_text()
+            conn.execute(
+                """INSERT INTO sales
+                   (sale_no, order_id, weight_kg, unit_price, price_unit, total_price,
+                    remark, created_at, payment_method, payment_status,
+                    payment_confirmed_at, cart_items_json, printed, print_status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                (
+                    sale_no,
+                    order_id,
+                    weight_kg,
+                    unit_price,
+                    price_unit,
+                    total_price,
+                    remark,
+                    created_at,
+                    payment_method,
+                    PAID,
+                    created_at,
+                    cart_items_json,
+                    PRINT_PENDING,
+                ),
+            )
+            row = conn.execute("SELECT * FROM sales WHERE order_id = ?", (order_id,)).fetchone()
+            conn.commit()
+            return dict(row), True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def mark_print_result(self, sale_id, success, error=""):
+        """Persist every print attempt; failed paid orders remain reprintable."""
+        conn = self._get_conn()
+        try:
+            now = _now_text()
+            if success:
+                conn.execute(
+                    """UPDATE sales SET printed=1, print_status=?, print_attempts=print_attempts+1,
+                       last_printed_at=?, print_error='' WHERE id=?""",
+                    (PRINTED, now, sale_id),
+                )
+            else:
+                conn.execute(
+                    """UPDATE sales SET printed=0, print_status=?, print_attempts=print_attempts+1,
+                       print_error=? WHERE id=?""",
+                    (PRINT_FAILED, str(error or "打印失败")[:500], sale_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def refund_sale(self, sale_id, reason="门店退单", operator=""):
+        """Mark a paid sale refunded without deleting its audit trail."""
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """UPDATE sales SET payment_status=?, refunded_at=?, refund_reason=?, refund_operator=?
+                   WHERE id=? AND payment_status=?""",
+                (REFUNDED, _now_text(), str(reason or "门店退单")[:200], str(operator or "")[:100], sale_id, PAID),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
 
     def get_payment_stats_by_date(self, start_date, end_date=None):
-        """获取指定日期范围内按结账方式分组的统计"""
-        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
-        e_str = end_date.strftime("%Y-%m-%d") if (end_date and hasattr(end_date, 'strftime')) else (str(end_date) if end_date else s_str)
-
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
         conn = self._get_conn()
-        rows = conn.execute(
-            """SELECT COALESCE(payment_method, '') AS pm,
-                      COUNT(*) AS cnt,
-                      COALESCE(SUM(total_price), 0) AS amt
-               FROM sales
-               WHERE DATE(created_at) BETWEEN ? AND ?
-               GROUP BY pm""",
-            (s_str, e_str)
-        ).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        try:
+            rows = conn.execute(
+                """SELECT COALESCE(payment_method, '') AS pm, COUNT(*) AS cnt,
+                          COALESCE(SUM(total_price), 0) AS amt
+                   FROM sales WHERE DATE(created_at) BETWEEN ? AND ?
+                     AND payment_status = ? GROUP BY pm""",
+                (s_str, e_str, PAID),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_refund_stats_by_date(self, start_date, end_date=None):
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                """SELECT COUNT(*) AS count, COALESCE(SUM(total_price), 0) AS amount_sum
+                   FROM sales WHERE DATE(refunded_at) BETWEEN ? AND ? AND payment_status=?""",
+                (s_str, e_str, REFUNDED),
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
 
     def get_today_summary(self):
-        """返回今日汇总：笔数、总重量、总金额"""
         today_str = date.today().strftime("%Y-%m-%d")
         conn = self._get_conn()
-        row = conn.execute(
-            """SELECT
-                   COUNT(*)                        AS count,
-                   COALESCE(SUM(weight_kg), 0)   AS total_weight,
-                   COALESCE(SUM(total_price), 0) AS total_amount
-               FROM sales
-               WHERE created_at LIKE ?""",
-            ("%s%%" % today_str,)
-        ).fetchone()
-        conn.close()
-        return dict(row)
+        try:
+            row = conn.execute(
+                """SELECT COUNT(*) AS count, COALESCE(SUM(weight_kg), 0) AS total_weight,
+                          COALESCE(SUM(total_price), 0) AS total_amount
+                   FROM sales WHERE created_at LIKE ? AND payment_status=?""",
+                ("%s%%" % today_str, PAID),
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
 
     def get_sales_by_date(self, start_date, end_date=None):
-        """按日期范围查询所有销售记录"""
-        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
-        e_str = end_date.strftime("%Y-%m-%d") if (end_date and hasattr(end_date, 'strftime')) else (str(end_date) if end_date else s_str)
-
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
         conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT * FROM sales WHERE DATE(created_at) BETWEEN ? AND ? ORDER BY id DESC",
-            (s_str, e_str)
-        ).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        try:
+            rows = conn.execute(
+                "SELECT * FROM sales WHERE DATE(created_at) BETWEEN ? AND ? ORDER BY id DESC",
+                (s_str, e_str),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
 
     def get_stats_by_date(self, start_date, end_date=None):
-        """获取指定日期范围的汇总统计信息"""
-        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
-        e_str = end_date.strftime("%Y-%m-%d") if (end_date and hasattr(end_date, 'strftime')) else (str(end_date) if end_date else s_str)
-
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
         conn = self._get_conn()
-        row = conn.execute(
-            """SELECT
-                   COUNT(*)                          AS count,
-                   COALESCE(SUM(weight_kg), 0)      AS weight_sum,
-                   COALESCE(SUM(total_price), 0)    AS amount_sum
-               FROM sales
-               WHERE DATE(created_at) BETWEEN ? AND ?""",
-            (s_str, e_str)
-        ).fetchone()
-        conn.close()
-        return dict(row)
-
-    def delete_sale(self, sale_id):
-        """按 ID 删除一条记录"""
-        conn = self._get_conn()
-        cursor = conn.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
-        conn.commit()
-        deleted = cursor.rowcount > 0
-        conn.close()
-        return deleted
+        try:
+            row = conn.execute(
+                """SELECT COUNT(*) AS count, COALESCE(SUM(weight_kg), 0) AS weight_sum,
+                          COALESCE(SUM(total_price), 0) AS amount_sum
+                   FROM sales WHERE DATE(created_at) BETWEEN ? AND ? AND payment_status=?""",
+                (s_str, e_str, PAID),
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
 
     def get_recent_sales(self, limit=20):
-        """获取最近的 N 条销售记录"""
         conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT * FROM sales ORDER BY id DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        try:
+            rows = conn.execute("SELECT * FROM sales ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()

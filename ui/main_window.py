@@ -165,21 +165,26 @@ class MainWindow(QMainWindow):
 
         if show_question(self, u"系统在线更新", u"确定要检查并自动拉取 GitHub 最新版本代码吗？\n更新完成后 POS 系统将自动重新启动。"):
             try:
-                # 1. 释放称重串口与硬件资源
-                if hasattr(self, 'sale_page'):
-                    self.sale_page.cleanup()
-
-                # 2. 静默后台重置日志文件并执行 git pull，不弹出任何黑框终端
+                # 1. 先检查更新前提，避免被取消更新时把正在使用的秤停掉。
                 startupinfo = None
                 if os.name == 'nt':
                     startupinfo = subprocess.STARTUPINFO()
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                     startupinfo.wShowWindow = 0 # SW_HIDE
 
-                subprocess.run(["git", "checkout", "--", "."], capture_output=True, text=True, startupinfo=startupinfo)
-                subprocess.run(["git", "pull"], capture_output=True, text=True, startupinfo=startupinfo)
+                status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, startupinfo=startupinfo)
+                if status.returncode != 0:
+                    raise RuntimeError("无法读取版本库状态")
+                if status.stdout.strip():
+                    show_warning(self, u"暂不能在线更新", u"检测到本机有未提交修改。为防止覆盖门店配置，已取消更新；请先备份或联系维护人员。")
+                    return
+                pull = subprocess.run(["git", "pull", "--ff-only"], capture_output=True, text=True, startupinfo=startupinfo)
+                if pull.returncode != 0:
+                    raise RuntimeError((pull.stderr or pull.stdout or "git pull 失败").strip())
 
-                # 3. 启动新的 Python 实例并平滑退出旧进程
+                # 2. 更新完成后再释放硬件，并启动新的 Python 实例。
+                if hasattr(self, 'sale_page'):
+                    self.sale_page.cleanup()
                 subprocess.Popen([sys.executable, "main.py"])
                 sys.exit(0)
             except Exception as e:

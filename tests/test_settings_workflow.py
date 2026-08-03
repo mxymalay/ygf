@@ -52,9 +52,11 @@ class SettingsWorkflowTests(unittest.TestCase):
         self.addCleanup(widget.deleteLater)
 
         self.assertTrue(widget.cmb_scale_port.isHidden())
+        self.assertFalse(widget.txt_official_log_dir.isHidden())
 
         widget.cmb_scale_source.setCurrentIndex(1)
         self.assertFalse(widget.cmb_scale_port.isHidden())
+        self.assertTrue(widget.txt_official_log_dir.isHidden())
         self.assertTrue(widget.cmb_scale_port.isEnabled())
         self.assertFalse(widget.btn_refresh_scale_ports.isHidden())
 
