@@ -390,6 +390,18 @@ class SettingsWidget(QWidget):
         self.btn_test_scale_com.clicked.connect(self._test_scale_com)
         btn_box.addWidget(self.btn_test_scale_com)
 
+        self.btn_scale_bridge_status = QPushButton(u"🔎 查看桥接服务状态")
+        self.btn_scale_bridge_status.setCursor(Qt.PointingHandCursor)
+        self.btn_scale_bridge_status.setStyleSheet("""
+            QPushButton {
+                background-color: #334155; color: #F8FAFC; border: 1px solid #475569;
+                border-radius: 8px; padding: 10px 18px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #475569; }
+        """)
+        self.btn_scale_bridge_status.clicked.connect(self._show_scale_bridge_status)
+        btn_box.addWidget(self.btn_scale_bridge_status)
+
         btn_box.addStretch()
 
         btn_save_scale = QPushButton(u"💾 保存称重设置")
@@ -958,9 +970,10 @@ class SettingsWidget(QWidget):
             self.btn_test_scale_com.setVisible(is_com)
         if is_com:
             self.lbl_scale_hint.setText(
-                u"💡 串口直连模式 (脱机/单独使用时)：\n"
+                u"💡 私有 POS 串口模式：\n"
                 u"• DIBAL ACS-G315 已验证参数：9600、8N1；程序每 200ms 发送 $ 查询重量。\n"
-                u"• 使用分流给私有 POS 的端口（建议 COM3），可与官方 POS 的 COM2 同时运行。"
+                u"• 使用分流/ScaleBridge 提供给私有 POS 的端口（建议 COM3），绝不填写物理秤口 COM1。\n"
+                u"• 若采用 ScaleBridge，先点“查看桥接服务状态”确认服务已运行。"
             )
         else:
             self.lbl_scale_hint.setText(
@@ -968,6 +981,35 @@ class SettingsWidget(QWidget):
                 u"• 从官方收银软件生成的串口日志读取重量，官方软件必须保持运行。\n"
                 u"• 若需要私有 POS 单独或并行读取，请切换为上方的 COM 串口直连模式。"
             )
+
+    def _show_scale_bridge_status(self):
+        """Read service status through its local named pipe; never opens a serial port."""
+        from ui.custom_dialog import show_info, show_warning
+        try:
+            from scale_bridge.ipc import read_status
+            status = read_status()
+        except Exception as exc:
+            show_warning(
+                self, u"桥接服务未连接",
+                u"无法读取 ScaleBridge 服务状态。\n\n"
+                u"这不会影响当前 VSPD 分流；若已迁移到 ScaleBridge，请确认 Windows 服务已启动。\n\n"
+                u"原因: " + str(exc),
+            )
+            return
+        show_info(
+            self, u"ScaleBridge 状态",
+            u"模式: {mode}\n物理秤端口: {port}\n物理秤连接: {opened}\n"
+            u"最近重量: {weight}\n私有查询抑制次数: {suppressed}\n异常帧: {invalid}\n"
+            u"最近错误: {error}".format(
+                mode=status.get("mode", "未知"),
+                port=status.get("physical_port", ""),
+                opened="是" if status.get("physical_open") else "否",
+                weight=status.get("last_weight_kg", "无"),
+                suppressed=status.get("suppressed_private_queries", 0),
+                invalid=status.get("invalid_frames", 0),
+                error=status.get("last_error") or "无",
+            ),
+        )
 
     def _test_scale_com(self):
         """实时测试当前配置的串口电子秤通信状态"""
