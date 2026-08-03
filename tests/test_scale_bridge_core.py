@@ -14,6 +14,7 @@ from scale_bridge.com0com import check_pair, create_pair, parse_setupc_list, rem
 from scale_bridge.lifecycle import (
     Com0ComProvisioner,
     OwnedPair,
+    PaymentPairLifecycle,
     PhysicalScaleTestResult,
     ProvisionReport,
     ScaleBridgeLifecycle,
@@ -211,12 +212,35 @@ class _StatefulSetupCRunner(object):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_default_provisioning_scope_excludes_payment_pair(self):
+        runner = _StatefulSetupCRunner()
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="",
+            private_bridge_port="",
+            payment_pos_port="COM10",
+            payment_plugin_port="COM11",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                os.path.join(directory, "installation.json"),
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
+                report = provisioner.ensure_required_pairs(cfg)
+        self.assertEqual(len(report.created), 2)
+        self.assertFalse(any("COM10" in pair for pair in runner.pairs.values()))
+
     def test_full_provision_is_idempotent_and_records_exact_owned_pairs(self):
         runner = _StatefulSetupCRunner()
         cfg = ScaleBridgeConfig(
             physical_scale=ScaleDeviceIdentity(port="COM5"),
             official_bridge_port="",
             private_bridge_port="",
+            payment_pos_port="COM10",
+            payment_plugin_port="COM11",
         )
         with tempfile.TemporaryDirectory() as directory:
             manifest_path = os.path.join(directory, "installation.json")
@@ -227,9 +251,9 @@ class ProvisioningTests(unittest.TestCase):
                 port_enumerator=lambda include_virtual=True: [],
             )
             with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
-                report = provisioner.ensure_required_pairs(cfg)
+                report = provisioner.ensure_required_pairs(cfg, include_payment=True)
                 install_count = len([item for item in runner.commands if item[1] == "install"])
-                second = provisioner.ensure_required_pairs(cfg)
+                second = provisioner.ensure_required_pairs(cfg, include_payment=True)
             self.assertEqual(len(report.created), 3)
             self.assertEqual(second.created, [])
             self.assertEqual(install_count, 3)
@@ -252,6 +276,8 @@ class ProvisioningTests(unittest.TestCase):
             physical_scale=ScaleDeviceIdentity(port="COM5"),
             official_bridge_port="",
             private_bridge_port="",
+            payment_pos_port="COM10",
+            payment_plugin_port="COM11",
         )
         with tempfile.TemporaryDirectory() as directory:
             manifest_path = os.path.join(directory, "installation.json")
@@ -262,13 +288,13 @@ class ProvisioningTests(unittest.TestCase):
                 port_enumerator=lambda include_virtual=True: [],
             )
             with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
-                provisioner.ensure_required_pairs(cfg)
+                provisioner.ensure_required_pairs(cfg, include_payment=True)
                 old_official_index = next(
                     index for index, pair in runner.pairs.items() if "COM2" in pair
                 )
                 cfg.official_pos_virtual_port = "COM4"
                 cfg.official_bridge_port = ""
-                report = provisioner.ensure_required_pairs(cfg)
+                report = provisioner.ensure_required_pairs(cfg, include_payment=True)
 
             self.assertTrue(any("COM2" in item for item in report.removed_obsolete))
             self.assertNotIn(old_official_index, runner.pairs)
@@ -276,12 +302,14 @@ class ProvisioningTests(unittest.TestCase):
             manifest = load_manifest(manifest_path)
             self.assertFalse(any(item.index == old_official_index for item in manifest.created_pairs))
 
-    def test_repair_removes_owned_payment_pair_when_payment_is_disabled(self):
+    def test_scale_only_repair_does_not_remove_owned_payment_pair(self):
         runner = _StatefulSetupCRunner()
         cfg = ScaleBridgeConfig(
             physical_scale=ScaleDeviceIdentity(port="COM5"),
             official_bridge_port="",
             private_bridge_port="",
+            payment_pos_port="COM10",
+            payment_plugin_port="COM11",
         )
         with tempfile.TemporaryDirectory() as directory:
             manifest_path = os.path.join(directory, "installation.json")
@@ -292,17 +320,38 @@ class ProvisioningTests(unittest.TestCase):
                 port_enumerator=lambda include_virtual=True: [],
             )
             with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
-                provisioner.ensure_required_pairs(cfg)
+                provisioner.ensure_required_pairs(cfg, include_payment=True)
                 payment_index = next(
                     index for index, pair in runner.pairs.items() if "COM10" in pair
                 )
-                cfg.payment_pos_port = ""
-                cfg.payment_plugin_port = ""
-                report = provisioner.ensure_required_pairs(cfg)
+                report = provisioner.ensure_required_pairs(
+                    cfg, include_scale=True, include_payment=False
+                )
 
-            self.assertTrue(any("COM10" in item for item in report.removed_obsolete))
-            self.assertNotIn(payment_index, runner.pairs)
-            self.assertEqual(len(runner.pairs), 2)
+            self.assertFalse(any("COM10" in item for item in report.removed_obsolete))
+            self.assertIn(payment_index, runner.pairs)
+            self.assertEqual(len(runner.pairs), 3)
+
+    def test_payment_lifecycle_creates_and_removes_only_payment_pair(self):
+        runner = _StatefulSetupCRunner()
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            lifecycle = PaymentPairLifecycle(manifest_path, provisioner)
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
+                "scale_bridge.lifecycle.find_setupc", return_value="setupc.exe"
+            ):
+                report = lifecycle.initialize("COM10", "COM11")
+                removed, skipped = lifecycle.remove()
+            self.assertEqual(len(report.created), 1)
+            self.assertEqual(len(removed), 1)
+            self.assertEqual(skipped, [])
+            self.assertEqual(runner.pairs, {})
 
     def test_real_port_conflict_is_not_overwritten(self):
         runner = _StatefulSetupCRunner()
@@ -324,7 +373,9 @@ class ProvisioningTests(unittest.TestCase):
             )
             with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
                 with self.assertRaisesRegex(RuntimeError, "不会覆盖"):
-                    provisioner.ensure_required_pairs(cfg)
+                    provisioner.ensure_required_pairs(
+                        cfg, include_scale=True, include_payment=False
+                    )
         self.assertFalse(any(item[1] == "install" for item in runner.commands))
 
     def test_existing_peer_cannot_be_reused_in_a_second_pair(self):
@@ -347,7 +398,9 @@ class ProvisioningTests(unittest.TestCase):
             )
             with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
                 with self.assertRaisesRegex(RuntimeError, "不能重复用于新配对"):
-                    provisioner.ensure_required_pairs(cfg)
+                    provisioner.ensure_required_pairs(
+                        cfg, include_scale=True, include_payment=False
+                    )
         self.assertFalse(any(item[1] == "install" for item in runner.commands))
 
     def test_delete_preflight_blocks_all_removal_if_one_owned_pair_changed(self):
@@ -373,6 +426,33 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual(len(skipped), 1)
         self.assertEqual(runner.pairs, {0: ("COM2", "CNCB0"), 1: ("COM3", "OTHER")})
         self.assertFalse(any(item[1] == "remove" for item in runner.commands))
+
+    def test_scale_pair_removal_preserves_owned_payment_pair(self):
+        runner = _StatefulSetupCRunner()
+        runner.pairs = {0: ("COM10", "COM11"), 1: ("COM2", "CNCB1")}
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            manifest = load_manifest(manifest_path)
+            manifest.created_pairs = [
+                OwnedPair("payment", 0, "COM10", "COM11"),
+                OwnedPair("official_scale", 1, "COM2", "CNCB1"),
+            ]
+            save_manifest(manifest, manifest_path)
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
+                removed, skipped = provisioner.remove_owned_pairs({"official_scale"})
+            self.assertEqual(len(removed), 1)
+            self.assertEqual(skipped, [])
+            self.assertEqual(runner.pairs, {0: ("COM10", "COM11")})
+            self.assertEqual(
+                [item.purpose for item in load_manifest(manifest_path).created_pairs],
+                ["payment"],
+            )
 
 
 class _ServiceRunner(object):
@@ -657,12 +737,12 @@ class VirtualPairTests(unittest.TestCase):
 
 
 class _FakeProvisioner(object):
-    def ensure_required_pairs(self, config):
+    def ensure_required_pairs(self, config, **_kwargs):
         config.official_bridge_port = "CNCB4"
         config.private_bridge_port = "CNCB5"
         return ProvisionReport(created=["COM2 ↔ CNCB4", "COM3 ↔ CNCB5"])
 
-    def remove_owned_pairs(self):
+    def remove_owned_pairs(self, _purposes=None):
         return ["COM2 ↔ CNCB4", "COM3 ↔ CNCB5"], []
 
 

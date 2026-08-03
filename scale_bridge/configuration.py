@@ -50,9 +50,10 @@ class ScaleBridgeConfig:
     private_pos_virtual_port: str = "COM3"
     official_bridge_port: str = ""
     private_bridge_port: str = ""
-    # Suggested defaults only.  The deployed payment endpoint is configurable.
-    payment_pos_port: str = "COM10"
-    payment_plugin_port: str = "COM11"
+    # Legacy fields retained for backward-compatible config loading only.
+    # Payment pairing is now configured independently on the Shouqianba page.
+    payment_pos_port: str = ""
+    payment_plugin_port: str = ""
     baudrate: int = 9600
     data_bits: int = 8
     parity: str = "N"
@@ -195,8 +196,8 @@ class ScaleBridgeConfig:
             private_pos_virtual_port=str(raw.get("PrivatePosVirtualPort", "COM3")).upper(),
             official_bridge_port=str(raw.get("OfficialBridgePort", "")).upper(),
             private_bridge_port=str(raw.get("PrivateBridgePort", "")).upper(),
-            payment_pos_port=str(raw.get("PaymentPosPort", "COM10")).upper(),
-            payment_plugin_port=str(raw.get("PaymentPluginPort", "COM11")).upper(),
+            payment_pos_port=str(raw.get("PaymentPosPort", "")).upper(),
+            payment_plugin_port=str(raw.get("PaymentPluginPort", "")).upper(),
             baudrate=int(raw.get("BaudRate", 9600)),
             data_bits=int(raw.get("DataBits", 8)),
             parity=parity,

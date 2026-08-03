@@ -71,6 +71,8 @@ DEFAULT_CONFIG = {
     "shouqianba_enabled": True,
     # 店内当前默认值；设置页可随时改为任意可用 COM 口。
     "shouqianba_port": "COM10",
+    # 收钱吧插件监听端；只在“收钱吧插件”页的可选支付配对中使用。
+    "shouqianba_plugin_port": "COM11",
     "shouqianba_baudrate": 2400,
     "shouqianba_format": "QA",
     "shouqianba_hotkey": "Shift+Q",

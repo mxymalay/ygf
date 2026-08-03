@@ -1,4 +1,2 @@
 @echo off
-cd /d "%~dp0"
-python main.py
-if errorlevel 1 py main.py
+call "%~dp0run.bat"

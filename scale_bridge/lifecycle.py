@@ -410,28 +410,49 @@ class Com0ComProvisioner:
         self._remember_created(purpose, created)
         return created, True
 
-    def ensure_required_pairs(self, config: ScaleBridgeConfig) -> ProvisionReport:
+    def ensure_required_pairs(
+        self,
+        config: ScaleBridgeConfig,
+        include_scale: bool = True,
+        include_payment: bool = False,
+    ) -> ProvisionReport:
         if not is_administrator():
             raise PermissionError("创建虚拟串口必须以管理员身份运行 POS")
-        config.validate_for_setup()
+        if not include_scale and not include_payment:
+            raise ValueError("至少选择一种需要维护的虚拟串口配对")
+        if include_scale:
+            config.validate_for_setup()
+        if include_payment:
+            payment_ports = (config.payment_pos_port, config.payment_plugin_port)
+            if not all(payment_ports):
+                raise ValueError("收钱吧发送端和插件接收端必须同时填写")
+            for value in payment_ports:
+                if not re.fullmatch(r"COM[1-9]\d*", value, re.IGNORECASE):
+                    raise ValueError("支付配对端口必须是 COM 端口：%s" % value)
+            if config.payment_pos_port.upper() == config.payment_plugin_port.upper():
+                raise ValueError("收钱吧发送端和插件接收端不能相同")
         pairs = self._pairs()
         owners = self._port_owners()
         report = ProvisionReport()
         active_pair_indices = set()
 
         desired = []
-        if config.payment_pos_port:
+        if include_payment:
             desired.append(("payment", config.payment_pos_port, config.payment_plugin_port))
-        desired.extend([
-            ("official_scale", config.official_pos_virtual_port, config.official_bridge_port),
-            ("private_scale", config.private_pos_virtual_port, config.private_bridge_port),
-        ])
+        if include_scale:
+            desired.extend([
+                ("official_scale", config.official_pos_virtual_port, config.official_bridge_port),
+                ("private_scale", config.private_pos_virtual_port, config.private_bridge_port),
+            ])
+        managed_purposes = {item[0] for item in desired}
 
         # Validate every ownership record before the first mutation. If an
         # external tool renamed or reused one of our historical pair indices,
         # repair must fail without creating or deleting anything else.
         manifest = load_manifest(self.manifest_path)
         for owned in manifest.created_pairs:
+            if owned.purpose not in managed_purposes:
+                continue
             current = next((item for item in pairs if item.index == owned.index), None)
             if current is not None and not owned.matches(current):
                 raise RuntimeError(
@@ -455,11 +476,6 @@ class Com0ComProvisioner:
         # A repair may change configured endpoints. Remove only obsolete pairs
         # that are still an exact match for this product's ownership record.
         manifest = load_manifest(self.manifest_path)
-        # Include optional purposes even when they are currently disabled. This
-        # lets "initialize / repair" retire an old payment pair after the user
-        # deliberately clears both payment fields. Ownership and exact endpoint
-        # matching below still protect every pair not created by this product.
-        managed_purposes = {"payment", "official_scale", "private_scale"}
         for owned in list(reversed(manifest.created_pairs)):
             if owned.purpose not in managed_purposes or owned.index in active_pair_indices:
                 continue
@@ -484,14 +500,19 @@ class Com0ComProvisioner:
             report.removed_obsolete.append(self._pair_description(current))
             manifest.created_pairs.remove(owned)
             save_manifest(manifest, self.manifest_path)
-        config.validate()
+        if include_scale:
+            config.validate()
         return report
 
-    def remove_owned_pairs(self) -> Tuple[List[str], List[str]]:
+    def remove_owned_pairs(
+        self,
+        purposes: Optional[Iterable[str]] = None,
+    ) -> Tuple[List[str], List[str]]:
         """Return (removed, skipped); changed/unowned pairs are never removed."""
         if not is_administrator():
             raise PermissionError("删除虚拟串口必须以管理员身份运行 POS")
         manifest = load_manifest(self.manifest_path)
+        selected_purposes = set(purposes) if purposes is not None else None
         removed: List[str] = []
         skipped: List[str] = []
         pairs = self._pairs()
@@ -499,6 +520,8 @@ class Com0ComProvisioner:
         # Preflight all records before deleting the first pair. This prevents a
         # partial delete when a later pair was renamed/reused outside the POS.
         for owned in list(manifest.created_pairs):
+            if selected_purposes is not None and owned.purpose not in selected_purposes:
+                continue
             current = next((item for item in pairs if item.index == owned.index), None)
             if current is None:
                 manifest.created_pairs.remove(owned)
@@ -513,6 +536,8 @@ class Com0ComProvisioner:
             return removed, skipped
 
         for owned in list(reversed(manifest.created_pairs)):
+            if selected_purposes is not None and owned.purpose not in selected_purposes:
+                continue
             pairs = self._pairs()
             current = next((item for item in pairs if item.index == owned.index), None)
             if current is None:
@@ -943,7 +968,11 @@ class ScaleBridgeLifecycle:
             manifest.driver_installed_by_product = True
             save_manifest(manifest, self.manifest_path)
         provisioner = self.provisioner or Com0ComProvisioner(setupc, self.manifest_path)
-        pairs = provisioner.ensure_required_pairs(config)
+        # Payment/shouqianba pairing has its own page and lifecycle. Scale
+        # initialization must never create, change or remove that pair.
+        pairs = provisioner.ensure_required_pairs(
+            config, include_scale=True, include_payment=False
+        )
         save_config(config, self.config_path)
 
         installed = self.service.install()
@@ -968,8 +997,9 @@ class ScaleBridgeLifecycle:
             raise RuntimeError("检测到同名服务但缺少本产品所有权记录，为安全起见拒绝删除")
 
         provisioner = self.provisioner or Com0ComProvisioner(manifest_path=self.manifest_path)
-        if manifest.created_pairs:
-            report.removed_pairs, report.skipped_pairs = provisioner.remove_owned_pairs()
+        scale_purposes = {"official_scale", "private_scale"}
+        if any(item.purpose in scale_purposes for item in manifest.created_pairs):
+            report.removed_pairs, report.skipped_pairs = provisioner.remove_owned_pairs(scale_purposes)
         if report.skipped_pairs:
             raise RuntimeError("存在所有权不匹配的配对，已停止删除：" + "; ".join(report.skipped_pairs))
 
@@ -1000,6 +1030,54 @@ class ScaleBridgeLifecycle:
             except FileNotFoundError:
                 pass
         return report
+
+
+class PaymentPairLifecycle:
+    """Independent lifecycle for the optional Shouqianba serial pair."""
+
+    def __init__(
+        self,
+        manifest_path: Optional[str] = None,
+        provisioner: Optional[Com0ComProvisioner] = None,
+    ):
+        self.manifest_path = manifest_path or default_manifest_path()
+        self.provisioner = provisioner
+
+    def initialize(
+        self,
+        sender_port: str,
+        plugin_port: str,
+        installer_path: Optional[str] = None,
+    ) -> ProvisionReport:
+        if not is_administrator():
+            raise PermissionError("创建收钱吧虚拟串口配对必须以管理员身份运行 POS")
+        config = ScaleBridgeConfig(
+            payment_pos_port=str(sender_port or "").strip().upper(),
+            payment_plugin_port=str(plugin_port or "").strip().upper(),
+        )
+        setupc = find_setupc()
+        if not setupc:
+            setupc = install_com0com_driver(installer_path)
+            manifest = load_manifest(self.manifest_path)
+            manifest.driver_installed_by_product = True
+            save_manifest(manifest, self.manifest_path)
+        provisioner = self.provisioner or Com0ComProvisioner(
+            setupc, self.manifest_path
+        )
+        return provisioner.ensure_required_pairs(
+            config, include_scale=False, include_payment=True
+        )
+
+    def remove(self) -> Tuple[List[str], List[str]]:
+        if not is_administrator():
+            raise PermissionError("删除收钱吧虚拟串口配对必须以管理员身份运行 POS")
+        manifest = load_manifest(self.manifest_path)
+        if not any(item.purpose == "payment" for item in manifest.created_pairs):
+            return [], []
+        provisioner = self.provisioner or Com0ComProvisioner(
+            manifest_path=self.manifest_path
+        )
+        return provisioner.remove_owned_pairs({"payment"})
 
 
 def collect_diagnostics(
