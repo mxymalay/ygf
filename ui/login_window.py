@@ -477,8 +477,15 @@ class LoginWindow(QDialog):
 
     def _do_check_shouqianba(self):
         self.progress_bar.setValue(100)
-        from core.shouqianba_sender import test_shouqianba_port
-        ok, msg = test_shouqianba_port(self.config)
+        try:
+            from core.shouqianba_sender import test_shouqianba_port
+            ok, msg = test_shouqianba_port(self.config)
+        except Exception as exc:
+            # 硬件自检失败只能形成告警，不能让 Qt 定时回调抛出异常并终止
+            # 整个 POS 进程。详细原因保留在控制台，便于现场排障。
+            ok = False
+            msg = f"检测异常: {exc}"
+            print(f"[登录检测] 收钱吧检测异常: {exc}")
         if ok:
             self.lbl_badge3.setText(u"✔ 串口通畅")
             self.lbl_badge3.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")

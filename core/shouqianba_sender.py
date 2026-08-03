@@ -14,7 +14,13 @@ import threading
 import logging
 import ctypes
 import time
-import keyboard
+try:
+    import keyboard
+except ImportError:
+    # keyboard 只用于末尾的“扫码枪无回车补偿”，不是收钱吧串口通信的
+    # 必需依赖。部分门店电脑只部署基础运行环境，不能让可选功能缺包时
+    # 连登录页的收钱吧检测也直接退出。
+    keyboard = None
 
 logger = logging.getLogger("ShouqianbaSender")
 
@@ -806,10 +812,13 @@ def _barcode_checker_loop():
                 # 降级：全局发送（仅在收钱吧窗口找不到时）
                 send_hotkey("ENTER")
 
-try:
-    keyboard.on_press(_global_key_listener)
-    _t = threading.Thread(target=_barcode_checker_loop, daemon=True)
-    _t.start()
-    logger.info("支付宝碰一碰设备无回车补偿器已启动")
-except Exception as _e:
-    logger.warning(f"碰一碰监听器启动失败（可能需要管理员权限）: {_e}")
+if keyboard is not None:
+    try:
+        keyboard.on_press(_global_key_listener)
+        _t = threading.Thread(target=_barcode_checker_loop, daemon=True)
+        _t.start()
+        logger.info("支付宝碰一碰设备无回车补偿器已启动")
+    except Exception as _e:
+        logger.warning(f"碰一碰监听器启动失败（可能需要管理员权限）: {_e}")
+else:
+    logger.info("未安装 keyboard，可选的碰一碰无回车补偿器未启动")
