@@ -98,10 +98,6 @@ class Database:
                     refund_reason   TEXT DEFAULT '',
                     refund_operator TEXT DEFAULT ''
                 );
-                CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(created_at);
-                CREATE INDEX IF NOT EXISTS idx_sales_no ON sales(sale_no);
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_order_id
-                    ON sales(order_id) WHERE order_id IS NOT NULL;
                 """
             )
 
@@ -123,6 +119,17 @@ class Database:
             }
             for name, definition in upgrades.items():
                 self._ensure_column(conn, name, definition)
+
+            # Do not create indexes until after the column migration.  An old
+            # store can have a valid ``sales`` table without ``order_id``;
+            # creating the index in the initial CREATE script would make
+            # SQLite abort before `_ensure_column` ever gets a chance to run.
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_no ON sales(sale_no)")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_order_id "
+                "ON sales(order_id) WHERE order_id IS NOT NULL"
+            )
             conn.execute(
                 "UPDATE sales SET order_id = 'LEGACY-' || id "
                 "WHERE order_id IS NULL OR order_id = ''"

@@ -9,7 +9,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
-    QScrollArea, QDialog
+    QScrollArea, QDialog, QLineEdit, QComboBox
 )
 from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
 
@@ -21,6 +21,138 @@ from core.call_number_manager import CallNumberManager
 from core.order_draft import clear_draft, load_draft, save_draft
 from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
 from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER, CAT_SYSTEM
+
+
+class ManualWeightDialog(QDialog):
+    """Large on-screen keypad for entering simulated scale weight in kg."""
+
+    def __init__(self, initial_kg=0.0, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+        self.weight_kg = 0.0
+
+        card = QFrame(self)
+        card.setObjectName("ManualWeightCard")
+        card.setStyleSheet(
+            "QFrame#ManualWeightCard { background: #1E293B; border: 2px solid #F97316; border-radius: 18px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.addWidget(card)
+
+        body = QVBoxLayout(card)
+        body.setContentsMargins(24, 22, 24, 22)
+        body.setSpacing(12)
+
+        title = QLabel(u"输入模拟称重")
+        title.setStyleSheet("color: #F8FAFC; font-size: 22px; font-weight: 900;")
+        title.setAlignment(Qt.AlignCenter)
+        body.addWidget(title)
+
+        hint = QLabel(u"单位：千克（kg），例如输入 0.500")
+        hint.setStyleSheet("color: #CBD5E1; font-size: 14px;")
+        hint.setAlignment(Qt.AlignCenter)
+        body.addWidget(hint)
+
+        self.display = QLineEdit()
+        self.display.setReadOnly(True)
+        self.display.setText("0.000")
+        self.display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.display.setMinimumHeight(66)
+        self.display.setStyleSheet(
+            "QLineEdit { background: #0F172A; color: #F59E0B; border: 2px solid #F97316; "
+            "border-radius: 10px; padding: 6px 14px; font-size: 32px; font-weight: 900; "
+            "font-family: 'Consolas', monospace; }"
+        )
+        body.addWidget(self.display)
+
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        keys = (("1", "2", "3"), ("4", "5", "6"), ("7", "8", "9"), ("清空", "0", "⌫"))
+        for row, values in enumerate(keys):
+            for col, key in enumerate(values):
+                button = QPushButton(key)
+                button.setMinimumHeight(58)
+                button.setFocusPolicy(Qt.NoFocus)
+                button.setStyleSheet(
+                    "QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; "
+                    "border-radius: 10px; font-size: 22px; font-weight: 900; }"
+                    "QPushButton:pressed { background: #EA580C; }"
+                )
+                button.clicked.connect(lambda _checked=False, value=key: self._press(value))
+                grid.addWidget(button, row, col)
+        dot = QPushButton(".")
+        dot.setMinimumHeight(58)
+        dot.setFocusPolicy(Qt.NoFocus)
+        dot.setStyleSheet(
+            "QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; "
+            "border-radius: 10px; font-size: 22px; font-weight: 900; }"
+            "QPushButton:pressed { background: #EA580C; }"
+        )
+        dot.clicked.connect(lambda: self._press("."))
+        grid.addWidget(dot, 3, 3)
+        body.addLayout(grid)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+        cancel = QPushButton(u"取消")
+        confirm = QPushButton(u"确认使用")
+        for button in (cancel, confirm):
+            button.setMinimumHeight(58)
+            button.setFocusPolicy(Qt.NoFocus)
+        cancel.setStyleSheet(
+            "QPushButton { background: #475569; color: #F8FAFC; border-radius: 10px; font-size: 17px; font-weight: bold; }"
+        )
+        confirm.setStyleSheet(
+            "QPushButton { background: #059669; color: #FFFFFF; border-radius: 10px; font-size: 17px; font-weight: bold; }"
+        )
+        cancel.clicked.connect(self.reject)
+        confirm.clicked.connect(self._confirm)
+        actions.addWidget(cancel)
+        actions.addWidget(confirm)
+        body.addLayout(actions)
+        self.resize(430, 610)
+
+        try:
+            value = float(initial_kg)
+        except (TypeError, ValueError):
+            value = 0.0
+        if value > 0:
+            self.display.setText("%.3f" % min(value, 20.0))
+
+    def _press(self, key):
+        text = self.display.text()
+        if key == "清空":
+            self.display.setText("0.000")
+            return
+        if key == "⌫":
+            text = text[:-1]
+            self.display.setText(text if text and text != "-" else "0.000")
+            return
+        if text == "0.000":
+            text = ""
+        if key == "." and "." in text:
+            return
+        if key == "." and not text:
+            text = "0"
+        if "." in text and len(text.split(".", 1)[1]) >= 3:
+            return
+        if len(text.replace(".", "")) >= 6:
+            return
+        self.display.setText(text + key)
+
+    def _confirm(self):
+        try:
+            value = float(self.display.text())
+        except (TypeError, ValueError):
+            value = 0.0
+        if value <= 0 or value > 20.0:
+            return
+        self.weight_kg = round(value, 3)
+        self.accept()
 
 
 class TasteSelectionDialog(QDialog):
@@ -557,6 +689,10 @@ class SaleWidget(QWidget):
         self._scale_connected = False
         self._last_weight_monotonic = 0.0
         self._checkout_active = False
+        # Simulation starts in the safer/manual mode.  It is intentionally a
+        # session setting: real hardware configuration is never changed by
+        # the mock controls.
+        self.mock_weight_mode = "manual"
         
         # 购物车项目列表与选中项目索引与分页状态
         self.cart_items = []
@@ -701,9 +837,21 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
-        # 模拟调试模式下显示的“🎲 随机重量”按键
+        # 模拟调试模式下显示的重量模式与触屏操作按钮
+        self.cmb_mock_weight_mode = QComboBox()
+        self.cmb_mock_weight_mode.addItems([u"手动输入重量（默认）", u"随机生成重量"])
+        self.cmb_mock_weight_mode.setMinimumHeight(48)
+        self.cmb_mock_weight_mode.setMinimumWidth(155)
+        self.cmb_mock_weight_mode.setFocusPolicy(Qt.NoFocus)
+        self.cmb_mock_weight_mode.setStyleSheet(
+            "QComboBox { background: #7C2D12; color: #FFFFFF; border: 1px solid #F59E0B; "
+            "border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: bold; }"
+        )
+        self.cmb_mock_weight_mode.currentIndexChanged.connect(self._on_mock_weight_mode_changed)
+        led_layout.addWidget(self.cmb_mock_weight_mode)
+
         self.btn_random_weight = QPushButton(u"🎲 随机重量")
-        self.btn_random_weight.setToolTip(u"点击随机生成测试重量，右键可精确设定")
+        self.btn_random_weight.setToolTip(u"手动模式：打开触屏数字键盘；随机模式：生成测试重量")
         self.btn_random_weight.setCursor(Qt.PointingHandCursor)
         self.btn_random_weight.setFocusPolicy(Qt.NoFocus)
         self.btn_random_weight.setStyleSheet("""
@@ -721,8 +869,11 @@ class SaleWidget(QWidget):
 
         if self.config.get("is_mock_mode", False):
             self.lbl_scale_status_icon.hide()
+            self.cmb_mock_weight_mode.show()
             self.btn_random_weight.show()
+            self._on_mock_weight_mode_changed(self.cmb_mock_weight_mode.currentIndex())
         else:
+            self.cmb_mock_weight_mode.hide()
             self.btn_random_weight.hide()
 
         self.lbl_weight = QLabel("00.000 kg")
@@ -1076,8 +1227,18 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
 
         if btn.is_soup:
-            if self.current_weight <= 0.0005:
-                show_warning(self, u"请先称重", u"当前电子秤读数为 0.000 kg，请先将麻辣烫放置在电子秤上！")
+            is_mock = bool(self.config.get("is_mock_mode", False))
+            if is_mock and self.mock_weight_mode == "manual":
+                # Manual mode deliberately asks for the weight on every soup
+                # selection, so a previous bowl's value cannot be reused by
+                # accident.
+                if not self._prompt_manual_weight():
+                    return
+            elif self.current_weight <= 0.0005:
+                if is_mock and self.mock_weight_mode == "random":
+                    show_warning(self, u"请先生成模拟重量", u"当前为随机重量模式，请先点击上方“随机重量”，再选择麻辣烫。")
+                else:
+                    show_warning(self, u"请先称重", u"当前电子秤读数为 0.000 kg，请先将麻辣烫放置在电子秤上！")
                 return
             if not self.config.get("is_mock_mode", False):
                 if not self._scale_connected or time.monotonic() - self._last_weight_monotonic > 2.0:
@@ -1635,16 +1796,39 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_random_weight_click(self):
+        if self.config.get("is_mock_mode", False) and self.mock_weight_mode == "manual":
+            self._prompt_manual_weight()
+            return
         weights = [0.120, 0.150, 0.320, 0.450, 0.580, 0.640, 0.760, 0.850, 0.980, 1.150]
         w = random.choice(weights)
         w = round(w + random.uniform(-0.02, 0.02), 3)
         w = max(0.100, w)
-        if hasattr(self, 'scale') and self.scale:
-            self.scale.weight_updated.emit(w)
-            self.scale.weight_stable.emit(w)
+        self._apply_mock_weight(w)
+
+    def _on_mock_weight_mode_changed(self, index):
+        """Switch the mock action between manual keypad and random generation."""
+        self.mock_weight_mode = "random" if int(index) == 1 else "manual"
+        if not hasattr(self, "btn_random_weight"):
+            return
+        if self.mock_weight_mode == "manual":
+            self.btn_random_weight.setText(u"✎ 输入重量")
+            self.btn_random_weight.setToolTip(u"打开触屏数字键盘输入 kg；点击麻辣烫时也会要求输入")
         else:
-            self._on_weight_update(w)
-            self._on_weight_stable(w)
+            self.btn_random_weight.setText(u"🎲 随机重量")
+            self.btn_random_weight.setToolTip(u"点击生成一组模拟重量")
+
+    def _apply_mock_weight(self, weight_kg):
+        """Apply a mock reading through the same UI path as a real scale."""
+        self._on_weight_update(round(float(weight_kg), 3))
+        self._on_weight_stable(round(float(weight_kg), 3))
+
+    def _prompt_manual_weight(self):
+        """Open the large touch keypad and apply the entered kg value."""
+        dlg = ManualWeightDialog(self.current_weight, self)
+        if dlg.exec_() != QDialog.Accepted or dlg.weight_kg <= 0:
+            return False
+        self._apply_mock_weight(dlg.weight_kg)
+        return True
 
     def _on_random_weight_menu(self, pos):
         from PyQt5.QtWidgets import QMenu
@@ -1658,12 +1842,7 @@ class SaleWidget(QWidget):
         for preset in [0.120, 0.300, 0.500, 0.800, 1.000, 1.200]:
             act = menu.addAction(u"设置重量: %.3f kg" % preset)
             def trigger_preset(checked, val=preset):
-                if hasattr(self, 'scale') and self.scale:
-                    self.scale.weight_updated.emit(val)
-                    self.scale.weight_stable.emit(val)
-                else:
-                    self._on_weight_update(val)
-                    self._on_weight_stable(val)
+                self._apply_mock_weight(val)
             act.triggered.connect(trigger_preset)
             
         act_custom = menu.addAction(u"自定义输入克数...")
@@ -1671,12 +1850,7 @@ class SaleWidget(QWidget):
             val, ok = get_int_input(self, u"自定义重量", u"请输入克数 (例: 500 表示 0.5kg):", 500, 1, 99999)
             if ok:
                 w = round(val / 1000.0, 3)
-                if hasattr(self, 'scale') and self.scale:
-                    self.scale.weight_updated.emit(w)
-                    self.scale.weight_stable.emit(w)
-                else:
-                    self._on_weight_update(w)
-                    self._on_weight_stable(w)
+                self._apply_mock_weight(w)
         act_custom.triggered.connect(ask_custom)
         
         menu.exec_(self.btn_random_weight.mapToGlobal(pos))

@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 import unittest
 
@@ -49,6 +50,32 @@ class DatabaseLedgerTests(unittest.TestCase):
         self.assertEqual(refunded["payment_status"], REFUNDED)
         self.assertEqual(self.db.get_stats_by_date(refunded["created_at"][:10])["count"], 0)
         self.assertEqual(self.db.get_refund_stats_by_date(refunded["created_at"][:10])["count"], 1)
+
+    def test_legacy_sales_table_without_order_id_is_migrated(self):
+        """Opening a pre-order-id database must not crash during index creation."""
+        path = os.path.join(self.tmp.name, "legacy.db")
+        conn = sqlite3.connect(path)
+        conn.execute(
+            """CREATE TABLE sales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_no TEXT UNIQUE NOT NULL,
+                weight_kg REAL NOT NULL,
+                unit_price REAL NOT NULL,
+                price_unit TEXT NOT NULL DEFAULT 'per_jin',
+                total_price REAL NOT NULL,
+                remark TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                printed INTEGER NOT NULL DEFAULT 0
+            )"""
+        )
+        conn.commit()
+        conn.close()
+
+        migrated = Database(path)
+        conn = migrated._get_conn()
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sales)")}
+        conn.close()
+        self.assertIn("order_id", columns)
 
 
 if __name__ == "__main__":
