@@ -2,6 +2,8 @@
 系统设置界面 — 高端左侧导航栏 + 卡片化极简 UI
 PyQt5 + Python 3.8 兼容
 """
+import os
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
@@ -11,7 +13,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
 
-from config import save_config, reset_module_config, export_config_bundle, import_config_bundle
+from config import DATA_DIR, save_config, reset_module_config, export_config_bundle, import_config_bundle
 from utils.port_scanner import scan_printers
 
 
@@ -410,6 +412,98 @@ class SettingsWidget(QWidget):
         btn_box.addWidget(btn_save_scale)
 
         layout.addLayout(btn_box)
+
+        # ScaleBridge is deliberately kept separate from the normal POS
+        # settings above: saving it must never silently replace a live VSPD
+        # split or install/modify a Windows driver.
+        bridge_panel = QFrame()
+        bridge_panel.setObjectName("ScaleBridgePanel")
+        bridge_panel.setStyleSheet("""
+            QFrame#ScaleBridgePanel {
+                background: #132235; border: 1px solid #2563EB; border-radius: 12px;
+            }
+            QLineEdit, QComboBox { background: #0F172A; }
+        """)
+        bridge_layout = QVBoxLayout(bridge_panel)
+        bridge_layout.setContentsMargins(16, 16, 16, 16)
+        bridge_layout.setSpacing(12)
+
+        bridge_title = QLabel(u"🔀 ScaleBridge 双 POS 串口服务（迁移配置）")
+        bridge_title.setStyleSheet("font-size: 16px; color: #60A5FA; font-weight: bold;")
+        bridge_layout.addWidget(bridge_title)
+        bridge_desc = QLabel(
+            u"仅配置未来的 Windows 服务，不会触碰当前 VSPD。服务唯一打开物理秤口；"
+            u"官方/私有 POS 分别使用虚拟端口。"
+        )
+        bridge_desc.setWordWrap(True)
+        bridge_desc.setStyleSheet("color: #CBD5E1; font-size: 12px;")
+        bridge_layout.addWidget(bridge_desc)
+
+        bridge_grid = QGridLayout()
+        bridge_grid.setHorizontalSpacing(12)
+        bridge_grid.setVerticalSpacing(10)
+        bridge_grid.setColumnStretch(1, 1)
+        bridge_grid.setColumnStretch(3, 1)
+
+        bridge_grid.addWidget(self._make_label(u"物理秤端口："), 0, 0)
+        self.cmb_bridge_physical_port = QComboBox()
+        self.cmb_bridge_physical_port.setEditable(True)
+        bridge_grid.addWidget(self.cmb_bridge_physical_port, 0, 1)
+        self.btn_refresh_bridge_devices = QPushButton(u"🔄 识别物理设备")
+        self.btn_refresh_bridge_devices.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh_bridge_devices.clicked.connect(self._refresh_scale_bridge_devices)
+        bridge_grid.addWidget(self.btn_refresh_bridge_devices, 0, 2, 1, 2)
+
+        bridge_grid.addWidget(self._make_label(u"官方 POS："), 1, 0)
+        self.txt_bridge_official_pos = QLineEdit()
+        self.txt_bridge_official_pos.setPlaceholderText("例如 COM2")
+        bridge_grid.addWidget(self.txt_bridge_official_pos, 1, 1)
+        bridge_grid.addWidget(self._make_label(u"服务官方对端："), 1, 2)
+        self.txt_bridge_official_peer = QLineEdit()
+        self.txt_bridge_official_peer.setPlaceholderText("例如 CNCB0")
+        bridge_grid.addWidget(self.txt_bridge_official_peer, 1, 3)
+
+        bridge_grid.addWidget(self._make_label(u"私有 POS："), 2, 0)
+        self.txt_bridge_private_pos = QLineEdit()
+        self.txt_bridge_private_pos.setPlaceholderText("例如 COM3")
+        bridge_grid.addWidget(self.txt_bridge_private_pos, 2, 1)
+        bridge_grid.addWidget(self._make_label(u"服务私有对端："), 2, 2)
+        self.txt_bridge_private_peer = QLineEdit()
+        self.txt_bridge_private_peer.setPlaceholderText("例如 CNCB1")
+        bridge_grid.addWidget(self.txt_bridge_private_peer, 2, 3)
+
+        bridge_grid.addWidget(self._make_label(u"收钱吧 POS 端："), 3, 0)
+        self.txt_bridge_payment_pos = QLineEdit()
+        self.txt_bridge_payment_pos.setPlaceholderText("例如 COM10")
+        bridge_grid.addWidget(self.txt_bridge_payment_pos, 3, 1)
+        bridge_grid.addWidget(self._make_label(u"支付插件对端："), 3, 2)
+        self.txt_bridge_payment_peer = QLineEdit()
+        self.txt_bridge_payment_peer.setPlaceholderText("例如 COM11")
+        bridge_grid.addWidget(self.txt_bridge_payment_peer, 3, 3)
+        bridge_layout.addLayout(bridge_grid)
+
+        self.lbl_scale_bridge_config = QLabel("")
+        self.lbl_scale_bridge_config.setWordWrap(True)
+        self.lbl_scale_bridge_config.setStyleSheet(
+            "color: #BFDBFE; font-size: 12px; padding: 8px 10px; background: #0F172A; border-radius: 8px;"
+        )
+        bridge_layout.addWidget(self.lbl_scale_bridge_config)
+
+        bridge_buttons = QHBoxLayout()
+        bridge_buttons.setSpacing(10)
+        self.btn_save_scale_bridge = QPushButton(u"💾 保存桥接配置")
+        self._style_save_btn(self.btn_save_scale_bridge)
+        self.btn_save_scale_bridge.clicked.connect(self._save_scale_bridge_config)
+        bridge_buttons.addWidget(self.btn_save_scale_bridge)
+        self.btn_check_scale_bridge_pairs = QPushButton(u"🔗 检查虚拟端口配对")
+        self.btn_check_scale_bridge_pairs.setCursor(Qt.PointingHandCursor)
+        self.btn_check_scale_bridge_pairs.clicked.connect(self._check_scale_bridge_pairs)
+        bridge_buttons.addWidget(self.btn_check_scale_bridge_pairs)
+        bridge_buttons.addStretch()
+        bridge_layout.addLayout(bridge_buttons)
+        layout.addWidget(bridge_panel)
+
+        self._load_scale_bridge_form()
 
         # 初始化显示/隐藏
         self._on_scale_source_changed(self.cmb_scale_source.currentIndex())
@@ -1010,6 +1104,161 @@ class SettingsWidget(QWidget):
                 error=status.get("last_error") or "无",
             ),
         )
+
+    @staticmethod
+    def _bridge_port_text(value):
+        """Extract the editable COM name from the device display text."""
+        return str(value or "").split("[", 1)[0].strip().upper()
+
+    def _scale_bridge_config_path(self):
+        return os.path.join(DATA_DIR, "scale_bridge.json")
+
+    def _load_scale_bridge_form(self):
+        """Load only the independent bridge configuration; never alters POS settings."""
+        from scale_bridge.configuration import load_config
+        try:
+            bridge_config = load_config(self._scale_bridge_config_path())
+        except Exception:
+            bridge_config = None
+
+        if bridge_config is None:
+            return
+        self.txt_bridge_official_pos.setText(bridge_config.official_pos_virtual_port)
+        self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port or "CNCB0")
+        self.txt_bridge_private_pos.setText(bridge_config.private_pos_virtual_port)
+        self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port or "CNCB1")
+        self.txt_bridge_payment_pos.setText(bridge_config.payment_pos_port)
+        self.txt_bridge_payment_peer.setText(bridge_config.payment_plugin_port)
+        self._refresh_scale_bridge_devices(silent=True, preferred_port=bridge_config.physical_scale_port or "COM1")
+        exists = os.path.isfile(self._scale_bridge_config_path())
+        self.lbl_scale_bridge_config.setText(
+            u"%s：%s。已验证秤协议固定为 9600 / 8N1 / DTR 开 / RTS 关。"
+            % (u"已加载桥接配置" if exists else u"尚未保存桥接配置（显示默认值）", self._scale_bridge_config_path())
+        )
+
+    def _refresh_scale_bridge_devices(self, checked=False, silent=False, preferred_port=None):
+        """Discover only physical serial candidates and retain hardware identity in item data."""
+        # `checked` is accepted because this method is also a QPushButton slot.
+        del checked
+        from scale_bridge.device_discovery import enumerate_serial_ports
+        from ui.custom_dialog import show_info, show_warning
+
+        current_port = self._bridge_port_text(preferred_port or self.cmb_bridge_physical_port.currentText())
+        try:
+            candidates = enumerate_serial_ports(include_virtual=False)
+        except Exception as exc:
+            candidates = []
+            scan_error = str(exc)
+        else:
+            scan_error = ""
+
+        self.cmb_bridge_physical_port.clear()
+        known_ports = set()
+        for candidate in candidates:
+            label = "%s  [%s]" % (candidate.port, candidate.friendly_name or candidate.port)
+            self.cmb_bridge_physical_port.addItem(label, candidate)
+            known_ports.add(candidate.port.upper())
+        if current_port and current_port not in known_ports:
+            # Keep a previously configured physical COM name visible even while
+            # its USB adapter is unplugged; saving it intentionally clears no
+            # existing identity unless the operator selects a different port.
+            self.cmb_bridge_physical_port.addItem(current_port)
+        if not self.cmb_bridge_physical_port.count():
+            self.cmb_bridge_physical_port.addItem("COM1")
+        if current_port:
+            for index in range(self.cmb_bridge_physical_port.count()):
+                if self._bridge_port_text(self.cmb_bridge_physical_port.itemText(index)) == current_port:
+                    self.cmb_bridge_physical_port.setCurrentIndex(index)
+                    break
+
+        if not silent:
+            if candidates:
+                details = "\n".join("• %s — %s" % (item.port, item.friendly_name) for item in candidates)
+                show_info(self, u"物理串口识别结果", u"已识别 %d 个非虚拟串口：\n\n%s" % (len(candidates), details))
+            else:
+                message = u"未识别到可作为物理秤的串口。VSPD/com0com 虚拟口会被刻意排除。"
+                if scan_error:
+                    message += u"\n\n原因: " + scan_error
+                show_warning(self, u"未识别到物理秤", message)
+
+    def _bridge_config_from_form(self):
+        """Merge fields into the separate service config without writing it yet."""
+        from scale_bridge.configuration import ScaleDeviceIdentity, load_config
+
+        bridge_config = load_config(self._scale_bridge_config_path())
+        physical_port = self._bridge_port_text(self.cmb_bridge_physical_port.currentText())
+        candidate = self.cmb_bridge_physical_port.currentData()
+        if candidate is not None and getattr(candidate, "port", "").upper() == physical_port:
+            bridge_config.physical_scale = candidate.to_identity()
+        elif bridge_config.physical_scale_port != physical_port:
+            # A manually typed different port must not inherit another USB
+            # adapter's PnP identity, or it could be re-bound unexpectedly.
+            bridge_config.physical_scale = ScaleDeviceIdentity(port=physical_port)
+        else:
+            bridge_config.physical_scale.port = physical_port
+
+        bridge_config.official_pos_virtual_port = self.txt_bridge_official_pos.text().strip().upper()
+        bridge_config.official_bridge_port = self.txt_bridge_official_peer.text().strip().upper()
+        bridge_config.private_pos_virtual_port = self.txt_bridge_private_pos.text().strip().upper()
+        bridge_config.private_bridge_port = self.txt_bridge_private_peer.text().strip().upper()
+        bridge_config.payment_pos_port = self.txt_bridge_payment_pos.text().strip().upper()
+        bridge_config.payment_plugin_port = self.txt_bridge_payment_peer.text().strip().upper()
+        bridge_config.baudrate = int(self.cmb_scale_baud.currentText().strip() or "9600")
+        return bridge_config
+
+    def _save_scale_bridge_config(self):
+        from scale_bridge.configuration import save_config
+        from ui.custom_dialog import show_error, show_info
+
+        try:
+            bridge_config = self._bridge_config_from_form()
+            bridge_config.validate()
+            save_config(bridge_config, self._scale_bridge_config_path())
+        except Exception as exc:
+            show_error(self, u"桥接配置无法保存", str(exc))
+            return
+        self.lbl_scale_bridge_config.setText(
+            u"✓ 已保存桥接配置：%s。尚未启动服务，也未变更 VSPD 或任何 COM 映射。"
+            % self._scale_bridge_config_path()
+        )
+        show_info(
+            self, u"桥接配置已保存",
+            u"已保存独立的 ScaleBridge 配置。\n\n"
+            u"这一步不会切换当前 POS 的称来源、不会安装驱动，也不会创建或修改虚拟串口。\n"
+            u"迁移时请将私有 POS 设置为“com / COM3”，并按部署说明在维护窗口启动服务。",
+        )
+
+    def _check_scale_bridge_pairs(self):
+        """Read installed com0com pairs only; this button has no write side effect."""
+        from scale_bridge.com0com import check_pair, list_pairs
+        from ui.custom_dialog import show_error, show_info, show_warning
+
+        try:
+            bridge_config = self._bridge_config_from_form()
+            bridge_config.validate()
+            pairs = list_pairs()
+        except Exception as exc:
+            show_error(
+                self, u"无法检查虚拟端口配对",
+                u"未改动任何端口。请确认 com0com 已由管理员安装，然后再检查。\n\n原因: " + str(exc),
+            )
+            return
+        checks = [
+            (u"官方 POS", check_pair(bridge_config.official_pos_virtual_port, bridge_config.official_bridge_port, pairs)),
+            (u"私有 POS", check_pair(bridge_config.private_pos_virtual_port, bridge_config.private_bridge_port, pairs)),
+            (u"支付插件", check_pair(bridge_config.payment_pos_port, bridge_config.payment_plugin_port, pairs)),
+        ]
+        lines = []
+        for name, item in checks:
+            suffix = u"（配对 #%d）" % item.pair.index if item.pair else ""
+            lines.append(u"%s：%s ↔ %s — %s %s" % (
+                name, item.client_port, item.bridge_port, u"正常" if item.present else u"缺失", suffix
+            ))
+        message = u"\n".join(lines) + u"\n\n本检查仅读取 com0com 当前配置，不创建、删除或重命名端口。"
+        if all(item.present for _name, item in checks):
+            show_info(self, u"虚拟端口配对正常", message)
+        else:
+            show_warning(self, u"存在缺失的虚拟端口配对", message)
 
     def _test_scale_com(self):
         """实时测试当前配置的串口电子秤通信状态"""
