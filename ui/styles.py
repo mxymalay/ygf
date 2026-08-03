@@ -433,7 +433,9 @@ def apply_touch_combo_style(combo, item_height=52):
     
     解决下拉菜单选项文字靠边/顶格问题，增加内边距与 Hover 亮色反馈
     """
-    if not combo:
+    # An empty QComboBox evaluates to False in PyQt.  Do not skip styling
+    # empty editable fields (for example an undiscovered COM or printer).
+    if combo is None:
         return
     from PyQt5.QtWidgets import QListView
     from PyQt5.QtCore import Qt
@@ -452,7 +454,7 @@ def apply_touch_combo_style(combo, item_height=52):
            value at the bottom edge or clip it inside the combo frame. */
         QComboBox QLineEdit {
             background: transparent; color: #F8FAFC; border: none;
-            padding: 0px 10px; min-height: 46px; font-size: 16px;
+            padding: 0px 10px; min-height: 0px; font-size: 16px;
             selection-background-color: #0284C7;
         }
         QComboBox QLineEdit:focus { border: none; background: transparent; }
@@ -497,9 +499,13 @@ def apply_touch_combo_style(combo, item_height=52):
     combo.setMaxVisibleItems(10)
     combo.setMinimumHeight(max(combo.minimumHeight(), item_height))
     if combo.isEditable() and combo.lineEdit():
-        combo.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        combo.lineEdit().setMinimumHeight(max(42, item_height - 4))
-        combo.lineEdit().setContentsMargins(0, 0, 0, 0)
+        line_edit = combo.lineEdit()
+        line_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        line_edit.setContentsMargins(0, 0, 0, 0)
+        # Keep the child inside the combo frame.  A large minimum height here
+        # makes Win7 paint an inner rectangle over the parent's bottom border.
+        line_edit.setMinimumHeight(0)
+        line_edit.setMaximumHeight(max(32, item_height - 18))
 
 
 def apply_touch_checkbox_style(chk):
@@ -588,6 +594,13 @@ def apply_touch_spinbox_style(spin):
             font-size: 15px;
             font-weight: bold;
             min-height: 42px;
+        }}
+        QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {{
+            background: transparent;
+            color: #38BDF8;
+            border: none;
+            padding: 0px;
+            min-height: 0px;
         }}
         QSpinBox:focus, QDoubleSpinBox:focus {{
             border: 2px solid #38BDF8;

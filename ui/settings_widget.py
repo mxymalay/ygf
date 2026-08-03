@@ -331,6 +331,11 @@ class SettingsWidget(QWidget):
             spin.setMinimumHeight(56)
             apply_touch_spinbox_style(spin)
         for text_input in self.findChildren(QLineEdit):
+            # QComboBox/QSpinBox expose an internal QLineEdit.  Styling that
+            # child as a standalone field creates a second rectangle which
+            # can cover the parent's lower border on Win7.
+            if isinstance(text_input.parentWidget(), (QComboBox, QSpinBox, QDoubleSpinBox)):
+                continue
             text_input.setMinimumHeight(56)
             text_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         for action_btn in self.findChildren(QPushButton):
