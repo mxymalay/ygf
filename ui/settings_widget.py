@@ -2351,6 +2351,12 @@ class SettingsWidget(QWidget):
                 shutil.copy2(config_path, backup_path)
             save_bridge_config(bridge_config, config_path)
             controller = ScaleBridgeServiceController()
+            existing_state = controller.query()
+            if existing_state.installed:
+                # A source-tree development run may have an older pywin32
+                # registration created through ``python -m``. Re-register it
+                # through the corrected entry point before starting the test.
+                controller.remove()
             installed = controller.install()
             started = controller.start()
             time.sleep(0.8)

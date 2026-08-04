@@ -881,7 +881,12 @@ class ScaleBridgeServiceController:
             if not os.path.isfile(executable):
                 return []
             return [executable]
-        return [sys.executable, "-m", "scale_bridge.service"]
+        # Do not register via ``python -m scale_bridge.service``.  pywin32 sees
+        # the module as ``__main__`` in that form and writes an absolute file
+        # path into the service's PythonClass registry value; pythonservice.exe
+        # then exits with SCM error 1066.  The project entry point imports the
+        # class from its real module, producing a valid PythonClass string.
+        return [sys.executable, os.path.join(application_root(), "scale_bridge_service.py")]
 
     def _run(self, arguments: Sequence[str], timeout: int = 30, check: bool = True):
         if not self.command_prefix:
