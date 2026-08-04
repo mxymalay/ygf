@@ -15,9 +15,15 @@ from ui.main_window import MainWindow
 from ui.login_window import LoginWindow
 from utils.system_utils import apply_auto_start_settings
 from core.app_logger import log_event, cleanup_old_logs, CAT_SYSTEM
+from core.safe_console import install_safe_console_streams
 
 
 def main():
+    # A detached/UAC-launched Win7 console may return ERROR_GEN_FAILURE from
+    # print() even though the Qt application and hardware are healthy. Keep
+    # diagnostics best-effort so a log line never aborts a sale or checkout.
+    install_safe_console_streams()
+
     # The RAW listener intentionally runs outside the PyQt POS process.  It
     # must remain available when the cashier closes/restarts the main screen.
     if "--takeout-proxy-host" in sys.argv:
