@@ -71,6 +71,11 @@ DEFAULT_CONFIG = {
     "scale_connection_mode": "direct",
     "scale_port": "COM2",
     "scale_baudrate": 9600,
+    # 门店现场提醒（均可在系统设置中关闭或调整）。
+    "low_price_warning_enabled": True,
+    "low_price_warning_threshold": 15.00,
+    "packing_reminder_enabled": True,
+    "skewer_reminder_enabled": True,
     # 官方 POS 升级后可在设置页选择新的 serial 日志目录；留空时仅尝试
     # 兼容的历史路径和受限自动发现，不会每秒扫描整块硬盘。
     "official_pos_log_dir": "",

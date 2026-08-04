@@ -1029,6 +1029,58 @@ class SettingsWidget(QWidget):
 
         layout.addLayout(grid)
 
+        reminder_panel = QFrame()
+        reminder_panel.setStyleSheet(
+            "QFrame { background: #0F172A; border: 2px solid #F59E0B; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        reminder_layout = QVBoxLayout(reminder_panel)
+        reminder_layout.setContentsMargins(18, 16, 18, 16)
+        reminder_layout.setSpacing(10)
+        reminder_title = QLabel(u"🔔 提醒设置")
+        reminder_title.setStyleSheet("color: #FDE68A; font-size: 18px; font-weight: 900;")
+        reminder_layout.addWidget(reminder_title)
+        reminder_hint = QLabel(u"控制收银台上的低价、打包和精品串提示；关闭后不会影响计价或结账。")
+        reminder_hint.setWordWrap(True)
+        reminder_hint.setStyleSheet("color: #CBD5E1; font-size: 14px;")
+        reminder_layout.addWidget(reminder_hint)
+
+        reminder_grid = QGridLayout()
+        reminder_grid.setHorizontalSpacing(12)
+        reminder_grid.setVerticalSpacing(10)
+        reminder_grid.addWidget(self._make_label(u"低价提醒："), 0, 0)
+        self.cmb_low_price_warning = QComboBox()
+        self.cmb_low_price_warning.addItems([u"开启", u"关闭"])
+        if not self.config.get("low_price_warning_enabled", True):
+            self.cmb_low_price_warning.setCurrentIndex(1)
+        reminder_grid.addWidget(self.cmb_low_price_warning, 0, 1)
+
+        reminder_grid.addWidget(self._make_label(u"低价阈值："), 1, 0)
+        self.spin_low_price_threshold = QDoubleSpinBox()
+        self.spin_low_price_threshold.setRange(0.01, 9999.99)
+        self.spin_low_price_threshold.setDecimals(2)
+        self.spin_low_price_threshold.setSuffix(u" 元")
+        self.spin_low_price_threshold.setValue(
+            float(self.config.get("low_price_warning_threshold", 15.00) or 15.00)
+        )
+        reminder_grid.addWidget(self.spin_low_price_threshold, 1, 1)
+
+        reminder_grid.addWidget(self._make_label(u"打包提醒："), 2, 0)
+        self.cmb_packing_reminder = QComboBox()
+        self.cmb_packing_reminder.addItems([u"开启", u"关闭"])
+        if not self.config.get("packing_reminder_enabled", True):
+            self.cmb_packing_reminder.setCurrentIndex(1)
+        reminder_grid.addWidget(self.cmb_packing_reminder, 2, 1)
+
+        reminder_grid.addWidget(self._make_label(u"精品串提醒："), 3, 0)
+        self.cmb_skewer_reminder = QComboBox()
+        self.cmb_skewer_reminder.addItems([u"开启", u"关闭"])
+        if not self.config.get("skewer_reminder_enabled", True):
+            self.cmb_skewer_reminder.setCurrentIndex(1)
+        reminder_grid.addWidget(self.cmb_skewer_reminder, 3, 1)
+        reminder_layout.addLayout(reminder_grid)
+        layout.addWidget(reminder_panel)
+
         btn_save_sys = QPushButton(u"💾 保存系统设置")
         self._style_save_btn(btn_save_sys)
         btn_save_sys.clicked.connect(self._on_save_sys)
@@ -1771,6 +1823,10 @@ class SettingsWidget(QWidget):
         self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
         self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
         self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
+        self.config["low_price_warning_enabled"] = (self.cmb_low_price_warning.currentIndex() == 0)
+        self.config["low_price_warning_threshold"] = self.spin_low_price_threshold.value()
+        self.config["packing_reminder_enabled"] = (self.cmb_packing_reminder.currentIndex() == 0)
+        self.config["skewer_reminder_enabled"] = (self.cmb_skewer_reminder.currentIndex() == 0)
         save_config(self.config)
 
         from utils.system_utils import apply_auto_start_settings

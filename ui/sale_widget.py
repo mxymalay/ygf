@@ -842,12 +842,10 @@ class SaleWidget(QWidget):
 
         left_layout.addWidget(self.call_detail_box)
 
-        # 紫色重量 LED 横幅卡片
+        # 重量 LED 横幅：只有模拟模式使用紫色，正常称重恢复橙色业务样式。
         led_banner = QFrame()
-        led_banner.setStyleSheet(
-            "QFrame { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "stop:0 #6D28D9, stop:1 #4C1D95); border-radius: 8px; padding: 8px 14px; border: none; }"
-        )
+        self.led_banner = led_banner
+        self._update_weight_banner_style()
         led_layout = QHBoxLayout(led_banner)
         led_layout.setContentsMargins(12, 4, 12, 4)
 
@@ -1194,6 +1192,21 @@ class SaleWidget(QWidget):
 
         self._update_price_display()
 
+    def _update_weight_banner_style(self):
+        """Keep simulation styling separate from the live scale screen."""
+        banner = getattr(self, "led_banner", None)
+        if banner is None:
+            return
+        if self._is_mock_mode:
+            start, end = "#6D28D9", "#4C1D95"
+        else:
+            start, end = "#EA580C", "#C2410C"
+        banner.setStyleSheet(
+            "QFrame { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "stop:0 %s, stop:1 %s); border-radius: 8px; padding: 8px 14px; border: none; }"
+            % (start, end)
+        )
+
     def _show_toast(self, msg_text):
         """显示一个自动消失的提示框（使用系统级 WindowOpacity 保证丝滑动画）"""
         from PyQt5.QtWidgets import QLabel, QWidget, QVBoxLayout
@@ -1207,17 +1220,20 @@ class SaleWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         
         lbl = QLabel(msg_text)
+        is_low_price = u"低于" in str(msg_text) and u"元" in str(msg_text)
+        toast_color = "#FDE68A" if is_low_price else "#34D399"
+        toast_border = "#F59E0B" if is_low_price else "#059669"
         lbl.setStyleSheet("""
             QLabel {
                 background-color: rgba(30, 41, 59, 0.95);
-                color: #34D399;
+                color: %s;
                 font-size: 28px;
                 font-weight: bold;
                 padding: 20px 40px;
                 border-radius: 16px;
-                border: 2px solid #059669;
+                border: 2px solid %s;
             }
-        """)
+        """ % (toast_color, toast_border))
         lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl)
         
@@ -1332,7 +1348,13 @@ class SaleWidget(QWidget):
                 self._position_popup_at_widget(dlg, btn)
                 dlg.exec_()
                 
-            self._show_toast(u"温馨提示：是否有精品串？是否需要打包？")
+            reminders = []
+            if self.config.get("skewer_reminder_enabled", True):
+                reminders.append(u"是否有精品串？")
+            if self.config.get("packing_reminder_enabled", True):
+                reminders.append(u"是否需要打包？")
+            if reminders:
+                self._show_toast(u"温馨提示：" + " ".join(reminders))
         else:
             item_entry = {
                 "type": "item",
@@ -1828,14 +1850,18 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
         
-        # 称重稳定且预计价格低于15元时，弹出提醒
+        # 称重稳定且预计价格低于配置阈值时，弹出一次黄色提醒
         if weight_kg > 0.005:
+            if not self.config.get("low_price_warning_enabled", True):
+                self._low_price_warning_shown = False
+                return
             unit_price = self.config.get("unit_price", 47.60)
             price_unit = self.config.get("price_unit", "per_jin")
             from core.calculator import calculate_price
             expected_price = calculate_price(weight_kg, unit_price, price_unit)
-            if expected_price < 15.0 and not self._low_price_warning_shown:
-                self._show_toast(u"温馨提示：此麻辣烫预计称重低于15元。")
+            threshold = float(self.config.get("low_price_warning_threshold", 15.00) or 15.00)
+            if expected_price < threshold and not self._low_price_warning_shown:
+                self._show_toast(u"温馨提示：此麻辣烫预计称重低于 %.2f 元。" % threshold)
                 self._low_price_warning_shown = True
             elif expected_price >= 15.0:
                 self._low_price_warning_shown = False
@@ -1930,6 +1956,7 @@ class SaleWidget(QWidget):
     def _leave_mock_mode(self):
         """Switch this running window from simulation to the configured scale."""
         self._is_mock_mode = False
+        self._update_weight_banner_style()
         # This is transient and is intentionally omitted from disk by
         # save_config; retaining the in-memory value keeps all widgets in the
         # same session consistent until the next startup.
