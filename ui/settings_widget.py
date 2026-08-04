@@ -2313,6 +2313,8 @@ class SettingsWidget(QWidget):
         from scale_bridge.lifecycle import (
             ScaleBridgeLifecycle,
             ScaleBridgeServiceController,
+            load_manifest,
+            save_manifest,
             test_scale_channel,
         )
         from scale_bridge.configuration import ScaleDeviceIdentity, save_config as save_bridge_config
@@ -2335,6 +2337,26 @@ class SettingsWidget(QWidget):
             show_error(self, u"无秤开发验证失败", str(exc))
             return
 
+        try:
+            existing_state = lifecycle.service.query()
+            existing_manifest = load_manifest(lifecycle.manifest_path)
+            replace_unowned_service = bool(
+                existing_state.installed and not existing_manifest.service_owned
+            )
+        except Exception as exc:
+            show_error(self, u"无秤开发验证失败", u"无法核对现有桥接服务：%s" % exc)
+            return
+
+        if replace_unowned_service and not show_question(
+            self,
+            u"高危操作：替换未登记的旧桥接服务",
+            u"开发测试需要重新安装 Windows 服务“YgfScaleBridge”，但当前服务没有本产品所有权记录。\n\n"
+            u"它通常来自旧版本或此前的手工调试。确认后只会停止并替换这一个同名服务；"
+            u"不会删除未登记的 COM 虚拟串口、收钱吧配对或 com0com 驱动。\n\n"
+            u"如果不确定服务来源，请取消并先在“删除 POS 称桥接”中核对。",
+        ):
+            return
+
         def operation():
             state = ScaleBridgeServiceController().query()
             if state.installed and state.state_code == 4:
@@ -2353,11 +2375,15 @@ class SettingsWidget(QWidget):
             controller = ScaleBridgeServiceController()
             existing_state = controller.query()
             if existing_state.installed:
-                # A source-tree development run may have an older pywin32
-                # registration created through ``python -m``. Re-register it
-                # through the corrected entry point before starting the test.
+                if not existing_manifest.service_owned and not replace_unowned_service:
+                    raise RuntimeError("未登记的同名桥接服务未获高危确认，已保留")
                 controller.remove()
             installed = controller.install()
+            # Subsequent start/stop/delete operations can prove this service
+            # was created by the development test itself.
+            manifest = load_manifest(lifecycle.manifest_path)
+            manifest.service_owned = True
+            save_manifest(manifest, lifecycle.manifest_path)
             started = controller.start()
             time.sleep(0.8)
             results = [

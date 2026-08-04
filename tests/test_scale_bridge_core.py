@@ -11,7 +11,14 @@ from scale_bridge.device_discovery import SerialPortCandidate, resolve_saved_dev
 from scale_bridge.protocol import DibalFrameAssembler, parse_dibal_weight
 from scale_bridge.bridge import BoundedPriorityQueue
 from scale_bridge.bridge import ScaleBridgeRuntime, SimulatedScaleSerial
-from scale_bridge.com0com import check_pair, create_pair, parse_setupc_list, remove_pair, _run_setupc
+from scale_bridge.com0com import (
+    SETUPC_MUTATION_TIMEOUT_SECONDS,
+    check_pair,
+    create_pair,
+    parse_setupc_list,
+    remove_pair,
+    _run_setupc,
+)
 from scale_bridge.lifecycle import (
     Com0ComProvisioner,
     COM0COM_INSTALLER_SHA256,
@@ -214,6 +221,9 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class Com0ComTests(unittest.TestCase):
+    def test_mutating_setupc_operations_allow_pnp_enumeration_time(self):
+        self.assertEqual(SETUPC_MUTATION_TIMEOUT_SECONDS, 60)
+
     def test_setupc_uses_its_installation_directory_for_inf_files(self):
         calls = []
 

@@ -19,6 +19,11 @@ SETUPC_CANDIDATES = (
     ("ProgramW6432", "com0com", "setupc.exe"),
 )
 
+# setupc asks Windows to enumerate a plug-and-play serial device.  On older
+# POS machines this may take longer than a normal command right after a port
+# was released, so maintenance operations need a patient but finite timeout.
+SETUPC_MUTATION_TIMEOUT_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class Com0ComPair:
@@ -117,14 +122,24 @@ def _run_setupc(
     # inheriting that directory makes setupc search for
     # ``<project>\\com0com.inf`` and raises SetupOpenInfFile ERROR 2.
     setup_dir = os.path.dirname(os.path.abspath(executable))
-    result = runner(
-        [executable] + list(arguments),
-        capture_output=True,
-        timeout=timeout_seconds,
-        check=False,
-        creationflags=flags,
-        cwd=setup_dir,
-    )
+    try:
+        result = runner(
+            [executable] + list(arguments),
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+            creationflags=flags,
+            cwd=setup_dir,
+        )
+    except subprocess.TimeoutExpired as exc:
+        if arguments and arguments[0].lower() in ("install", "remove"):
+            raise RuntimeError(
+                "com0com 在 %d 秒内未完成创建/删除操作。通常是目标虚拟端口刚被释放，"
+                "或仍被 ScaleBridge/手工调试工具占用；未自动删除其他端口。"
+                "请确认已停止所有称桥接或调试进程后重试。"
+                % timeout_seconds
+            ) from exc
+        raise
     stdout = getattr(result, "stdout", b"") or b""
     stderr = getattr(result, "stderr", b"") or b""
     raw_output = stdout + stderr
@@ -206,7 +221,7 @@ def create_pair(
     _run_setupc(
         executable,
         ["install", str(pair_index), "PortName=" + client + ",EmuBR=yes", bridge_argument],
-        20,
+        SETUPC_MUTATION_TIMEOUT_SECONDS,
         runner,
     )
 
@@ -225,4 +240,4 @@ def remove_pair(
         raise FileNotFoundError("com0com setupc.exe was not found")
     if pair_index < 0:
         raise ValueError("pair_index must not be negative")
-    _run_setupc(executable, ["remove", str(pair_index)], 20, runner)
+    _run_setupc(executable, ["remove", str(pair_index)], SETUPC_MUTATION_TIMEOUT_SECONDS, runner)
