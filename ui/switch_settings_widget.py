@@ -268,7 +268,7 @@ class SwitchSettingsWidget(QWidget):
         left_layout.addWidget(scroll, stretch=1)
 
         # 底部保存按钮
-        self.btn_save = QPushButton(u"存 保存算法设置")
+        self.btn_save = QPushButton(u"💾 保存算法设置")
         self.btn_save.setFixedHeight(50)
         self.btn_save.setCursor(Qt.PointingHandCursor)
         self.btn_save.setStyleSheet("""
@@ -287,14 +287,16 @@ class SwitchSettingsWidget(QWidget):
         # ==========================================
         right_panel = QWidget()
         right_panel.setMinimumWidth(0)
-        right_panel.setMinimumHeight(170)
-        right_panel.setMaximumHeight(230)
+        # Keep a generous touch-friendly log viewport.  The previous 170-230px
+        # cap made the real-time trace practically unreadable on POS screens.
+        right_panel.setMinimumHeight(320)
+        right_panel.setMaximumHeight(420)
         right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(10, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        lbl_log_title = QLabel(u"信 算法实时追踪 (自动刷新)")
+        lbl_log_title = QLabel(u"📡 算法实时追踪 (自动刷新)")
         lbl_log_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
         right_layout.addWidget(lbl_log_title)
 

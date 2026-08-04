@@ -160,7 +160,7 @@ class MainWindow(QMainWindow):
             self.lbl_hw_status.setStyleSheet("color: #10B981; font-size: 13px; font-weight: bold; padding-left: 12px;")
         else:
             warn_msg = " | ".join(warnings)
-            self.lbl_hw_status.setText(f"! 硬件告警: {warn_msg}")
+            self.lbl_hw_status.setText(f"⚠️ 硬件告警: {warn_msg}")
             self.lbl_hw_status.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold; padding-left: 12px;")
 
 
@@ -230,7 +230,7 @@ class MainWindow(QMainWindow):
             from config import save_config
             price, special_price, branch_name, ok = get_first_run_input(
                 self,
-                title=u"欢迎使用 - 首次初始化设置",
+                title=u"👋 欢迎使用 - 首次初始化设置",
                 message=u"系统已切换为【默认按公斤 (KG) 称重计价】\n请设定本店的基础信息与计价单价：",
                 default_price=self.config.get("unit_price", 47.60),
                 default_special_price=self.config.get("special_soup_price", 50.00),

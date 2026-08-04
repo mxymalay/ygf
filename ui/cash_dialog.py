@@ -64,7 +64,7 @@ class CashCalculatorDialog(QDialog):
 
         # 标题栏
         header = QHBoxLayout()
-        lbl_title = QLabel(u"￥ 现金结算")
+        lbl_title = QLabel(u"💵 现金结算")
         lbl_title.setStyleSheet("font-size: 24px; font-weight: 900; color: #60A5FA; border: none;")
         header.addWidget(lbl_title)
         header.addStretch()

@@ -46,16 +46,16 @@ class ModernDialog(QDialog):
 
         icon_lbl = QLabel()
         if dialog_type == self.TYPE_WARNING:
-            icon_lbl.setText("!")
+            icon_lbl.setText("⚠️")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
         elif dialog_type == self.TYPE_ERROR:
-            icon_lbl.setText("!")
+            icon_lbl.setText("❌")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
         elif dialog_type == self.TYPE_QUESTION:
-            icon_lbl.setText("?")
+            icon_lbl.setText("❓")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
         else:
-            icon_lbl.setText("i")
+            icon_lbl.setText("ℹ️")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
 
         head_box.addWidget(icon_lbl)
@@ -511,7 +511,7 @@ class ModernSelectDialog(QDialog):
         c_layout.setContentsMargins(24, 20, 24, 20)
         c_layout.setSpacing(14)
 
-        t_lbl = QLabel(f"查 {title}")
+        t_lbl = QLabel(f"🔍 {title}")
         t_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none; background: transparent;")
         c_layout.addWidget(t_lbl)
 
@@ -655,7 +655,7 @@ class ReceiptPreviewDialog(QDialog):
         layout.setSpacing(12)
 
         # 0. 顶部固定：闪烁收款提醒 Banner (独立在外)
-        self.notice_banner = QLabel(u"! 请确认已通过其他工具完成收款！")
+        self.notice_banner = QLabel(u"⚠️ 请确认已通过其他工具完成收款！")
         self.notice_banner.setAlignment(Qt.AlignCenter)
         self.notice_banner.setStyleSheet(
             "background: #DC2626; color: #FFFFFF; font-size: 14px; font-weight: 900; "

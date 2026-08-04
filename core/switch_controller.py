@@ -90,7 +90,7 @@ class AutoSwitchController(QObject):
                 self._hide_timer.stop()
                 log_event(CAT_SCALE, f"称重检测到放碗动作" if not is_surge else "称重稳定修正 (重量增加)", f"重量: {weight_kg:.3f}kg")
 
-                # 执行全自动智能决策算法
+                # 🤖 执行全自动智能决策算法
                 is_private_turn = self._evaluate_decision(weight_kg)
                 self._current_is_private = is_private_turn
 
@@ -99,7 +99,7 @@ class AutoSwitchController(QObject):
                     # 决策分配给【私域 POS】 -> 自动将本系统弹出最前
                     bring_our_pos_to_front(self.main_window)
                     self._update_floating_ball_status(is_private=True, reason="智能算法选择: 本单走私域", show_checkmark=True)
-                    msg = f"[AUTO] 智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
+                    msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
                     print(f"[AutoDecisionEngine] {msg}")
                     log_event(CAT_DECISION, f"决策: 走私域 POS", f"重量 {weight_kg:.2f}kg | 截留占比: {self.get_actual_private_ratio():.1f}%")
                     if hasattr(self.main_window, 'status'):
@@ -110,7 +110,7 @@ class AutoSwitchController(QObject):
                     if not ok and self.main_window:
                         self.main_window.showMinimized()
                     self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方", show_checkmark=True)
-                    msg = f"[AUTO] 智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
+                    msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 (截留占比: {self.get_actual_private_ratio():.1f}%)"
                     print(f"[AutoDecisionEngine] {msg}")
                     log_event(CAT_DECISION, f"决策: 走官方系统", f"重量 {weight_kg:.2f}kg | 截留占比: {self.get_actual_private_ratio():.1f}%")
                     if hasattr(self.main_window, 'status'):
@@ -179,7 +179,7 @@ class AutoSwitchController(QObject):
                     if today_amount >= self._max_daily_revenue_limit:
                         self._official_orders_count += 1
                         self._last_official_time = now_ts
-                        msg = f"[STOP] 今日本POS已收款 ¥{today_amount:.2f} 达到/超过设定上限 ¥{self._max_daily_revenue_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
+                        msg = f"🛑 今日本POS已收款 ¥{today_amount:.2f} 达到/超过设定上限 ¥{self._max_daily_revenue_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
                         print(f"[AutoDecisionEngine] {msg}")
                         log_event(CAT_DECISION, "当日收款封顶 -> 走官方", f"今日已收 ¥{today_amount:.2f} >= 门限 ¥{self._max_daily_revenue_limit:.2f}")
                         return False

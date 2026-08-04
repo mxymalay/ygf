@@ -320,7 +320,7 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
                     # 2. 精准匹配成功标志文字 (收钱吧 V4.0.4 出现的“支付成功”、“打印小票”)
                     success_keywords = ["支付成功", "收款成功", "交易成功", "打印小票", "收钱吧到账"]
                     if any(sk in all_ocr_text for sk in success_keywords):
-                        print(f"[OCR识别] [OK] 成功从收钱吧弹窗识别到关键文字: '{all_ocr_text}'！判定支付成功！")
+                        print(f"[OCR识别] 🎯 成功从收钱吧弹窗识别到关键文字: '{all_ocr_text}'！判定支付成功！")
                         return True
             except Exception as e:
                 logger.warning(f"RapidOCR 提取文本异常: {e}")
@@ -367,7 +367,7 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
             if button_samples > 0:
                 btn_ratio = button_green_count / button_samples
                 if btn_ratio > 0.05:
-                    print(f"[视觉色彩] [OK] 命中收钱吧【绿顶 + 绿色打印小票按钮】(比例 {btn_ratio:.2f})！判定支付成功！")
+                    print(f"[视觉色彩] 🎯 命中收钱吧【绿顶 + 绿色打印小票按钮】(比例 {btn_ratio:.2f})！判定支付成功！")
                     return True
 
     except Exception as e:

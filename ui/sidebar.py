@@ -72,7 +72,7 @@ class SideNavBar(QWidget):
         bf_layout.setAlignment(Qt.AlignCenter)
         bf_layout.setContentsMargins(0, 4, 0, 4)
 
-        lbl_logo = QLabel(u"YGF")
+        lbl_logo = QLabel(u"🍜")
         lbl_logo.setAlignment(Qt.AlignCenter)
         lbl_logo.setStyleSheet(
             "font-size: 18px; "
@@ -91,7 +91,7 @@ class SideNavBar(QWidget):
 
         # 2. 核心导航项目按钮组 (日常收银业务)
         # 0: 收银台
-        item_cashier = SideNavItem(u"收", u"收银台", 0)
+        item_cashier = SideNavItem(u"⚖", u"收银台", 0)
         item_cashier.clicked.connect(lambda: self._select_page(0))
         layout.addWidget(item_cashier)
         self._items.append(item_cashier)
@@ -103,7 +103,7 @@ class SideNavBar(QWidget):
         self._items.append(item_history)
 
         # 2: 报表
-        item_report = SideNavItem(u"表", u"报表", 2)
+        item_report = SideNavItem(u"📋", u"报表", 2)
         item_report.clicked.connect(lambda: self._select_page(2))
         layout.addWidget(item_report)
         self._items.append(item_report)
@@ -113,13 +113,13 @@ class SideNavBar(QWidget):
 
         # 3. 运营与设置模块组
         # 4: 叫号设置
-        item_queue = SideNavItem(u"叫", u"叫号设置", 4)
+        item_queue = SideNavItem(u"⚡", u"叫号设置", 4)
         item_queue.clicked.connect(lambda: self._select_page(4))
         layout.addWidget(item_queue)
         self._items.append(item_queue)
 
         # 3: 外卖 RAW 打印中继（与叫号、切换等运营功能归为一组）
-        item_takeout = SideNavItem(u"外", u"外卖中继", 3)
+        item_takeout = SideNavItem(u"🛵", u"外卖中继", 3)
         item_takeout.clicked.connect(lambda: self._select_page(3))
         layout.addWidget(item_takeout)
         self._items.append(item_takeout)
@@ -131,13 +131,13 @@ class SideNavBar(QWidget):
         self._items.append(item_switch)
 
         # 6: 系统设置
-        item_settings = SideNavItem(u"设", u"系统设置", 6)
+        item_settings = SideNavItem(u"⚙", u"系统设置", 6)
         item_settings.clicked.connect(lambda: self._select_page(6))
         layout.addWidget(item_settings)
         self._items.append(item_settings)
 
         # 7: 日志信息
-        item_log = SideNavItem(u"志", u"日志信息", 7)
+        item_log = SideNavItem(u"📋", u"日志信息", 7)
         item_log.clicked.connect(lambda: self._select_page(7))
         layout.addWidget(item_log)
         self._items.append(item_log)
@@ -154,7 +154,7 @@ class SideNavBar(QWidget):
         layout.addWidget(item_min)
 
         # 退出程序
-        item_exit = SideNavItem(u"退", u"退出程序", -1)
+        item_exit = SideNavItem(u"✕", u"退出程序", -1)
         item_exit.clicked.connect(lambda: self.exit_requested.emit())
         layout.addWidget(item_exit)
 
@@ -168,6 +168,6 @@ class SideNavBar(QWidget):
 
     def update_theme_icon(self, is_dark: bool):
         if is_dark:
-            self.item_theme.lbl_icon.setText(u"月")
+            self.item_theme.lbl_icon.setText(u"🌙")
         else:
-            self.item_theme.lbl_icon.setText(u"亮")
+            self.item_theme.lbl_icon.setText(u"☀")

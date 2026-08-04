@@ -14,22 +14,22 @@ from PyQt5.QtCore import QObject, pyqtSignal
 DEFAULT_CATEGORIES = [
     {
         "id": "soup",
-        "name": "汤 汤底 / 辣度 / 忌口偏好",
+        "name": "🍲 汤底 / 辣度 / 忌口偏好",
         "keywords": ["汤", "辣", "葱", "蒜", "香菜", "麻辣", "牛油", "番茄", "骨汤", "清汤", "忌口", "打包", "不要", "少辣", "微辣", "特辣"]
     },
     {
         "id": "meat",
-        "name": "肉 肉类 / 海鲜 / 主料",
+        "name": "🥩 肉类 / 海鲜 / 主料",
         "keywords": ["牛", "羊", "猪", "鸡", "鸭", "鱼", "虾", "蟹", "肉", "丸", "蛋", "肠", "培根", "午餐肉", "毛肚", "百叶", "黄喉", "掌中宝", "鱿鱼", "排骨"]
     },
     {
         "id": "veg",
-        "name": "菜 蔬菜 / 菌菇 / 豆制品",
+        "name": "🥬 蔬菜 / 菌菇 / 豆制品",
         "keywords": ["菜", "菇", "豆", "笋", "腐", "面", "粉", "海带", "木耳", "土豆", "莲藕", "山药", "冬瓜", "萝卜", "海带结", "宽粉", "金针菇", "木耳", "油菜", "菠菜", "生菜", "豆腐皮"]
     },
     {
         "id": "drink",
-        "name": "饮 饮品 / 小吃 / 主食",
+        "name": "🥤 饮品 / 小吃 / 主食",
         "keywords": ["水", "汁", "茶", "奶", "可乐", "雪碧", "王老吉", "加多宝", "啤酒", "饮", "饭", "冰淇淋", "酸奶"]
     }
 ]
@@ -208,7 +208,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
         sorted_lines.append(f"完整订单号：{full_order_id}")
 
     if item_count == 0:
-        sorted_lines.append("未识别到菜品，请人工核对原始文本")
+        sorted_lines.append("⚠ 未识别到菜品，请人工核对原始文本")
     sorted_lines.append("【外卖打包】" * 4)
 
     sorted_text = "\n".join(sorted_lines)
@@ -269,10 +269,7 @@ def build_takeout_escpos_ticket(sorted_text: str, config: dict, ticket_kind="kit
         if "【" in line or "外卖打包" in line or "制作单" in line:
             size = header_size
             bold = True
-        elif "共 " in line or "其它项目" in line or line.startswith((
-            "\U0001F372", "\U0001F969", "\U0001F96C", "\U0001F964",  # legacy input only
-            "汤 ", "肉 ", "菜 ", "饮 ",
-        )):
+        elif "共 " in line or "其它项目" in line or line.startswith(("🍲", "🥩", "🥬", "🥤", "汤 ", "肉 ", "菜 ", "饮 ")):
             size = category_size
             bold = True
         else:
@@ -346,12 +343,12 @@ class TakeoutPrintInterceptor(QObject):
             self.last_error = ""
             self._thread = threading.Thread(target=self._serve, name="TakeoutRawProxy", daemon=True)
             self._thread.start()
-            self.status_changed.emit("中继运行中：127.0.0.1:%d" % self.port)
+            self.status_changed.emit("● 中继运行中：127.0.0.1:%d" % self.port)
             return True
         except OSError as exc:
             self.last_error = str(exc)
             self._running = False
-            self.status_changed.emit("中继无法启动：%s" % self.last_error)
+            self.status_changed.emit("✕ 中继无法启动：%s" % self.last_error)
             return False
 
     def _serve(self):
@@ -378,10 +375,10 @@ class TakeoutPrintInterceptor(QObject):
             except OSError:
                 if self._running:
                     self.last_error = "中继套接字异常"
-                    self.status_changed.emit(self.last_error)
+                    self.status_changed.emit("✕ " + self.last_error)
             except Exception as exc:
                 self.last_error = str(exc)
-                self.status_changed.emit("中继处理失败：%s" % self.last_error)
+                self.status_changed.emit("✕ 中继处理失败：%s" % self.last_error)
 
     def _handle_payload(self, payload):
         if not payload:
@@ -389,7 +386,7 @@ class TakeoutPrintInterceptor(QObject):
         text = escpos_payload_to_text(payload)
         parsed = parse_and_sort_takeout_text(text)
         if not parsed.get("is_waimai") or not parsed.get("item_count"):
-            self.status_changed.emit("已忽略非外卖或无法识别的打印任务")
+            self.status_changed.emit("ⓘ 已忽略非外卖或无法识别的打印任务")
             return
         parsed["raw_text"] = text
         parsed["payload_size"] = len(payload)
@@ -398,10 +395,10 @@ class TakeoutPrintInterceptor(QObject):
                 self.on_order(parsed)
             except Exception as exc:
                 self.last_error = "外卖任务处理失败：%s" % exc
-                self.status_changed.emit(self.last_error)
+                self.status_changed.emit("✕ " + self.last_error)
                 return
         self.order_intercepted.emit(parsed)
-        self.status_changed.emit("已拦截 %s %s（%d 项）" % (
+        self.status_changed.emit("✓ 已拦截 %s %s（%d 项）" % (
             parsed.get("platform"), parsed.get("order_no"), parsed.get("item_count", 0)
         ))
 
@@ -416,4 +413,4 @@ class TakeoutPrintInterceptor(QObject):
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.5)
         self._thread = None
-        self.status_changed.emit("外卖中继已停止")
+        self.status_changed.emit("○ 外卖中继已停止")
