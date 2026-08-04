@@ -19,52 +19,8 @@ except Exception:
     pass
 
 
-def _same_file(source, destination):
-    """Compare deployment files without relying on timestamps."""
-    try:
-        if os.path.getsize(source) != os.path.getsize(destination):
-            return False
-        source_hash = hashlib.sha256()
-        destination_hash = hashlib.sha256()
-        with open(source, "rb") as source_stream, open(destination, "rb") as destination_stream:
-            while True:
-                source_chunk = source_stream.read(1024 * 1024)
-                destination_chunk = destination_stream.read(1024 * 1024)
-                if not source_chunk and not destination_chunk:
-                    break
-                source_hash.update(source_chunk)
-                destination_hash.update(destination_chunk)
-        return source_hash.digest() == destination_hash.digest()
-    except (OSError, IOError):
-        return False
-
-
-def _merge_package_tree(source_dir, target_dir):
-    """Merge a fresh package without overwriting identical locked files."""
-    errors = []
-    for root, _directories, filenames in os.walk(source_dir):
-        relative = os.path.relpath(root, source_dir)
-        target_root = target_dir if relative == "." else os.path.join(target_dir, relative)
-        os.makedirs(target_root, exist_ok=True)
-        for filename in filenames:
-            source = os.path.join(root, filename)
-            destination = os.path.join(target_root, filename)
-            if os.path.isfile(destination) and _same_file(source, destination):
-                continue
-            try:
-                if os.path.isfile(destination):
-                    # Clear a read-only attribute left by a previous copied
-                    # installer before attempting to replace it.
-                    os.chmod(destination, stat.S_IWRITE)
-                shutil.copy2(source, destination)
-            except (OSError, IOError) as exc:
-                errors.append((source, destination, str(exc)))
-    if errors:
-        raise shutil.Error(errors)
-
-
-def _unique_deployment_dir(base_dir):
-    """Return a new sibling directory for a locked/permission-denied target."""
+def _unique_build_dir(base_dir):
+    """Return a new sibling directory for a locked build output."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     candidate = "%s-%s" % (base_dir, stamp)
     index = 1
@@ -139,7 +95,7 @@ def main():
     if os.path.exists(package_dir):
         # A previous deployment may still have the bundled installer open.
         # Never overwrite that locked tree; stage this build beside it.
-        package_dir = _unique_deployment_dir(package_dir + "-build")
+        package_dir = _unique_build_dir(package_dir + "-build")
     os.makedirs(package_dir, exist_ok=True)
     os.makedirs(os.path.join("build", "spec"), exist_ok=True)
     common_hidden = [
@@ -296,53 +252,15 @@ def main():
             os.path.join(bundled_docs, "scale_bridge_troubleshooting.md"),
         )
         
-        # 自动分发逻辑
-        import platform
-        try:
-            is_win7 = (platform.release() == "7" or (sys.getwindowsversion().major == 6 and sys.getwindowsversion().minor == 1))
-        except Exception:
-            is_win7 = False
-            
-        if is_win7:
-            target_dir = r"C:\驱动\YGF-POS"
-            if not os.path.exists(target_dir):
-                os.makedirs(target_dir, exist_ok=True)
-            action_desc = f"系统检测为 Windows 7，已自动部署至: {target_dir}"
-        else:
-            target_dir = os.path.join(os.path.expanduser("~"), "Desktop", "YGF-POS")
-            os.makedirs(target_dir, exist_ok=True)
-            action_desc = f"系统检测非 Windows 7，已自动拷贝部署目录至: {target_dir}"
-
-        # Merge instead of deleting the target, preserving data/scale_bridge.json
-        # and the installation ownership manifest created on the POS computer.
-        try:
-            _merge_package_tree(package_dir, target_dir)
-        except (OSError, shutil.Error) as exc:
-            # C:\驱动 may be protected when the build script itself was not
-            # started elevated.  Keep the actual build result usable by
-            # falling back to the current user's desktop instead of reporting
-            # a mysterious post-build traceback.
-            fallback_dir = os.path.join(os.path.expanduser("~"), "Desktop", "YGF-POS")
-            if os.path.abspath(fallback_dir) == os.path.abspath(target_dir):
-                fallback_dir = _unique_deployment_dir(fallback_dir)
-            os.makedirs(fallback_dir, exist_ok=True)
-            _merge_package_tree(package_dir, fallback_dir)
-            target_dir = fallback_dir
-            action_desc = (
-                "目标目录无写入权限，已改为部署到: %s（原错误: %s）"
-                % (target_dir, exc)
-            )
-
         print("\n" + "=" * 60)
         print(" [v] 打包成功！")
-        print(f" [*] {action_desc}")
+        print(" [*] 所有打包输出仅保存在项目 dist 目录，不会复制到其他路径")
         print("=" * 60)
-        print("[!] 重要提示：")
+        print("[!] 输出文件：")
         print("   主程序: %s" % os.path.abspath(dist_file))
         print("   桥接服务: %s" % os.path.abspath(service_file))
         print("   维修工具: %s" % os.path.abspath(maintenance_file))
         print("   完整部署目录: %s" % os.path.abspath(package_dir))
-        print("   目标收银机电脑【完全不需要安装 Python】或任何环境！")
         print("=" * 60)
         elapsed_time = time.time() - start_time
         print(f" [i] 打包总耗时: {elapsed_time:.1f} 秒")
