@@ -13,6 +13,7 @@ from scale_bridge.bridge import ScaleBridgeRuntime
 from scale_bridge.com0com import check_pair, create_pair, parse_setupc_list, remove_pair
 from scale_bridge.lifecycle import (
     Com0ComProvisioner,
+    COM0COM_INSTALLER_SHA256,
     OwnedPair,
     PaymentPairLifecycle,
     PhysicalScaleTestResult,
@@ -25,7 +26,38 @@ from scale_bridge.lifecycle import (
     test_scale_channel,
     test_virtual_pair,
     uninstall_com0com_driver,
+    install_com0com_driver,
 )
+
+
+class Com0ComInstallerTests(unittest.TestCase):
+    def test_installer_runs_with_package_directory_as_working_directory(self):
+        """The bundled setup must resolve its relative com0com.inf file."""
+        import scale_bridge.lifecycle as lifecycle
+
+        with tempfile.TemporaryDirectory() as directory:
+            installer = os.path.join(directory, "Setup_com0com.exe")
+            with open(installer, "wb") as stream:
+                stream.write(b"signed installer placeholder")
+            calls = []
+
+            class Result:
+                returncode = 0
+
+            def runner(command, **kwargs):
+                calls.append((command, kwargs))
+                return Result()
+
+            with patch.object(lifecycle, "is_administrator", return_value=True), patch.object(
+                lifecycle, "sha256_file", return_value=COM0COM_INSTALLER_SHA256
+            ), patch.object(lifecycle, "find_com0com_installer", return_value=installer), patch.object(
+                lifecycle, "find_setupc", return_value="C:\\Program Files\\com0com\\setupc.exe"
+            ):
+                setupc = install_com0com_driver(runner=runner)
+
+            self.assertEqual(setupc, "C:\\Program Files\\com0com\\setupc.exe")
+            self.assertEqual(calls[0][0], [installer])
+            self.assertEqual(calls[0][1]["cwd"], directory)
 
 
 class ProtocolTests(unittest.TestCase):

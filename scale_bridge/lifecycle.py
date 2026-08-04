@@ -205,7 +205,19 @@ def install_com0com_driver(
         raise RuntimeError(
             "com0com 安装包 SHA-256 不匹配，拒绝执行。实际值: %s" % actual_hash
         )
-    result = runner([installer], capture_output=False, timeout=300, check=False)
+    # The signed com0com setup package contains com0com.inf and launches its
+    # helper through a relative path.  When POS was started from the project
+    # root (the normal desktop shortcut case), inheriting that CWD made the
+    # helper look for ``<project>\\com0com.inf`` and show SetupOpenInfFile
+    # ERROR 2.  Run it beside the installer so its bundled driver files are
+    # resolved from the package directory.
+    result = runner(
+        [installer],
+        capture_output=False,
+        timeout=300,
+        check=False,
+        cwd=os.path.dirname(os.path.abspath(installer)),
+    )
     if result.returncode not in (0, 1641, 3010):
         raise RuntimeError("com0com 安装程序退出码: %s" % result.returncode)
     setupc = find_setupc()
