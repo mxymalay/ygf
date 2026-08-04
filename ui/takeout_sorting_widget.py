@@ -96,7 +96,7 @@ class TakeoutSortingWidget(QWidget):
         hc_layout = QHBoxLayout(header_card)
         hc_layout.setContentsMargins(16, 10, 16, 10)
 
-        lbl_title = QLabel(u"🛵 外卖打印中继与排序")
+        lbl_title = QLabel(u"外 外卖打印中继与排序")
         lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none;")
         hc_layout.addWidget(lbl_title)
 
@@ -164,7 +164,7 @@ class TakeoutSortingWidget(QWidget):
 
         proxy_action_row = QHBoxLayout()
         proxy_action_row.addStretch()
-        self.btn_test_proxy = QPushButton(u"🧪 测试中继识别")
+        self.btn_test_proxy = QPushButton(u"测 测试中继识别")
         self.btn_test_proxy.clicked.connect(self._on_test_proxy)
         proxy_action_row.addWidget(self.btn_test_proxy)
         self.btn_reprint_last = QPushButton(u"重打最近外卖单")
@@ -205,7 +205,7 @@ class TakeoutSortingWidget(QWidget):
         tc_lay.setSpacing(10)
 
         tbl_hdr = QHBoxLayout()
-        lbl_t_title = QLabel(u"📋 分类排序与关键字")
+        lbl_t_title = QLabel(u"表 分类排序与关键字")
         lbl_t_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F8FAFC; border: none;")
         tbl_hdr.addWidget(lbl_t_title)
 
@@ -237,7 +237,7 @@ class TakeoutSortingWidget(QWidget):
         tbl_hdr.addWidget(btn_add_cat)
         tc_lay.addLayout(tbl_hdr)
 
-        lbl_hint = QLabel(u"💡 关键字用逗号分隔，系统已自动过滤空格与序号干扰。")
+        lbl_hint = QLabel(u"i 关键字用逗号分隔，系统已自动过滤空格与序号干扰。")
         lbl_hint.setStyleSheet("color: #64748B; font-size: 12px; border: none;")
         tc_lay.addWidget(lbl_hint)
 
@@ -291,7 +291,7 @@ class TakeoutSortingWidget(QWidget):
             }
         """)
         tc_lay.addWidget(self.table)
-        self.tabs.addTab(tab_categories, u"📋 菜品分类排序")
+        self.tabs.addTab(tab_categories, u"表 菜品分类排序")
 
         # Tab B: 排版字号、多份⭐标记与联数
         tab_format = QWidget()
@@ -304,7 +304,7 @@ class TakeoutSortingWidget(QWidget):
         f_card1.setStyleSheet("QFrame { background: #0F172A; border-radius: 8px; border: 1px solid #334155; padding: 12px; }")
         fc1_lay = QVBoxLayout(f_card1)
         fc1_lay.setSpacing(10)
-        lbl_fc1 = QLabel(u"🔤 票据字号控制")
+        lbl_fc1 = QLabel(u"字 票据字号控制")
         lbl_fc1.setStyleSheet("font-size: 14px; font-weight: bold; color: #38BDF8; border: none;")
         fc1_lay.addWidget(lbl_fc1)
 
@@ -368,7 +368,7 @@ class TakeoutSortingWidget(QWidget):
         fc2_lay.addLayout(row_f2)
 
         row_f3 = QHBoxLayout()
-        lbl_k_cnt = QLabel(u"👨‍🍳 制作联份数:")
+        lbl_k_cnt = QLabel(u"厨 制作联份数:")
         lbl_k_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.spn_kitchen_copies = QSpinBox()
         self.spn_kitchen_copies.setRange(0, 5)
@@ -376,7 +376,7 @@ class TakeoutSortingWidget(QWidget):
         self.spn_kitchen_copies.setStyleSheet("QSpinBox { background: #1E293B; color: #10B981; font-weight: bold; padding: 4px; }")
         self.spn_kitchen_copies.valueChanged.connect(self._auto_save_format_settings)
 
-        lbl_c_cnt = QLabel(u"  🧾 存根联份数:")
+        lbl_c_cnt = QLabel(u"  票 存根联份数:")
         lbl_c_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.spn_cust_copies = QSpinBox()
         self.spn_cust_copies.setRange(0, 5)
@@ -393,7 +393,7 @@ class TakeoutSortingWidget(QWidget):
 
         tf_lay.addWidget(f_card2)
         tf_lay.addStretch()
-        self.tabs.addTab(tab_format, u"🖨️ 字号与联数设置")
+        self.tabs.addTab(tab_format, u"印 字号与联数设置")
 
         # Tab C: 外卖地址、单号与预订单
         tab_header = QWidget()
@@ -406,7 +406,7 @@ class TakeoutSortingWidget(QWidget):
         hc_box = QVBoxLayout(h_card)
         hc_box.setSpacing(12)
 
-        lbl_hc_title = QLabel(u"📌 基础信息提醒配置")
+        lbl_hc_title = QLabel(u"点 基础信息提醒配置")
         lbl_hc_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F59E0B; border: none;")
         hc_box.addWidget(lbl_hc_title)
 
@@ -436,7 +436,7 @@ class TakeoutSortingWidget(QWidget):
 
         th_lay.addWidget(h_card)
         th_lay.addStretch()
-        self.tabs.addTab(tab_header, u"📌 地址与单号配置")
+        self.tabs.addTab(tab_header, u"点 地址与单号配置")
 
         main_layout.addWidget(self.tabs)
 
@@ -448,19 +448,19 @@ class TakeoutSortingWidget(QWidget):
         pv_lay.setSpacing(8)
 
         pv_hdr = QHBoxLayout()
-        lbl_pv = QLabel(u"🧾 小票排版效果预览")
+        lbl_pv = QLabel(u"票 小票排版效果预览")
         lbl_pv.setStyleSheet("font-size: 15px; font-weight: bold; color: #38BDF8; border: none;")
         pv_hdr.addWidget(lbl_pv)
 
         pv_hdr.addStretch()
 
-        btn_refresh = QPushButton(u"🔄 刷新排版预览")
+        btn_refresh = QPushButton(u"↻ 刷新排版预览")
         btn_refresh.setCursor(Qt.PointingHandCursor)
         btn_refresh.setStyleSheet("QPushButton { background: #0284C7; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 14px; border: 1px solid #0369A1; } QPushButton:hover { background: #0369A1; }")
         btn_refresh.clicked.connect(self._update_live_preview)
         pv_hdr.addWidget(btn_refresh)
 
-        btn_test = QPushButton(u"🧪 物理打票测试")
+        btn_test = QPushButton(u"测 物理打票测试")
         btn_test.setCursor(Qt.PointingHandCursor)
         btn_test.setStyleSheet("QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 16px; border: 1px solid #059669; } QPushButton:hover { background: #059669; }")
         btn_test.clicked.connect(self._on_test_print)
@@ -604,7 +604,7 @@ class TakeoutSortingWidget(QWidget):
             btn_down.clicked.connect(lambda _, row=r: self._move_row(row, 1))
             btn_l.addWidget(btn_down)
 
-            btn_del = QPushButton(u"🗑️ 删除")
+            btn_del = QPushButton(u"删 删除")
             btn_del.setCursor(Qt.PointingHandCursor)
             btn_del.setStyleSheet("QPushButton { background: #7F1D1D; color: #FCA5A5; font-size: 12px; font-weight: bold; padding: 6px 10px; border-radius: 4px; border: 1px solid #991B1B; } QPushButton:hover { background: #991B1B; }")
             btn_del.clicked.connect(lambda _, row=r: self._on_delete_category(row))

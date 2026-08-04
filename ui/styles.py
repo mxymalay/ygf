@@ -3,6 +3,11 @@
 兼容 Python 3.8+
 """
 
+import os
+
+from PyQt5.QtCore import QPoint, Qt
+from PyQt5.QtGui import QColor, QPainter, QPixmap, QPolygon
+
 DARK_COLORS = {
     "bg_primary": "#0B0F19",       # 极深曜石黑背景
     "bg_secondary": "#111827",     # 容器黑灰
@@ -47,6 +52,12 @@ LIGHT_COLORS = {
 
 
 def build_qss(c):
+    # Use an absolute path so the arrows also load when the EXE is launched
+    # from a shortcut whose working directory is not the installation folder.
+    icon_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data", "icons"
+    ).replace("\\", "/")
     return f"""
 /* ─── 全局无框极简风格 ────────────────────────────── */
 QMainWindow, QWidget {{
@@ -244,17 +255,42 @@ QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {{
     border: none;
 }}
 
-QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {{
-    width: 0px;
-    height: 0px;
-    border: none;
-    background: transparent;
+/* Win7 does not reliably draw the native spin arrows.  Keep the controls
+   explicit so the buttons remain visible and touchable on every Qt style. */
+QSpinBox, QDoubleSpinBox {{
+    padding-right: 44px;
 }}
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-    width: 0px;
-    height: 0px;
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 34px;
+    height: 19px;
+    background: #334155;
     border: none;
-    background: transparent;
+    border-top-right-radius: 7px;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 34px;
+    height: 19px;
+    background: #334155;
+    border: none;
+    border-bottom-right-radius: 7px;
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: #475569;
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    width: 16px;
+    height: 16px;
+    image: url({icon_dir}/arrow_up.png);
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    width: 16px;
+    height: 16px;
+    image: url({icon_dir}/arrow_down.png);
 }}
 
 /* ─── 表格 ──────────────────────────────────── */
@@ -575,14 +611,17 @@ def _ensure_arrow_icons():
 
 
 def apply_touch_spinbox_style(spin):
-    """为 QSpinBox / QDoubleSpinBox 强行应用触屏大字与加宽微调按钮 (带高清晰矢量箭头)"""
+    """为数字框应用 Win7 可用的触屏样式。
+
+    不使用图片箭头：打包后资源路径、旧版 Qt 样式以及 Win7 的原生
+    spinbox 绘制都可能导致右侧只剩灰色方块。CSS 三角形由 Qt 自己绘制，
+    因此在开发运行和打包运行中表现一致。
+    """
     if not spin:
         return
     icon_dir = _ensure_arrow_icons().replace("\\", "/")
     up_path = f"{icon_dir}/arrow_up.png" if icon_dir else ""
     down_path = f"{icon_dir}/arrow_down.png" if icon_dir else ""
-    up_dark = f"{icon_dir}/arrow_up_dark.png" if icon_dir else ""
-    down_dark = f"{icon_dir}/arrow_down_dark.png" if icon_dir else ""
 
     spin.setStyleSheet(f"""
         QSpinBox, QDoubleSpinBox {{
@@ -590,7 +629,7 @@ def apply_touch_spinbox_style(spin):
             color: #38BDF8;
             border: 1px solid #334155;
             border-radius: 8px;
-            padding: 6px 12px;
+            padding: 6px 44px 6px 12px;
             font-size: 15px;
             font-weight: bold;
             min-height: 42px;
@@ -614,19 +653,14 @@ def apply_touch_spinbox_style(spin):
             background: #334155;
             border-top-right-radius: 7px;
             border: none;
-            margin-right: 1px;
-            margin-top: 1px;
         }}
         QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {{
             background: #38BDF8;
         }}
         QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
-            width: 12px;
-            height: 12px;
+            width: 16px;
+            height: 16px;
             image: url({up_path});
-        }}
-        QSpinBox::up-button:hover QSpinBox::up-arrow, QDoubleSpinBox::up-button:hover QDoubleSpinBox::up-arrow {{
-            image: url({up_dark});
         }}
         QSpinBox::down-button, QDoubleSpinBox::down-button {{
             subcontrol-origin: border;
@@ -636,18 +670,13 @@ def apply_touch_spinbox_style(spin):
             background: #334155;
             border-bottom-right-radius: 7px;
             border: none;
-            margin-right: 1px;
-            margin-bottom: 1px;
         }}
         QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
             background: #38BDF8;
         }}
         QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-            width: 12px;
-            height: 12px;
+            width: 16px;
+            height: 16px;
             image: url({down_path});
-        }}
-        QSpinBox::down-button:hover QSpinBox::down-arrow, QDoubleSpinBox::down-button:hover QDoubleSpinBox::down-arrow {{
-            image: url({down_dark});
         }}
     """)

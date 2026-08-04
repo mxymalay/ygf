@@ -14,22 +14,22 @@ from PyQt5.QtCore import QObject, pyqtSignal
 DEFAULT_CATEGORIES = [
     {
         "id": "soup",
-        "name": "🍲 汤底 / 辣度 / 忌口偏好",
+        "name": "汤 汤底 / 辣度 / 忌口偏好",
         "keywords": ["汤", "辣", "葱", "蒜", "香菜", "麻辣", "牛油", "番茄", "骨汤", "清汤", "忌口", "打包", "不要", "少辣", "微辣", "特辣"]
     },
     {
         "id": "meat",
-        "name": "🥩 肉类 / 海鲜 / 主料",
+        "name": "肉 肉类 / 海鲜 / 主料",
         "keywords": ["牛", "羊", "猪", "鸡", "鸭", "鱼", "虾", "蟹", "肉", "丸", "蛋", "肠", "培根", "午餐肉", "毛肚", "百叶", "黄喉", "掌中宝", "鱿鱼", "排骨"]
     },
     {
         "id": "veg",
-        "name": "🥬 蔬菜 / 菌菇 / 豆制品",
+        "name": "菜 蔬菜 / 菌菇 / 豆制品",
         "keywords": ["菜", "菇", "豆", "笋", "腐", "面", "粉", "海带", "木耳", "土豆", "莲藕", "山药", "冬瓜", "萝卜", "海带结", "宽粉", "金针菇", "木耳", "油菜", "菠菜", "生菜", "豆腐皮"]
     },
     {
         "id": "drink",
-        "name": "🥤 饮品 / 小吃 / 主食",
+        "name": "饮 饮品 / 小吃 / 主食",
         "keywords": ["水", "汁", "茶", "奶", "可乐", "雪碧", "王老吉", "加多宝", "啤酒", "饮", "饭", "冰淇淋", "酸奶"]
     }
 ]
@@ -269,7 +269,7 @@ def build_takeout_escpos_ticket(sorted_text: str, config: dict, ticket_kind="kit
         if "【" in line or "外卖打包" in line or "制作单" in line:
             size = header_size
             bold = True
-        elif "共 " in line or "其它项目" in line or line.startswith(("🍲", "🥩", "🥬", "🥤")):
+        elif "共 " in line or "其它项目" in line or line.startswith(("🍲", "🥩", "🥬", "🥤", "汤 ", "肉 ", "菜 ", "饮 ")):
             size = category_size
             bold = True
         else:

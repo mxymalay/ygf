@@ -258,7 +258,7 @@ class SwitchSettingsWidget(QWidget):
         left_layout.addWidget(scroll, stretch=1)
 
         # 底部保存按钮
-        self.btn_save = QPushButton(u"💾 保存算法设置")
+        self.btn_save = QPushButton(u"存 保存算法设置")
         self.btn_save.setFixedHeight(50)
         self.btn_save.setCursor(Qt.PointingHandCursor)
         self.btn_save.setStyleSheet("""
@@ -280,7 +280,7 @@ class SwitchSettingsWidget(QWidget):
         right_layout.setContentsMargins(10, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        lbl_log_title = QLabel(u"📡 算法实时追踪 (自动刷新)")
+        lbl_log_title = QLabel(u"信 算法实时追踪 (自动刷新)")
         lbl_log_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
         right_layout.addWidget(lbl_log_title)
 

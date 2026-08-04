@@ -72,7 +72,7 @@ class SideNavBar(QWidget):
         bf_layout.setAlignment(Qt.AlignCenter)
         bf_layout.setContentsMargins(0, 4, 0, 4)
 
-        lbl_logo = QLabel(u"🍜")
+        lbl_logo = QLabel(u"YGF")
         lbl_logo.setAlignment(Qt.AlignCenter)
         lbl_logo.setStyleSheet(
             "font-size: 18px; "
@@ -103,13 +103,13 @@ class SideNavBar(QWidget):
         self._items.append(item_history)
 
         # 2: 报表
-        item_report = SideNavItem(u"📋", u"报表", 2)
+        item_report = SideNavItem(u"表", u"报表", 2)
         item_report.clicked.connect(lambda: self._select_page(2))
         layout.addWidget(item_report)
         self._items.append(item_report)
 
         # 3: 外卖 RAW 打印中继
-        item_takeout = SideNavItem(u"🛵", u"外卖中继", 3)
+        item_takeout = SideNavItem(u"外", u"外卖中继", 3)
         item_takeout.clicked.connect(lambda: self._select_page(3))
         layout.addWidget(item_takeout)
         self._items.append(item_takeout)
@@ -137,7 +137,7 @@ class SideNavBar(QWidget):
         self._items.append(item_settings)
 
         # 7: 日志信息
-        item_log = SideNavItem(u"📋", u"日志信息", 7)
+        item_log = SideNavItem(u"志", u"日志信息", 7)
         item_log.clicked.connect(lambda: self._select_page(7))
         layout.addWidget(item_log)
         self._items.append(item_log)
@@ -168,6 +168,6 @@ class SideNavBar(QWidget):
 
     def update_theme_icon(self, is_dark: bool):
         if is_dark:
-            self.item_theme.lbl_icon.setText(u"🌙")
+            self.item_theme.lbl_icon.setText(u"月")
         else:
             self.item_theme.lbl_icon.setText(u"☀")

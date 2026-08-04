@@ -277,10 +277,10 @@ class LoginWindow(QDialog):
         check_layout.addWidget(self.progress_bar)
 
         # 四项独立卡片 (官方 POS 与 COM 秤串口分开检测)
-        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方 POS 窗口（按配置识别）")
-        self.card1_sub, self.lbl_title1_sub, self.lbl_badge1_sub = self._create_check_card(u"⚖️  COM 电子秤串口数据源")
-        self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"🖨️  热敏小票打印机外设")
-        self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"💳  收钱吧串口通信联动")
+        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"PC  官方 POS 窗口（按配置识别）")
+        self.card1_sub, self.lbl_title1_sub, self.lbl_badge1_sub = self._create_check_card(u"秤  COM 电子秤串口数据源")
+        self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"印  热敏小票打印机外设")
+        self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"码  收钱吧串口通信联动")
 
         check_layout.addWidget(self.card1)
         check_layout.addWidget(self.card1_sub)
@@ -309,7 +309,7 @@ class LoginWindow(QDialog):
         self.btn_close.clicked.connect(self.reject)
         bottom_bar.addWidget(self.btn_close)
         
-        self.btn_debug = QPushButton(u"🧪 切换为模拟调试模式")
+        self.btn_debug = QPushButton(u"测 切换为模拟调试模式")
         self.btn_debug.setFocusPolicy(Qt.NoFocus)
         self.btn_debug.hide()
         self.btn_debug.setCursor(Qt.PointingHandCursor)
@@ -486,7 +486,7 @@ class LoginWindow(QDialog):
             self.lbl_badge2.setText(u"✔ 设备就绪")
             self.lbl_badge2.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
-            self.lbl_badge2.setText(u"⚠️ 未连接")
+            self.lbl_badge2.setText(u"! 未连接")
             self.lbl_badge2.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
             self.hardware_warnings.append("打印机未连接")
         
@@ -514,7 +514,7 @@ class LoginWindow(QDialog):
             self.lbl_badge3.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             port = self.config.get("shouqianba_port", "COM10")
-            self.lbl_badge3.setText(f"⚠️ {port} 未连通")
+            self.lbl_badge3.setText(f"! {port} 未连通")
             self.lbl_badge3.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
             self.hardware_warnings.append(f"收钱吧 {port} 未连通")
 

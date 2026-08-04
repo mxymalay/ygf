@@ -652,7 +652,7 @@ class HistoryWidget(QWidget):
                 w.set_selected(w.record == record)
 
         if not record:
-            self.lbl_header_title.setText(u"📋 取餐号：---")
+            self.lbl_header_title.setText(u"表 取餐号：---")
             self.lbl_order_no.setText(u"订单编号：---")
             self.lbl_create_time.setText(u"创建时间：---")
             self.lbl_item_total.setText(u"商品金额：¥ 0.00")
@@ -712,7 +712,7 @@ class HistoryWidget(QWidget):
                         has_box = True
                         
                 if has_soup:
-                    tag_text = u"🍲 含汤底"
+                    tag_text = u"汤 含汤底"
                     tag_color = "#F59E0B" # Orange
                 else:
                     tag_text = u"不含汤底"

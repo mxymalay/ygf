@@ -282,7 +282,7 @@ class QueueWidget(QWidget):
         cs_layout.setSpacing(8)
 
         lbl_s_desc = QLabel(
-            u"💡 机制说明：根据营业时段自动分段生成随机避重号牌\n"
+            u"i 机制说明：根据营业时段自动分段生成随机避重号牌\n"
             u"  • 上午 (05:00 - 12:00)：50 - 100 之间随机叫号\n"
             u"  • 下午 (12:00 - 18:00)：100 - 200 之间随机叫号\n"
             u"  • 晚上 (18:00 - 05:00)：200 - 300 之间随机叫号"
@@ -350,7 +350,7 @@ class QueueWidget(QWidget):
         cm_layout.setContentsMargins(12, 8, 12, 8)
         cm_layout.setSpacing(6)
 
-        lbl_m_desc = QLabel(u"💡 机制说明：每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
+        lbl_m_desc = QLabel(u"i 机制说明：每次在收银台结账时，由收银员手动弹窗调整或指定本次餐牌号码。")
         lbl_m_desc.setStyleSheet("color: #94A3B8; font-size: 13px; border: none; background: transparent; line-height: 1.6;")
         cm_layout.addWidget(lbl_m_desc)
 

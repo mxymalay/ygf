@@ -273,7 +273,7 @@ class CheckoutDialog(QDialog):
             lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
             right_layout.addWidget(lbl_title)
 
-            self.lbl_sqb_desc = QLabel(u"💵 请在计算器中确认实收金额...")
+            self.lbl_sqb_desc = QLabel(u"￥ 请在计算器中确认实收金额...")
             self.lbl_sqb_desc.setAlignment(Qt.AlignCenter)
             self.lbl_sqb_desc.setStyleSheet("font-size: 14px; font-weight: bold; color: #34D399; border: none;")
             right_layout.addWidget(self.lbl_sqb_desc)
@@ -291,7 +291,7 @@ class CheckoutDialog(QDialog):
             lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
             right_layout.addWidget(lbl_title)
 
-            lbl_sub = QLabel(u"⚠️ 点击下方按钮，即刻出票")
+            lbl_sub = QLabel(u"! 点击下方按钮，即刻出票")
             lbl_sub.setAlignment(Qt.AlignCenter)
             lbl_sub.setStyleSheet(
                 "background: rgba(245, 158, 11, 0.15); color: #F59E0B; "
@@ -304,9 +304,9 @@ class CheckoutDialog(QDialog):
             grid_layout.setSpacing(14)
 
             sub_configs = [
-                (PAYMENT_SCAN, u"💳", u"手持机器", u"手持 POS 刷卡/离线记账",
+                (PAYMENT_SCAN, u"码", u"手持机器", u"手持 POS 刷卡/离线记账",
                  "#064E3B", "#059669", "#10B981", "#A7F3D0"),
-                (PAYMENT_QR,   u"📱", u"被扫 / 静态码", u"顾客出示付款码或扫描静态码",
+                (PAYMENT_QR,   u"码", u"被扫 / 静态码", u"顾客出示付款码或扫描静态码",
                  "#4C1D95", "#7C3AED", "#8B5CF6", "#DDD6FE"),
             ]
 
@@ -552,7 +552,7 @@ class CheckoutDialog(QDialog):
 
         if cash_confirmed[0]:
             if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
-                self.lbl_sqb_desc.setText(u"🎉 现金已确认收讫！已自动完成出票")
+                self.lbl_sqb_desc.setText(u"✓ 现金已确认收讫！已自动完成出票")
             if hasattr(self, 'status_widget') and self.status_widget:
                 self.status_widget.set_state("SUCCESS")
             QTimer.singleShot(600, lambda: self._complete_checkout(PAYMENT_CASH))
@@ -594,11 +594,11 @@ class CheckoutDialog(QDialog):
                 if success_hits[0] < 2:
                     return
                 monitoring_timer.stop()
-                print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
+                print("[CheckoutDialog] [AUTO] 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
                 if hasattr(self, 'status_widget') and self.status_widget:
                     self.status_widget.set_state("SUCCESS")
                 if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
-                    self.lbl_sqb_desc.setText(u"🎉 支付成功！已自动完成出票")
+                    self.lbl_sqb_desc.setText(u"✓ 支付成功！已自动完成出票")
                 QTimer.singleShot(600, lambda: self._complete_checkout(method))
                 return
             success_hits[0] = 0
@@ -621,7 +621,7 @@ class CheckoutDialog(QDialog):
             closed_count[0] += 1
             if (window_ever_seen[0] and closed_count[0] >= 3) or elapsed_ms[0] >= 2500:
                 monitoring_timer.stop()
-                print("[CheckoutDialog] ℹ️ 检测到收钱吧付款窗口已关闭（且未到账），展现确认卡片。")
+                print("[CheckoutDialog] [INFO] 检测到收钱吧付款窗口已关闭（且未到账），展现确认卡片。")
                 self._restore_pay_buttons()
                 self._show_sqb_confirm_overlay(amount, method)
 
@@ -773,7 +773,7 @@ class CheckoutDialog(QDialog):
         btn_cancel.clicked.connect(confirm_dialog.reject)
         btn_row.addWidget(btn_cancel, stretch=1)
 
-        btn_ok = QPushButton(u"✅ 确认已到账")
+        btn_ok = QPushButton(u"✓ 确认已到账")
         btn_ok.setCursor(Qt.PointingHandCursor)
         btn_ok.setFocusPolicy(Qt.NoFocus)
         btn_ok.setStyleSheet("""
@@ -797,8 +797,8 @@ class CheckoutDialog(QDialog):
             from core.shouqianba_sender import check_shouqianba_payment_success
             if check_shouqianba_payment_success():
                 auto_check_timer.stop()
-                print("[CheckoutDialog] 🎯 成功自动侦测到【收钱吧】支付成功窗口！无痛自动完成结账并打印出票！")
-                lbl_icon.setText(u"✅ 收钱吧到账成功！自动结账打票中...")
+                print("[CheckoutDialog] [AUTO] 成功自动侦测到【收钱吧】支付成功窗口！无痛自动完成结账并打印出票！")
+                lbl_icon.setText(u"✓ 收钱吧到账成功！自动结账打票中...")
                 lbl_icon.setStyleSheet("font-size: 24px; font-weight: 900; color: #10B981; border: none; background: transparent;")
                 cd_outer.setStyleSheet("""
                     QFrame {

@@ -117,7 +117,7 @@ class LogWidget(QWidget):
 
         # ── 顶部标题 ──
         header = QHBoxLayout()
-        lbl_title = QLabel(u"📋 运营日志")
+        lbl_title = QLabel(u"表 运营日志")
         lbl_title.setStyleSheet("color: #F8FAFC; font-size: 22px; font-weight: 900; letter-spacing: 1px;")
         header.addWidget(lbl_title)
         header.addStretch()
@@ -165,7 +165,7 @@ class LogWidget(QWidget):
         filter_bar.addWidget(self.txt_search)
 
         # 搜索按钮
-        btn_search = QPushButton(u"🔍 筛选")
+        btn_search = QPushButton(u"查 筛选")
         btn_search.setFixedHeight(38)
         btn_search.setCursor(Qt.PointingHandCursor)
         btn_search.setStyleSheet("""
@@ -189,7 +189,7 @@ class LogWidget(QWidget):
         filter_bar.addSpacing(8)
 
         # 导出按钮
-        btn_export = QPushButton(u"📥 导出TXT")
+        btn_export = QPushButton(u"入 导出TXT")
         btn_export.setFixedHeight(38)
         btn_export.setCursor(Qt.PointingHandCursor)
         btn_export.setStyleSheet("""
@@ -206,7 +206,7 @@ class LogWidget(QWidget):
         filter_bar.addSpacing(8)
 
         # 手动清理按钮
-        btn_cleanup = QPushButton(u"🧹 清理过期日志")
+        btn_cleanup = QPushButton(u"清 清理过期日志")
         btn_cleanup.setFixedHeight(38)
         btn_cleanup.setCursor(Qt.PointingHandCursor)
         btn_cleanup.setStyleSheet("""

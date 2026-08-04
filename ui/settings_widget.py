@@ -238,13 +238,13 @@ class SettingsWidget(QWidget):
     """系统设置界面"""
 
     NAV_ITEMS = [
-        ("biz", u"🏪  店铺与计价"),
-        ("sys", u"⚙️  系统与流转"),
-        ("scale", u"⚖️  电子秤设置"),
-        ("bridge", u"🔀  POS 称桥接"),
-        ("sqb", u"💵  收钱吧插件"),
-        ("printer", u"🖨️  小票打印机"),
-        ("danger", u"⚠️  还原与重置"),
+        ("biz", u"店  店铺与计价"),
+        ("sys", u"设  系统与流转"),
+        ("scale", u"秤  电子秤设置"),
+        ("bridge", u"桥  POS 称桥接"),
+        ("sqb", u"￥  收钱吧插件"),
+        ("printer", u"印  小票打印机"),
+        ("danger", u"!  还原与重置"),
     ]
 
     def __init__(self, config, parent=None):
@@ -366,7 +366,7 @@ class SettingsWidget(QWidget):
         sb_layout.setSpacing(8)
 
         # 侧边栏标题
-        lbl_sb_title = QLabel(u"⚙️ 系统设置")
+        lbl_sb_title = QLabel(u"设 系统设置")
         lbl_sb_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #F8FAFC; padding-left: 8px; margin-bottom: 8px;")
         sb_layout.addWidget(lbl_sb_title)
 
@@ -440,18 +440,8 @@ class SettingsWidget(QWidget):
                 border: 2px solid #38BDF8;
                 background-color: #0F172A;
             }
-            QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
-                width: 0px;
-                height: 0px;
-                border: none;
-                background: transparent;
-            }
-            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-                width: 0px;
-                height: 0px;
-                border: none;
-                background: transparent;
-            }
+            /* Native arrows are unreliable on Win7; the shared touch style
+               below supplies explicit buttons and CSS triangle arrows. */
         """)
 
         # 1. 店铺与计价设置页
@@ -522,7 +512,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_scale_page(self):
         card, layout = self._create_section_card(
-            u"⚖️", u"电子秤使用方式", u"先选择实际使用方式；只有需要串口时才显示端口"
+            u"秤", u"电子秤使用方式", u"先选择实际使用方式；只有需要串口时才显示端口"
         )
         grid = QGridLayout()
         grid.setSpacing(18)
@@ -549,7 +539,7 @@ class SettingsWidget(QWidget):
         self._refresh_scale_com_ports()
         grid.addWidget(self.cmb_scale_port, 1, 1)
 
-        self.btn_refresh_scale_ports = QPushButton(u"🔄 扫描COM端口")
+        self.btn_refresh_scale_ports = QPushButton(u"↻ 扫描COM端口")
         self._style_touch_action_btn(self.btn_refresh_scale_ports)
         self.btn_refresh_scale_ports.clicked.connect(lambda: self._refresh_scale_com_ports(show_toast=True))
         grid.addWidget(self.btn_refresh_scale_ports, 1, 2)
@@ -600,7 +590,7 @@ class SettingsWidget(QWidget):
         self.btn_go_scale_bridge.clicked.connect(lambda: self._open_settings_page(3))
         btn_box.addWidget(self.btn_go_scale_bridge, 0, 1)
 
-        btn_save_scale = QPushButton(u"💾 保存称重设置")
+        btn_save_scale = QPushButton(u"存 保存称重设置")
         self._style_save_btn(btn_save_scale)
         btn_save_scale.clicked.connect(self._on_save_scale)
         btn_box.addWidget(btn_save_scale, 1, 0, 1, 2)
@@ -617,7 +607,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_bridge_page(self):
         card, layout = self._create_section_card(
-            u"🔀", u"POS 称桥接", u"让官方 POS 和本 POS 同时读取同一台物理电子秤"
+            u"桥", u"POS 称桥接", u"让官方 POS 和本 POS 同时读取同一台物理电子秤"
         )
 
         overview = QLabel(
@@ -815,7 +805,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_printer_page(self):
         card, layout = self._create_section_card(
-            u"🖨️", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
+            u"印", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
         )
         grid = QGridLayout()
         grid.setSpacing(18)
@@ -842,7 +832,7 @@ class SettingsWidget(QWidget):
         self._refresh_printers()
         grid.addWidget(self.cmb_printer_name, 1, 1)
 
-        btn_rp = QPushButton(u"🔄 刷新打印机")
+        btn_rp = QPushButton(u"↻ 刷新打印机")
         btn_rp.setCursor(Qt.PointingHandCursor)
         btn_rp.setStyleSheet("""
             QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
@@ -871,7 +861,7 @@ class SettingsWidget(QWidget):
 
         layout.addLayout(grid)
 
-        btn_save_printer = QPushButton(u"💾 保存打印机设置")
+        btn_save_printer = QPushButton(u"存 保存打印机设置")
         self._style_save_btn(btn_save_printer)
         btn_save_printer.clicked.connect(self._on_save_printer)
         layout.addWidget(btn_save_printer, alignment=Qt.AlignRight)
@@ -883,7 +873,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_biz_page(self):
         card, layout = self._create_section_card(
-            u"🏪", u"店铺与计价设置", u"设置小票头部标题、分店名称、单价与计价单位"
+            u"店", u"店铺与计价设置", u"设置小票头部标题、分店名称、单价与计价单位"
         )
         grid = QGridLayout()
         grid.setSpacing(18)
@@ -925,7 +915,7 @@ class SettingsWidget(QWidget):
 
         layout.addLayout(grid)
 
-        btn_save_biz = QPushButton(u"💾 保存店铺与计价设置")
+        btn_save_biz = QPushButton(u"存 保存店铺与计价设置")
         self._style_save_btn(btn_save_biz)
         btn_save_biz.clicked.connect(self._on_save_biz)
         layout.addWidget(btn_save_biz, alignment=Qt.AlignRight)
@@ -937,7 +927,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_sys_page(self):
         card, layout = self._create_section_card(
-            u"⚙️", u"系统运行与触屏悬浮球", u"先配置官方 POS 窗口识别，再设置 Windows 开机自启与桌面常驻悬浮球"
+            u"设", u"系统运行与触屏悬浮球", u"先配置官方 POS 窗口识别，再设置 Windows 开机自启与桌面常驻悬浮球"
         )
 
         # 官方 POS 窗口身份同时服务于启动检测和前台切换，不能混在称重
@@ -950,7 +940,7 @@ class SettingsWidget(QWidget):
         official_layout = QVBoxLayout(official_panel)
         official_layout.setContentsMargins(18, 16, 18, 16)
         official_layout.setSpacing(10)
-        official_title = QLabel(u"🖥️ 官方 POS 窗口识别（必填）")
+        official_title = QLabel(u"屏 官方 POS 窗口识别（必填）")
         official_title.setStyleSheet("color: #DDD6FE; font-size: 18px; font-weight: 900;")
         official_layout.addWidget(official_title)
         official_hint = QLabel(
@@ -1037,7 +1027,7 @@ class SettingsWidget(QWidget):
         reminder_layout = QVBoxLayout(reminder_panel)
         reminder_layout.setContentsMargins(18, 16, 18, 16)
         reminder_layout.setSpacing(10)
-        reminder_title = QLabel(u"🔔 提醒设置")
+        reminder_title = QLabel(u"! 提醒设置")
         reminder_title.setStyleSheet("color: #FDE68A; font-size: 18px; font-weight: 900;")
         reminder_layout.addWidget(reminder_title)
         reminder_hint = QLabel(u"控制收银台上的低价、打包和精品串提示；关闭后不会影响计价或结账。")
@@ -1081,7 +1071,7 @@ class SettingsWidget(QWidget):
         reminder_layout.addLayout(reminder_grid)
         layout.addWidget(reminder_panel)
 
-        btn_save_sys = QPushButton(u"💾 保存系统设置")
+        btn_save_sys = QPushButton(u"存 保存系统设置")
         self._style_save_btn(btn_save_sys)
         btn_save_sys.clicked.connect(self._on_save_sys)
         layout.addWidget(btn_save_sys, alignment=Qt.AlignRight)
@@ -1093,7 +1083,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_sqb_page(self):
         card, layout = self._create_section_card(
-            u"💵", u"收钱吧 PC 收款助手", u"按“理解两个端口 → 保存参数 → 创建或检查配对 → 测试”的顺序配置"
+            u"￥", u"收钱吧 PC 收款助手", u"按“理解两个端口 → 保存参数 → 创建或检查配对 → 测试”的顺序配置"
         )
 
         intro = QLabel(
@@ -1120,7 +1110,7 @@ class SettingsWidget(QWidget):
         installer_layout = QVBoxLayout(installer_panel)
         installer_layout.setContentsMargins(18, 16, 18, 16)
         installer_layout.setSpacing(10)
-        installer_title = QLabel(u"📦 收钱吧 PC 助手安装包（v4.0.4）")
+        installer_title = QLabel(u"包 收钱吧 PC 助手安装包（v4.0.4）")
         installer_title.setStyleSheet("color: #DDD6FE; font-size: 18px; font-weight: 900;")
         installer_layout.addWidget(installer_title)
         self.lbl_sqb_installer_status = QLabel("")
@@ -1314,7 +1304,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_danger_page(self):
         card, layout = self._create_section_card(
-            u"⚠️", u"配置导入导出与模块化还原", u"按需分别还原各模块配置，或导入导出完整设置文件"
+            u"!", u"配置导入导出与模块化还原", u"按需分别还原各模块配置，或导入导出完整设置文件"
         )
         card.setStyleSheet("""
             QFrame#SettingCard {
@@ -1330,7 +1320,7 @@ class SettingsWidget(QWidget):
         io_layout = QVBoxLayout(io_box)
         io_layout.setSpacing(10)
 
-        lbl_io_title = QLabel(u"📦 配置文件导入与导出 (快捷一键备份/还原分店设置)")
+        lbl_io_title = QLabel(u"包 配置文件导入与导出 (快捷一键备份/还原分店设置)")
         lbl_io_title.setStyleSheet("font-size: 15px; font-weight: 900; color: #38BDF8; border: none; background: transparent;")
         io_layout.addWidget(lbl_io_title)
 
@@ -1340,13 +1330,13 @@ class SettingsWidget(QWidget):
         io_layout.addWidget(lbl_io_desc)
 
         btn_row = QHBoxLayout()
-        btn_export = QPushButton(u"📤 导出设置文件")
+        btn_export = QPushButton(u"出 导出设置文件")
         btn_export.setCursor(Qt.PointingHandCursor)
         btn_export.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-size: 14px; font-weight: bold; padding: 10px 22px; border-radius: 8px; border: none; } QPushButton:hover { background-color: #0369A1; }")
         btn_export.clicked.connect(self._on_export_config)
         btn_row.addWidget(btn_export)
 
-        btn_import = QPushButton(u"📥 导入设置文件")
+        btn_import = QPushButton(u"入 导入设置文件")
         btn_import.setCursor(Qt.PointingHandCursor)
         btn_import.setStyleSheet("QPushButton { background-color: #0D9488; color: white; font-size: 14px; font-weight: bold; padding: 10px 22px; border-radius: 8px; border: none; } QPushButton:hover { background-color: #0F766E; }")
         btn_import.clicked.connect(self._on_import_config)
@@ -1357,57 +1347,57 @@ class SettingsWidget(QWidget):
         layout.addWidget(io_box)
 
         # ── 2. 模块化还原与重置管理 ──
-        lbl_warn_title = QLabel(u"🚨 模块化还原与重置管理")
+        lbl_warn_title = QLabel(u"! 模块化还原与重置管理")
         lbl_warn_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; background: transparent; margin-top: 10px;")
         layout.addWidget(lbl_warn_title)
 
         reset_items = [
             (
-                u"⚙️", u"还原【系统与硬件配置】", 
+                u"设", u"还原【系统与硬件配置】",
                 u"仅还原串口、打印机、开机自启等基础系统参数 (base.json) 为出厂默认设置。", 
-                u"⚙️ 还原系统配置", 
+                u"设 还原系统配置",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_sys_config
             ),
             (
-                u"🛵", u"还原【外卖中继与排序规则】", 
+                u"外", u"还原【外卖中继与排序规则】",
                 u"仅还原外卖分类、菜品关键字、匹配模式及打票字号规则 (takeout.json)。", 
-                u"🛵 还原外卖规则", 
+                u"外 还原外卖规则",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_takeout_config
             ),
             (
-                u"🧠", u"还原【私域切屏算法规则】", 
+                u"算", u"还原【私域切屏算法规则】",
                 u"仅还原私域截留目标百分比与称重触发门限参数 (algo.json)。", 
-                u"🧠 还原算法规则", 
+                u"算 还原算法规则",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_algo_config
             ),
             (
-                u"💵", u"还原【收钱吧插件配置】", 
+                u"￥", u"还原【收钱吧插件配置】",
                 u"仅还原收钱吧推送端口、解析格式及唤起热键参数 (shouqianba.json)。", 
-                u"💵 还原收钱吧配置", 
+                u"￥ 还原收钱吧配置",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_sqb_config
             ),
             (
-                u"🧹", u"清空运行与算法日志", 
+                u"清", u"清空运行与算法日志",
                 u"仅擦除系统运行日志与算法追溯文件 (app_events.jsonl)。不会影响交易账目和参数配置。", 
-                u"🧹 清空运行日志", 
+                u"清 清空运行日志",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_logs
             ),
             (
-                u"📊", u"清空历史销售数据库", 
+                u"表", u"清空历史销售数据库",
                 u"仅清空本地 SQLite 销售数据库 (sales.db)，擦除所有历史点餐记录。下次开单将自动重建库。", 
-                u"📊 清空销售数据库", 
+                u"表 清空销售数据库",
                 "background-color: #EA580C; color: white; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #F97316;",
                 self._on_reset_db
             ),
             (
-                u"🔥", u"一键彻底重置所有数据", 
+                u"!", u"一键彻底重置所有数据",
                 u"高危全量操作！彻底擦除所有配置文件、销售数据库及日志文件。软件恢复最原始状态。", 
-                u"🔥 一键彻底重置", 
+                u"! 一键彻底重置",
                 "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #DC2626, stop:1 #EF4444); color: white; font-size: 14px; font-weight: bold; padding: 10px 22px; border-radius: 8px; border: none;",
                 self._on_reset
             ),
@@ -2011,7 +2001,7 @@ class SettingsWidget(QWidget):
             self.cmb_scale_baud.setEnabled(True)
             self.btn_test_scale_com.setText(u"⚡ 测试物理秤连接")
             self.lbl_scale_hint.setText(
-                u"💡 本 POS 独占物理秤：\n"
+                u"i 本 POS 独占物理秤：\n"
                 u"• DIBAL ACS-G315 已验证参数：9600、8N1；程序每 200ms 发送 $ 查询重量。\n"
                 u"• 此处选择电子秤真实连接的 COM；使用期间官方 POS 不能同时占用这台秤。\n"
                 u"• 如果两个 POS 都要读取重量，请改选“同时读秤”，不要在这里选择虚拟端口。"
@@ -2023,7 +2013,7 @@ class SettingsWidget(QWidget):
             if bridge_config is not None:
                 self.cmb_scale_baud.setCurrentText(str(bridge_config.baudrate))
             self.btn_test_scale_com.setText(u"⚡ 测试本 POS 桥接通道")
-            status_icon = u"✅" if ready else u"⚠️"
+            status_icon = u"✓" if ready else u"!"
             port_text = (
                 bridge_config.private_pos_virtual_port
                 if bridge_config is not None and bridge_config.private_pos_virtual_port
@@ -2040,7 +2030,7 @@ class SettingsWidget(QWidget):
             self.cmb_scale_port.setEnabled(True)
             self.cmb_scale_baud.setEnabled(True)
             self.lbl_scale_hint.setText(
-                u"💡 官方模式 (推荐·零配置·无冲突)：\n"
+                u"i 官方模式 (推荐·零配置·无冲突)：\n"
                 u"• 本 POS 直接读取官方收银软件生成的串口日志，不需要选择任何 COM。\n"
                 u"• 官方 POS 必须保持运行；若官方升级改变安装目录，请选择它的 serial 日志文件夹。\n"
                 u"• 如果希望本 POS 单独读秤或两个 POS 同时读秤，请选择对应方式。"
@@ -2195,7 +2185,7 @@ class SettingsWidget(QWidget):
             )
         else:
             self.lbl_scale_bridge_overall_status.setText(
-                u"⚠️ 当前状态：%s。桥接尚不可用，请从步骤 1 开始。" % status
+                u"! 当前状态：%s。桥接尚不可用，请从步骤 1 开始。" % status
             )
             self.lbl_scale_bridge_overall_status.setStyleSheet(
                 "color: #FDE68A; background: #422006; border: 1px solid #A16207; "
@@ -3184,7 +3174,7 @@ class SettingsWidget(QWidget):
             elif weight_val is not None:
                 show_info(
                     self, u"测试连接成功",
-                    f"🎉 成功连通电子秤串口【{port}】！\n\n"
+                    f"✓ 成功连通电子秤串口【{port}】！\n\n"
                     f"• 通信端口: {port}\n• 通信波特率: {baudrate}\n"
                     f"• 捕获到的实时重量: {weight_val:.3f} kg\n\n"
                     u"硬件通信完全正常，可随时保存使用！"
