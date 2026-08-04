@@ -11,9 +11,9 @@ from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
-    QFileDialog
+    QFileDialog, QProgressBar, QApplication
 )
-from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QKeySequence, QDesktopServices
 
 from config import (
@@ -30,6 +30,100 @@ from utils.window_utils import (
 
 SQB_INSTALLER_NAME = u"PC收款安装包v4.0.4.exe"
 SQB_INSTALLER_SHA256 = "666EFBA745C7D20D33C22B65E765B027D431E32B7C8CAA4BF8B65A86AD6F15AC"
+
+
+class _MaintenanceWorker(QObject):
+    """Run an elevated driver/port operation away from the UI thread."""
+
+    succeeded = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, operation):
+        super().__init__()
+        self.operation = operation
+
+    def run(self):
+        try:
+            self.succeeded.emit(self.operation())
+        except Exception as exc:
+            self.failed.emit(str(exc) or exc.__class__.__name__)
+
+
+class _MaintenanceBusyDialog(QDialog):
+    """Touch-friendly animated dialog shown while com0com is being changed."""
+
+    _FRAMES = (u"◐", u"◓", u"◑", u"◒")
+
+    def __init__(self, title, message, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setMinimumWidth(500)
+        self.setStyleSheet(
+            "QDialog { background: #172136; border: 2px solid #7C3AED; border-radius: 16px; }"
+            "QLabel { color: #F8FAFC; background: transparent; border: none; }"
+            "QProgressBar { background: #0F172A; border: none; border-radius: 4px; height: 8px; }"
+            "QProgressBar::chunk { background: #8B5CF6; border-radius: 4px; }"
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(12)
+
+        self.lbl_spinner = QLabel(self._FRAMES[0])
+        self.lbl_spinner.setAlignment(Qt.AlignCenter)
+        self.lbl_spinner.setStyleSheet(
+            "color: #C4B5FD; font-size: 42px; font-weight: 900; border: none;"
+        )
+        layout.addWidget(self.lbl_spinner)
+
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 21px; font-weight: 900;")
+        layout.addWidget(title_label)
+
+        message_label = QLabel(message)
+        message_label.setAlignment(Qt.AlignCenter)
+        message_label.setWordWrap(True)
+        message_label.setStyleSheet("color: #CBD5E1; font-size: 15px;")
+        layout.addWidget(message_label)
+
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.setTextVisible(False)
+        layout.addWidget(progress)
+
+        hint = QLabel(u"正在执行系统驱动/虚拟串口操作，请勿关闭程序或拔出设备。")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet("color: #FDE68A; font-size: 13px;")
+        layout.addWidget(hint)
+
+        self._frame_index = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(180)
+        self._timer.timeout.connect(self._advance_frame)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._timer.start()
+
+    def closeEvent(self, event):
+        if self._timer.isActive():
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def finish(self):
+        self._timer.stop()
+        # Allow the controlled close after the operation has completed.
+        self.setModal(False)
+        self.setWindowModality(Qt.NonModal)
+        self.close()
+
+    def _advance_frame(self):
+        self._frame_index = (self._frame_index + 1) % len(self._FRAMES)
+        self.lbl_spinner.setText(self._FRAMES[self._frame_index])
 
 
 class HotKeyRecorderEdit(QLineEdit):
@@ -1250,6 +1344,55 @@ class SettingsWidget(QWidget):
         for widget in self.findChildren((QComboBox, QSpinBox, QDoubleSpinBox)):
             widget.wheelEvent = lambda event, w=widget: event.ignore()
 
+    def _run_maintenance_with_spinner(
+        self, title, message, operation, on_success, error_title, busy_widgets
+    ):
+        """Run driver/virtual-port maintenance without freezing touch UI."""
+        if getattr(self, "_maintenance_thread", None) is not None:
+            return
+
+        states = [(widget, widget.isEnabled()) for widget in busy_widgets]
+        for widget, _enabled in states:
+            widget.setEnabled(False)
+
+        dialog = _MaintenanceBusyDialog(title, message, self)
+        thread = QThread(self)
+        worker = _MaintenanceWorker(operation)
+        worker.moveToThread(thread)
+        self._maintenance_dialog = dialog
+        self._maintenance_thread = thread
+        self._maintenance_worker = worker
+
+        def restore_controls():
+            for widget, enabled in states:
+                widget.setEnabled(enabled)
+
+        def finish_thread():
+            restore_controls()
+            self._maintenance_dialog = None
+            self._maintenance_thread = None
+            self._maintenance_worker = None
+            worker.deleteLater()
+            thread.deleteLater()
+
+        def succeeded(result):
+            dialog.finish()
+            thread.quit()
+            on_success(result)
+
+        def failed(reason):
+            dialog.finish()
+            thread.quit()
+            from ui.custom_dialog import show_error
+            show_error(self, error_title, reason)
+
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        thread.finished.connect(finish_thread)
+        dialog.show()
+        QApplication.processEvents()
+        thread.start()
+
     # ─── 刷新 COM 串口列表 ──────────────────────────
     def _on_sqb_mode_changed(self, _index=None):
         """收钱吧先选是否启用、再选配对由谁维护，避免把高级操作混进基础参数。"""
@@ -2081,34 +2224,43 @@ class SettingsWidget(QWidget):
             bridge_config = self._bridge_config_from_form()
             bridge_config.validate_for_setup()
             lifecycle = ScaleBridgeLifecycle(self._scale_bridge_config_path())
-            report = lifecycle.initialize(bridge_config)
         except Exception as exc:
             show_error(self, u"POS 称桥接初始化失败", str(exc))
             return
 
-        self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
-        self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
-        self.lbl_scale_bridge_config.setText(
-            u"✓ 初始化完成，服务已安装并运行。配置：%s" % self._scale_bridge_config_path()
-        )
-        self._refresh_scale_bridge_overall_status()
-        if self.cmb_scale_source.currentIndex() == 2:
-            self._on_scale_source_changed(2)
-        created = u"、".join(report.pairs.created) or u"无（均已存在）"
-        existing = u"、".join(report.pairs.existing) or u"无"
-        removed = u"、".join(report.pairs.removed_obsolete) or u"无"
-        show_info(
-            self, u"POS 称桥接初始化完成",
-            u"物理秤: %s，当前 %.3f kg\n新建配对: %s\n复用配对: %s\n清理旧配对: %s\n服务: %s\n\n"
-            u"下一步：按步骤 4 完成测试，再点击“⑤ 让本 POS 使用桥接端口”。"
-            % (
-                report.physical_test.port,
-                report.physical_test.weight_kg,
-                created,
-                existing,
-                removed,
-                u"已安装并启动" if report.service_installed else u"已存在并启动",
-            ),
+        def on_success(report):
+            self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
+            self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
+            self.lbl_scale_bridge_config.setText(
+                u"✓ 初始化完成，服务已安装并运行。配置：%s" % self._scale_bridge_config_path()
+            )
+            self._refresh_scale_bridge_overall_status()
+            if self.cmb_scale_source.currentIndex() == 2:
+                self._on_scale_source_changed(2)
+            created = u"、".join(report.pairs.created) or u"无（均已存在）"
+            existing = u"、".join(report.pairs.existing) or u"无"
+            removed = u"、".join(report.pairs.removed_obsolete) or u"无"
+            show_info(
+                self, u"POS 称桥接初始化完成",
+                u"物理秤: %s，当前 %.3f kg\n新建配对: %s\n复用配对: %s\n清理旧配对: %s\n服务: %s\n\n"
+                u"下一步：按步骤 4 完成测试，再点击“⑤ 让本 POS 使用桥接端口”。"
+                % (
+                    report.physical_test.port,
+                    report.physical_test.weight_kg,
+                    created,
+                    existing,
+                    removed,
+                    u"已安装并启动" if report.service_installed else u"已存在并启动",
+                ),
+            )
+
+        self._run_maintenance_with_spinner(
+            u"正在初始化 / 修复 POS 称桥接",
+            u"正在测试物理秤、安装或检查 com0com，并创建称重虚拟串口。",
+            lambda: lifecycle.initialize(bridge_config),
+            on_success,
+            u"POS 称桥接初始化失败",
+            [self.btn_initialize_scale_bridge],
         )
 
     def _initialize_payment_pair(self):
@@ -2125,24 +2277,30 @@ class SettingsWidget(QWidget):
             % (sender or u"未填写", plugin or u"未填写"),
         ):
             return
-        try:
-            report = PaymentPairLifecycle().initialize(sender, plugin)
+
+        def on_success(report):
             self.config["shouqianba_port"] = sender
             self.config["shouqianba_plugin_port"] = plugin
             self.config["shouqianba_pair_mode"] = "managed"
             save_config(self.config)
-        except Exception as exc:
-            show_error(self, u"支付配对创建失败", str(exc))
-            return
-        show_info(
-            self,
-            u"支付配对已就绪",
-            u"新建：%s\n复用：%s\n清理旧配对：%s\n\n下一步：关闭占用两端口的软件，再点击“双向测试支付配对”。"
-            % (
-                u"、".join(report.created) or u"无",
-                u"、".join(report.existing) or u"无",
-                u"、".join(report.removed_obsolete) or u"无",
-            ),
+            show_info(
+                self,
+                u"支付配对已就绪",
+                u"新建：%s\n复用：%s\n清理旧配对：%s\n\n下一步：关闭占用两端口的软件，再点击“双向测试支付配对”。"
+                % (
+                    u"、".join(report.created) or u"无",
+                    u"、".join(report.existing) or u"无",
+                    u"、".join(report.removed_obsolete) or u"无",
+                ),
+            )
+
+        self._run_maintenance_with_spinner(
+            u"正在创建 / 修复收钱吧虚拟串口",
+            u"正在安装或检查 com0com，并创建收钱吧发送端与插件接收端。",
+            lambda: PaymentPairLifecycle().initialize(sender, plugin),
+            on_success,
+            u"支付配对创建失败",
+            [self.btn_initialize_payment_pair],
         )
 
     def _check_payment_pair(self):
