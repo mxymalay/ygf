@@ -829,7 +829,7 @@ class SaleWidget(QWidget):
         mode_selector_row = QHBoxLayout()
         mode_selector_row.setSpacing(6)
         self.cmb_mock_weight_mode = QComboBox()
-        self.cmb_mock_weight_mode.addItem(u"手动输入重量（默认）", "manual")
+        self.cmb_mock_weight_mode.addItem(u"手动输入重量", "manual")
         self.cmb_mock_weight_mode.addItem(u"随机生成重量", "random")
         self.cmb_mock_weight_mode.addItem(u"切换到正常模式（检测设备）", "normal")
         self.cmb_mock_weight_mode.setMinimumHeight(56)
