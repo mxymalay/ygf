@@ -1179,11 +1179,21 @@ class ScaleBridgeServiceController:
             if not os.path.isfile(executable):
                 return []
             return [executable]
+        # The source POS is often started with python.exe from a windowed
+        # launcher.  Starting another console Python with CREATE_NO_WINDOW on
+        # Win7 can abort before our script runs (init_sys_streams / console
+        # output buffer).  Use the matching pythonw.exe when the environment
+        # provides it; scale_bridge_service.py supplies safe null streams for
+        # pywin32's command-line helper.
+        interpreter = sys.executable
+        pythonw = os.path.join(os.path.dirname(os.path.abspath(interpreter)), "pythonw.exe")
+        if sys.platform == "win32" and os.path.isfile(pythonw):
+            interpreter = pythonw
         # The root-level host intentionally defines the registered subclass.
         # pywin32 therefore records this absolute file path, allowing
         # pythonservice.exe to locate the project before importing the
         # ``scale_bridge`` package.
-        return [sys.executable, os.path.join(application_root(), "scale_bridge_service.py")]
+        return [interpreter, os.path.join(application_root(), "scale_bridge_service.py")]
 
     def _run(self, arguments: Sequence[str], timeout: int = 30, check: bool = True):
         if not self.command_prefix:
@@ -1193,7 +1203,10 @@ class ScaleBridgeServiceController:
             capture_output=True,
             timeout=timeout,
             check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            # Do not apply CREATE_NO_WINDOW here.  It is harmlessly redundant
+            # for packaged/windowed hosts, but crashes console python.exe on
+            # some Win7 systems before scale_bridge_service.py can initialise.
+            creationflags=0,
         )
         if check and result.returncode:
             raise RuntimeError(_decode_process_output(result).strip() or "服务命令执行失败")

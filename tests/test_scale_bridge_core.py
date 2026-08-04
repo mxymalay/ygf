@@ -746,6 +746,39 @@ class _ServiceRunner(object):
 
 
 class ServiceLifecycleTests(unittest.TestCase):
+    def test_source_service_prefers_pythonw_on_windows_7(self):
+        import scale_bridge.lifecycle as lifecycle_module
+
+        with patch.object(lifecycle_module.sys, "frozen", False, create=True), patch.object(
+            lifecycle_module.sys, "platform", "win32"
+        ), patch.object(
+            lifecycle_module.sys, "executable", r"C:\Python38\python.exe"
+        ), patch.object(
+            lifecycle_module.os.path, "isfile", side_effect=lambda path: path.lower().endswith("pythonw.exe")
+        ):
+            prefix = ScaleBridgeServiceController._default_command_prefix()
+
+        self.assertEqual(prefix[0], r"C:\Python38\pythonw.exe")
+        self.assertTrue(prefix[1].endswith("scale_bridge_service.py"))
+
+    def test_service_maintenance_does_not_use_create_no_window(self):
+        calls = []
+
+        class Result(object):
+            returncode = 0
+            stdout = b""
+            stderr = b""
+
+        def recording_runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return Result()
+
+        controller = ScaleBridgeServiceController(
+            ["pythonw.exe", "scale_bridge_service.py"], recording_runner
+        )
+        controller._run(["install"])
+        self.assertEqual(calls[0][1]["creationflags"], 0)
+
     def test_install_start_stop_remove(self):
         runner = _ServiceRunner()
         controller = ScaleBridgeServiceController(["ScaleBridgeService.exe"], runner)
