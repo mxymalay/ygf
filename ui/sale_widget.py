@@ -1153,7 +1153,7 @@ class SaleWidget(QWidget):
         clear_box = QHBoxLayout()
         clear_box.setSpacing(10)
         
-        self.btn_clear = QPushButton(u"重置")
+        self.btn_clear = QPushButton(u"清空")
         self.btn_clear.setObjectName("btn_clear")
         self.btn_clear.setCursor(Qt.PointingHandCursor)
         self.btn_clear.clicked.connect(self._on_clear)
