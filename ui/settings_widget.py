@@ -2448,6 +2448,12 @@ class SettingsWidget(QWidget):
         from scale_bridge.lifecycle import PaymentPairLifecycle
         from ui.custom_dialog import show_error, show_info, show_question
 
+        # Read the exact endpoints before starting the worker.  The fallback
+        # cleanup path below uses these values to identify a legacy pair that
+        # was created before ownership metadata was introduced.
+        sender = self.cmb_sqb_port.currentText().strip().upper()
+        plugin = self.txt_sqb_payment_peer.text().strip().upper()
+
         if not show_question(
             self,
             u"删除收钱吧支付配对",
