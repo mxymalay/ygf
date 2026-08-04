@@ -89,6 +89,12 @@ def parse_setupc_list(output: str) -> List[Com0ComPair]:
         side, index_text = match.groups()
         name_match = name_pattern.search(line)
         port_name = name_match.group(1) if name_match else ""
+        # com0com uses placeholders such as COM# or '-' for an endpoint that
+        # has no Windows PortName yet.  They are not real ports; fall back to
+        # the stable CNCA/CNCB endpoint so diagnostics and conflict checks do
+        # not report a fake pair as an available COM port.
+        if port_name.strip().upper() in ("COM#", "-", "NONE", "NULL"):
+            port_name = ""
         index = int(index_text)
         endpoint = (port_name or "CNC%s%s" % (side.upper(), index)).upper()
         sides.setdefault(index, {})[side.upper()] = endpoint

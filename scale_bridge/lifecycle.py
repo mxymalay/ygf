@@ -1070,9 +1070,15 @@ class PaymentPairLifecycle:
         self,
         manifest_path: Optional[str] = None,
         provisioner: Optional[Com0ComProvisioner] = None,
+        verify_enumeration: Optional[bool] = None,
     ):
         self.manifest_path = manifest_path or default_manifest_path()
         self.provisioner = provisioner
+        # The real UI uses the Windows device list as a postcondition.  Tests
+        # and injected provisioners may intentionally use an empty fake port
+        # list, so verification is enabled automatically only for the real
+        # lifecycle path unless explicitly overridden.
+        self.verify_enumeration = (provisioner is None) if verify_enumeration is None else bool(verify_enumeration)
 
     def initialize(
         self,
@@ -1095,9 +1101,23 @@ class PaymentPairLifecycle:
         provisioner = self.provisioner or Com0ComProvisioner(
             setupc, self.manifest_path
         )
-        return provisioner.ensure_required_pairs(
+        report = provisioner.ensure_required_pairs(
             config, include_scale=False, include_payment=True
         )
+        if self.verify_enumeration:
+            candidates = provisioner.port_enumerator(include_virtual=True)
+            available = {item.port.upper() for item in candidates}
+            missing = [
+                port for port in (config.payment_pos_port, config.payment_plugin_port)
+                if port.upper() not in available
+            ]
+            if missing:
+                raise RuntimeError(
+                    "setupc 已返回配对，但 Windows 设备管理器未枚举出 %s。"
+                    "请确认 com0com 驱动安装完成，必要时重启电脑后再创建。"
+                    % "、".join(missing)
+                )
+        return report
 
     def remove(self) -> Tuple[List[str], List[str]]:
         if not is_administrator():
