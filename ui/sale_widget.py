@@ -867,8 +867,10 @@ class SaleWidget(QWidget):
         self.cmb_mock_weight_mode.addItem(u"随机生成重量", "random")
         self.cmb_mock_weight_mode.addItem(u"切换到正常模式（检测设备）", "normal")
         self.cmb_mock_weight_mode.setMinimumHeight(56)
-        self.cmb_mock_weight_mode.setMinimumWidth(150)
-        self.cmb_mock_weight_mode.setMaximumWidth(185)
+        # Leave enough horizontal room for the complete ``00.000 kg`` readout
+        # on the narrower Win7 touch layout.
+        self.cmb_mock_weight_mode.setMinimumWidth(140)
+        self.cmb_mock_weight_mode.setMaximumWidth(165)
         self.cmb_mock_weight_mode.setFocusPolicy(Qt.NoFocus)
         self.cmb_mock_weight_mode.setStyleSheet(
             "QComboBox { background: #2E1065; color: #F5F3FF; border: 2px solid #8B5CF6; "
@@ -910,10 +912,10 @@ class SaleWidget(QWidget):
         self.lbl_weight = ClickableWeightLabel("00.000 kg")
         self.lbl_weight.clicked.connect(self._on_weight_display_click)
         self.lbl_weight.setCursor(Qt.PointingHandCursor)
-        self.lbl_weight.setMinimumWidth(190)
+        self.lbl_weight.setMinimumWidth(215)
         self.lbl_weight.setToolTip(u"模拟模式：点击重量数字输入或生成重量")
         self.lbl_weight.setStyleSheet(
-            "font-size: 36px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
+            "font-size: 32px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
             "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
         )
         led_layout.addWidget(self.lbl_weight, stretch=1, alignment=Qt.AlignRight)
