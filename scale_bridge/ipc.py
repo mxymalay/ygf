@@ -70,9 +70,17 @@ class StatusPipeServer:
                 if not self._stop.is_set():
                     response = json.dumps(self._status_provider(), ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
                     win32file.WriteFile(handle, response)
-            except Exception:
+            except Exception as exc:
                 if not self._stop.is_set():
-                    logger.exception("ScaleBridge status pipe failed")
+                    # A client can still be closing the previous one-shot
+                    # connection.  With one pipe instance Windows briefly
+                    # reports ERROR_PIPE_BUSY (231); that is transient, not a
+                    # service failure.  Waiting avoids a CPU/logging storm.
+                    if getattr(exc, "winerror", None) == 231:
+                        self._stop.wait(0.05)
+                    else:
+                        logger.exception("ScaleBridge status pipe failed")
+                        self._stop.wait(0.1)
             finally:
                 if handle is not None:
                     try:

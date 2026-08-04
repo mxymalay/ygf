@@ -681,7 +681,7 @@ class SettingsWidget(QWidget):
         self._style_save_btn(self.btn_initialize_scale_bridge)
         self.btn_initialize_scale_bridge.clicked.connect(self._initialize_scale_bridge)
         step3_layout.addWidget(self.btn_initialize_scale_bridge)
-        self.btn_test_bridge_virtual_only = QPushButton(u"开发测试：模拟秤并启动服务（先完成步骤 2）")
+        self.btn_test_bridge_virtual_only = QPushButton(u"③ 开发测试：模拟秤并启动服务")
         self._style_touch_action_btn(self.btn_test_bridge_virtual_only, "purple")
         self.btn_test_bridge_virtual_only.clicked.connect(self._test_scale_bridge_virtual_only)
         step3_layout.addWidget(self.btn_test_bridge_virtual_only)
@@ -2374,10 +2374,12 @@ class SettingsWidget(QWidget):
             all_ok = True
             for label, item in results:
                 all_ok = all_ok and item.ok
-                lines.append(
-                    u"%s：%s — %s"
-                    % (label, u"模拟回包正常（%.3f kg）" % item.weight_kg if item.ok else item.message)
+                detail = (
+                    u"模拟回包正常（%.3f kg）" % item.weight_kg
+                    if item.ok
+                    else item.message
                 )
+                lines.append(u"%s：%s" % (label, detail))
             show_info(
                 self,
                 u"开发模拟服务验证完成" if all_ok else u"开发模拟服务验证未通过",
