@@ -115,20 +115,40 @@ class SwitchSettingsWidget(QWidget):
         self.log_timer.stop()
 
     def _build_ui(self):
-        # The previous side-by-side 60/40 layout required more width than a
-        # Win7 touch POS window provides, so the right edge of the form was
-        # clipped.  Stack configuration and logs vertically: the only
-        # scrolling direction is vertical and every row gets the full width.
+        # Use one page-level vertical scroll area.  The configuration form and
+        # the trace panel are both allowed to use their natural height; the
+        # operator scrolls the whole page instead of fighting nested scrollbars.
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 12, 16, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        page_scroll = QScrollArea(self)
+        page_scroll.setWidgetResizable(True)
+        page_scroll.setMinimumWidth(0)
+        page_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        page_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        page_scroll.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical {
+                width: 14px; background: #0F172A; border-radius: 7px;
+            }
+            QScrollBar::handle:vertical {
+                background: #475569; border-radius: 7px; min-height: 60px;
+            }
+        """)
+        page_container = QWidget()
+        page_container.setMinimumWidth(0)
+        page_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        page_layout = QVBoxLayout(page_container)
+        page_layout.setContentsMargins(16, 12, 16, 24)
+        page_layout.setSpacing(18)
 
         # ==========================================
         # 左侧：配置项 (占 60% 宽度)
         # ==========================================
         left_panel = QWidget()
         left_panel.setMinimumWidth(0)
-        left_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        left_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -137,19 +157,8 @@ class SwitchSettingsWidget(QWidget):
         lbl_title.setStyleSheet("font-size: 26px; font-weight: 900; color: #F8FAFC;")
         left_layout.addWidget(lbl_title)
 
-        # 核心滚动区
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setMinimumWidth(0)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical {
-                width: 12px; background: #0F172A; border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background: #334155; border-radius: 6px;
-            }
+        # 配置表单不再使用内层滚动框；它完整展开，由页面级滚动条统一承载。
+        left_panel.setStyleSheet("""
             QGroupBox {
                 background-color: #1E293B; border-radius: 12px; border: 1px solid #334155;
                 margin-top: 24px; padding-top: 24px;
@@ -264,8 +273,7 @@ class SwitchSettingsWidget(QWidget):
         lay4.addRow(QLabel(u"结账出票后隐退延时:"), self.sp_delay)
         form_vlayout.addWidget(grp4)
 
-        scroll.setWidget(form_container)
-        left_layout.addWidget(scroll, stretch=1)
+        left_layout.addWidget(form_container)
 
         # 底部保存按钮
         self.btn_save = QPushButton(u"💾 保存算法设置")
@@ -289,8 +297,7 @@ class SwitchSettingsWidget(QWidget):
         right_panel.setMinimumWidth(0)
         # Keep a generous touch-friendly log viewport.  The previous 170-230px
         # cap made the real-time trace practically unreadable on POS screens.
-        right_panel.setMinimumHeight(320)
-        right_panel.setMaximumHeight(420)
+        right_panel.setMinimumHeight(520)
         right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(10, 0, 0, 0)
@@ -350,9 +357,11 @@ class SwitchSettingsWidget(QWidget):
 
         right_layout.addLayout(log_paging_bar)
 
-        # 纵向排列，避免任何横向滚动或右侧裁切。
-        root.addWidget(left_panel, 1)
-        root.addWidget(right_panel, 0)
+        # 纵向排列，整页统一滚动，实时追踪区域不再被屏幕高度截断。
+        page_layout.addWidget(left_panel)
+        page_layout.addWidget(right_panel)
+        page_scroll.setWidget(page_container)
+        root.addWidget(page_scroll)
 
     def _refresh_logs(self):
         """拉取日志，仅筛选 决策、切换、避险"""
