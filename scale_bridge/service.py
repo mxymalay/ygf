@@ -116,6 +116,29 @@ def run_foreground(config_path: Optional[str] = None) -> None:
         runtime.stop()
 
 
+def _write_source_service_python_path() -> None:
+    """Make pywin32's pythonservice.exe import the source-tree package."""
+    if getattr(sys, "frozen", False):
+        return
+    try:
+        import winreg
+        service_key = r"SYSTEM\CurrentControlSet\Services\%s" % SERVICE_NAME
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            service_key,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            source_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            winreg.SetValueEx(key, "PythonPath", 0, winreg.REG_EXPAND_SZ, source_root)
+    except (ImportError, OSError):
+        # Installation itself already succeeded; surface import failures from
+        # the service log/SCM rather than hiding the original install result.
+        logging.getLogger("ScaleBridge").warning(
+            "failed to write source PythonPath; service install may need elevation"
+        )
+
+
 def main(argv=None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     # A frozen service executable is launched by the Windows Service Control
@@ -133,7 +156,10 @@ def main(argv=None) -> int:
         return 0
     if not win32serviceutil:
         raise RuntimeError("pywin32 is required to install or host ScaleBridge as a Windows service")
-    return int(win32serviceutil.HandleCommandLine(ScaleBridgeWindowsService) or 0)
+    result = int(win32serviceutil.HandleCommandLine(ScaleBridgeWindowsService) or 0)
+    if any(str(item).lower() == "install" for item in args):
+        _write_source_service_python_path()
+    return result
 
 
 if __name__ == "__main__":
