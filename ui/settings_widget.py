@@ -2787,10 +2787,43 @@ class SettingsWidget(QWidget):
 
     def _remove_scale_bridge(self):
         """Remove only owned bridge resources and its separate config."""
-        from scale_bridge.lifecycle import ScaleBridgeLifecycle
+        from scale_bridge.lifecycle import (
+            ScaleBridgeLifecycle,
+            load_manifest,
+        )
         from ui.custom_dialog import show_error, show_info, show_question
 
-        if not show_question(
+        lifecycle = ScaleBridgeLifecycle(self._scale_bridge_config_path())
+        try:
+            manifest = load_manifest(lifecycle.manifest_path)
+            service_is_legacy = (
+                lifecycle.service.query().installed
+                and not manifest.service_owned
+            )
+        except Exception as exc:
+            show_error(self, u"无法核对桥接删除范围", str(exc))
+            return
+
+        allow_unowned_service = False
+        if service_is_legacy:
+            # Older builds created the service before a manifest existed.
+            # Never silently take over that resource: the exact service name
+            # is shown and a second, deliberately high-risk confirmation is
+            # required.  COM pairs remain protected by their own ownership
+            # records and are not included in this fallback.
+            if not show_question(
+                self,
+                u"高危操作：删除未登记的旧桥接服务",
+                u"检测到 Windows 服务“YgfScaleBridge”，但当前系统没有它的创建记录。\n\n"
+                u"这通常来自旧版本或早期手工开发测试。确认后会停止并删除这一项同名 Windows 服务，"
+                u"并删除当前称桥接配置；如果它实际由其他软件创建，那个软件将无法继续桥接称重。\n\n"
+                u"不会删除任何未登记的 COM 虚拟串口、收钱吧配对、com0com 驱动或其他 POS 设置。\n\n"
+                u"仅当你确认这是本 POS 的旧称桥接服务时，才点击“确定”；不确定请点击“取消”。",
+            ):
+                show_info(self, u"旧桥接服务未删除", u"未登记的服务和所有虚拟串口均已保留。")
+                return
+            allow_unowned_service = True
+        elif not show_question(
             self, u"删除 POS 称桥接",
             u"将停止并删除本产品创建的称桥接服务，只删除本产品记录的官方/本 POS 称重配对，"
             u"并删除独立称桥接配置。\n\n不会删除收钱吧支付配对、com0com 驱动、真实串口驱动或其他 POS 设置。是否继续？",
@@ -2814,7 +2847,10 @@ class SettingsWidget(QWidget):
         self._run_maintenance_with_spinner(
             u"正在删除 POS 称桥接",
             u"正在停止服务、删除称重配对和独立桥接配置，请稍候。",
-            lambda: ScaleBridgeLifecycle(self._scale_bridge_config_path()).remove(remove_driver=False),
+            lambda: lifecycle.remove(
+                remove_driver=False,
+                allow_unowned_service=allow_unowned_service,
+            ),
             on_success,
             u"删除桥接功能失败",
             [self.btn_remove_scale_bridge],

@@ -1138,8 +1138,19 @@ class ScaleBridgeLifecycle:
             config.physical_scale = original_physical
             config.development_simulation = original_simulation
 
-    def remove(self, remove_driver: bool = False) -> RemovalReport:
-        """Remove the owned service/pairs/config, leaving every other setting untouched."""
+    def remove(
+        self,
+        remove_driver: bool = False,
+        allow_unowned_service: bool = False,
+    ) -> RemovalReport:
+        """Remove bridge resources, with an explicit legacy-service escape hatch.
+
+        Normal removal only touches resources recorded in the product manifest.
+        ``allow_unowned_service`` is intentionally limited to the exact
+        ``YgfScaleBridge`` Windows service and is used only after the touch UI
+        shows a separate high-risk confirmation for pre-manifest installations.
+        It never widens COM-pair deletion: unrecorded virtual pairs remain.
+        """
         if not is_administrator():
             raise PermissionError("删除 ScaleBridge 必须以管理员身份运行 POS")
         manifest = load_manifest(self.manifest_path)
@@ -1149,7 +1160,9 @@ class ScaleBridgeLifecycle:
             manifest.service_owned = False
             save_manifest(manifest, self.manifest_path)
         elif self.service.query().installed:
-            raise RuntimeError("检测到同名服务但缺少本产品所有权记录，为安全起见拒绝删除")
+            if not allow_unowned_service:
+                raise RuntimeError("检测到同名服务但缺少本产品所有权记录，为安全起见拒绝删除")
+            report.service_removed = self.service.remove()
 
         provisioner = self.provisioner or Com0ComProvisioner(manifest_path=self.manifest_path)
         scale_purposes = {"official_scale", "private_scale"}

@@ -881,6 +881,23 @@ class _FakeLifecycleService(object):
 
 
 class FullLifecycleTests(unittest.TestCase):
+    def test_legacy_unowned_service_needs_explicit_removal_permission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = _FakeLifecycleService()
+            service.installed = True
+            lifecycle = ScaleBridgeLifecycle(
+                os.path.join(directory, "scale_bridge.json"),
+                os.path.join(directory, "installation.json"),
+                provisioner=_FakeProvisioner(),
+                service=service,
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
+                with self.assertRaisesRegex(RuntimeError, "缺少本产品所有权记录"):
+                    lifecycle.remove()
+                report = lifecycle.remove(allow_unowned_service=True)
+            self.assertTrue(report.service_removed)
+            self.assertFalse(service.installed)
+
     def test_virtual_only_initialization_skips_physical_scale_and_service(self):
         cfg = ScaleBridgeConfig(
             physical_scale=ScaleDeviceIdentity(port="COM5"),
