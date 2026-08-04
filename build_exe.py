@@ -9,6 +9,7 @@ import subprocess
 import shutil
 import time
 import hashlib
+import stat
 
 # 强制控制台输出使用 UTF-8 编码，防止在 Git Bash (MINGW64) 等终端中出现中文乱码
 try:
@@ -16,6 +17,62 @@ try:
     sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
     pass
+
+
+def _same_file(source, destination):
+    """Compare deployment files without relying on timestamps."""
+    try:
+        if os.path.getsize(source) != os.path.getsize(destination):
+            return False
+        source_hash = hashlib.sha256()
+        destination_hash = hashlib.sha256()
+        with open(source, "rb") as source_stream, open(destination, "rb") as destination_stream:
+            while True:
+                source_chunk = source_stream.read(1024 * 1024)
+                destination_chunk = destination_stream.read(1024 * 1024)
+                if not source_chunk and not destination_chunk:
+                    break
+                source_hash.update(source_chunk)
+                destination_hash.update(destination_chunk)
+        return source_hash.digest() == destination_hash.digest()
+    except (OSError, IOError):
+        return False
+
+
+def _merge_package_tree(source_dir, target_dir):
+    """Merge a fresh package without overwriting identical locked files."""
+    errors = []
+    for root, _directories, filenames in os.walk(source_dir):
+        relative = os.path.relpath(root, source_dir)
+        target_root = target_dir if relative == "." else os.path.join(target_dir, relative)
+        os.makedirs(target_root, exist_ok=True)
+        for filename in filenames:
+            source = os.path.join(root, filename)
+            destination = os.path.join(target_root, filename)
+            if os.path.isfile(destination) and _same_file(source, destination):
+                continue
+            try:
+                if os.path.isfile(destination):
+                    # Clear a read-only attribute left by a previous copied
+                    # installer before attempting to replace it.
+                    os.chmod(destination, stat.S_IWRITE)
+                shutil.copy2(source, destination)
+            except (OSError, IOError) as exc:
+                errors.append((source, destination, str(exc)))
+    if errors:
+        raise shutil.Error(errors)
+
+
+def _unique_deployment_dir(base_dir):
+    """Return a new sibling directory for a locked/permission-denied target."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    candidate = "%s-%s" % (base_dir, stamp)
+    index = 1
+    while os.path.exists(candidate):
+        candidate = "%s-%s-%d" % (base_dir, stamp, index)
+        index += 1
+    return candidate
+
 
 def main():
     start_time = time.time()
@@ -235,7 +292,7 @@ def main():
         # Merge instead of deleting the target, preserving data/scale_bridge.json
         # and the installation ownership manifest created on the POS computer.
         try:
-            shutil.copytree(package_dir, target_dir, dirs_exist_ok=True)
+            _merge_package_tree(package_dir, target_dir)
         except (OSError, shutil.Error) as exc:
             # C:\驱动 may be protected when the build script itself was not
             # started elevated.  Keep the actual build result usable by
@@ -243,9 +300,9 @@ def main():
             # a mysterious post-build traceback.
             fallback_dir = os.path.join(os.path.expanduser("~"), "Desktop", "YGF-POS")
             if os.path.abspath(fallback_dir) == os.path.abspath(target_dir):
-                raise
+                fallback_dir = _unique_deployment_dir(fallback_dir)
             os.makedirs(fallback_dir, exist_ok=True)
-            shutil.copytree(package_dir, fallback_dir, dirs_exist_ok=True)
+            _merge_package_tree(package_dir, fallback_dir)
             target_dir = fallback_dir
             action_desc = (
                 "目标目录无写入权限，已改为部署到: %s（原错误: %s）"
