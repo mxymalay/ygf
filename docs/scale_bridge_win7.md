@@ -25,6 +25,8 @@ YGF-POS\
   docs\scale_bridge_troubleshooting.md
 ```
 
+如果部署目录还包含 `ThirdParty\hub4com\hub4com.exe`，打包脚本会一并复制它及批处理示例。hub4com 仅用于技术人员手工诊断/临时多路复用；正式运行时由 `YgfScaleBridge` 独占物理秤并完成仲裁，程序不会自动启动 hub4com，也不会把它当作必需依赖。
+
 `build_exe.py` 会生成上述目录。不能只复制 `驱动.exe`，否则无法安装独立服务或首次安装虚拟串口驱动。
 
 ## POS 称桥接字段
@@ -123,6 +125,10 @@ ScaleBridgeMaintenance.exe --config data\scale_bridge.json remove --yes
 ```
 
 初始化与删除必须显式提供 `--yes`。日常 POS 启动不会执行安装、建对或删除命令。
+
+## com0com / hub4com 边界
+
+`com0com` 负责持久化创建 `COMx ↔ CNCBx` 虚拟配对，POS 称桥接页面通过 `setupc.exe list/install/remove` 检查、创建和安全删除；支付配对使用同一驱动，但由独立的收钱吧页面维护。`hub4com` 的典型手工命令（例如 `hub4com --route=All:All \\.\CNCB0 \\.\CNCB1 \\.\CNCB2`）只适合停服务后的诊断，不能与 `YgfScaleBridge` 同时打开同一个物理 COM 口，否则会产生端口占用和重复转发。
 
 ## Windows 7 x64 安全边界
 

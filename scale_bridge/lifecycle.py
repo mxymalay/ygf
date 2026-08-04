@@ -160,6 +160,25 @@ def find_com0com_installer(explicit_path: Optional[str] = None) -> Optional[str]
     return None
 
 
+def find_hub4com(explicit_path: Optional[str] = None) -> Optional[str]:
+    """Locate the optional hub4com diagnostic utility in a deployment tree.
+
+    ScaleBridge does not launch hub4com in production; it owns the physical
+    scale port itself.  Keeping discovery here lets a technician's diagnostic
+    report state clearly whether the optional manual multiplexer was bundled,
+    without making it a required dependency for normal POS startup.
+    """
+    candidates = []
+    if explicit_path:
+        candidates.append(explicit_path)
+    root = application_root()
+    candidates.append(os.path.join(root, "ThirdParty", "hub4com", "hub4com.exe"))
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+    return None
+
+
 def sha256_file(path: str) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -1086,6 +1105,7 @@ def collect_diagnostics(
 ) -> dict:
     candidates = enumerate_serial_ports(include_virtual=True)
     setupc = find_setupc()
+    hub4com = find_hub4com()
     try:
         pairs = list_pairs(setupc) if setupc else []
         pair_error = ""
@@ -1106,6 +1126,8 @@ def collect_diagnostics(
         "administrator": is_administrator(),
         "config": config.to_dict(),
         "setupc_path": setupc or "",
+        "hub4com_path": hub4com or "",
+        "hub4com_role": "optional_manual_diagnostic_only",
         "pair_error": pair_error,
         "pairs": [asdict(item) for item in pairs],
         "service": asdict(service_state),

@@ -127,6 +127,36 @@ DEFAULT_CONFIG = {
     "takeout_show_preorder": True,
 }
 
+# These settings are written by older pages/runtime helpers but are not part
+# of the factory defaults above.  Keep them in the migration allow-list so a
+# legacy store does not lose queue/switch settings merely because the current
+# UI only exposes them on a secondary page.  Anything outside this set is
+# treated as an obsolete/foreign field and is deliberately discarded when the
+# modular files are rewritten.
+OPTIONAL_CONFIG_KEYS = {
+    "call_used_numbers",
+    "call_last_slot",
+    "call_manual_no",
+    "call_seq_no",
+    "call_mode",
+    "custom_is_seq",
+    "custom_start_no",
+    "custom_end_no",
+    "max_daily_revenue_limit",
+    "min_valid_weight_kg",
+    "surge_correction_weight_kg",
+    "official_lock_sec",
+    "zeroing_unlock_sec",
+    "private_lock_sec",
+    "manual_override_lock_sec",
+    # Legacy alias used by the first soup-pricing screen.  It is migrated to
+    # special_soup_price and is never written back under the old name.
+    "soup_price_4",
+}
+
+TRANSIENT_CONFIG_KEYS = {"simulation_mode", "is_mock_mode"}
+KNOWN_CONFIG_KEYS = frozenset(DEFAULT_CONFIG).union(OPTIONAL_CONFIG_KEYS)
+
 # Key 属于哪个模块文件的映射规则
 MODULAR_KEYS = {
     "takeout": lambda k: k.startswith("takeout_"),
@@ -139,6 +169,21 @@ def _get_module_name(key: str) -> str:
         if check_fn(key):
             return mod
     return "sys"
+
+
+def _known_config_only(value):
+    """Return a shallow copy containing only supported persisted settings."""
+    if not isinstance(value, dict):
+        return {}
+    cleaned = {
+        key: item
+        for key, item in value.items()
+        if key in KNOWN_CONFIG_KEYS and key not in TRANSIENT_CONFIG_KEYS
+    }
+    if "soup_price_4" in cleaned:
+        cleaned.setdefault("special_soup_price", cleaned["soup_price_4"])
+        cleaned.pop("soup_price_4", None)
+    return cleaned
 
 
 def _atomic_json_write(filepath: str, data: dict):
@@ -206,7 +251,7 @@ def load_config() -> dict:
     if os.path.exists(TEMPLATE_FILE):
         template_data = _load_json_object(TEMPLATE_FILE, "template")
         if template_data:
-            base_defaults.update(template_data)
+            base_defaults.update(_known_config_only(template_data))
 
     merged = base_defaults.copy()
     has_legacy_config = os.path.exists(CONFIG_FILE)
@@ -215,18 +260,18 @@ def load_config() -> dict:
     if has_legacy_config:
         saved = _load_json_object(CONFIG_FILE, "legacy")
         if saved:
-            merged.update(saved)
+            merged.update(_known_config_only(saved))
 
     # 3. 读取拆分后的 data/settings/*.json (模块化文件覆盖)
     for mod, path in MODULE_FILES.items():
         if os.path.exists(path):
             mod_data = _load_json_object(path, mod)
             if mod_data:
-                merged.update(mod_data)
+                merged.update(_known_config_only(mod_data))
 
-    merged.pop("simulation_mode", None)
     # 模拟模式是一次运行的临时状态，绝不能写入正式门店配置。
-    merged.pop("is_mock_mode", None)
+    for key in TRANSIENT_CONFIG_KEYS:
+        merged.pop(key, None)
 
     # v2 stored broad guessed keywords.  They were acceptable for log-path
     # compatibility but are unsafe for window switching; require one explicit
@@ -270,8 +315,15 @@ def load_config() -> dict:
 
 def save_config(cfg: dict):
     """保存配置：按模块拆分保存到 data/settings/*.json 文件"""
-    cfg.pop("simulation_mode", None)
-    cfg.pop("is_mock_mode", None)
+    # Do not let a stale widget/plugin key leak into the new modular files.
+    # Keep the caller's dictionary in sync because the rest of the UI shares
+    # this object and expects a save to remove transient simulation state.
+    if "soup_price_4" in cfg:
+        cfg.setdefault("special_soup_price", cfg["soup_price_4"])
+        cfg.pop("soup_price_4", None)
+    for key in list(cfg):
+        if key not in KNOWN_CONFIG_KEYS or key in TRANSIENT_CONFIG_KEYS:
+            cfg.pop(key, None)
     cfg["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
     # 按模块拆分保存到 data/settings/*.json

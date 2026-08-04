@@ -154,6 +154,25 @@ def main():
         os.makedirs(bundled_com0com, exist_ok=True)
         shutil.copy2(installer_candidates[0], os.path.join(bundled_com0com, os.path.basename(installer_candidates[0])))
 
+        # hub4com is deliberately optional: ScaleBridge does not depend on
+        # it at runtime, but including the local utility and its documented
+        # batch wrappers makes post-install diagnostics reproducible when the
+        # deployment source contains ThirdParty\hub4com.
+        hub4com_source = os.path.join("ThirdParty", "hub4com")
+        hub4com_exe = os.path.join(hub4com_source, "hub4com.exe")
+        if os.path.isfile(hub4com_exe):
+            bundled_hub4com = os.path.join(package_dir, "ThirdParty", "hub4com")
+            os.makedirs(bundled_hub4com, exist_ok=True)
+            for name in os.listdir(hub4com_source):
+                source = os.path.join(hub4com_source, name)
+                if os.path.isfile(source) and (
+                    name.lower().endswith((".exe", ".bat", ".txt"))
+                ):
+                    shutil.copy2(source, os.path.join(bundled_hub4com, name))
+            print("[*] 已包含可选 hub4com 手工诊断工具（ScaleBridge 运行时不依赖）")
+        else:
+            print("[i] 未发现可选 hub4com，部署包仍可正常运行 ScaleBridge")
+
         # Bundle the exact Shouqianba PC assistant installer used by the store
         # so the settings page can copy it to the operator's desktop.  It is
         # never executed silently by the POS.

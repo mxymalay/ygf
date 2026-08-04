@@ -7,7 +7,7 @@ import json
 import os
 from typing import Optional
 
-from .com0com import check_pair, list_pairs
+from .com0com import check_pair, find_pair_by_endpoint, list_pairs
 from .configuration import load_config
 from .ipc import read_status
 from .lifecycle import (
@@ -33,11 +33,23 @@ def command_status(_args) -> int:
 
 def command_check_pairs(args) -> int:
     config = load_config(_config_path(args))
-    config.validate()
+    # A pre-initialisation/legacy file legitimately has empty CNCB peers.  It
+    # is still useful to run a read-only check and discover those peers from
+    # setupc list; requiring a runtime-ready config here made old installations
+    # fail before the diagnostic could explain what was missing.
+    config.validate_for_setup()
     pairs = list_pairs(args.setupc)
+    official_peer = config.official_bridge_port
+    private_peer = config.private_bridge_port
+    if not official_peer:
+        pair = find_pair_by_endpoint(config.official_pos_virtual_port, pairs)
+        official_peer = pair.other(config.official_pos_virtual_port) if pair else ""
+    if not private_peer:
+        pair = find_pair_by_endpoint(config.private_pos_virtual_port, pairs)
+        private_peer = pair.other(config.private_pos_virtual_port) if pair else ""
     checks = [
-        check_pair(config.official_pos_virtual_port, config.official_bridge_port, pairs),
-        check_pair(config.private_pos_virtual_port, config.private_bridge_port, pairs),
+        check_pair(config.official_pos_virtual_port, official_peer, pairs),
+        check_pair(config.private_pos_virtual_port, private_peer, pairs),
     ]
     if config.payment_pos_port:
         checks.append(check_pair(config.payment_pos_port, config.payment_plugin_port, pairs))

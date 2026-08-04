@@ -5,7 +5,9 @@ from dataclasses import asdict, dataclass, field
 import json
 import os
 import re
+import shutil
 import tempfile
+import time
 from typing import Any, Dict
 
 
@@ -27,6 +29,55 @@ def _as_bool(value: Any, default: bool) -> bool:
         if normalized in ("0", "false", "no", "off", ""):
             return False
     raise ValueError("invalid boolean setting: %r" % (value,))
+
+
+def _safe_bool(value: Any, default: bool) -> bool:
+    try:
+        return _as_bool(value, default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value: Any, default: int) -> int:
+    try:
+        # Do not accept booleans as serial numbers even though bool is an int
+        # subclass in Python.
+        if isinstance(value, bool):
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_text(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _snake_case(name: str) -> str:
+    return re.sub(r"(?<!^)([A-Z])", r"_\1", name).lower()
+
+
+# The current file uses stable PascalCase names.  A few early development
+# builds wrote dataclass-style snake_case names, so accept those aliases while
+# serialising only the canonical names in ``to_dict``.  Unknown fields remain
+# ignored instead of being copied into the runtime configuration.
+LEGACY_FIELD_ALIASES = {
+    "PhysicalScalePort": ("scale_port",),
+    "OfficialPosVirtualPort": ("official_port",),
+    "PrivatePosVirtualPort": ("private_port",),
+    "OfficialBridgePort": ("official_peer",),
+    "PrivateBridgePort": ("private_peer",),
+    "BaudRate": ("baudrate",),
+}
+
+
+def _value(raw: Dict[str, Any], canonical: str, default: Any) -> Any:
+    for key in (canonical, _snake_case(canonical)) + LEGACY_FIELD_ALIASES.get(canonical, ()):
+        if key in raw:
+            return raw[key]
+    return default
 
 
 @dataclass
@@ -73,7 +124,7 @@ class ScaleBridgeConfig:
     def physical_scale_port(self) -> str:
         return self.physical_scale.port
 
-    def _validate(self, require_bridge_ports: bool) -> None:
+    def _validate(self, require_bridge_ports: bool, require_payment: bool = True) -> None:
         required = {
             "physical_scale.port": self.physical_scale.port,
             "official_pos_virtual_port": self.official_pos_virtual_port,
@@ -87,7 +138,7 @@ class ScaleBridgeConfig:
         missing = [name for name, value in required.items() if not value]
         if missing:
             raise ValueError("ScaleBridge configuration missing: " + ", ".join(missing))
-        if bool(self.payment_pos_port) != bool(self.payment_plugin_port):
+        if require_payment and bool(self.payment_pos_port) != bool(self.payment_plugin_port):
             raise ValueError("PaymentPosPort and PaymentPluginPort must both be configured or both be empty")
         ports = [value.upper() for value in required.values()]
         if not require_bridge_ports:
@@ -96,7 +147,7 @@ class ScaleBridgeConfig:
                 for value in (self.official_bridge_port, self.private_bridge_port)
                 if value
             )
-        if self.payment_pos_port:
+        if require_payment and self.payment_pos_port:
             ports.extend([self.payment_pos_port.upper(), self.payment_plugin_port.upper()])
         if len(ports) != len(set(ports)):
             raise ValueError("ScaleBridge ports must be unique")
@@ -104,9 +155,12 @@ class ScaleBridgeConfig:
             "physical_scale.port": self.physical_scale.port,
             "official_pos_virtual_port": self.official_pos_virtual_port,
             "private_pos_virtual_port": self.private_pos_virtual_port,
-            "payment_pos_port": self.payment_pos_port,
-            "payment_plugin_port": self.payment_plugin_port,
         }
+        if require_payment:
+            application_ports.update({
+                "payment_pos_port": self.payment_pos_port,
+                "payment_plugin_port": self.payment_plugin_port,
+            })
         for name, value in application_ports.items():
             if value and not re.fullmatch(r"COM[1-9]\d*", value, re.IGNORECASE):
                 raise ValueError("%s must be a COM port name: %s" % (name, value))
@@ -137,7 +191,11 @@ class ScaleBridgeConfig:
 
     def validate_for_setup(self) -> None:
         """Validate first-run fields before com0com assigns internal peers."""
-        self._validate(require_bridge_ports=False)
+        # Payment pairing is maintained on a separate page.  Ignore stale
+        # legacy PaymentPosPort/PaymentPluginPort values while preparing the
+        # scale bridge; ensure_required_pairs validates them only when the
+        # payment purpose is explicitly requested.
+        self._validate(require_bridge_ports=False, require_payment=False)
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -156,8 +214,10 @@ class ScaleBridgeConfig:
             "PrivatePosVirtualPort": self.private_pos_virtual_port,
             "OfficialBridgePort": self.official_bridge_port,
             "PrivateBridgePort": self.private_bridge_port,
-            "PaymentPosPort": self.payment_pos_port,
-            "PaymentPluginPort": self.payment_plugin_port,
+            # Payment pairing moved to the independent Shouqianba settings
+            # page.  ``from_dict`` still reads these two names for one-way
+            # migration of old files, but new ScaleBridge files must not keep
+            # duplicate/stale payment configuration.
             "BaudRate": self.baudrate,
             "DataBits": self.data_bits,
             "Parity": self.parity,
@@ -176,42 +236,44 @@ class ScaleBridgeConfig:
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "ScaleBridgeConfig":
+        if not isinstance(raw, dict):
+            raise ValueError("ScaleBridge 配置根节点必须是对象")
         identity = ScaleDeviceIdentity(
-            port=str(raw.get("PhysicalScalePort", "")).upper(),
-            pnp_device_id=str(raw.get("PhysicalScalePnpDeviceId", "")),
-            hardware_id=str(raw.get("PhysicalScaleHardwareId", "")),
-            vid=str(raw.get("PhysicalScaleVid", "")).upper(),
-            pid=str(raw.get("PhysicalScalePid", "")).upper(),
-            serial_number=str(raw.get("PhysicalScaleSerialNumber", "")),
-            friendly_name=str(raw.get("PhysicalScaleFriendlyName", "")),
-            manufacturer=str(raw.get("PhysicalScaleManufacturer", "")),
-            service=str(raw.get("PhysicalScaleService", "")),
+            port=_as_text(_value(raw, "PhysicalScalePort", "")).upper(),
+            pnp_device_id=_as_text(_value(raw, "PhysicalScalePnpDeviceId", "")),
+            hardware_id=_as_text(_value(raw, "PhysicalScaleHardwareId", "")),
+            vid=_as_text(_value(raw, "PhysicalScaleVid", "")).upper(),
+            pid=_as_text(_value(raw, "PhysicalScalePid", "")).upper(),
+            serial_number=_as_text(_value(raw, "PhysicalScaleSerialNumber", "")),
+            friendly_name=_as_text(_value(raw, "PhysicalScaleFriendlyName", "")),
+            manufacturer=_as_text(_value(raw, "PhysicalScaleManufacturer", "")),
+            service=_as_text(_value(raw, "PhysicalScaleService", "")),
         )
-        parity = str(raw.get("Parity", "N")).upper()
+        parity = _as_text(_value(raw, "Parity", "N"), "N").upper()
         if parity == "NONE":
             parity = "N"
         cfg = cls(
             physical_scale=identity,
-            official_pos_virtual_port=str(raw.get("OfficialPosVirtualPort", "COM2")).upper(),
-            private_pos_virtual_port=str(raw.get("PrivatePosVirtualPort", "COM3")).upper(),
-            official_bridge_port=str(raw.get("OfficialBridgePort", "")).upper(),
-            private_bridge_port=str(raw.get("PrivateBridgePort", "")).upper(),
-            payment_pos_port=str(raw.get("PaymentPosPort", "")).upper(),
-            payment_plugin_port=str(raw.get("PaymentPluginPort", "")).upper(),
-            baudrate=int(raw.get("BaudRate", 9600)),
-            data_bits=int(raw.get("DataBits", 8)),
+            official_pos_virtual_port=_as_text(_value(raw, "OfficialPosVirtualPort", "COM2"), "COM2").upper(),
+            private_pos_virtual_port=_as_text(_value(raw, "PrivatePosVirtualPort", "COM3"), "COM3").upper(),
+            official_bridge_port=_as_text(_value(raw, "OfficialBridgePort", "")).upper(),
+            private_bridge_port=_as_text(_value(raw, "PrivateBridgePort", "")).upper(),
+            payment_pos_port=_as_text(_value(raw, "PaymentPosPort", "")).upper(),
+            payment_plugin_port=_as_text(_value(raw, "PaymentPluginPort", "")).upper(),
+            baudrate=_as_int(_value(raw, "BaudRate", 9600), 9600),
+            data_bits=_as_int(_value(raw, "DataBits", 8), 8),
             parity=parity,
-            stop_bits=int(raw.get("StopBits", 1)),
-            dtr_enable=_as_bool(raw.get("DtrEnable"), True),
-            rts_enable=_as_bool(raw.get("RtsEnable"), False),
-            official_active_timeout_ms=int(raw.get("OfficialActiveTimeoutMs", 1000)),
-            reconnect_initial_delay_ms=int(raw.get("ReconnectInitialDelayMs", 1000)),
-            reconnect_maximum_delay_ms=int(raw.get("ReconnectMaximumDelayMs", 10000)),
-            maximum_frame_length=int(raw.get("MaximumFrameLength", 128)),
-            queue_maxsize=int(raw.get("QueueMaxSize", 256)),
-            suppress_private_query_when_official_active=_as_bool(raw.get("SuppressPrivateQueryWhenOfficialActive"), True),
-            forward_private_non_query_when_official_active=_as_bool(raw.get("ForwardPrivateNonQueryWhenOfficialActive"), True),
-            enable_debug_hex_log=_as_bool(raw.get("EnableDebugHexLog"), False),
+            stop_bits=_as_int(_value(raw, "StopBits", 1), 1),
+            dtr_enable=_safe_bool(_value(raw, "DtrEnable", None), True),
+            rts_enable=_safe_bool(_value(raw, "RtsEnable", None), False),
+            official_active_timeout_ms=_as_int(_value(raw, "OfficialActiveTimeoutMs", 1000), 1000),
+            reconnect_initial_delay_ms=_as_int(_value(raw, "ReconnectInitialDelayMs", 1000), 1000),
+            reconnect_maximum_delay_ms=_as_int(_value(raw, "ReconnectMaximumDelayMs", 10000), 10000),
+            maximum_frame_length=_as_int(_value(raw, "MaximumFrameLength", 128), 128),
+            queue_maxsize=_as_int(_value(raw, "QueueMaxSize", 256), 256),
+            suppress_private_query_when_official_active=_safe_bool(_value(raw, "SuppressPrivateQueryWhenOfficialActive", None), True),
+            forward_private_non_query_when_official_active=_safe_bool(_value(raw, "ForwardPrivateNonQueryWhenOfficialActive", None), True),
+            enable_debug_hex_log=_safe_bool(_value(raw, "EnableDebugHexLog", None), False),
         )
         return cfg
 
@@ -219,8 +281,24 @@ class ScaleBridgeConfig:
 def load_config(path: str = DEFAULT_CONFIG_FILE) -> ScaleBridgeConfig:
     if not os.path.exists(path):
         return ScaleBridgeConfig()
-    with open(path, "r", encoding="utf-8") as handle:
-        return ScaleBridgeConfig.from_dict(json.load(handle))
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        return ScaleBridgeConfig.from_dict(raw)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        # A half-written/old file must not crash the POS or the Windows
+        # service.  Preserve the exact bytes for support and start from the
+        # safe unconfigured defaults; the setup page can then initialise it.
+        backup = "%s.corrupt.%s" % (path, time.strftime("%Y%m%d_%H%M%S"))
+        try:
+            shutil.copy2(path, backup)
+        except OSError:
+            backup = ""
+        print(
+            "[ScaleBridge 配置 Warning] 无法读取 %s: %s%s"
+            % (path, exc, ("，已备份到 " + backup) if backup else "")
+        )
+        return ScaleBridgeConfig()
 
 
 def save_config(config: ScaleBridgeConfig, path: str = DEFAULT_CONFIG_FILE) -> None:

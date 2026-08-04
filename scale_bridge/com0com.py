@@ -113,7 +113,16 @@ def _run_setupc(
         check=False,
         creationflags=flags,
     )
-    output = (result.stdout + result.stderr).decode("mbcs", errors="replace")
+    stdout = getattr(result, "stdout", b"") or b""
+    stderr = getattr(result, "stderr", b"") or b""
+    raw_output = stdout + stderr
+    if isinstance(raw_output, bytes):
+        # setupc is an old Win32 utility and follows the local ANSI code page
+        # on Win7.  Keep Chinese/localised diagnostics readable while also
+        # accepting text-returning test/launcher wrappers.
+        output = raw_output.decode("mbcs", errors="replace")
+    else:
+        output = str(raw_output)
     if result.returncode:
         raise RuntimeError(
             "setupc %s failed (%s): %s"
