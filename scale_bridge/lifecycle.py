@@ -419,6 +419,23 @@ class Com0ComProvisioner:
             requested_index = int(match.group(1))
             if any(item.index == requested_index for item in pairs):
                 raise PortConflictError("内部配对序号 #%d 已被其他端口使用" % requested_index)
+            # A pre-ownership release may have deleted a pair only partially:
+            # Windows can retain that PnP device index until reboot even though
+            # setupc/list and Device Manager no longer expose a usable pair.
+            # The internal CNCB number is not customer-facing, so an owned,
+            # missing historical index can safely move forward to a new one.
+            # This never applies to an unrecorded/manual requested pair.
+            manifest = load_manifest(self.manifest_path)
+            stale_owned_index = any(
+                item.purpose == purpose and item.index == requested_index
+                for item in manifest.created_pairs
+            )
+            if stale_owned_index:
+                requested_index = next_available_pair_index(
+                    pairs,
+                    start=requested_index + 1,
+                )
+                peer = "CNCB%d" % requested_index
         index = requested_index if requested_index is not None else next_available_pair_index(pairs)
         actual_peer = peer or "CNCB%d" % index
         create_pair(

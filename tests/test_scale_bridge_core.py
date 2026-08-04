@@ -891,6 +891,38 @@ class _FakeLifecycleService(object):
 
 
 class FullLifecycleTests(unittest.TestCase):
+    def test_missing_owned_internal_pair_is_recreated_at_a_new_index(self):
+        runner = _StatefulSetupCRunner()
+        runner.pairs[2] = ("COM9", "CNCB2")
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_pos_virtual_port="COM9",
+            private_pos_virtual_port="COM10",
+            official_bridge_port="CNCB2",
+            private_bridge_port="CNCB3",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            manifest = load_manifest(manifest_path)
+            manifest.created_pairs = [
+                OwnedPair("official_scale", 2, "COM9", "CNCB2"),
+                OwnedPair("private_scale", 3, "COM10", "CNCB3"),
+            ]
+            save_manifest(manifest, manifest_path)
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
+                report = provisioner.ensure_required_pairs(cfg)
+
+            self.assertEqual(cfg.private_bridge_port, "CNCB4")
+            self.assertIn("COM10 ↔ CNCB4 (#4)", report.created)
+            self.assertIn(4, runner.pairs)
+            self.assertFalse(any(item.index == 3 for item in load_manifest(manifest_path).created_pairs))
+
     def test_legacy_unowned_service_needs_explicit_removal_permission(self):
         with tempfile.TemporaryDirectory() as directory:
             service = _FakeLifecycleService()
