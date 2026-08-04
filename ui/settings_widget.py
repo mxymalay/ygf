@@ -11,9 +11,9 @@ from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
-    QFileDialog, QProgressBar, QApplication
+    QFileDialog, QProgressBar, QApplication, QGraphicsBlurEffect
 )
-from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence, QDesktopServices
 
 from config import (
@@ -42,6 +42,7 @@ class _MaintenanceWorker(QObject):
         super().__init__()
         self.operation = operation
 
+    @pyqtSlot()
     def run(self):
         try:
             self.succeeded.emit(self.operation())
@@ -1345,7 +1346,8 @@ class SettingsWidget(QWidget):
             widget.wheelEvent = lambda event, w=widget: event.ignore()
 
     def _run_maintenance_with_spinner(
-        self, title, message, operation, on_success, error_title, busy_widgets
+        self, title, message, operation, on_success, error_title, busy_widgets,
+        on_failure=None,
     ):
         """Run driver/virtual-port maintenance without freezing touch UI."""
         if getattr(self, "_maintenance_thread", None) is not None:
@@ -1354,6 +1356,13 @@ class SettingsWidget(QWidget):
         states = [(widget, widget.isEnabled()) for widget in busy_widgets]
         for widget, _enabled in states:
             widget.setEnabled(False)
+
+        # Keep the operation visibly modal without making the whole window look
+        # frozen.  The effect is removed in the single cleanup path below.
+        blur = QGraphicsBlurEffect(self)
+        blur.setBlurRadius(8.0)
+        self._maintenance_blur = blur
+        self.setGraphicsEffect(blur)
 
         dialog = _MaintenanceBusyDialog(title, message, self)
         thread = QThread(self)
@@ -1369,6 +1378,9 @@ class SettingsWidget(QWidget):
 
         def finish_thread():
             restore_controls()
+            if getattr(self, "_maintenance_blur", None) is blur:
+                self.setGraphicsEffect(None)
+                self._maintenance_blur = None
             self._maintenance_dialog = None
             self._maintenance_thread = None
             self._maintenance_worker = None
@@ -1378,16 +1390,30 @@ class SettingsWidget(QWidget):
         def succeeded(result):
             dialog.finish()
             thread.quit()
-            on_success(result)
+            try:
+                on_success(result)
+            except Exception as exc:
+                from ui.custom_dialog import show_error
+                show_error(self, error_title, str(exc) or exc.__class__.__name__)
 
         def failed(reason):
             dialog.finish()
             thread.quit()
+            if on_failure:
+                try:
+                    on_failure()
+                except Exception:
+                    pass
             from ui.custom_dialog import show_error
             show_error(self, error_title, reason)
 
         worker.succeeded.connect(succeeded)
         worker.failed.connect(failed)
+        # Connecting a decorated slot after moving the worker guarantees that
+        # the potentially blocking operation runs on the worker thread.  The
+        # previous code omitted this connection, leaving the dialog spinning
+        # forever with no operation ever started.
+        thread.started.connect(worker.run)
         thread.finished.connect(finish_thread)
         dialog.show()
         QApplication.processEvents()
@@ -2191,22 +2217,32 @@ class SettingsWidget(QWidget):
                     u"服务运行时由它独占物理秤端口。请点“停止服务”后再执行首次物理秤测试。",
                 )
                 return
-            result = test_physical_scale(bridge_config)
         except Exception as exc:
             show_error(self, u"物理秤测试失败", str(exc))
             return
-        if result.ok:
-            show_info(
-                self, u"物理秤测试通过",
-                u"端口: %s\n重量: %.3f kg\n原始数据: %s\n\n已确认协议：9600 / 8N1 / DTR 开 / RTS 关 / 查询 24。"
-                % (result.port, result.weight_kg, result.raw_hex),
-            )
-        else:
-            show_error(
-                self, u"物理秤测试失败",
-                u"端口: %s\n原因: %s\n已接收数据: %s"
-                % (result.port, result.message, result.raw_hex or u"无"),
-            )
+
+        def on_success(result):
+            if result.ok:
+                show_info(
+                    self, u"物理秤测试通过",
+                    u"端口: %s\n重量: %.3f kg\n原始数据: %s\n\n已确认协议：9600 / 8N1 / DTR 开 / RTS 关 / 查询 24。"
+                    % (result.port, result.weight_kg, result.raw_hex),
+                )
+            else:
+                show_error(
+                    self, u"物理秤测试失败",
+                    u"端口: %s\n原因: %s\n已接收数据: %s"
+                    % (result.port, result.message, result.raw_hex or u"无"),
+                )
+
+        self._run_maintenance_with_spinner(
+            u"正在测试物理电子秤",
+            u"正在打开真实秤端口并发送查询指令，最多等待 2 秒。",
+            lambda: test_physical_scale(bridge_config),
+            on_success,
+            u"物理秤测试失败",
+            [self.btn_test_bridge_physical],
+        )
 
     def _initialize_scale_bridge(self):
         """Explicit, idempotent first-run/repair workflow."""
@@ -2309,26 +2345,32 @@ class SettingsWidget(QWidget):
 
         sender = self.cmb_sqb_port.currentText().strip().upper()
         plugin = self.txt_sqb_payment_peer.text().strip().upper()
-        try:
-            result = check_pair(sender, plugin, list_pairs())
-        except Exception as exc:
-            show_error(self, u"支付配对检查失败", str(exc))
-            return
-        message = u"%s ↔ %s：%s%s" % (
-            sender or u"未填写",
-            plugin or u"未填写",
-            u"配对正常" if result.present else u"配对不存在",
-            (u"（配对 #%d）" % result.pair.index) if result.pair else "",
-        )
-        if result.present:
-            show_info(self, u"支付配对正常", message)
-        else:
-            next_step = (
-                u"请点击“② 创建 / 修复虚拟串口”。"
-                if self.cmb_sqb_pair_mode.currentIndex() == 0
-                else u"现场填写的两个端口并未成对；请核对原配对，或改选“由本系统创建”。"
+
+        def on_success(result):
+            message = u"%s ↔ %s：%s%s" % (
+                sender or u"未填写",
+                plugin or u"未填写",
+                u"配对正常" if result.present else u"配对不存在",
+                (u"（配对 #%d）" % result.pair.index) if result.pair else "",
             )
-            show_warning(self, u"支付配对缺失", message + u"\n" + next_step)
+            if result.present:
+                show_info(self, u"支付配对正常", message)
+            else:
+                next_step = (
+                    u"请点击“② 创建 / 修复虚拟串口”。"
+                    if self.cmb_sqb_pair_mode.currentIndex() == 0
+                    else u"现场填写的两个端口并未成对；请核对原配对，或改选“由本系统创建”。"
+                )
+                show_warning(self, u"支付配对缺失", message + u"\n" + next_step)
+
+        self._run_maintenance_with_spinner(
+            u"正在检查收钱吧虚拟串口",
+            u"正在读取 com0com 当前配对，不会创建或删除任何端口。",
+            lambda: check_pair(sender, plugin, list_pairs()),
+            on_success,
+            u"支付配对检查失败",
+            [self.btn_check_payment_pair],
+        )
 
     def _remove_payment_pair(self):
         from scale_bridge.lifecycle import PaymentPairLifecycle
@@ -2341,18 +2383,25 @@ class SettingsWidget(QWidget):
             u"不会删除 POS 称桥接、收钱吧参数或其他串口。是否继续？",
         ):
             return
-        try:
-            removed, skipped = PaymentPairLifecycle().remove()
+
+        def on_success(result):
+            removed, skipped = result
             if skipped:
                 raise RuntimeError("所有权不匹配，拒绝删除：" + "; ".join(skipped))
-        except Exception as exc:
-            show_error(self, u"支付配对删除失败", str(exc))
-            return
-        show_info(
-            self,
-            u"支付配对删除完成",
-            u"已删除：%s\n收钱吧设置参数已保留，可稍后重新创建。"
-            % (u"、".join(removed) or u"无（本产品未创建该配对）"),
+            show_info(
+                self,
+                u"支付配对删除完成",
+                u"已删除：%s\n收钱吧设置参数已保留，可稍后重新创建。"
+                % (u"、".join(removed) or u"无（本产品未创建该配对）"),
+            )
+
+        self._run_maintenance_with_spinner(
+            u"正在删除收钱吧虚拟串口",
+            u"正在停止并删除本系统创建的收钱吧配对，请稍候。",
+            lambda: PaymentPairLifecycle().remove(),
+            on_success,
+            u"支付配对删除失败",
+            [self.btn_remove_payment_pair],
         )
 
     def _test_scale_bridge_payment_pair(self):
@@ -2367,19 +2416,27 @@ class SettingsWidget(QWidget):
             u"请先关闭正在使用这两个端口的收钱吧及支付程序。是否继续？" % (side_a or u"未填写", side_b or u"未填写"),
         ):
             return
-        result = test_virtual_pair(side_a, side_b)
-        if result.ok:
-            show_info(self, u"支付配对测试通过", u"%s ↔ %s：双向透明通信正常。" % (side_a, side_b))
-        else:
-            show_error(
-                self, u"支付配对测试失败",
-                u"%s ↔ %s\n原因: %s\n\n请确认配对已创建且两个端口未被其他程序占用。"
-                % (side_a or u"未填写", side_b or u"未填写", result.message),
-            )
+        def on_success(result):
+            if result.ok:
+                show_info(self, u"支付配对测试通过", u"%s ↔ %s：双向透明通信正常。" % (side_a, side_b))
+            else:
+                show_error(
+                    self, u"支付配对测试失败",
+                    u"%s ↔ %s\n原因: %s\n\n请确认配对已创建且两个端口未被其他程序占用。"
+                    % (side_a or u"未填写", side_b or u"未填写", result.message),
+                )
+
+        self._run_maintenance_with_spinner(
+            u"正在测试收钱吧虚拟串口",
+            u"正在短暂独占两个端口并进行双向通信测试。",
+            lambda: test_virtual_pair(side_a, side_b),
+            on_success,
+            u"支付配对测试失败",
+            [self.btn_test_payment_pair],
+        )
 
     def _test_scale_bridge_channel(self, channel):
         """End-to-end query through one POS-facing virtual scale port."""
-        import time
         from scale_bridge.lifecycle import ScaleBridgeServiceController, test_scale_channel
         from ui.custom_dialog import show_error, show_info, show_question
 
@@ -2403,60 +2460,82 @@ class SettingsWidget(QWidget):
                 if channel == "official"
                 else bridge_config.private_pos_virtual_port
             )
-            # The private POS may already own its endpoint through the live
-            # weighing reader. Pause it only for this test and restore it below.
-            if channel == "private":
-                parent_mw = self.window()
-                if hasattr(parent_mw, "sale_page") and hasattr(parent_mw.sale_page, "scale"):
-                    candidate = parent_mw.sale_page.scale
-                    if candidate and getattr(candidate, "_running", False):
-                        active_scale = candidate
-                        active_scale.stop()
-                        time.sleep(0.3)
-            result = test_scale_channel(bridge_config, port)
         except Exception as exc:
             show_error(self, u"%s秤通道测试失败" % label, str(exc))
             return
-        finally:
+
+        # The private POS may already own its endpoint through the live
+        # weighing reader. Pause it before entering the worker and restore it
+        # from both success and failure paths.
+        if channel == "private":
+            parent_mw = self.window()
+            if hasattr(parent_mw, "sale_page") and hasattr(parent_mw.sale_page, "scale"):
+                candidate = parent_mw.sale_page.scale
+                if candidate and getattr(candidate, "_running", False):
+                    active_scale = candidate
+                    active_scale.stop()
+
+        def on_success(result):
             if active_scale:
                 active_scale.start()
+            if result.ok:
+                show_info(
+                    self,
+                    u"%s秤通道正常" % label,
+                    u"端口: %s\n重量: %.3f kg\n原始数据: %s\n\n已验证：POS 虚拟端口 → ScaleBridge → 物理秤 → 回包。"
+                    % (result.port, result.weight_kg, result.raw_hex),
+                )
+            else:
+                show_error(
+                    self,
+                    u"%s秤通道测试失败" % label,
+                    u"端口: %s\n原因: %s\n已接收数据: %s"
+                    % (result.port, result.message, result.raw_hex or u"无"),
+                )
 
-        if result.ok:
-            show_info(
-                self,
-                u"%s秤通道正常" % label,
-                u"端口: %s\n重量: %.3f kg\n原始数据: %s\n\n已验证：POS 虚拟端口 → ScaleBridge → 物理秤 → 回包。"
-                % (result.port, result.weight_kg, result.raw_hex),
-            )
-        else:
-            show_error(
-                self,
-                u"%s秤通道测试失败" % label,
-                u"端口: %s\n原因: %s\n已接收数据: %s"
-                % (result.port, result.message, result.raw_hex or u"无"),
-            )
+        self._run_maintenance_with_spinner(
+            u"正在测试%s秤通道" % label,
+            u"正在通过虚拟端口发送查询并等待物理秤回包。",
+            lambda: test_scale_channel(bridge_config, port),
+            on_success,
+            u"%s秤通道测试失败" % label,
+            [self.btn_test_official_scale_channel if channel == "official" else self.btn_test_private_scale_channel],
+            on_failure=lambda: active_scale.start() if active_scale else None,
+        )
 
     def _start_scale_bridge_service(self):
         from scale_bridge.lifecycle import ScaleBridgeServiceController
         from ui.custom_dialog import show_error, show_info
-        try:
-            changed = ScaleBridgeServiceController().start()
-        except Exception as exc:
-            show_error(self, u"服务启动失败", str(exc))
-            return
-        self._refresh_scale_bridge_overall_status()
-        show_info(self, u"ScaleBridge 服务", u"服务已启动。" if changed else u"服务原本已在运行。")
+
+        def on_success(changed):
+            self._refresh_scale_bridge_overall_status()
+            show_info(self, u"ScaleBridge 服务", u"服务已启动。" if changed else u"服务原本已在运行。")
+
+        self._run_maintenance_with_spinner(
+            u"正在启动 ScaleBridge 服务",
+            u"正在启动 Windows 桥接服务，请稍候。",
+            lambda: ScaleBridgeServiceController().start(),
+            on_success,
+            u"服务启动失败",
+            [self.btn_start_scale_bridge],
+        )
 
     def _stop_scale_bridge_service(self):
         from scale_bridge.lifecycle import ScaleBridgeServiceController
         from ui.custom_dialog import show_error, show_info
-        try:
-            changed = ScaleBridgeServiceController().stop()
-        except Exception as exc:
-            show_error(self, u"服务停止失败", str(exc))
-            return
-        self._refresh_scale_bridge_overall_status()
-        show_info(self, u"ScaleBridge 服务", u"服务已停止。" if changed else u"服务未运行或尚未安装。")
+
+        def on_success(changed):
+            self._refresh_scale_bridge_overall_status()
+            show_info(self, u"ScaleBridge 服务", u"服务已停止。" if changed else u"服务未运行或尚未安装。")
+
+        self._run_maintenance_with_spinner(
+            u"正在停止 ScaleBridge 服务",
+            u"正在安全停止 Windows 桥接服务，请稍候。",
+            lambda: ScaleBridgeServiceController().stop(),
+            on_success,
+            u"服务停止失败",
+            [self.btn_stop_scale_bridge],
+        )
 
     def _export_scale_bridge_diagnostics(self):
         from scale_bridge.lifecycle import collect_diagnostics, write_diagnostic_report
@@ -2482,22 +2561,28 @@ class SettingsWidget(QWidget):
             u"并删除独立称桥接配置。\n\n不会删除收钱吧支付配对、com0com 驱动、真实串口驱动或其他 POS 设置。是否继续？",
         ):
             return
-        try:
-            report = ScaleBridgeLifecycle(self._scale_bridge_config_path()).remove(remove_driver=False)
-        except Exception as exc:
-            show_error(self, u"删除桥接功能失败", str(exc))
-            return
-        self._load_scale_bridge_form()
-        self._refresh_scale_bridge_overall_status()
-        show_info(
-            self, u"POS 称桥接已删除",
-            u"服务删除: %s\n已删除称重配对: %s\n称桥接配置删除: %s\n"
-            u"收钱吧支付配对和 com0com 驱动均已保留。"
-            % (
-                u"是" if report.service_removed else u"无需删除",
-                u"、".join(report.removed_pairs) or u"无",
-                u"是" if report.config_deleted else u"文件原本不存在",
-            ),
+
+        def on_success(report):
+            self._load_scale_bridge_form()
+            self._refresh_scale_bridge_overall_status()
+            show_info(
+                self, u"POS 称桥接已删除",
+                u"服务删除: %s\n已删除称重配对: %s\n称桥接配置删除: %s\n"
+                u"收钱吧支付配对和 com0com 驱动均已保留。"
+                % (
+                    u"是" if report.service_removed else u"无需删除",
+                    u"、".join(report.removed_pairs) or u"无",
+                    u"是" if report.config_deleted else u"文件原本不存在",
+                ),
+            )
+
+        self._run_maintenance_with_spinner(
+            u"正在删除 POS 称桥接",
+            u"正在停止服务、删除称重配对和独立桥接配置，请稍候。",
+            lambda: ScaleBridgeLifecycle(self._scale_bridge_config_path()).remove(remove_driver=False),
+            on_success,
+            u"删除桥接功能失败",
+            [self.btn_remove_scale_bridge],
         )
 
     def _check_scale_bridge_pairs(self):
@@ -2508,39 +2593,49 @@ class SettingsWidget(QWidget):
         try:
             bridge_config = self._bridge_config_from_form()
             bridge_config.validate_for_setup()
-            pairs = list_pairs()
         except Exception as exc:
             show_error(
                 self, u"无法检查虚拟端口配对",
                 u"未改动任何端口。请确认 com0com 已由管理员安装，然后再检查。\n\n原因: " + str(exc),
             )
             return
-        from scale_bridge.com0com import find_pair_by_endpoint
-        if not bridge_config.official_bridge_port:
-            pair = find_pair_by_endpoint(bridge_config.official_pos_virtual_port, pairs)
-            if pair:
-                bridge_config.official_bridge_port = pair.other(bridge_config.official_pos_virtual_port) or ""
-                self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
-        if not bridge_config.private_bridge_port:
-            pair = find_pair_by_endpoint(bridge_config.private_pos_virtual_port, pairs)
-            if pair:
-                bridge_config.private_bridge_port = pair.other(bridge_config.private_pos_virtual_port) or ""
-                self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
-        checks = [
-            (u"官方 POS", check_pair(bridge_config.official_pos_virtual_port, bridge_config.official_bridge_port, pairs)),
-            (u"本 POS", check_pair(bridge_config.private_pos_virtual_port, bridge_config.private_bridge_port, pairs)),
-        ]
-        lines = []
-        for name, item in checks:
-            suffix = u"（配对 #%d）" % item.pair.index if item.pair else ""
-            lines.append(u"%s：%s ↔ %s — %s %s" % (
-                name, item.client_port, item.bridge_port, u"正常" if item.present else u"缺失", suffix
-            ))
-        message = u"\n".join(lines) + u"\n\n本检查仅读取 com0com 当前配置，不创建、删除或重命名端口。"
-        if all(item.present for _name, item in checks):
-            show_info(self, u"虚拟端口配对正常", message)
-        else:
-            show_warning(self, u"存在缺失的虚拟端口配对", message)
+
+        def on_success(pairs):
+            from scale_bridge.com0com import find_pair_by_endpoint
+            if not bridge_config.official_bridge_port:
+                pair = find_pair_by_endpoint(bridge_config.official_pos_virtual_port, pairs)
+                if pair:
+                    bridge_config.official_bridge_port = pair.other(bridge_config.official_pos_virtual_port) or ""
+                    self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
+            if not bridge_config.private_bridge_port:
+                pair = find_pair_by_endpoint(bridge_config.private_pos_virtual_port, pairs)
+                if pair:
+                    bridge_config.private_bridge_port = pair.other(bridge_config.private_pos_virtual_port) or ""
+                    self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
+            checks = [
+                (u"官方 POS", check_pair(bridge_config.official_pos_virtual_port, bridge_config.official_bridge_port, pairs)),
+                (u"本 POS", check_pair(bridge_config.private_pos_virtual_port, bridge_config.private_bridge_port, pairs)),
+            ]
+            lines = []
+            for name, item in checks:
+                suffix = u"（配对 #%d）" % item.pair.index if item.pair else ""
+                lines.append(u"%s：%s ↔ %s — %s %s" % (
+                    name, item.client_port, item.bridge_port, u"正常" if item.present else u"缺失", suffix
+                ))
+            message = u"\n".join(lines) + u"\n\n本检查仅读取 com0com 当前配置，不创建、删除或重命名端口。"
+            if all(item.present for _name, item in checks):
+                show_info(self, u"虚拟端口配对正常", message)
+            else:
+                show_warning(self, u"存在缺失的虚拟端口配对", message)
+
+        self._run_maintenance_with_spinner(
+            u"正在检查称重虚拟串口",
+            u"正在读取官方 POS 与本 POS 的两组 com0com 配对。",
+            list_pairs,
+            on_success,
+            u"无法检查虚拟端口配对",
+            [self.btn_check_scale_bridge_pairs],
+        )
 
     def _test_scale_com(self):
         """实时测试当前配置的串口电子秤通信状态"""
@@ -2554,114 +2649,111 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info, show_error, show_warning
         import time
         import serial
+        from core.scale_reader import ScaleReader
 
-        # 若后台已存在运行中的称重线程独占此端口，先暂时挂起以防端口占用报错
+        # 若后台已存在运行中的称重线程，先暂时挂起，完成后在 UI 线程恢复。
         parent_mw = self.window()
         active_scale = None
         if hasattr(parent_mw, 'sale_page') and hasattr(parent_mw.sale_page, 'scale'):
             active_scale = parent_mw.sale_page.scale
             if active_scale and getattr(active_scale, '_running', False):
                 active_scale.stop()
-                time.sleep(0.3)
 
-        try:
-            ser = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=0.05,
-                write_timeout=0.5,
-                xonxoff=False,
-                rtscts=False,
-                dsrdtr=False,
-            )
-            ser.dtr = True
-            ser.rts = False
-        except Exception as e:
-            if active_scale:
-                active_scale.start()
-            show_error(
-                self, u"串口连接失败",
-                f"无法打开端口【{port}】！\n\n原因: {str(e)}\n\n"
-                u"建议检查事项：\n"
-                u"1. 电子秤 USB/串口连接线是否接入电脑。\n"
-                u"2. 确认该串口未被其他收银软件或串口调试工具独占。"
-            )
-            return
-
-        # 按官方 POS 已验证的 ACS-G315 协议测试：每 200ms 发送 '$' (0x24)。
-        try:
-            start_t = time.time()
+        def operation():
+            ser = None
             received_data = bytearray()
             weight_val = None
-            next_poll_time = time.monotonic()
-            temp_reader = None
+            error = None
+            try:
+                ser = serial.Serial(
+                    port=port,
+                    baudrate=baudrate,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    timeout=0.05,
+                    write_timeout=0.5,
+                    xonxoff=False,
+                    rtscts=False,
+                    dsrdtr=False,
+                )
+                ser.dtr = True
+                ser.rts = False
 
-            while time.time() - start_t < 2.0:
-                if time.monotonic() >= next_poll_time:
-                    ser.write(b"$")
-                    ser.flush()
-                    next_poll_time = time.monotonic() + 0.2
+                # 按官方 POS 已验证的 ACS-G315 协议测试：每 200ms 发送 '$'。
+                start_t = time.monotonic()
+                next_poll_time = start_t
+                temp_reader = ScaleReader(self.config)
+                while time.monotonic() - start_t < 2.0:
+                    if time.monotonic() >= next_poll_time:
+                        ser.write(b"$")
+                        ser.flush()
+                        next_poll_time = time.monotonic() + 0.2
+                    data = ser.read(ser.in_waiting or 1)
+                    if data:
+                        received_data.extend(data)
+                        if b"\r" in received_data or b"\n" in received_data:
+                            text = received_data.decode("ascii", errors="ignore")
+                            for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+                                line = line.strip()
+                                if line:
+                                    parsed = temp_reader._parse_com_weight(line)
+                                    if parsed is not None:
+                                        weight_val = parsed
+                                        break
+                            if weight_val is not None:
+                                break
+                    time.sleep(0.01)
+            except Exception as exc:
+                error = str(exc)
+            finally:
+                if ser is not None:
+                    try:
+                        ser.close()
+                    except Exception:
+                        pass
+            return weight_val, bytes(received_data), error
 
-                data = ser.read(ser.in_waiting or 1)
-                if data:
-                    received_data.extend(data)
-                    if b"\r" in received_data or b"\n" in received_data:
-                        text = received_data.decode("ascii", errors="ignore")
-                        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-                        for line in lines:
-                            line = line.strip()
-                            if line:
-                                from core.scale_reader import ScaleReader
-                                if temp_reader is None:
-                                    temp_reader = ScaleReader(self.config)
-                                w = temp_reader._parse_com_weight(line)
-                                if w is not None:
-                                    weight_val = w
-                                    break
-                        if weight_val is not None:
-                            break
-                time.sleep(0.01)
-
-            ser.close()
-
-            if weight_val is not None:
+        def on_success(result):
+            weight_val, received_data, error = result
+            if active_scale:
+                active_scale.start()
+            if error:
+                show_error(
+                    self, u"串口连接失败",
+                    f"无法打开端口【{port}】！\n\n原因: {error}\n\n"
+                    u"建议检查电子秤连接线及端口是否被其他软件独占。"
+                )
+            elif weight_val is not None:
                 show_info(
                     self, u"测试连接成功",
                     f"🎉 成功连通电子秤串口【{port}】！\n\n"
-                    f"• 通信端口: {port}\n"
-                    f"• 通信波特率: {baudrate}\n"
+                    f"• 通信端口: {port}\n• 通信波特率: {baudrate}\n"
                     f"• 捕获到的实时重量: {weight_val:.3f} kg\n\n"
                     u"硬件通信完全正常，可随时保存使用！"
                 )
             elif received_data:
                 show_warning(
                     self, u"数据未匹配",
-                    f"⚠️ 已成功连通端口【{port}】并接收到数据，但未能解析为标准重量格式：\n\n"
+                    f"已连通端口【{port}】但未解析到标准重量。\n\n"
                     f"原始接收数据: \"{received_data.decode('ascii', errors='replace')[:100]}\"\n\n"
                     u"建议检查波特率或电子秤通信协议。"
                 )
             else:
                 show_warning(
                     self, u"未接收到数据",
-                    f"⚠️ 已成功打开端口【{port}】，但在 2 秒内未接收到有效数据。\n\n"
-                    u"请检查：\n"
-                    u"1. 电子秤电源是否已打开。\n"
-                    u"2. 当前选择的是电子秤真实 COM，且官方 POS 或其他软件没有同时占用它。\n"
-                    u"3. 如果两个 POS 要同时读秤，请退出直连模式并先配置“POS 称桥接”。"
+                    f"已打开端口【{port}】，但 2 秒内未接收到有效数据。\n\n"
+                    u"请确认电子秤已开机、端口选择正确，且没有被官方 POS 独占。"
                 )
 
-        except Exception as ex:
-            try:
-                ser.close()
-            except Exception:
-                pass
-            show_error(self, u"测试过程异常", f"通信读取过程发生错误: {str(ex)}")
-        finally:
-            if active_scale:
-                active_scale.start()
+        self._run_maintenance_with_spinner(
+            u"正在测试电子秤串口",
+            u"正在打开端口并按 9600 / 8N1 协议查询重量，最多等待 2 秒。",
+            operation,
+            on_success,
+            u"串口测试失败",
+            [self.btn_test_scale_com],
+        )
 
     def _refresh_scale_com_ports(self, show_toast=False):
         """扫描可用COM端口 (称重秤专用)"""
