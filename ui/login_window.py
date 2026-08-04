@@ -20,17 +20,19 @@ def check_ygf_official_running(config=None) -> bool:
     return find_official_window_handle(config) is not None
 
 
-def check_dibal_scale_connection(config) -> bool:
-    """按 ACS-G315 的已验证查询协议检查私有 POS 的秤端口。
+def probe_dibal_scale_connection(config, timeout_seconds=2.0):
+    """主动查询 ACS-G315，并返回 ``(是否成功, 现场可读说明)``。
 
-    此秤不持续广播。必须以 9600/8N1、DTR 开/RTS 关发送 ``$`` (0x24)，
-    才会返回 ``000.402\\r`` 一类的重量帧。
+    不能只发送一次 ``$`` 后等 350ms：在 com0com / ScaleBridge 场景中，
+    Windows 7 首次打开虚拟端口、服务线程转发和秤的 5Hz 查询周期叠加后，
+    首包常常超过 350ms 才抵达。旧逻辑把这种短暂等待误报成“未连接”，
+    但随后真正的读取器又能够正常读数。
     """
     ser = None
+    port = str(config.get("scale_port", "COM3") or "COM3").strip().upper()
     try:
         import serial
 
-        port = config.get("scale_port", "COM3")
         baudrate = int(config.get("scale_baudrate", 9600))
         ser = serial.Serial(
             port=port,
@@ -38,7 +40,7 @@ def check_dibal_scale_connection(config) -> bool:
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
-            timeout=0.35,
+            timeout=0.1,
             write_timeout=0.5,
             xonxoff=False,
             rtscts=False,
@@ -47,19 +49,57 @@ def check_dibal_scale_connection(config) -> bool:
         ser.dtr = True
         ser.rts = False
         ser.reset_input_buffer()
-        ser.write(b"$")
-        ser.flush()
-        frame = ser.read_until(b"\r", size=32)
-        text = frame.decode("ascii", errors="ignore").strip()
-        return bool(re.fullmatch(r"[+-]?\d{1,5}\.\d{1,4}", text))
-    except Exception:
-        return False
+        deadline = time.monotonic() + max(0.6, float(timeout_seconds))
+        next_query = 0.0
+        received = bytearray()
+        while time.monotonic() < deadline:
+            now = time.monotonic()
+            if now >= next_query:
+                ser.write(b"$")
+                ser.flush()
+                next_query = now + 0.2
+
+            waiting = int(getattr(ser, "in_waiting", 0) or 0)
+            data = ser.read(min(64, waiting) if waiting else 1)
+            if not data:
+                continue
+            received.extend(data)
+            # 允许分片回包；只要收到一条合法数字帧即可确认链路可用。
+            text = received.decode("ascii", errors="ignore")
+            matches = re.findall(r"(?<!\d)([+-]?\d{1,5}\.\d{1,4})(?!\d)", text)
+            if matches:
+                return True, u"%s 已收到重量回包 %s kg" % (port, matches[-1])
+            if len(received) > 256:
+                del received[:-64]
+        if received:
+            preview = received.decode("ascii", errors="replace").strip()[:80]
+            return False, u"%s 已打开，但未解析到有效重量回包（原始数据：%s）" % (port, preview)
+        return False, u"%s 可以打开，但 %.1f 秒内没有收到秤回包" % (port, float(timeout_seconds))
+    except Exception as exc:
+        text = str(exc)
+        winerror = getattr(exc, "winerror", None)
+        lowered = text.lower()
+        is_busy = (
+            winerror in (5, 13, 32)
+            or "permission denied" in lowered
+            or "access is denied" in lowered
+            or "already open" in lowered
+            or "in use" in lowered
+        )
+        if is_busy:
+            return False, u"%s 被其它程序占用，当前无法直接打开" % port
+        return False, u"无法打开 %s：%s" % (port, text or exc.__class__.__name__)
     finally:
         if ser is not None:
             try:
                 ser.close()
             except Exception:
                 pass
+
+
+def check_dibal_scale_connection(config) -> bool:
+    """兼容旧调用方：只返回 ACS-G315 主动查询是否成功。"""
+    return probe_dibal_scale_connection(config)[0]
 
 
 class NumericKeypad(QWidget):
@@ -431,9 +471,12 @@ class LoginWindow(QDialog):
         self.progress_bar.setValue(35)
         official_running = check_ygf_official_running(self.config)
         scale_source = self.config.get("scale_source", "official")
-        # 官方模式只检查官方 POS，不应再打开一条与当前模式无关的旧 COM；
-        # 直连或桥接模式才实际查询配置中的秤端口。
-        scale_ok = check_dibal_scale_connection(self.config) if scale_source == "com" else False
+        # 官方模式不碰 COM；直连/桥接模式才主动查询本 POS 使用的端口。
+        # 该探测会重试 2 秒，避免 Win7/com0com 首包延迟造成假失败。
+        if scale_source == "com":
+            scale_ok, scale_detail = probe_dibal_scale_connection(self.config)
+        else:
+            scale_ok, scale_detail = False, u"当前配置跟随官方 POS，不打开独立 COM"
 
         # 1. 官方 POS 运行状态指示
         if not is_official_window_configured(self.config):
@@ -449,17 +492,19 @@ class LoginWindow(QDialog):
         # 2. COM 电子秤串口连接指示
         port = self.config.get("scale_port", "COM3")
         if scale_source != "com":
-            self.lbl_badge1_sub.setText(u"— 官方模式无需独立 COM")
+            self.lbl_badge1_sub.setText(u"— 跟随官方读数，无需独立 COM")
             self.lbl_badge1_sub.setStyleSheet("color: #BAE6FD; background-color: #0C4A6E; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0284C7;")
         elif scale_ok:
-            self.lbl_badge1_sub.setText(f"✔ {port} 秤连通")
+            self.lbl_badge1_sub.setText(f"✔ {scale_detail}")
             self.lbl_badge1_sub.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
-            self.lbl_badge1_sub.setText(f"✖ {port} 秤未连通")
-            self.lbl_badge1_sub.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
+            self.lbl_badge1_sub.setText(f"! {scale_detail}")
+            self.lbl_badge1_sub.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
 
-        # 3. 准入判决：官方 POS 运行 或 COM 秤串口连通 任意满足其一即可准入进入系统
-        if (scale_source == "official" and official_running) or (scale_source == "com" and scale_ok):
+        # 3. 准入判决：官方 POS 窗口、或本 POS 的已配置称通道，任一可用
+        # 就允许进入。未选中的通道失败只显示告警，不能把一个可工作的
+        # 官方读数链路误判为整套系统不能使用。
+        if official_running or scale_ok:
             self.official_ok = True
         else:
             self.official_ok = False
@@ -469,7 +514,11 @@ class LoginWindow(QDialog):
                 else:
                     self.hardware_warnings.append("当前识别词未找到官方 POS 窗口")
             else:
-                self.hardware_warnings.append("当前选择 COM 称重，但秤串口检测失败")
+                self.hardware_warnings.append("当前选择 COM 称重，但秤串口检测失败：%s" % scale_detail)
+        if official_running and scale_source == "com" and not scale_ok:
+            self.hardware_warnings.append(
+                "官方 POS 已运行；本 POS 的 %s 尚未验证：%s" % (port, scale_detail)
+            )
             
         QTimer.singleShot(250, self._check_printer)
 

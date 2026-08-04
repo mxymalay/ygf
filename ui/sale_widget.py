@@ -1948,9 +1948,10 @@ class SaleWidget(QWidget):
                     return False, u"POS 称桥接服务未运行。请先到“POS 称桥接”启动服务，再切换正常模式。"
             except Exception as exc:
                 return False, u"无法确认 POS 称桥接服务状态：%s" % exc
-        from ui.login_window import check_dibal_scale_connection
-        if not check_dibal_scale_connection(self.config):
-            return False, u"%s 没有返回有效重量。请确认电子秤、波特率和端口未被其它软件占用。" % port
+        from ui.login_window import probe_dibal_scale_connection
+        ready, detail = probe_dibal_scale_connection(self.config)
+        if not ready:
+            return False, detail
         return True, u""
 
     def _leave_mock_mode(self):

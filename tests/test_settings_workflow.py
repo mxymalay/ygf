@@ -119,11 +119,11 @@ class SettingsWorkflowTests(unittest.TestCase):
         self.addCleanup(dialog.deleteLater)
 
         with patch("ui.login_window.check_ygf_official_running", return_value=True), patch(
-            "ui.login_window.check_dibal_scale_connection"
-        ) as scale_check, patch("ui.login_window.QTimer.singleShot"):
+            "ui.login_window.probe_dibal_scale_connection"
+        ) as scale_probe, patch("ui.login_window.QTimer.singleShot"):
             dialog._do_check_official_software()
 
-        scale_check.assert_not_called()
+        scale_probe.assert_not_called()
         self.assertTrue(dialog.official_ok)
         self.assertIn("无需独立 COM", dialog.lbl_badge1_sub.text())
 
@@ -134,13 +134,14 @@ class SettingsWorkflowTests(unittest.TestCase):
         self.addCleanup(dialog.deleteLater)
 
         with patch("ui.login_window.check_ygf_official_running", return_value=True), patch(
-            "ui.login_window.check_dibal_scale_connection", return_value=False
-        ) as scale_check, patch("ui.login_window.QTimer.singleShot"):
+            "ui.login_window.probe_dibal_scale_connection", return_value=(False, "COM3 被其它程序占用")
+        ) as scale_probe, patch("ui.login_window.QTimer.singleShot"):
             dialog._do_check_official_software()
 
-        scale_check.assert_called_once_with(config)
-        self.assertFalse(dialog.official_ok)
-        self.assertTrue(any("秤串口检测失败" in item for item in dialog.hardware_warnings))
+        scale_probe.assert_called_once_with(config)
+        self.assertTrue(dialog.official_ok)
+        self.assertIn("被其它程序占用", dialog.lbl_badge1_sub.text())
+        self.assertTrue(any("官方 POS 已运行" in item for item in dialog.hardware_warnings))
 
 
 if __name__ == "__main__":
