@@ -10,7 +10,7 @@ from scale_bridge.device_discovery import SerialPortCandidate, resolve_saved_dev
 from scale_bridge.protocol import DibalFrameAssembler, parse_dibal_weight
 from scale_bridge.bridge import BoundedPriorityQueue
 from scale_bridge.bridge import ScaleBridgeRuntime
-from scale_bridge.com0com import check_pair, create_pair, parse_setupc_list, remove_pair
+from scale_bridge.com0com import check_pair, create_pair, parse_setupc_list, remove_pair, _run_setupc
 from scale_bridge.lifecycle import (
     Com0ComProvisioner,
     COM0COM_INSTALLER_SHA256,
@@ -176,6 +176,25 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class Com0ComTests(unittest.TestCase):
+    def test_setupc_uses_its_installation_directory_for_inf_files(self):
+        calls = []
+
+        class Result(object):
+            returncode = 0
+            stdout = b""
+            stderr = b""
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return Result()
+
+        with tempfile.TemporaryDirectory() as directory:
+            setup_dir = os.path.join(directory, "com0com")
+            os.makedirs(setup_dir)
+            executable = os.path.join(setup_dir, "setupc.exe")
+            _run_setupc(executable, ["list"], 10, runner)
+            self.assertEqual(calls[0][1]["cwd"], setup_dir)
+
     def test_parse_and_check_named_pair(self):
         pairs = parse_setupc_list(
             "CNCA0 PortName=COM2,EmuBR=yes\r\n"

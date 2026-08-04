@@ -106,12 +106,18 @@ def _run_setupc(
     runner: Callable = subprocess.run,
 ) -> str:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # setupc resolves com0com.inf/cncport.inf relative to its working
+    # directory.  POS itself is normally launched from the project root;
+    # inheriting that directory makes setupc search for
+    # ``<project>\\com0com.inf`` and raises SetupOpenInfFile ERROR 2.
+    setup_dir = os.path.dirname(os.path.abspath(executable))
     result = runner(
         [executable] + list(arguments),
         capture_output=True,
         timeout=timeout_seconds,
         check=False,
         creationflags=flags,
+        cwd=setup_dir,
     )
     stdout = getattr(result, "stdout", b"") or b""
     stderr = getattr(result, "stderr", b"") or b""
