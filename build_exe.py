@@ -12,10 +12,11 @@ import hashlib
 import stat
 import zipfile
 
-# 强制控制台输出使用 UTF-8 编码，防止在 Git Bash (MINGW64) 等终端中出现中文乱码
+# 强制控制台输出使用 UTF-8 编码，防止在终端中出现编码异常或乱码
 try:
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 except Exception:
     pass
 
@@ -76,7 +77,7 @@ def main():
     os.chdir(project_dir)
     
     print("=" * 60)
-    print("      杨国福麻辣烫 · 独立称重与打印系统 — 免安装 EXE 打包工具")
+    print("      YGF POS standalone EXE build tool")
     print("=" * 60)
 
     # 0. 强制锁定 Windows 7 兼容的 Python 3.8 环境
