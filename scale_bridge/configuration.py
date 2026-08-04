@@ -284,7 +284,17 @@ def load_config(path: str = DEFAULT_CONFIG_FILE) -> ScaleBridgeConfig:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             raw = json.load(handle)
-        return ScaleBridgeConfig.from_dict(raw)
+        config = ScaleBridgeConfig.from_dict(raw)
+        # Migrate valid legacy/foreign fields immediately, using the same
+        # atomic writer as normal saves.  A read-only deployment simply keeps
+        # the in-memory canonical object if the rewrite is not permitted.
+        canonical = config.to_dict()
+        if raw != canonical:
+            try:
+                save_config(config, path)
+            except OSError as exc:
+                print("[ScaleBridge 配置 Warning] 无法写回规范格式: %s" % exc)
+        return config
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         # A half-written/old file must not crash the POS or the Windows
         # service.  Preserve the exact bytes for support and start from the

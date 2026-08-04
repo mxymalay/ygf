@@ -37,6 +37,26 @@ class ScaleBridgeLegacyConfigTests(unittest.TestCase):
         self.assertNotIn("PaymentPosPort", config.to_dict())
         self.assertNotIn("PaymentPluginPort", config.to_dict())
 
+    def test_loading_valid_legacy_file_rewrites_it_without_payment_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "scale_bridge.json")
+            with open(path, "w", encoding="utf-8") as stream:
+                json.dump(
+                    {
+                        "PhysicalScalePort": "COM7",
+                        "PaymentPosPort": "COM12",
+                        "PaymentPluginPort": "COM13",
+                        "foreign_field": "drop",
+                    },
+                    stream,
+                )
+            load_config(path)
+            with open(path, "r", encoding="utf-8") as stream:
+                saved = json.load(stream)
+            self.assertEqual(saved["PhysicalScalePort"], "COM7")
+            self.assertNotIn("PaymentPosPort", saved)
+            self.assertNotIn("foreign_field", saved)
+
     def test_scale_setup_ignores_stale_legacy_payment_values(self):
         config = ScaleBridgeConfig.from_dict(
             {
