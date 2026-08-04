@@ -22,6 +22,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .com0com import (
     Com0ComPair,
+    SetupcMutationTimeout,
     create_pair,
     find_pair_by_endpoint,
     find_setupc,
@@ -30,7 +31,11 @@ from .com0com import (
     remove_pair,
 )
 from .configuration import ScaleBridgeConfig, ScaleDeviceIdentity, save_config
-from .device_discovery import SerialPortCandidate, enumerate_serial_ports
+from .device_discovery import (
+    SerialPortCandidate,
+    enumerate_serial_ports,
+    windows_serial_port_exists,
+)
 from .protocol import DibalFrameAssembler, parse_dibal_weight
 
 
@@ -109,8 +114,9 @@ class OwnedPair:
 
 @dataclass
 class InstallationManifest:
-    version: int = 2
+    version: int = 3
     created_pairs: List[OwnedPair] = field(default_factory=list)
+    pending_pairs: List[OwnedPair] = field(default_factory=list)
     service_owned: bool = False
     driver_installed_by_product: bool = False
     created_at: str = ""
@@ -122,6 +128,7 @@ class InstallationManifest:
         return {
             "version": self.version,
             "created_pairs": [asdict(item) for item in self.created_pairs],
+            "pending_pairs": [asdict(item) for item in self.pending_pairs],
             "service_owned": self.service_owned,
             "driver_installed_by_product": self.driver_installed_by_product,
             "created_at": self.created_at,
@@ -133,8 +140,9 @@ class InstallationManifest:
     @classmethod
     def from_dict(cls, raw: dict) -> "InstallationManifest":
         return cls(
-            version=max(2, int(raw.get("version", 1))),
+            version=max(3, int(raw.get("version", 1))),
             created_pairs=[OwnedPair(**item) for item in raw.get("created_pairs", [])],
+            pending_pairs=[OwnedPair(**item) for item in raw.get("pending_pairs", [])],
             service_owned=bool(raw.get("service_owned", False)),
             driver_installed_by_product=bool(raw.get("driver_installed_by_product", False)),
             created_at=str(raw.get("created_at", "")),
@@ -204,6 +212,31 @@ def _reboot_requirement_is_active(
         save_manifest(manifest, path)
         return False
     return True
+
+
+def _wait_for_serial_ports(
+    port_names: Iterable[str],
+    port_enumerator: Callable = enumerate_serial_ports,
+    timeout_seconds: float = 8.0,
+) -> List[str]:
+    """Return COM names still absent after Win7 enumeration settles."""
+    expected = {str(port or "").strip().upper() for port in port_names if port}
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    while True:
+        # QueryDosDevice is fast, works for occupied ports and is the closest
+        # check to what CreateFile("\\\\.\\COMx") will resolve. Avoid a slow
+        # Win7 WMI query entirely when this authoritative namespace is ready.
+        available = {port for port in expected if windows_serial_port_exists(port)}
+        if available != expected:
+            try:
+                candidates = port_enumerator(include_virtual=True)
+                available.update(item.port.upper() for item in candidates)
+            except Exception:
+                pass
+        missing = sorted(expected - available)
+        if not missing or time.monotonic() >= deadline:
+            return missing
+        time.sleep(0.4)
 
 
 def find_com0com_installer(explicit_path: Optional[str] = None) -> Optional[str]:
@@ -437,8 +470,48 @@ class Com0ComProvisioner:
 
     def _remember_created(self, purpose: str, pair: Com0ComPair) -> None:
         manifest = load_manifest(self.manifest_path)
-        if not any(item.index == pair.index for item in manifest.created_pairs):
+        existing = next(
+            (item for item in manifest.created_pairs if item.index == pair.index),
+            None,
+        )
+        if existing is not None and not existing.matches(pair):
+            raise RuntimeError("配对 #%d 与已有所有权记录不一致" % pair.index)
+        if existing is None:
             manifest.created_pairs.append(OwnedPair(purpose, pair.index, pair.side_a, pair.side_b))
+        manifest.pending_pairs = [
+            item for item in manifest.pending_pairs
+            if not (item.purpose == purpose and item.index == pair.index)
+        ]
+        save_manifest(manifest, self.manifest_path)
+
+    def _remember_pending(
+        self,
+        purpose: str,
+        index: int,
+        client: str,
+        peer: str,
+    ) -> None:
+        """Persist creation intent before setupc mutates Windows.
+
+        On Win7 setupc can time out while its PnP worker still finishes later.
+        Keeping the exact intent lets the next run safely recognise only the
+        pair requested by this product instead of treating it as foreign.
+        """
+        manifest = load_manifest(self.manifest_path)
+        manifest.pending_pairs = [
+            item for item in manifest.pending_pairs if item.purpose != purpose
+        ]
+        manifest.pending_pairs.append(OwnedPair(purpose, index, client, peer))
+        save_manifest(manifest, self.manifest_path)
+
+    def _forget_pending(self, purpose: str, index: int) -> None:
+        manifest = load_manifest(self.manifest_path)
+        remaining = [
+            item for item in manifest.pending_pairs
+            if not (item.purpose == purpose and item.index == index)
+        ]
+        if len(remaining) != len(manifest.pending_pairs):
+            manifest.pending_pairs = remaining
             save_manifest(manifest, self.manifest_path)
 
     def _ensure_one(
@@ -451,6 +524,11 @@ class Com0ComProvisioner:
     ) -> Tuple[Com0ComPair, bool]:
         client = client_port.upper()
         peer = requested_peer.upper() if requested_peer else ""
+        manifest = load_manifest(self.manifest_path)
+        pending = next(
+            (item for item in manifest.pending_pairs if item.purpose == purpose),
+            None,
+        )
         current = find_pair_by_endpoint(client, pairs)
         if current:
             if peer and not current.contains(peer):
@@ -458,13 +536,21 @@ class Com0ComProvisioner:
                     "%s 已属于 %s，和配置的对端 %s 不一致"
                     % (client, self._pair_description(current), peer)
                 )
-            if not peer:
-                manifest = load_manifest(self.manifest_path)
-                known_owned = any(
-                    item.purpose == purpose and item.matches(current)
-                    for item in manifest.created_pairs
-                )
-                if not known_owned:
+            known_owned = any(
+                item.purpose == purpose and item.matches(current)
+                for item in manifest.created_pairs
+            )
+            pending_owned = bool(pending and pending.matches(current))
+            if pending_owned:
+                self._remember_created(purpose, current)
+                known_owned = True
+            if not peer and not known_owned:
+                actual_peer = current.other(client) or ""
+                # A configured POS-facing COM port paired with an internal CNC
+                # endpoint can be reused without claiming deletion ownership.
+                # This recovers old/partially completed installations safely:
+                # removal still leaves an unowned pair untouched.
+                if not re.fullmatch(r"CNC[AB]\d+", actual_peer, re.IGNORECASE):
                     raise PortConflictError(
                         "%s 已属于现有配对 %s，但配置未指定对端。"
                         "请先用“检查虚拟端口配对”核对并明确选择，程序不会自动接管。"
@@ -477,25 +563,86 @@ class Com0ComProvisioner:
             self._check_name_free(peer, pairs, owners)
 
         requested_index = None
+        if pending:
+            pending_client = pending.side_a.upper()
+            pending_peer = pending.side_b.upper()
+            pending_current = next(
+                (item for item in pairs if item.index == pending.index),
+                None,
+            )
+            if pending_client != client:
+                if pending_current is not None:
+                    raise PortConflictError(
+                        "上次未完成的 %s 创建记录仍对应 %s ↔ %s (#%d)。"
+                        "请先核对该配对，不会用新配置覆盖。"
+                        % (purpose, pending.side_a, pending.side_b, pending.index)
+                    )
+                self._forget_pending(purpose, pending.index)
+                pending = None
+            elif peer and peer != pending_peer:
+                if pending_current is not None:
+                    raise PortConflictError(
+                        "上次未完成的创建记录要求对端 %s，当前填写为 %s；不会自动改写。"
+                        % (pending_peer, peer)
+                    )
+                self._forget_pending(purpose, pending.index)
+                pending = None
+            else:
+                requested_index = pending.index
+                if not peer:
+                    peer = pending_peer
         match = re.fullmatch(r"CNCB(\d+)", peer, re.IGNORECASE) if peer else None
         if match:
-            requested_index = int(match.group(1))
+            peer_index = int(match.group(1))
+            if requested_index is not None and peer_index != requested_index:
+                raise PortConflictError(
+                    "待恢复配对序号 #%d 与对端 %s 不一致"
+                    % (requested_index, peer)
+                )
+            requested_index = peer_index
             if any(item.index == requested_index for item in pairs):
                 raise PortConflictError("内部配对序号 #%d 已被其他端口使用" % requested_index)
         index = requested_index if requested_index is not None else next_available_pair_index(pairs)
         actual_peer = peer or "CNCB%d" % index
-        create_pair(
-            client,
-            actual_peer,
-            index,
-            setupc_path=self._require_setupc(),
-            allow_mutation=True,
-            runner=self.runner,
-        )
+        self._remember_pending(purpose, index, client, actual_peer)
+        try:
+            create_pair(
+                client,
+                actual_peer,
+                index,
+                setupc_path=self._require_setupc(),
+                allow_mutation=True,
+                runner=self.runner,
+            )
+        except SetupcMutationTimeout as exc:
+            # subprocess may time out while Windows' PnP worker completes in
+            # the background. Reconcile once immediately; if it is not visible
+            # yet, retain the exact pending intent for the next retry/reboot.
+            try:
+                refreshed = self._pairs()
+            except Exception:
+                refreshed = []
+            created = find_pair_by_endpoint(client, refreshed)
+            if created and created.index == index and created.contains(actual_peer):
+                self._remember_created(purpose, created)
+                return created, True
+            raise RuntimeError(
+                "com0com 创建 %s ↔ %s (#%d) 超时，结果暂时无法确认。"
+                "程序已保存本次创建记录，不会改用其他端口。请等待 Windows 完成设备安装后，"
+                "直接再次点击“初始化 / 修复”；若重试仍超时，再重启电脑。"
+                % (client, actual_peer, index)
+            ) from exc
+        except Exception:
+            self._forget_pending(purpose, index)
+            raise
         refreshed = self._pairs()
         created = find_pair_by_endpoint(client, refreshed)
         if not created:
-            raise RuntimeError("setupc 返回成功，但未找到刚创建的端口 %s" % client)
+            raise RuntimeError(
+                "setupc 已返回成功，但暂未找到刚创建的端口 %s。"
+                "程序已保存本次创建记录；请稍候后直接再次初始化，不会改用其他端口。"
+                % client
+            )
         if peer and not created.contains(peer):
             raise RuntimeError(
                 "创建后的实际配对为 %s，与请求对端 %s 不一致"
@@ -622,6 +769,28 @@ class Com0ComProvisioner:
         removed: List[str] = []
         skipped: List[str] = []
         pairs = self._pairs()
+
+        # Reconcile an operation that timed out after Windows accepted it.
+        # Exact pending intents are ours to remove; missing intents are merely
+        # stale metadata, while any mismatch remains protected.
+        for pending in list(manifest.pending_pairs):
+            if selected_purposes is not None and pending.purpose not in selected_purposes:
+                continue
+            current = next((item for item in pairs if item.index == pending.index), None)
+            if current is None:
+                manifest.pending_pairs.remove(pending)
+                continue
+            if not pending.matches(current):
+                skipped.append(
+                    "#%d 当前为 %s ↔ %s，和待完成创建记录不符"
+                    % (current.index, current.side_a, current.side_b)
+                )
+                continue
+            if not any(item.index == current.index for item in manifest.created_pairs):
+                manifest.created_pairs.append(
+                    OwnedPair(pending.purpose, current.index, current.side_a, current.side_b)
+                )
+            manifest.pending_pairs.remove(pending)
 
         # Preflight all records before deleting the first pair. This prevents a
         # partial delete when a later pair was renamed/reused outside the POS.
@@ -1078,6 +1247,7 @@ class ScaleBridgeLifecycle:
         provisioner: Optional[Com0ComProvisioner] = None,
         service: Optional[ScaleBridgeServiceController] = None,
         verify_enumeration: Optional[bool] = None,
+        enumeration_timeout_seconds: float = 8.0,
     ):
         self.config_path = os.path.abspath(config_path)
         self.manifest_path = manifest_path or default_manifest_path()
@@ -1088,6 +1258,7 @@ class ScaleBridgeLifecycle:
         # provisioners used by tests/tools may intentionally omit a device
         # enumerator, so they remain opt-in unless explicitly requested.
         self.verify_enumeration = (provisioner is None) if verify_enumeration is None else bool(verify_enumeration)
+        self.enumeration_timeout_seconds = max(0.0, float(enumeration_timeout_seconds))
 
     def initialize(
         self,
@@ -1132,23 +1303,26 @@ class ScaleBridgeLifecycle:
         pairs = provisioner.ensure_required_pairs(
             config, include_scale=True, include_payment=False
         )
+        # Persist the exact peers as soon as setupc confirms both pairs. Later
+        # Win7 enumeration or service startup may still fail; a retry/reboot
+        # must resume this successful state instead of rediscovering it as an
+        # unexplained foreign pair.
+        save_config(config, self.config_path)
         if self.verify_enumeration:
-            candidates = provisioner.port_enumerator(include_virtual=True)
-            available = {item.port.upper() for item in candidates}
-            missing = [
-                port for port in (
+            missing = _wait_for_serial_ports(
+                (
                     config.official_pos_virtual_port,
                     config.private_pos_virtual_port,
-                )
-                if port.upper() not in available
-            ]
+                ),
+                provisioner.port_enumerator,
+                self.enumeration_timeout_seconds,
+            )
             if missing:
                 raise RuntimeError(
-                    "setupc 已返回 POS 称桥接配对，但 Windows 设备管理器未枚举出 %s。"
-                    "请确认 com0com 驱动安装完成，必要时重启电脑后再初始化。"
+                    "setupc 已确认两组 POS 称桥接配对，恢复配置也已保存，但 Windows 串口命名空间"
+                    "尚未出现 %s。请等待片刻后重试；若仍缺失，请重启电脑后再初始化。"
                     % "、".join(missing)
                 )
-        save_config(config, self.config_path)
 
         installed = self.service.install()
         manifest = load_manifest(self.manifest_path)
@@ -1197,15 +1371,14 @@ class ScaleBridgeLifecycle:
                 config, include_scale=True, include_payment=False
             )
             if self.verify_enumeration:
-                candidates = provisioner.port_enumerator(include_virtual=True)
-                available = {item.port.upper() for item in candidates}
-                missing = [
-                    port for port in (
+                missing = _wait_for_serial_ports(
+                    (
                         config.official_pos_virtual_port,
                         config.private_pos_virtual_port,
-                    )
-                    if port.upper() not in available
-                ]
+                    ),
+                    provisioner.port_enumerator,
+                    self.enumeration_timeout_seconds,
+                )
                 if missing:
                     raise RuntimeError(
                         "setupc 已返回虚拟配对，但 Windows 设备管理器未枚举出 %s。"
@@ -1245,7 +1418,10 @@ class ScaleBridgeLifecycle:
 
         provisioner = self.provisioner or Com0ComProvisioner(manifest_path=self.manifest_path)
         scale_purposes = {"official_scale", "private_scale"}
-        if any(item.purpose in scale_purposes for item in manifest.created_pairs):
+        if any(
+            item.purpose in scale_purposes
+            for item in (manifest.created_pairs + manifest.pending_pairs)
+        ):
             report.removed_pairs, report.skipped_pairs = provisioner.remove_owned_pairs(scale_purposes)
         if report.skipped_pairs:
             raise RuntimeError("存在所有权不匹配的配对，已停止删除：" + "; ".join(report.skipped_pairs))
@@ -1269,6 +1445,7 @@ class ScaleBridgeLifecycle:
         final_manifest = load_manifest(self.manifest_path)
         if (
             not final_manifest.created_pairs
+            and not final_manifest.pending_pairs
             and not final_manifest.service_owned
             and not final_manifest.driver_installed_by_product
             and not final_manifest.reboot_required
@@ -1288,6 +1465,7 @@ class PaymentPairLifecycle:
         manifest_path: Optional[str] = None,
         provisioner: Optional[Com0ComProvisioner] = None,
         verify_enumeration: Optional[bool] = None,
+        enumeration_timeout_seconds: float = 8.0,
     ):
         self.manifest_path = manifest_path or default_manifest_path()
         self.provisioner = provisioner
@@ -1296,6 +1474,7 @@ class PaymentPairLifecycle:
         # list, so verification is enabled automatically only for the real
         # lifecycle path unless explicitly overridden.
         self.verify_enumeration = (provisioner is None) if verify_enumeration is None else bool(verify_enumeration)
+        self.enumeration_timeout_seconds = max(0.0, float(enumeration_timeout_seconds))
 
     def initialize(
         self,
@@ -1322,12 +1501,11 @@ class PaymentPairLifecycle:
             config, include_scale=False, include_payment=True
         )
         if self.verify_enumeration:
-            candidates = provisioner.port_enumerator(include_virtual=True)
-            available = {item.port.upper() for item in candidates}
-            missing = [
-                port for port in (config.payment_pos_port, config.payment_plugin_port)
-                if port.upper() not in available
-            ]
+            missing = _wait_for_serial_ports(
+                (config.payment_pos_port, config.payment_plugin_port),
+                provisioner.port_enumerator,
+                self.enumeration_timeout_seconds,
+            )
             if missing:
                 raise RuntimeError(
                     "setupc 已返回配对，但 Windows 设备管理器未枚举出 %s。"
@@ -1340,7 +1518,10 @@ class PaymentPairLifecycle:
         if not is_administrator():
             raise PermissionError("删除收钱吧虚拟串口配对必须以管理员身份运行 POS")
         manifest = load_manifest(self.manifest_path)
-        if not any(item.purpose == "payment" for item in manifest.created_pairs):
+        if not any(
+            item.purpose == "payment"
+            for item in (manifest.created_pairs + manifest.pending_pairs)
+        ):
             return [], []
         provisioner = self.provisioner or Com0ComProvisioner(
             manifest_path=self.manifest_path

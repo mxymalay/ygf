@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ctypes
 import re
+import sys
 from typing import Iterable, List, Optional, Tuple
 
 from .configuration import ScaleDeviceIdentity
@@ -166,6 +168,29 @@ def port_is_available(port_name: str, candidates: Optional[Iterable[SerialPortCa
     candidates = enumerate_serial_ports(include_virtual=True) if candidates is None else candidates
     target = port_name.upper()
     return all(candidate.port.upper() != target for candidate in candidates)
+
+
+def windows_serial_port_exists(port_name: str) -> bool:
+    """Check the Windows DOS-device namespace, including occupied COM ports.
+
+    pyserial and WMI can lag behind com0com on Windows 7. QueryDosDevice reads
+    the namespace used by CreateFile and does not need to open or disturb the
+    port, so an endpoint held by the official POS is still detected correctly.
+    """
+    target = str(port_name or "").strip().upper()
+    if sys.platform != "win32" or not _COM_RE.fullmatch(target):
+        return False
+    try:
+        buffer = ctypes.create_unicode_buffer(32768)
+        return bool(
+            ctypes.windll.kernel32.QueryDosDeviceW(
+                ctypes.c_wchar_p(target),
+                buffer,
+                len(buffer),
+            )
+        )
+    except Exception:
+        return False
 
 
 def probe_serial_port(port_name: str, serial_factory=None) -> Tuple[bool, str]:

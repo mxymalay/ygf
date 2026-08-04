@@ -2,12 +2,13 @@ import unittest
 import json
 import os
 import runpy
+import subprocess
 import tempfile
 import sys
 from unittest.mock import patch
 
 from scale_bridge.arbiter import BridgeMode, OfficialPriorityArbiter
-from scale_bridge.configuration import ScaleBridgeConfig, ScaleDeviceIdentity
+from scale_bridge.configuration import ScaleBridgeConfig, ScaleDeviceIdentity, load_config
 from scale_bridge.device_discovery import SerialPortCandidate, resolve_saved_device
 from scale_bridge.protocol import DibalFrameAssembler, parse_dibal_weight
 from scale_bridge.bridge import BoundedPriorityQueue
@@ -330,7 +331,7 @@ class ProvisioningTests(unittest.TestCase):
 
             manifest = load_manifest(manifest_path)
 
-            self.assertEqual(manifest.version, 2)
+            self.assertEqual(manifest.version, 3)
             self.assertFalse(manifest.reboot_required)
             self.assertTrue(manifest.driver_installed_by_product)
 
@@ -354,6 +355,81 @@ class ProvisioningTests(unittest.TestCase):
                 report = provisioner.ensure_required_pairs(cfg)
         self.assertEqual(len(report.created), 2)
         self.assertFalse(any("COM10" in pair for pair in runner.pairs.values()))
+
+    def test_unowned_internal_pairs_are_reused_without_claiming_delete_ownership(self):
+        runner = _StatefulSetupCRunner()
+        runner.pairs = {
+            0: ("COM20", "CNCB0"),
+            1: ("COM21", "CNCB1"),
+        }
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_pos_virtual_port="COM20",
+            private_pos_virtual_port="COM21",
+            official_bridge_port="",
+            private_bridge_port="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
+                report = provisioner.ensure_required_pairs(cfg)
+
+            self.assertEqual(len(report.existing), 2)
+            self.assertEqual(cfg.official_bridge_port, "CNCB0")
+            self.assertEqual(cfg.private_bridge_port, "CNCB1")
+            self.assertEqual(load_manifest(manifest_path).created_pairs, [])
+            self.assertFalse(any(item[1] == "install" for item in runner.commands))
+
+    def test_timeout_intent_recovers_pair_completed_after_failure(self):
+        class TimeoutOnceRunner(_StatefulSetupCRunner):
+            def __init__(self):
+                super().__init__()
+                self.timeout_once = True
+
+            def __call__(self, command, **kwargs):
+                if command[1] == "install" and self.timeout_once:
+                    self.timeout_once = False
+                    self.commands.append(command)
+                    raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 60))
+                return super().__call__(command, **kwargs)
+
+        runner = TimeoutOnceRunner()
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="",
+            private_bridge_port="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
+                with self.assertRaisesRegex(RuntimeError, "已保存本次创建记录"):
+                    provisioner.ensure_required_pairs(cfg)
+
+                pending = load_manifest(manifest_path).pending_pairs
+                self.assertEqual(len(pending), 1)
+                self.assertEqual((pending[0].side_a, pending[0].side_b), ("COM2", "CNCB0"))
+
+                # Windows' PnP worker finishes after setupc itself timed out.
+                runner.pairs[0] = ("COM2", "CNCB0")
+                report = provisioner.ensure_required_pairs(cfg)
+
+            self.assertIn("COM2 ↔ CNCB0 (#0)", report.existing)
+            self.assertIn("COM3 ↔ CNCB1 (#1)", report.created)
+            manifest = load_manifest(manifest_path)
+            self.assertEqual(manifest.pending_pairs, [])
+            self.assertEqual({item.index for item in manifest.created_pairs}, {0, 1})
 
     def test_full_provision_is_idempotent_and_records_exact_owned_pairs(self):
         runner = _StatefulSetupCRunner()
@@ -1020,15 +1096,55 @@ class FullLifecycleTests(unittest.TestCase):
                 provisioner=provisioner,
                 service=service,
                 verify_enumeration=True,
+                enumeration_timeout_seconds=0,
             )
             tester = lambda _cfg: PhysicalScaleTestResult(True, "COM5", 0.402, "30 30", "ok")
             with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
                 "scale_bridge.lifecycle.find_setupc", return_value="setupc.exe"
             ):
-                with self.assertRaisesRegex(RuntimeError, "设备管理器未枚举"):
+                with self.assertRaisesRegex(RuntimeError, "串口命名空间"):
                     lifecycle.initialize(cfg, tester)
-            self.assertFalse(os.path.exists(config_path))
+            self.assertTrue(os.path.exists(config_path))
+            saved = load_config(config_path)
+            self.assertEqual(saved.official_bridge_port, "CNCB0")
+            self.assertEqual(saved.private_bridge_port, "CNCB1")
             self.assertFalse(service.installed)
+
+    def test_scale_initialize_accepts_query_dos_device_when_win7_lists_lag(self):
+        runner = _StatefulSetupCRunner()
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="",
+            private_bridge_port="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            config_path = os.path.join(directory, "scale_bridge.json")
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            service = _FakeLifecycleService()
+            lifecycle = ScaleBridgeLifecycle(
+                config_path,
+                manifest_path,
+                provisioner=provisioner,
+                service=service,
+                verify_enumeration=True,
+                enumeration_timeout_seconds=0,
+            )
+            tester = lambda _cfg: PhysicalScaleTestResult(True, "COM5", 0.402, "30 30", "ok")
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
+                "scale_bridge.lifecycle.find_setupc", return_value="setupc.exe"
+            ), patch(
+                "scale_bridge.lifecycle.windows_serial_port_exists", return_value=True
+            ):
+                report = lifecycle.initialize(cfg, tester)
+
+            self.assertTrue(report.service_installed)
+            self.assertTrue(service.running)
 
     def test_failed_physical_retest_restores_previously_running_service(self):
         cfg = ScaleBridgeConfig(

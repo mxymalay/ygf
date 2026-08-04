@@ -25,6 +25,18 @@ SETUPC_CANDIDATES = (
 SETUPC_MUTATION_TIMEOUT_SECONDS = 60
 
 
+class SetupcMutationTimeout(RuntimeError):
+    """The CLI timed out, but Windows may still finish the PnP operation."""
+
+    def __init__(self, operation: str, timeout_seconds: int):
+        self.operation = str(operation or "")
+        self.timeout_seconds = int(timeout_seconds)
+        super().__init__(
+            "com0com 在 %d 秒内未完成%s操作。"
+            % (self.timeout_seconds, "创建" if self.operation == "install" else "删除")
+        )
+
+
 @dataclass(frozen=True)
 class Com0ComPair:
     index: int
@@ -133,12 +145,7 @@ def _run_setupc(
         )
     except subprocess.TimeoutExpired as exc:
         if arguments and arguments[0].lower() in ("install", "remove"):
-            raise RuntimeError(
-                "com0com 在 %d 秒内未完成创建/删除操作。通常是目标虚拟端口刚被释放，"
-                "或仍被 ScaleBridge/手工调试工具占用；未自动删除其他端口。"
-                "请确认已停止所有称桥接或调试进程后重试。"
-                % timeout_seconds
-            ) from exc
+            raise SetupcMutationTimeout(arguments[0].lower(), timeout_seconds) from exc
         raise
     stdout = getattr(result, "stdout", b"") or b""
     stderr = getattr(result, "stderr", b"") or b""
