@@ -704,6 +704,7 @@ class SaleWidget(QWidget):
         self.current_weight = 0.0
         self._stable_weight = 0.0
         self._is_stable = False
+        self._low_price_warning_shown = False
         self._scale_connected = False
         self._last_weight_monotonic = 0.0
         self._checkout_active = False
@@ -1779,6 +1780,10 @@ class SaleWidget(QWidget):
         self.current_weight = weight_kg
         self._last_weight_monotonic = time.monotonic()
         self.lbl_weight.setText("%06.3f kg" % weight_kg)
+        # A new bowl is allowed to receive the low-price hint only after the
+        # previous weighing has returned to zero.
+        if weight_kg <= 0.005:
+            self._low_price_warning_shown = False
 
         if abs(weight_kg - self._stable_weight) <= 0.005:
             self._is_stable = True
@@ -1827,8 +1832,11 @@ class SaleWidget(QWidget):
             price_unit = self.config.get("price_unit", "per_jin")
             from core.calculator import calculate_price
             expected_price = calculate_price(weight_kg, unit_price, price_unit)
-            if expected_price < 15.0:
+            if expected_price < 15.0 and not self._low_price_warning_shown:
                 self._show_toast(u"温馨提示：此麻辣烫预计称重低于15元。")
+                self._low_price_warning_shown = True
+            elif expected_price >= 15.0:
+                self._low_price_warning_shown = False
 
     @pyqtSlot(str)
     def _on_error(self, msg):
@@ -1927,6 +1935,7 @@ class SaleWidget(QWidget):
         self.current_weight = 0.0
         self._stable_weight = 0.0
         self._is_stable = False
+        self._low_price_warning_shown = False
         self._scale_connected = False
         self._last_weight_monotonic = 0.0
         self.lbl_weight.setText("00.000 kg")
