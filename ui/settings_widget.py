@@ -2616,7 +2616,9 @@ class SettingsWidget(QWidget):
                     show_info(
                         self,
                         u"旧支付配对删除完成",
-                        u"已精确删除：%s\n其他虚拟串口未改动。"
+                        u"已精确删除：%s\n其他虚拟串口未改动。\n\n"
+                        u"Windows 虚拟串口已删除，再次创建前必须重启电脑。"
+                        u"重启后程序会自动恢复创建功能。"
                         % (u"、".join(exact_removed) or u"无"),
                     )
 
@@ -2632,7 +2634,9 @@ class SettingsWidget(QWidget):
             show_info(
                 self,
                 u"支付配对删除完成",
-                u"已删除：%s\n收钱吧设置参数已保留，可稍后重新创建。"
+                u"已删除：%s\n收钱吧设置参数已保留。\n\n"
+                u"Windows 虚拟串口已删除，再次创建前必须重启电脑。"
+                u"重启后程序会自动恢复创建功能。"
                 % (u"、".join(removed) or u"无（本产品未创建该配对）"),
             )
 
@@ -2862,11 +2866,14 @@ class SettingsWidget(QWidget):
             show_info(
                 self, u"POS 称桥接已删除",
                 u"服务删除: %s\n已删除称重配对: %s\n称桥接配置删除: %s\n"
-                u"收钱吧支付配对和 com0com 驱动均已保留。"
+                u"收钱吧支付配对和 com0com 驱动均已保留。%s"
                 % (
                     u"是" if report.service_removed else u"无需删除",
                     u"、".join(report.removed_pairs) or u"无",
                     u"是" if report.config_deleted else u"文件原本不存在",
+                    (u"\n\nWindows 虚拟串口已删除，再次创建前必须重启电脑。"
+                     u"重启后程序会自动恢复创建功能。")
+                    if report.removed_pairs else u"",
                 ),
             )
 

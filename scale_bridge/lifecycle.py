@@ -109,11 +109,14 @@ class OwnedPair:
 
 @dataclass
 class InstallationManifest:
-    version: int = 1
+    version: int = 2
     created_pairs: List[OwnedPair] = field(default_factory=list)
     service_owned: bool = False
     driver_installed_by_product: bool = False
     created_at: str = ""
+    reboot_required: bool = False
+    reboot_required_boot_id: str = ""
+    reboot_required_reason: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -122,16 +125,22 @@ class InstallationManifest:
             "service_owned": self.service_owned,
             "driver_installed_by_product": self.driver_installed_by_product,
             "created_at": self.created_at,
+            "reboot_required": self.reboot_required,
+            "reboot_required_boot_id": self.reboot_required_boot_id,
+            "reboot_required_reason": self.reboot_required_reason,
         }
 
     @classmethod
     def from_dict(cls, raw: dict) -> "InstallationManifest":
         return cls(
-            version=int(raw.get("version", 1)),
+            version=max(2, int(raw.get("version", 1))),
             created_pairs=[OwnedPair(**item) for item in raw.get("created_pairs", [])],
             service_owned=bool(raw.get("service_owned", False)),
             driver_installed_by_product=bool(raw.get("driver_installed_by_product", False)),
             created_at=str(raw.get("created_at", "")),
+            reboot_required=bool(raw.get("reboot_required", False)),
+            reboot_required_boot_id=str(raw.get("reboot_required_boot_id", "")),
+            reboot_required_reason=str(raw.get("reboot_required_reason", "")),
         )
 
 
@@ -145,6 +154,56 @@ def load_manifest(path: Optional[str] = None) -> InstallationManifest:
 
 def save_manifest(manifest: InstallationManifest, path: Optional[str] = None) -> None:
     _atomic_json_write(path or default_manifest_path(), manifest.to_dict())
+
+
+def _current_boot_marker() -> str:
+    """Return a stable marker for the current Windows boot session.
+
+    com0com 3.0.0 can leave deleted PnP device objects pending until Windows
+    restarts.  The marker lets us distinguish a repeated create attempt in the
+    same boot from the first safe attempt after a real reboot without relying
+    on a port-number workaround.
+    """
+    if sys.platform != "win32":
+        return "non-windows"
+    try:
+        get_tick_count = ctypes.windll.kernel32.GetTickCount64
+        get_tick_count.restype = ctypes.c_ulonglong
+        uptime_seconds = int(get_tick_count()) / 1000.0
+        boot_epoch = time.time() - uptime_seconds
+        # The derived boot time is stable within a few milliseconds.  A
+        # minute bucket avoids false changes caused by timer precision.
+        return str(int(round(boot_epoch / 60.0)))
+    except Exception:
+        return ""
+
+
+def _mark_reboot_required(
+    manifest: InstallationManifest,
+    path: str,
+    reason: str,
+) -> None:
+    manifest.reboot_required = True
+    manifest.reboot_required_boot_id = _current_boot_marker()
+    manifest.reboot_required_reason = str(reason or "已删除 com0com 虚拟串口")
+    save_manifest(manifest, path)
+
+
+def _reboot_requirement_is_active(
+    manifest: InstallationManifest,
+    path: str,
+) -> bool:
+    if not manifest.reboot_required:
+        return False
+    current_boot = _current_boot_marker()
+    recorded_boot = manifest.reboot_required_boot_id
+    if current_boot and recorded_boot and current_boot != recorded_boot:
+        manifest.reboot_required = False
+        manifest.reboot_required_boot_id = ""
+        manifest.reboot_required_reason = ""
+        save_manifest(manifest, path)
+        return False
+    return True
 
 
 def find_com0com_installer(explicit_path: Optional[str] = None) -> Optional[str]:
@@ -309,6 +368,10 @@ class PortConflictError(RuntimeError):
     pass
 
 
+class RebootRequiredError(RuntimeError):
+    pass
+
+
 @dataclass
 class ProvisionReport:
     existing: List[str] = field(default_factory=list)
@@ -419,23 +482,6 @@ class Com0ComProvisioner:
             requested_index = int(match.group(1))
             if any(item.index == requested_index for item in pairs):
                 raise PortConflictError("内部配对序号 #%d 已被其他端口使用" % requested_index)
-            # A pre-ownership release may have deleted a pair only partially:
-            # Windows can retain that PnP device index until reboot even though
-            # setupc/list and Device Manager no longer expose a usable pair.
-            # The internal CNCB number is not customer-facing, so an owned,
-            # missing historical index can safely move forward to a new one.
-            # This never applies to an unrecorded/manual requested pair.
-            manifest = load_manifest(self.manifest_path)
-            stale_owned_index = any(
-                item.purpose == purpose and item.index == requested_index
-                for item in manifest.created_pairs
-            )
-            if stale_owned_index:
-                requested_index = next_available_pair_index(
-                    pairs,
-                    start=requested_index + 1,
-                )
-                peer = "CNCB%d" % requested_index
         index = requested_index if requested_index is not None else next_available_pair_index(pairs)
         actual_peer = peer or "CNCB%d" % index
         create_pair(
@@ -468,6 +514,14 @@ class Com0ComProvisioner:
             raise PermissionError("创建虚拟串口必须以管理员身份运行 POS")
         if not include_scale and not include_payment:
             raise ValueError("至少选择一种需要维护的虚拟串口配对")
+        manifest = load_manifest(self.manifest_path)
+        if _reboot_requirement_is_active(manifest, self.manifest_path):
+            reason = manifest.reboot_required_reason or "本次开机已删除过 com0com 虚拟串口"
+            raise RebootRequiredError(
+                "%s。旧版 com0com 驱动在同一次开机内重新创建可能卡住或不枚举设备。"
+                "请先重启 Windows；重启后程序会自动解除限制，再执行创建/修复。"
+                % reason
+            )
         if include_scale:
             config.validate_for_setup()
         if include_payment:
@@ -547,7 +601,11 @@ class Com0ComProvisioner:
                 raise RuntimeError("setupc 未能删除旧配对 #%d" % current.index)
             report.removed_obsolete.append(self._pair_description(current))
             manifest.created_pairs.remove(owned)
-            save_manifest(manifest, self.manifest_path)
+            _mark_reboot_required(
+                manifest,
+                self.manifest_path,
+                "修复配置时已删除旧的 com0com 虚拟串口",
+            )
         if include_scale:
             config.validate()
         return report
@@ -603,7 +661,11 @@ class Com0ComProvisioner:
                 raise RuntimeError("setupc 未能删除配对 #%d" % current.index)
             removed.append(self._pair_description(current))
             manifest.created_pairs.remove(owned)
-            save_manifest(manifest, self.manifest_path)
+            _mark_reboot_required(
+                manifest,
+                self.manifest_path,
+                "本次开机已删除过 com0com 虚拟串口",
+            )
         return removed, skipped
 
 
@@ -1209,6 +1271,7 @@ class ScaleBridgeLifecycle:
             not final_manifest.created_pairs
             and not final_manifest.service_owned
             and not final_manifest.driver_installed_by_product
+            and not final_manifest.reboot_required
         ):
             try:
                 os.unlink(self.manifest_path)
@@ -1337,7 +1400,11 @@ class PaymentPairLifecycle:
             raise RuntimeError("setupc 未能删除配对 #%d" % pair.index)
         if owned:
             manifest.created_pairs.remove(owned)
-            save_manifest(manifest, self.manifest_path)
+        _mark_reboot_required(
+            manifest,
+            self.manifest_path,
+            "本次开机已删除过收钱吧 com0com 虚拟串口",
+        )
         return [Com0ComProvisioner._pair_description(pair)], []
 
 

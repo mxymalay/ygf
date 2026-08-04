@@ -1,4 +1,5 @@
 import unittest
+import json
 import os
 import runpy
 import tempfile
@@ -26,6 +27,7 @@ from scale_bridge.lifecycle import (
     PaymentPairLifecycle,
     PhysicalScaleTestResult,
     ProvisionReport,
+    RebootRequiredError,
     ScaleBridgeLifecycle,
     ScaleBridgeServiceController,
     load_manifest,
@@ -311,6 +313,27 @@ class _StatefulSetupCRunner(object):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_version_one_manifest_loads_without_reboot_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            with open(manifest_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "version": 1,
+                        "created_pairs": [],
+                        "service_owned": False,
+                        "driver_installed_by_product": True,
+                        "created_at": "2026-08-01 12:00:00",
+                    },
+                    handle,
+                )
+
+            manifest = load_manifest(manifest_path)
+
+            self.assertEqual(manifest.version, 2)
+            self.assertFalse(manifest.reboot_required)
+            self.assertTrue(manifest.driver_installed_by_product)
+
     def test_default_provisioning_scope_excludes_payment_pair(self):
         runner = _StatefulSetupCRunner()
         cfg = ScaleBridgeConfig(
@@ -368,6 +391,47 @@ class ProvisioningTests(unittest.TestCase):
             self.assertEqual(len(removed), 3)
             self.assertEqual(skipped, [])
             self.assertEqual(runner.pairs, {})
+            self.assertTrue(load_manifest(manifest_path).reboot_required)
+
+    def test_deleted_pairs_require_reboot_before_same_ports_are_recreated(self):
+        runner = _StatefulSetupCRunner()
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="",
+            private_bridge_port="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
+                "scale_bridge.lifecycle._current_boot_marker", return_value="boot-a"
+            ):
+                provisioner.ensure_required_pairs(cfg)
+                original_peers = (cfg.official_bridge_port, cfg.private_bridge_port)
+                provisioner.remove_owned_pairs()
+                with self.assertRaisesRegex(RebootRequiredError, "重启 Windows"):
+                    provisioner.ensure_required_pairs(cfg)
+
+            self.assertEqual(runner.pairs, {})
+            self.assertEqual(
+                (cfg.official_bridge_port, cfg.private_bridge_port),
+                original_peers,
+            )
+
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
+                "scale_bridge.lifecycle._current_boot_marker", return_value="boot-b"
+            ):
+                report = provisioner.ensure_required_pairs(cfg)
+
+            self.assertEqual(len(report.created), 2)
+            manifest = load_manifest(manifest_path)
+            self.assertFalse(manifest.reboot_required)
+            self.assertEqual({item.index for item in manifest.created_pairs}, {0, 1})
 
     def test_repair_replaces_changed_owned_pair_and_removes_obsolete_pair(self):
         runner = _StatefulSetupCRunner()
@@ -891,38 +955,6 @@ class _FakeLifecycleService(object):
 
 
 class FullLifecycleTests(unittest.TestCase):
-    def test_missing_owned_internal_pair_is_recreated_at_a_new_index(self):
-        runner = _StatefulSetupCRunner()
-        runner.pairs[2] = ("COM9", "CNCB2")
-        cfg = ScaleBridgeConfig(
-            physical_scale=ScaleDeviceIdentity(port="COM5"),
-            official_pos_virtual_port="COM9",
-            private_pos_virtual_port="COM10",
-            official_bridge_port="CNCB2",
-            private_bridge_port="CNCB3",
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            manifest_path = os.path.join(directory, "installation.json")
-            manifest = load_manifest(manifest_path)
-            manifest.created_pairs = [
-                OwnedPair("official_scale", 2, "COM9", "CNCB2"),
-                OwnedPair("private_scale", 3, "COM10", "CNCB3"),
-            ]
-            save_manifest(manifest, manifest_path)
-            provisioner = Com0ComProvisioner(
-                "setupc.exe",
-                manifest_path,
-                runner=runner,
-                port_enumerator=lambda include_virtual=True: [],
-            )
-            with patch("scale_bridge.lifecycle.is_administrator", return_value=True):
-                report = provisioner.ensure_required_pairs(cfg)
-
-            self.assertEqual(cfg.private_bridge_port, "CNCB4")
-            self.assertIn("COM10 ↔ CNCB4 (#4)", report.created)
-            self.assertIn(4, runner.pairs)
-            self.assertFalse(any(item.index == 3 for item in load_manifest(manifest_path).created_pairs))
-
     def test_legacy_unowned_service_needs_explicit_removal_permission(self):
         with tempfile.TemporaryDirectory() as directory:
             service = _FakeLifecycleService()
