@@ -295,7 +295,12 @@ def main():
             "--distpath=%s" % dist_dir,
             "--workpath=%s" % os.path.join("build", "installer"),
             "--specpath=%s" % os.path.join("build", "spec"),
+            "--hidden-import=_tkinter",
             "--hidden-import=tkinter",
+            "--hidden-import=tkinter.filedialog",
+            "--hidden-import=tkinter.messagebox",
+            "--hidden-import=tkinter.simpledialog",
+            "--hidden-import=tkinter.ttk",
             "--add-data=%s;payload" % payload_zip_source,
             "installer_stub.py",
         ]

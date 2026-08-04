@@ -12,13 +12,36 @@ import tempfile
 import time
 import zipfile
 
-import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+import ctypes
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, simpledialog, ttk
+    HAS_TKINTER = True
+except ImportError:
+    HAS_TKINTER = False
+    tk = filedialog = messagebox = simpledialog = ttk = None
 
 try:
     import winreg
 except ImportError:  # pragma: no cover - only used on Windows
     winreg = None
+
+
+def _native_showinfo(title, message):
+    if os.name == "nt":
+        ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x40)
+
+
+def _native_showerror(title, message):
+    if os.name == "nt":
+        ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x10)
+
+
+def _native_askyesno(title, message):
+    if os.name == "nt":
+        return ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x24) == 6
+    return True
 
 
 APP_DISPLAY_NAME = "YGF POS 称重打印系统"
@@ -284,24 +307,39 @@ def _schedule_remove(install_dir, keep_data):
     )
 
 
-def _uninstall(install_dir, root):
+def _uninstall(install_dir, root=None):
     if not install_dir or not os.path.isdir(install_dir):
-        messagebox.showinfo("卸载", "没有找到已安装的 YGF POS。", parent=root)
+        if HAS_TKINTER and root:
+            messagebox.showinfo("卸载", "没有找到已安装的 YGF POS。", parent=root)
+        else:
+            _native_showinfo("卸载", "没有找到已安装的 YGF POS。")
         return
-    keep_data = messagebox.askyesno(
-        "保留门店数据",
-        "是否保留 data 文件夹中的数据库、配置和日志？\n\n选择“是”可便于以后重新安装恢复。",
-        parent=root,
-    )
-    if not messagebox.askyesno("确认卸载", "将停止桥接服务并卸载 YGF POS，是否继续？", parent=root):
-        return
+    if HAS_TKINTER and root:
+        keep_data = messagebox.askyesno(
+            "保留门店数据",
+            "是否保留 data 文件夹中的数据库、配置和日志？\n\n选择“是”可便于以后重新安装恢复。",
+            parent=root,
+        )
+        if not messagebox.askyesno("确认卸载", "将停止桥接服务并卸载 YGF POS，是否继续？", parent=root):
+            return
+    else:
+        keep_data = _native_askyesno(
+            "保留门店数据",
+            "是否保留 data 文件夹中的数据库、配置和日志？\n\n选择“是”可便于以后重新安装恢复。",
+        )
+        if not _native_askyesno("确认卸载", "将停止桥接服务并卸载 YGF POS，是否继续？"):
+            return
     display_name = _registry_display_name() or APP_DISPLAY_NAME
     _stop_service(install_dir, remove=True)
     _remove_shortcuts(display_name)
     _remove_uninstall_entry()
     _schedule_remove(install_dir, keep_data)
-    messagebox.showinfo("卸载已开始", "程序文件将在退出后删除。" + ("门店数据已保留。" if keep_data else "门店数据也将删除。"), parent=root)
-    root.destroy()
+    msg = "程序文件将在退出后删除。" + ("门店数据已保留。" if keep_data else "门店数据也将删除。")
+    if HAS_TKINTER and root:
+        messagebox.showinfo("卸载已开始", msg, parent=root)
+        root.destroy()
+    else:
+        _native_showinfo("卸载已开始", msg)
 
 
 def _make_root():
@@ -313,6 +351,17 @@ def _make_root():
 
 
 def main():
+    if not HAS_TKINTER:
+        existing = _existing_install_dir()
+        target = existing or os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "YGF-POS")
+        display_name = _registry_display_name() or DISPLAY_NAME_OPTIONS[0]
+        try:
+            _install(target, display_name)
+            _native_showinfo("安装完成", "%s 已安装/更新完成。\n\n实际程序文件：启动.exe\n安装路径：%s" % (display_name, target))
+        except Exception as exc:
+            _native_showerror("安装失败", str(exc))
+        return
+
     root = _make_root()
     existing = _existing_install_dir()
     default_dir = existing or os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "YGF-POS")
@@ -384,12 +433,15 @@ def main():
 
 if __name__ == "__main__":
     if "/uninstall" in [item.lower() for item in sys.argv[1:]]:
-        root = _make_root()
-        _uninstall(_existing_install_dir() or _application_dir(), root)
-        try:
-            if root.winfo_exists():
-                root.mainloop()
-        except tk.TclError:
-            pass
+        if HAS_TKINTER:
+            root = _make_root()
+            _uninstall(_existing_install_dir() or _application_dir(), root)
+            try:
+                if root.winfo_exists():
+                    root.mainloop()
+            except Exception:
+                pass
+        else:
+            _uninstall(_existing_install_dir() or _application_dir())
     else:
         main()
