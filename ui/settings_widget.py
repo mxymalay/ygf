@@ -191,12 +191,12 @@ class SettingsWidget(QWidget):
     """系统设置界面"""
 
     NAV_ITEMS = [
-        ("scale", u"⚖️  电子秤设置"),
-        ("bridge", u"🔀  POS 称桥接"),
-        ("printer", u"🖨️  小票打印机"),
         ("biz", u"🏪  店铺与计价"),
         ("sys", u"⚙️  系统与流转"),
+        ("scale", u"⚖️  电子秤设置"),
+        ("bridge", u"🔀  POS 称桥接"),
         ("sqb", u"💵  收钱吧插件"),
+        ("printer", u"🖨️  小票打印机"),
         ("danger", u"⚠️  还原与重置"),
     ]
 
@@ -407,18 +407,18 @@ class SettingsWidget(QWidget):
             }
         """)
 
-        # 1. 称重设置页
-        self.stacked_widget.addWidget(self._build_scale_page())
-        # 2. 官方/私有 POS 共享电子秤
-        self.stacked_widget.addWidget(self._build_bridge_page())
-        # 3. 打印机设置页
-        self.stacked_widget.addWidget(self._build_printer_page())
-        # 4. 店铺与计价设置页
+        # 1. 店铺与计价设置页
         self.stacked_widget.addWidget(self._build_biz_page())
-        # 5. 系统与流转设置页
+        # 2. 系统与流转设置页
         self.stacked_widget.addWidget(self._build_sys_page())
-        # 6. 收钱吧设置页
+        # 3. 电子秤设置页
+        self.stacked_widget.addWidget(self._build_scale_page())
+        # 4. 官方/私有 POS 共享电子秤
+        self.stacked_widget.addWidget(self._build_bridge_page())
+        # 5. 收钱吧设置页
         self.stacked_widget.addWidget(self._build_sqb_page())
+        # 6. 打印机设置页
+        self.stacked_widget.addWidget(self._build_printer_page())
         # 7. 重置与恢复设置页
         self.stacked_widget.addWidget(self._build_danger_page())
 
@@ -471,7 +471,7 @@ class SettingsWidget(QWidget):
         return scroll
 
     # ────────────────────────────────────────────────────────────
-    # 页面 1: 称重数据源设置
+    # 页面 3: 电子秤数据源设置
     # ────────────────────────────────────────────────────────────
     def _build_scale_page(self):
         card, layout = self._create_section_card(
@@ -550,7 +550,7 @@ class SettingsWidget(QWidget):
 
         self.btn_go_scale_bridge = QPushButton(u"前往 POS 称桥接")
         self._style_touch_action_btn(self.btn_go_scale_bridge, "purple")
-        self.btn_go_scale_bridge.clicked.connect(lambda: self._open_settings_page(1))
+        self.btn_go_scale_bridge.clicked.connect(lambda: self._open_settings_page(3))
         btn_box.addWidget(self.btn_go_scale_bridge, 0, 1)
 
         btn_save_scale = QPushButton(u"💾 保存称重设置")
@@ -566,7 +566,7 @@ class SettingsWidget(QWidget):
         return self._wrap_in_scroll(card)
 
     # ────────────────────────────────────────────────────────────
-    # 页面 2: 官方 / 私有 POS 共享电子秤
+    # 页面 4: 官方 / 私有 POS 共享电子秤
     # ────────────────────────────────────────────────────────────
     def _build_bridge_page(self):
         card, layout = self._create_section_card(
@@ -760,7 +760,7 @@ class SettingsWidget(QWidget):
         return self._wrap_in_scroll(card)
 
     # ────────────────────────────────────────────────────────────
-    # 页面 3: 打印机设置
+    # 页面 6: 打印机设置
     # ────────────────────────────────────────────────────────────
     def _build_printer_page(self):
         card, layout = self._create_section_card(
@@ -828,7 +828,7 @@ class SettingsWidget(QWidget):
         return self._wrap_in_scroll(card)
 
     # ────────────────────────────────────────────────────────────
-    # 页面 4: 店铺与计价设置
+    # 页面 1: 店铺与计价设置
     # ────────────────────────────────────────────────────────────
     def _build_biz_page(self):
         card, layout = self._create_section_card(
@@ -882,7 +882,7 @@ class SettingsWidget(QWidget):
         return self._wrap_in_scroll(card)
 
     # ────────────────────────────────────────────────────────────
-    # 页面 5: 系统与流转设置
+    # 页面 2: 系统与流转设置
     # ────────────────────────────────────────────────────────────
     def _build_sys_page(self):
         card, layout = self._create_section_card(
@@ -986,7 +986,7 @@ class SettingsWidget(QWidget):
         return self._wrap_in_scroll(card)
 
     # ────────────────────────────────────────────────────────────
-    # 页面 6: 收钱吧设置
+    # 页面 5: 收钱吧设置
     # ────────────────────────────────────────────────────────────
     def _build_sqb_page(self):
         card, layout = self._create_section_card(
@@ -1791,13 +1791,13 @@ class SettingsWidget(QWidget):
 
     def _on_settings_page_changed(self, index):
         self.stacked_widget.setCurrentIndex(index)
-        if index == 0 and self.cmb_scale_source.currentIndex() == 2:
+        if index == 2 and self.cmb_scale_source.currentIndex() == 2:
             self._on_scale_source_changed(2)
-        elif index == 1:
+        elif index == 3:
             self._refresh_scale_bridge_overall_status()
-        elif index == 4:
+        elif index == 1:
             self._refresh_official_window_status()
-        elif index == 5:
+        elif index == 4:
             self._on_sqb_mode_changed()
 
     def _scale_bridge_runtime_state(self):
@@ -2068,7 +2068,7 @@ class SettingsWidget(QWidget):
         self.cmb_scale_source.setCurrentIndex(2)
         self._on_scale_source_changed(2)
         self._on_save_scale()
-        self._open_settings_page(0)
+        self._open_settings_page(2)
 
     def _refresh_scale_bridge_devices(self, checked=False, silent=False, preferred_port=None):
         """Discover only physical serial candidates and retain hardware identity in item data."""
@@ -2848,7 +2848,7 @@ class SettingsWidget(QWidget):
                     u"不能启用桥接模式",
                     status + u"\n\n本设置没有保存。请先到“POS 称桥接”完成初始化。",
                 )
-                self._open_settings_page(1)
+                self._open_settings_page(3)
                 return
             self.config["scale_source"] = "com"
             self.config["scale_connection_mode"] = "bridge"
