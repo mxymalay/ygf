@@ -101,10 +101,21 @@ def main():
         if os.path.exists(folder):
             if not _clean_build_tree(folder):
                 print("[i] 无法完全清理旧构建目录，后续将避开被占用文件")
+    # A locked old installer (or an old dist/YGF-POS folder) would make the
+    # output ambiguous: dist must contain exactly one deliverable.  Stop
+    # before compiling rather than silently mixing old and new files.
+    if os.path.isdir("dist") and os.listdir("dist"):
+        print("[X] dist 目录仍有文件被占用，无法保证只生成一个安装包")
+        print("    请先关闭旧的安装包/程序后再运行构建脚本")
+        return 7
 
     # 3. 构造主程序与独立 Windows 服务的 PyInstaller 参数
     app_name = "启动"
-    package_dir = os.path.join("dist", "YGF-POS")
+    dist_dir = "dist"
+    # The application EXEs are build-only staging files.  They are embedded
+    # into the setup payload and must not be presented as separate deliverables
+    # in dist/.
+    package_dir = os.path.join("build", "package", "YGF-POS")
     if os.path.exists(package_dir):
         # A previous deployment may still have the bundled installer open.
         # Never overwrite that locked tree; stage this build beside it.
@@ -190,9 +201,6 @@ def main():
         res = subprocess.call(maintenance_cmd)
 
     if res == 0:
-        dist_file = os.path.join(package_dir, "%s.exe" % app_name)
-        service_file = os.path.join(package_dir, "ScaleBridgeService.exe")
-        maintenance_file = os.path.join(package_dir, "ScaleBridgeMaintenance.exe")
         installer_candidates = [
             os.path.join("ThirdParty", "com0com", name)
             for name in os.listdir(os.path.join("ThirdParty", "com0com"))
@@ -270,6 +278,11 @@ def main():
         # shortcuts and an uninstaller, and preserves data/ on updates.
         payload_zip = os.path.join(package_dir, "YGF-POS-Payload.zip")
         _create_payload_archive(package_dir, payload_zip)
+        # PyInstaller resolves --add-data sources relative to the generated
+        # spec file (build/spec).  Pass an absolute path so the setup build
+        # cannot accidentally look under build/spec/dist/... and fail with
+        # "Unable to find ... YGF-POS-Payload.zip".
+        payload_zip_source = os.path.abspath(payload_zip)
         installer_cmd = [
             sys.executable, "-m", "PyInstaller",
             "--name=YGF-POS-Setup",
@@ -277,11 +290,11 @@ def main():
             "--onefile",
             "--clean",
             "--uac-admin",
-            "--distpath=%s" % package_dir,
+            "--distpath=%s" % dist_dir,
             "--workpath=%s" % os.path.join("build", "installer"),
             "--specpath=%s" % os.path.join("build", "spec"),
             "--hidden-import=tkinter",
-            "--add-data=%s;payload" % payload_zip,
+            "--add-data=%s;payload" % payload_zip_source,
             "installer_stub.py",
         ]
         print("[*] 正在生成安装/更新/卸载一体化安装包...")
@@ -293,18 +306,21 @@ def main():
             os.remove(payload_zip)
         except OSError:
             pass
-        setup_file = os.path.join(package_dir, "YGF-POS-Setup.exe")
+        setup_file = os.path.join(dist_dir, "YGF-POS-Setup.exe")
+        try:
+            shutil.rmtree(package_dir, onerror=_remove_readonly)
+        except OSError:
+            # A failed cleanup only leaves an internal build cache under
+            # build/; the dist directory still contains the single installer.
+            print("[i] 暂时无法清理内部 staging 目录，不影响安装包输出")
         
         print("\n" + "=" * 60)
         print(" [v] 打包成功！")
-        print(" [*] 所有打包输出仅保存在项目 dist 目录，不会复制到其他路径")
+        print(" [*] dist 目录只保留一个安装包；应用文件将在安装时释放")
         print("=" * 60)
         print("[!] 输出文件：")
-        print("   主程序: %s" % os.path.abspath(dist_file))
-        print("   桥接服务: %s" % os.path.abspath(service_file))
-        print("   维修工具: %s" % os.path.abspath(maintenance_file))
         print("   安装包: %s" % os.path.abspath(setup_file))
-        print("   完整部署目录: %s" % os.path.abspath(package_dir))
+        print("   （主程序、桥接服务和维修工具已嵌入安装包，安装时释放）")
         print("=" * 60)
         elapsed_time = time.time() - start_time
         print(f" [i] 打包总耗时: {elapsed_time:.1f} 秒")
