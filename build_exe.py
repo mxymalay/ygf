@@ -301,6 +301,12 @@ def main():
             "--hidden-import=tkinter.messagebox",
             "--hidden-import=tkinter.simpledialog",
             "--hidden-import=tkinter.ttk",
+            # PyInstaller normally detects tkinter, but Win7 one-file builds
+            # can omit Tcl/Tk data and silently enter installer_stub's native
+            # fallback. Collect both the Python package and Tcl bridge so the
+            # touch-friendly directory/name chooser is present on the target.
+            "--collect-all=tkinter",
+            "--collect-binaries=_tkinter",
             "--add-data=%s;payload" % payload_zip_source,
             "installer_stub.py",
         ]

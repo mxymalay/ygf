@@ -13,6 +13,7 @@ import time
 import zipfile
 
 import ctypes
+from ctypes import wintypes
 
 try:
     import tkinter as tk
@@ -42,6 +43,178 @@ def _native_askyesno(title, message):
     if os.name == "nt":
         return ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x24) == 6
     return True
+
+
+def _native_select_folder(initial_dir):
+    """Win32 folder picker used when the packaged Tk runtime is unavailable."""
+    if os.name != "nt":
+        return None
+    shell32 = ctypes.windll.shell32
+    user32 = ctypes.windll.user32
+    ole32 = ctypes.windll.ole32
+
+    class BROWSEINFO(ctypes.Structure):
+        _fields_ = [
+            ("hwndOwner", ctypes.c_void_p),
+            ("pidlRoot", ctypes.c_void_p),
+            ("pszDisplayName", ctypes.c_wchar_p),
+            ("lpszTitle", ctypes.c_wchar_p),
+            ("ulFlags", ctypes.c_uint),
+            ("lpfn", ctypes.c_void_p),
+            ("lParam", ctypes.c_void_p),
+            ("iImage", ctypes.c_int),
+        ]
+
+    BFFM_INITIALIZED = 1
+    BFFM_SETSELECTIONW = 0x467
+    BIF_RETURNONLYFSDIRS = 0x0001
+    BIF_NEWDIALOGSTYLE = 0x0040
+    initial = os.path.abspath(initial_dir or os.getcwd())
+    initial_buffer = ctypes.create_unicode_buffer(initial)
+
+    @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
+    def callback(hwnd, message, _lparam, data):
+        if message == BFFM_INITIALIZED:
+            user32.SendMessageW(hwnd, BFFM_SETSELECTIONW, 1, ctypes.c_wchar_p(data))
+        return 0
+
+    display = ctypes.create_unicode_buffer(260)
+    info = BROWSEINFO(
+        0,
+        0,
+        ctypes.cast(display, ctypes.c_wchar_p),
+        "请选择安装目录",
+        BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE,
+        ctypes.cast(callback, ctypes.c_void_p),
+        ctypes.cast(initial_buffer, ctypes.c_void_p),
+        0,
+    )
+    shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+    pidl = shell32.SHBrowseForFolderW(ctypes.byref(info))
+    if not pidl:
+        return None
+    try:
+        path = ctypes.create_unicode_buffer(32768)
+        if shell32.SHGetPathFromIDListW(pidl, path):
+            return path.value
+        return None
+    finally:
+        ole32.CoTaskMemFree(pidl)
+
+
+def _native_prompt_string(title, prompt, initial_value=""):
+    """Small native Win32 text dialog for the no-Tk fallback path."""
+    if os.name != "nt":
+        return None
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    WM_COMMAND = 0x0111
+    WM_CLOSE = 0x0010
+    WM_DESTROY = 0x0002
+    ID_OK = 1
+    ID_CANCEL = 2
+    WS_OVERLAPPED = 0x00000000
+    WS_CAPTION = 0x00C00000
+    WS_SYSMENU = 0x00080000
+    WS_VISIBLE = 0x10000000
+    WS_CHILD = 0x40000000
+    WS_TABSTOP = 0x00010000
+    ES_AUTOHSCROLL = 0x0080
+    BS_DEFPUSHBUTTON = 0x00000001
+    COLOR_WINDOW = 5
+    WNDPROC = ctypes.WINFUNCTYPE(
+        ctypes.c_long, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+    )
+
+    class WNDCLASSW(ctypes.Structure):
+        _fields_ = [
+            ("style", ctypes.c_uint),
+            ("lpfnWndProc", WNDPROC),
+            ("cbClsExtra", ctypes.c_int),
+            ("cbWndExtra", ctypes.c_int),
+            ("hInstance", ctypes.c_void_p),
+            ("hIcon", ctypes.c_void_p),
+            ("hCursor", ctypes.c_void_p),
+            ("hbrBackground", ctypes.c_void_p),
+            ("lpszMenuName", ctypes.c_wchar_p),
+            ("lpszClassName", ctypes.c_wchar_p),
+        ]
+
+    class_name = "YGFInstallerInput_%d" % os.getpid()
+    state = {"done": False, "accepted": False, "edit": None, "value": ""}
+
+    def loword(value):
+        return int(value) & 0xFFFF
+
+    @WNDPROC
+    def wndproc(hwnd, message, wparam, lparam):
+        if message == WM_COMMAND and loword(wparam) in (ID_OK, ID_CANCEL):
+            if loword(wparam) == ID_OK:
+                edit = state["edit"]
+                length = user32.GetWindowTextLengthW(edit)
+                buffer = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(edit, buffer, length + 1)
+                state["value"] = buffer.value
+                state["accepted"] = True
+            state["done"] = True
+            user32.DestroyWindow(hwnd)
+            return 0
+        if message == WM_CLOSE:
+            state["done"] = True
+            user32.DestroyWindow(hwnd)
+            return 0
+        if message == WM_DESTROY:
+            user32.PostQuitMessage(0)
+            return 0
+        return user32.DefWindowProcW(hwnd, message, wparam, lparam)
+
+    instance = kernel32.GetModuleHandleW(None)
+    class_info = WNDCLASSW(0, wndproc, 0, 0, instance, 0, 0, COLOR_WINDOW + 1, None, class_name)
+    if not user32.RegisterClassW(ctypes.byref(class_info)):
+        return None
+    try:
+        hwnd = user32.CreateWindowExW(
+            0,
+            class_name,
+            str(title),
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+            0,
+            0,
+            520,
+            190,
+            0,
+            0,
+            instance,
+            0,
+        )
+        if not hwnd:
+            return None
+        static_class = "STATIC"
+        edit_class = "EDIT"
+        button_class = "BUTTON"
+        user32.CreateWindowExW(0, static_class, str(prompt), WS_CHILD | WS_VISIBLE, 18, 18, 480, 34, hwnd, 0, instance, 0)
+        state["edit"] = user32.CreateWindowExW(
+            0, edit_class, str(initial_value or ""),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+            18, 58, 480, 32, hwnd, 100, instance, 0,
+        )
+        user32.CreateWindowExW(
+            0, button_class, "确定", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+            300, 112, 90, 34, hwnd, ID_OK, instance, 0,
+        )
+        user32.CreateWindowExW(
+            0, button_class, "取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            405, 112, 90, 34, hwnd, ID_CANCEL, instance, 0,
+        )
+        user32.SetFocus(state["edit"])
+        user32.UpdateWindow(hwnd)
+        message = wintypes.MSG()
+        while not state["done"] and user32.GetMessageW(ctypes.byref(message), 0, 0, 0) > 0:
+            user32.TranslateMessage(ctypes.byref(message))
+            user32.DispatchMessageW(ctypes.byref(message))
+        return state["value"] if state["accepted"] else None
+    finally:
+        user32.UnregisterClassW(class_name, instance)
 
 
 APP_DISPLAY_NAME = "YGF POS 称重打印系统"
@@ -353,8 +526,28 @@ def _make_root():
 def main():
     if not HAS_TKINTER:
         existing = _existing_install_dir()
-        target = existing or os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "YGF-POS")
-        display_name = _registry_display_name() or DISPLAY_NAME_OPTIONS[0]
+        default_dir = existing or os.path.join(
+            os.environ.get("ProgramFiles", r"C:\Program Files"), "YGF-POS"
+        )
+        target = _native_select_folder(default_dir)
+        if not target:
+            _native_showinfo("安装已取消", "未选择安装目录，安装没有执行。")
+            return
+        display_name = _native_prompt_string(
+            "应用显示名称",
+            "请输入安装后显示的应用名称：",
+            _registry_display_name() or DISPLAY_NAME_OPTIONS[0],
+        )
+        if display_name is None:
+            _native_showinfo("安装已取消", "未输入应用名称，安装没有执行。")
+            return
+        display_name = display_name.strip()
+        if not display_name or any(char in display_name for char in "\\/:*?\"<>|\r\n"):
+            _native_showerror("名称无效", "请输入有效的应用显示名称，不要包含 \\/:*?\"<>|。")
+            return
+        if len(display_name) > 48:
+            _native_showerror("名称过长", "应用显示名称最多 48 个字符。")
+            return
         try:
             _install(target, display_name)
             _native_showinfo("安装完成", "%s 已安装/更新完成。\n\n实际程序文件：启动.exe\n安装路径：%s" % (display_name, target))
