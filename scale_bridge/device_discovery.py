@@ -97,10 +97,12 @@ def enumerate_serial_ports(include_virtual: bool = False) -> List[SerialPortCand
 
     pnp = _pnp_properties_by_port()
     result: List[SerialPortCandidate] = []
+    seen_ports = set()
     for port in serial.tools.list_ports.comports():
         name = str(port.device or "").upper()
         if not _COM_RE.fullmatch(name):
             continue
+        seen_ports.add(name)
         extra = pnp.get(name, {})
         hwid = str(port.hwid or extra.get("hardware_id", ""))
         vid = ("%04X" % port.vid) if getattr(port, "vid", None) is not None else ""
@@ -120,6 +122,32 @@ def enumerate_serial_ports(include_virtual: bool = False) -> List[SerialPortCand
             vid=vid,
             pid=pid,
             serial_number=str(port.serial_number or ""),
+        )
+        candidate.is_virtual = _is_virtual(
+            candidate.friendly_name,
+            candidate.pnp_device_id,
+            candidate.hardware_id,
+            candidate.manufacturer,
+            candidate.service,
+        )
+        if include_virtual or not candidate.is_virtual:
+            result.append(candidate)
+
+    # pyserial's Windows registry backend can omit com0com endpoints whose
+    # driver exposes a CNC port without a normal serial-service entry. WMI
+    # still reports those devices (and Device Manager shows them), so merge
+    # WMI-only COM names into the result instead of declaring them missing.
+    for name, extra in pnp.items():
+        name = str(name or "").upper()
+        if name in seen_ports or not _COM_RE.fullmatch(name):
+            continue
+        candidate = SerialPortCandidate(
+            port=name,
+            friendly_name=str(extra.get("friendly_name") or name),
+            pnp_device_id=str(extra.get("pnp_device_id") or ""),
+            hardware_id=str(extra.get("hardware_id") or ""),
+            manufacturer=str(extra.get("manufacturer") or ""),
+            service=str(extra.get("service") or ""),
         )
         candidate.is_virtual = _is_virtual(
             candidate.friendly_name,
