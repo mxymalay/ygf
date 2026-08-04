@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 chcp 65001 >nul
 title 正在打包【杨国福麻辣烫称重打印系统】...
 

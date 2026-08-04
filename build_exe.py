@@ -19,6 +19,13 @@ except Exception:
 
 def main():
     start_time = time.time()
+
+    # A .bat launched by double-click is not guaranteed to inherit the
+    # repository directory as its current working directory.  All resources
+    # (ThirdParty, data and docs) must be resolved beside this script, or a
+    # packaged build can appear to succeed while silently omitting assets.
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(project_dir)
     
     print("=" * 60)
     print("      杨国福麻辣烫 · 独立称重与打印系统 — 免安装 EXE 打包工具")
@@ -191,7 +198,15 @@ def main():
         shutil.copy2(sqb_installer, os.path.join(bundled_sqb, os.path.basename(sqb_installer)))
         bundled_data = os.path.join(package_dir, "data")
         os.makedirs(bundled_data, exist_ok=True)
-        shutil.copy2(os.path.join("data", "scale_bridge.example.json"), os.path.join(bundled_data, "scale_bridge.example.json"))
+        scale_example = os.path.join("data", "scale_bridge.example.json")
+        if os.path.isfile(scale_example):
+            shutil.copy2(scale_example, os.path.join(bundled_data, "scale_bridge.example.json"))
+        else:
+            # This is documentation only; the real bridge configuration is
+            # created by the settings workflow.  Older source checkouts may
+            # have removed the example after moving settings into data/db and
+            # data/settings, so it must not make an otherwise valid build fail.
+            print("[i] 未找到可选 data\\scale_bridge.example.json，跳过示例配置复制")
         bundled_docs = os.path.join(package_dir, "docs")
         os.makedirs(bundled_docs, exist_ok=True)
         shutil.copy2(os.path.join("docs", "scale_bridge_win7.md"), os.path.join(bundled_docs, "scale_bridge_win7.md"))
@@ -219,7 +234,23 @@ def main():
 
         # Merge instead of deleting the target, preserving data/scale_bridge.json
         # and the installation ownership manifest created on the POS computer.
-        shutil.copytree(package_dir, target_dir, dirs_exist_ok=True)
+        try:
+            shutil.copytree(package_dir, target_dir, dirs_exist_ok=True)
+        except (OSError, shutil.Error) as exc:
+            # C:\驱动 may be protected when the build script itself was not
+            # started elevated.  Keep the actual build result usable by
+            # falling back to the current user's desktop instead of reporting
+            # a mysterious post-build traceback.
+            fallback_dir = os.path.join(os.path.expanduser("~"), "Desktop", "YGF-POS")
+            if os.path.abspath(fallback_dir) == os.path.abspath(target_dir):
+                raise
+            os.makedirs(fallback_dir, exist_ok=True)
+            shutil.copytree(package_dir, fallback_dir, dirs_exist_ok=True)
+            target_dir = fallback_dir
+            action_desc = (
+                "目标目录无写入权限，已改为部署到: %s（原错误: %s）"
+                % (target_dir, exc)
+            )
 
         print("\n" + "=" * 60)
         print(" [v] 打包成功！")
