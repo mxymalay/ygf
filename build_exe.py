@@ -10,6 +10,7 @@ import shutil
 import time
 import hashlib
 import stat
+import zipfile
 
 # 强制控制台输出使用 UTF-8 编码，防止在 Git Bash (MINGW64) 等终端中出现中文乱码
 try:
@@ -52,6 +53,18 @@ def _clean_build_tree(path):
     return not os.path.exists(path)
 
 
+def _create_payload_archive(package_dir, archive_path):
+    """Create the payload embedded into the standalone setup executable."""
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for root, _directories, filenames in os.walk(package_dir):
+            for filename in filenames:
+                if filename in (os.path.basename(archive_path), "YGF-POS-Setup.exe", "卸载.exe"):
+                    continue
+                source = os.path.join(root, filename)
+                relative = os.path.relpath(source, package_dir).replace(os.sep, "/")
+                archive.write(source, relative)
+
+
 def main():
     start_time = time.time()
 
@@ -90,7 +103,7 @@ def main():
                 print("[i] 无法完全清理旧构建目录，后续将避开被占用文件")
 
     # 3. 构造主程序与独立 Windows 服务的 PyInstaller 参数
-    app_name = "驱动"
+    app_name = "启动"
     package_dir = os.path.join("dist", "YGF-POS")
     if os.path.exists(package_dir):
         # A previous deployment may still have the bundled installer open.
@@ -251,6 +264,36 @@ def main():
             os.path.join("docs", "scale_bridge_troubleshooting.md"),
             os.path.join(bundled_docs, "scale_bridge_troubleshooting.md"),
         )
+
+        # Build a self-contained setup EXE.  The setup embeds the complete
+        # package, installs/updates in a user-selected directory, creates
+        # shortcuts and an uninstaller, and preserves data/ on updates.
+        payload_zip = os.path.join(package_dir, "YGF-POS-Payload.zip")
+        _create_payload_archive(package_dir, payload_zip)
+        installer_cmd = [
+            sys.executable, "-m", "PyInstaller",
+            "--name=YGF-POS-Setup",
+            "--noconsole",
+            "--onefile",
+            "--clean",
+            "--uac-admin",
+            "--distpath=%s" % package_dir,
+            "--workpath=%s" % os.path.join("build", "installer"),
+            "--specpath=%s" % os.path.join("build", "spec"),
+            "--hidden-import=tkinter",
+            "--add-data=%s;payload" % payload_zip,
+            "installer_stub.py",
+        ]
+        print("[*] 正在生成安装/更新/卸载一体化安装包...")
+        res = subprocess.call(installer_cmd)
+        if res != 0:
+            print("[X] 安装包 EXE 生成失败，保留 payload 供诊断: %s" % payload_zip)
+            return int(res or 6)
+        try:
+            os.remove(payload_zip)
+        except OSError:
+            pass
+        setup_file = os.path.join(package_dir, "YGF-POS-Setup.exe")
         
         print("\n" + "=" * 60)
         print(" [v] 打包成功！")
@@ -260,6 +303,7 @@ def main():
         print("   主程序: %s" % os.path.abspath(dist_file))
         print("   桥接服务: %s" % os.path.abspath(service_file))
         print("   维修工具: %s" % os.path.abspath(maintenance_file))
+        print("   安装包: %s" % os.path.abspath(setup_file))
         print("   完整部署目录: %s" % os.path.abspath(package_dir))
         print("=" * 60)
         elapsed_time = time.time() - start_time
