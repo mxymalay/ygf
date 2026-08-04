@@ -1,6 +1,5 @@
 @echo off
 cd /d "%~dp0"
-chcp 65001 >nul
 title YGF POS Build
 
 echo ========================================================

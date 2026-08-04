@@ -12,13 +12,14 @@ import hashlib
 import stat
 import zipfile
 
-# 强制控制台输出使用 UTF-8 编码，防止在终端中出现编码异常或乱码
-try:
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-except Exception:
-    pass
+# 仅在 Git Bash 等 Bash 终端中使用 UTF-8 重定向，防止破坏 Windows 7 原生 CMD 控制台 WriteConsoleW
+if "MSYSTEM" in os.environ or "TERM" in os.environ:
+    try:
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 
 def _unique_build_dir(base_dir):
