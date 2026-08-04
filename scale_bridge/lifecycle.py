@@ -788,13 +788,28 @@ def test_virtual_pair(
     if serial_factory is None:
         import serial
         serial_factory = serial.Serial
+        use_windows_device_path = True
+    else:
+        use_windows_device_path = False
+
+    def open_name(port):
+        # com0com's internal CNC endpoints are not DOS COM aliases.  On
+        # Windows they must be opened through the Win32 device namespace;
+        # passing plain ``CNCB2`` makes pyserial search for a file with that
+        # literal name and returns ERROR_FILE_NOT_FOUND.  Keep injected test
+        # factories on their original logical names.
+        value = str(port or "").strip().upper()
+        if use_windows_device_path and value.startswith("CNC"):
+            return r"\\.\%s" % value
+        return port
+
     opened = []
     token_a = b"YGF-A-" + os.urandom(8).hex().encode("ascii")
     token_b = b"YGF-B-" + os.urandom(8).hex().encode("ascii")
     try:
         for port in (first, second):
             ser = serial_factory(
-                port=port,
+                port=open_name(port),
                 baudrate=9600,
                 bytesize=8,
                 parity="N",
