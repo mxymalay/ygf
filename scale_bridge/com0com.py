@@ -23,6 +23,7 @@ SETUPC_CANDIDATES = (
 # POS machines this may take longer than a normal command right after a port
 # was released, so maintenance operations need a patient but finite timeout.
 SETUPC_MUTATION_TIMEOUT_SECONDS = 60
+SETUPC_DRIVER_UPDATE_TIMEOUT_SECONDS = 180
 
 
 class SetupcMutationTimeout(RuntimeError):
@@ -33,7 +34,14 @@ class SetupcMutationTimeout(RuntimeError):
         self.timeout_seconds = int(timeout_seconds)
         super().__init__(
             "com0com 在 %d 秒内未完成%s操作。"
-            % (self.timeout_seconds, "创建" if self.operation == "install" else "删除")
+            % (
+                self.timeout_seconds,
+                {
+                    "install": "创建",
+                    "remove": "删除",
+                    "update": "更新驱动",
+                }.get(self.operation, self.operation),
+            )
         )
 
 
@@ -144,7 +152,7 @@ def _run_setupc(
             cwd=setup_dir,
         )
     except subprocess.TimeoutExpired as exc:
-        if arguments and arguments[0].lower() in ("install", "remove"):
+        if arguments and arguments[0].lower() in ("install", "remove", "update"):
             raise SetupcMutationTimeout(arguments[0].lower(), timeout_seconds) from exc
         raise
     stdout = getattr(result, "stdout", b"") or b""
@@ -248,3 +256,28 @@ def remove_pair(
     if pair_index < 0:
         raise ValueError("pair_index must not be negative")
     _run_setupc(executable, ["remove", str(pair_index)], SETUPC_MUTATION_TIMEOUT_SECONDS, runner)
+
+
+def update_driver_bindings(
+    setupc_path: Optional[str] = None,
+    allow_mutation: bool = False,
+    runner: Callable = subprocess.run,
+) -> None:
+    """Bind the installed com0com driver to existing PnP endpoints.
+
+    com0com's own Win7 documentation prescribes ``setupc update`` after the
+    Found New Hardware flow was cancelled or did not finish.  Pair records can
+    otherwise look healthy while Device Manager reports code 28 and no COM
+    DOS-device names exist.
+    """
+    if not allow_mutation:
+        raise PermissionError("com0com driver repair requires explicit maintenance authorisation")
+    executable = setupc_path or find_setupc()
+    if not executable:
+        raise FileNotFoundError("com0com setupc.exe was not found")
+    _run_setupc(
+        executable,
+        ["update"],
+        SETUPC_DRIVER_UPDATE_TIMEOUT_SECONDS,
+        runner,
+    )

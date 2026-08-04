@@ -58,6 +58,53 @@ class SerialPortCandidate:
         }
 
 
+@dataclass
+class Com0ComDeviceProblem:
+    name: str
+    device_id: str
+    error_code: int
+    status: str = ""
+    service: str = ""
+
+
+def enumerate_com0com_device_problems() -> List[Com0ComDeviceProblem]:
+    """Return com0com PnP endpoints whose Windows device state is unhealthy."""
+    if sys.platform != "win32":
+        return []
+    result: List[Com0ComDeviceProblem] = []
+    try:
+        import win32com.client
+
+        wmi = win32com.client.GetObject("winmgmts:")
+        query = (
+            "SELECT Name,DeviceID,ConfigManagerErrorCode,Status,Service "
+            "FROM Win32_PnPEntity"
+        )
+        for item in wmi.ExecQuery(query):
+            name = str(getattr(item, "Name", "") or "")
+            device_id = str(getattr(item, "DeviceID", "") or "")
+            if "com0com" not in (name + " " + device_id).lower():
+                continue
+            try:
+                error_code = int(getattr(item, "ConfigManagerErrorCode", 0) or 0)
+            except (TypeError, ValueError):
+                error_code = -1
+            status = str(getattr(item, "Status", "") or "")
+            if error_code or (status and status.upper() not in ("OK", "UNKNOWN")):
+                result.append(
+                    Com0ComDeviceProblem(
+                        name=name or "com0com device",
+                        device_id=device_id,
+                        error_code=error_code,
+                        status=status,
+                        service=str(getattr(item, "Service", "") or ""),
+                    )
+                )
+    except Exception:
+        return []
+    return result
+
+
 def _pnp_properties_by_port() -> dict:
     """Best-effort WMI enrichment; pyserial remains the required fallback."""
     entries = {}
@@ -182,13 +229,14 @@ def windows_serial_port_exists(port_name: str) -> bool:
         return False
     try:
         buffer = ctypes.create_unicode_buffer(32768)
-        return bool(
-            ctypes.windll.kernel32.QueryDosDeviceW(
-                ctypes.c_wchar_p(target),
-                buffer,
-                len(buffer),
-            )
-        )
+        query_dos_device = ctypes.windll.kernel32.QueryDosDeviceW
+        query_dos_device.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.POINTER(ctypes.c_wchar),
+            ctypes.c_uint,
+        ]
+        query_dos_device.restype = ctypes.c_uint
+        return bool(query_dos_device(target, buffer, len(buffer)))
     except Exception:
         return False
 

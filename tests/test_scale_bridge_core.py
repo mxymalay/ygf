@@ -19,6 +19,7 @@ from scale_bridge.com0com import (
     create_pair,
     parse_setupc_list,
     remove_pair,
+    update_driver_bindings,
     _run_setupc,
 )
 from scale_bridge.lifecycle import (
@@ -277,6 +278,21 @@ class Com0ComTests(unittest.TestCase):
         )
         self.assertEqual(calls[1], ["setupc.exe", "remove", "3"])
 
+    def test_driver_binding_repair_uses_documented_setupc_update(self):
+        calls = []
+
+        class Result(object):
+            returncode = 0
+            stdout = b""
+            stderr = b""
+
+        def runner(command, **_kwargs):
+            calls.append(command)
+            return Result()
+
+        update_driver_bindings("setupc.exe", True, runner)
+        self.assertEqual(calls, [["setupc.exe", "update"]])
+
 
 class _StatefulSetupCRunner(object):
     def __init__(self):
@@ -309,6 +325,8 @@ class _StatefulSetupCRunner(object):
             return self.Result()
         if action == "remove":
             self.pairs.pop(int(command[2]), None)
+            return self.Result()
+        if action == "update":
             return self.Result()
         return self.Result(returncode=1)
 
@@ -1102,13 +1120,51 @@ class FullLifecycleTests(unittest.TestCase):
             with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
                 "scale_bridge.lifecycle.find_setupc", return_value="setupc.exe"
             ):
-                with self.assertRaisesRegex(RuntimeError, "串口命名空间"):
+                with self.assertRaisesRegex(RuntimeError, "自动执行过 setupc update"):
                     lifecycle.initialize(cfg, tester)
             self.assertTrue(os.path.exists(config_path))
             saved = load_config(config_path)
             self.assertEqual(saved.official_bridge_port, "CNCB0")
             self.assertEqual(saved.private_bridge_port, "CNCB1")
             self.assertFalse(service.installed)
+            self.assertIn(["setupc.exe", "update"], runner.commands)
+
+    def test_scale_initialize_repairs_code28_driver_binding_before_service_start(self):
+        runner = _StatefulSetupCRunner()
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="",
+            private_bridge_port="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            service = _FakeLifecycleService()
+            lifecycle = ScaleBridgeLifecycle(
+                os.path.join(directory, "scale_bridge.json"),
+                manifest_path,
+                provisioner=provisioner,
+                service=service,
+                verify_enumeration=True,
+                enumeration_timeout_seconds=0,
+            )
+            tester = lambda _cfg: PhysicalScaleTestResult(True, "COM5", 0.402, "30 30", "ok")
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
+                "scale_bridge.lifecycle.find_setupc", return_value="setupc.exe"
+            ), patch(
+                "scale_bridge.lifecycle.windows_serial_port_exists",
+                side_effect=[False, False, True, True],
+            ):
+                report = lifecycle.initialize(cfg, tester)
+
+            self.assertIn(["setupc.exe", "update"], runner.commands)
+            self.assertTrue(report.service_installed)
+            self.assertTrue(service.running)
 
     def test_scale_initialize_accepts_query_dos_device_when_win7_lists_lag(self):
         runner = _StatefulSetupCRunner()

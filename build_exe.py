@@ -158,7 +158,13 @@ def main():
     service_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name=ScaleBridgeService",
-        "--console",
+        # A console-subsystem onefile executable started from the windowed POS
+        # with CREATE_NO_WINDOW can fail on Win7 before our code runs with
+        # ``init_sys_streams: can't initialize sys standard streams``.  A
+        # Windows service has no interactive console, so build the host with
+        # the correct windowed subsystem and provide explicit null streams in
+        # its entry point for pywin32's command-line helper.
+        "--noconsole",
         "--onefile",
         "--clean",
         "--distpath=%s" % package_dir,

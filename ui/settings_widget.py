@@ -2938,7 +2938,7 @@ class SettingsWidget(QWidget):
         )
 
     def _check_scale_bridge_pairs(self):
-        """Read installed com0com pairs only; this button has no write side effect."""
+        """Read pair records and the real Windows COM/PnP state without writes."""
         from scale_bridge.com0com import check_pair, list_pairs
         from ui.custom_dialog import show_error, show_info, show_warning
 
@@ -2952,8 +2952,25 @@ class SettingsWidget(QWidget):
             )
             return
 
-        def on_success(pairs):
+        def inspect_pairs_and_windows():
+            from scale_bridge.device_discovery import (
+                enumerate_com0com_device_problems,
+                windows_serial_port_exists,
+            )
+            pairs = list_pairs()
+            ports = {
+                bridge_config.official_pos_virtual_port.upper(): windows_serial_port_exists(
+                    bridge_config.official_pos_virtual_port
+                ),
+                bridge_config.private_pos_virtual_port.upper(): windows_serial_port_exists(
+                    bridge_config.private_pos_virtual_port
+                ),
+            }
+            return pairs, ports, enumerate_com0com_device_problems()
+
+        def on_success(result):
             from scale_bridge.com0com import find_pair_by_endpoint
+            pairs, windows_ports, device_problems = result
             if not bridge_config.official_bridge_port:
                 pair = find_pair_by_endpoint(bridge_config.official_pos_virtual_port, pairs)
                 if pair:
@@ -2971,19 +2988,51 @@ class SettingsWidget(QWidget):
             lines = []
             for name, item in checks:
                 suffix = u"（配对 #%d）" % item.pair.index if item.pair else ""
-                lines.append(u"%s：%s ↔ %s — %s %s" % (
-                    name, item.client_port, item.bridge_port, u"正常" if item.present else u"缺失", suffix
+                windows_ready = bool(windows_ports.get(item.client_port.upper()))
+                lines.append(u"%s：%s ↔ %s — 配对%s%s；Windows 端口%s" % (
+                    name,
+                    item.client_port,
+                    item.bridge_port,
+                    u"存在" if item.present else u"缺失",
+                    suffix,
+                    u"已注册" if windows_ready else u"未注册",
                 ))
-            message = u"\n".join(lines) + u"\n\n本检查仅读取 com0com 当前配置，不创建、删除或重命名端口。"
-            if all(item.present for _name, item in checks):
-                show_info(self, u"虚拟端口配对正常", message)
+            unhealthy = [item for item in device_problems if item.error_code]
+            if unhealthy:
+                counts = {}
+                for item in unhealthy:
+                    counts[item.error_code] = counts.get(item.error_code, 0) + 1
+                problem_lines = []
+                for code, count in sorted(counts.items()):
+                    meaning = {
+                        28: u"驱动程序未安装",
+                        52: u"Windows 无法验证驱动数字签名",
+                        10: u"设备无法启动",
+                    }.get(code, u"设备异常")
+                    problem_lines.append(u"%d 个 com0com 设备：代码 %d（%s）" % (count, code, meaning))
+                lines.extend(problem_lines)
+            message = (
+                u"\n".join(lines)
+                + u"\n\n本检查同时读取 setupc 配置和 Windows 实际端口，不创建、删除或重命名端口。"
+            )
+            pair_ok = all(item.present for _name, item in checks)
+            windows_ok = all(windows_ports.values())
+            if pair_ok and windows_ok and not unhealthy:
+                show_info(self, u"虚拟端口配对及驱动正常", message)
+            elif pair_ok:
+                show_warning(
+                    self,
+                    u"配对存在，但 Windows 驱动未生效",
+                    message
+                    + u"\n\n请点击“初始化 / 修复 POS 称桥接”，程序会执行 setupc update 修复端点驱动。",
+                )
             else:
                 show_warning(self, u"存在缺失的虚拟端口配对", message)
 
         self._run_maintenance_with_spinner(
             u"正在检查称重虚拟串口",
             u"正在读取官方 POS 与本 POS 的两组 com0com 配对。",
-            list_pairs,
+            inspect_pairs_and_windows,
             on_success,
             u"无法检查虚拟端口配对",
             [self.btn_check_scale_bridge_pairs],

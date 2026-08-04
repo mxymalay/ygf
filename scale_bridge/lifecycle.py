@@ -29,10 +29,12 @@ from .com0com import (
     list_pairs,
     next_available_pair_index,
     remove_pair,
+    update_driver_bindings,
 )
 from .configuration import ScaleBridgeConfig, ScaleDeviceIdentity, save_config
 from .device_discovery import (
     SerialPortCandidate,
+    enumerate_com0com_device_problems,
     enumerate_serial_ports,
     windows_serial_port_exists,
 )
@@ -237,6 +239,54 @@ def _wait_for_serial_ports(
         if not missing or time.monotonic() >= deadline:
             return missing
         time.sleep(0.4)
+
+
+def _format_com0com_device_problems(problems) -> str:
+    if not problems:
+        return ""
+    counts: Dict[int, int] = {}
+    for item in problems:
+        counts[item.error_code] = counts.get(item.error_code, 0) + 1
+    parts = []
+    for code, count in sorted(counts.items()):
+        if code == 28:
+            detail = "驱动程序未安装"
+        elif code == 52:
+            detail = "Windows 无法验证驱动数字签名"
+        elif code == 10:
+            detail = "设备无法启动"
+        else:
+            detail = "设备异常"
+        parts.append("%d 个设备为代码 %d（%s）" % (count, code, detail))
+    return "；".join(parts)
+
+
+def _repair_and_wait_for_serial_ports(
+    port_names: Iterable[str],
+    setupc_path: str,
+    runner: Callable,
+    port_enumerator: Callable,
+    timeout_seconds: float,
+) -> Tuple[List[str], str]:
+    """Repair PnP driver binding once when configured pairs have no COM names."""
+    missing = _wait_for_serial_ports(port_names, port_enumerator, timeout_seconds)
+    if not missing:
+        return [], ""
+    repair_error = ""
+    try:
+        update_driver_bindings(
+            setupc_path,
+            allow_mutation=True,
+            runner=runner,
+        )
+    except Exception as exc:
+        repair_error = str(exc) or exc.__class__.__name__
+    missing = _wait_for_serial_ports(
+        port_names,
+        port_enumerator,
+        max(12.0, timeout_seconds),
+    )
+    return missing, repair_error
 
 
 def find_com0com_installer(explicit_path: Optional[str] = None) -> Optional[str]:
@@ -1309,19 +1359,30 @@ class ScaleBridgeLifecycle:
         # unexplained foreign pair.
         save_config(config, self.config_path)
         if self.verify_enumeration:
-            missing = _wait_for_serial_ports(
+            missing, repair_error = _repair_and_wait_for_serial_ports(
                 (
                     config.official_pos_virtual_port,
                     config.private_pos_virtual_port,
                 ),
+                setupc,
+                provisioner.runner,
                 provisioner.port_enumerator,
                 self.enumeration_timeout_seconds,
             )
             if missing:
+                problem_text = _format_com0com_device_problems(
+                    enumerate_com0com_device_problems()
+                )
+                details = []
+                if problem_text:
+                    details.append("设备管理器检测到：" + problem_text + "。")
+                if repair_error:
+                    details.append("自动执行 setupc update 未完成：" + repair_error + "。")
                 raise RuntimeError(
-                    "setupc 已确认两组 POS 称桥接配对，恢复配置也已保存，但 Windows 串口命名空间"
-                    "尚未出现 %s。请等待片刻后重试；若仍缺失，请重启电脑后再初始化。"
-                    % "、".join(missing)
+                    "setupc 已确认两组配对，但 Windows 仍未注册 %s。程序已经自动执行过 "
+                    "setupc update 修复端点驱动。%s请在 Windows 驱动安装提示中选择“安装”；"
+                    "若设备管理器仍显示黄色叹号，请用“更新驱动程序”指向 com0com 安装目录。"
+                    % ("、".join(missing), "".join(details))
                 )
 
         installed = self.service.install()
@@ -1371,19 +1432,28 @@ class ScaleBridgeLifecycle:
                 config, include_scale=True, include_payment=False
             )
             if self.verify_enumeration:
-                missing = _wait_for_serial_ports(
+                missing, repair_error = _repair_and_wait_for_serial_ports(
                     (
                         config.official_pos_virtual_port,
                         config.private_pos_virtual_port,
                     ),
+                    setupc,
+                    provisioner.runner,
                     provisioner.port_enumerator,
                     self.enumeration_timeout_seconds,
                 )
                 if missing:
+                    problem_text = _format_com0com_device_problems(
+                        enumerate_com0com_device_problems()
+                    )
+                    detail = ("设备管理器检测到：" + problem_text + "。") if problem_text else ""
+                    if repair_error:
+                        detail += "setupc update 未完成：" + repair_error + "。"
                     raise RuntimeError(
-                        "setupc 已返回虚拟配对，但 Windows 设备管理器未枚举出 %s。"
-                        "请确认 com0com 驱动安装完成，必要时重启电脑后再测试。"
-                        % "、".join(missing)
+                        "setupc 已返回虚拟配对，但 Windows 未注册 %s。程序已自动执行驱动修复。"
+                        "%s请处理 Windows 驱动安装提示；如果仍有黄色叹号，请在设备管理器中"
+                        "把驱动目录指向 com0com 安装目录。"
+                        % ("、".join(missing), detail)
                     )
             return report
         finally:
