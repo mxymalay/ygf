@@ -29,7 +29,7 @@ from .com0com import (
     next_available_pair_index,
     remove_pair,
 )
-from .configuration import ScaleBridgeConfig, save_config
+from .configuration import ScaleBridgeConfig, ScaleDeviceIdentity, save_config
 from .device_discovery import SerialPortCandidate, enumerate_serial_ports
 from .protocol import DibalFrameAssembler, parse_dibal_weight
 
@@ -702,6 +702,22 @@ def test_physical_scale(
     if serial_factory is None:
         import serial
         serial_factory = serial.Serial
+        # Reject an absent/virtual port before opening it.  Some Win7 serial
+        # drivers can block inside CreateFile for a surprisingly long time;
+        # the UI should report a clear no-device result instead of appearing
+        # frozen.  Injected factories remain unrestricted for protocol tests.
+        try:
+            candidates = enumerate_serial_ports(include_virtual=False)
+            if not any(item.port.upper() == port for item in candidates):
+                return PhysicalScaleTestResult(
+                    False,
+                    port,
+                    message="该端口当前未出现在 Windows 真实串口设备列表中；请连接电子秤后再测试。",
+                )
+        except Exception:
+            # Opening the port below still provides the definitive diagnostic
+            # when discovery is unavailable (for example during a driver scan).
+            pass
     ser = None
     received = bytearray()
     assembler = DibalFrameAssembler(config.maximum_frame_length)
@@ -1035,6 +1051,62 @@ class ScaleBridgeLifecycle:
         save_manifest(manifest, self.manifest_path)
         started = self.service.start()
         return InitializeReport(physical, pairs, installed, started)
+
+    def initialize_virtual_only(
+        self,
+        config: ScaleBridgeConfig,
+        installer_path: Optional[str] = None,
+    ) -> ProvisionReport:
+        """Create and verify the two POS-facing pairs without a real scale.
+
+        This is a development-only maintenance path.  It deliberately does
+        not run the physical protocol test, install/start the Windows service,
+        or write ``scale_bridge.json``.  A temporary, non-device COM identity
+        is used only to satisfy the normal pair planner; the caller's physical
+        scale selection is restored before returning.
+        """
+        if not is_administrator():
+            raise PermissionError("创建虚拟串口必须以管理员身份运行 POS")
+        original_physical = config.physical_scale
+        # The pair planner validates the complete production configuration. A
+        # sentinel is used only in memory so a developer does not have to fake
+        # a real scale COM port or persist an invalid hardware identity.
+        config.physical_scale = ScaleDeviceIdentity(
+            port="COM9999", friendly_name="开发模拟秤（不写入配置）"
+        )
+        try:
+            config.validate_for_setup()
+            setupc = find_setupc()
+            if not setupc:
+                setupc = install_com0com_driver(installer_path)
+                manifest = load_manifest(self.manifest_path)
+                manifest.driver_installed_by_product = True
+                save_manifest(manifest, self.manifest_path)
+            provisioner = self.provisioner or Com0ComProvisioner(
+                setupc, self.manifest_path
+            )
+            report = provisioner.ensure_required_pairs(
+                config, include_scale=True, include_payment=False
+            )
+            if self.verify_enumeration:
+                candidates = provisioner.port_enumerator(include_virtual=True)
+                available = {item.port.upper() for item in candidates}
+                missing = [
+                    port for port in (
+                        config.official_pos_virtual_port,
+                        config.private_pos_virtual_port,
+                    )
+                    if port.upper() not in available
+                ]
+                if missing:
+                    raise RuntimeError(
+                        "setupc 已返回虚拟配对，但 Windows 设备管理器未枚举出 %s。"
+                        "请确认 com0com 驱动安装完成，必要时重启电脑后再测试。"
+                        % "、".join(missing)
+                    )
+            return report
+        finally:
+            config.physical_scale = original_physical
 
     def remove(self, remove_driver: bool = False) -> RemovalReport:
         """Remove the owned service/pairs/config, leaving every other setting untouched."""

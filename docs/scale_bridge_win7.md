@@ -52,6 +52,7 @@ YGF-POS\
    - 显示 COM 号、设备名称、制造商、Service、PNPDeviceID、Hardware ID、VID/PID、USB 序列号和占用状态；
    - 让安装人员明确选择实际连接 DIBAL ACS-G315 的端口。
 5. 点击“测试物理秤”。成功时必须看到合法重量、原始十六进制数据和实际物理端口。
+   - 开发机没有真实电子秤时，请改用“开发测试：无秤验证虚拟端口”。该入口只创建/复用两组 com0com 配对并进行双向字节测试，不会启动 ScaleBridge 服务，也不会把模拟端口写入物理秤配置；它不能替代真实秤的协议回包验收。
 6. 步骤 2 填写“官方 POS 使用”和“本 POS 使用”两个不同的空闲 COM 号。两个服务对端无需填写；也可仅保存草稿。
 7. 步骤 3 点击“初始化 / 修复 POS 称桥接”并确认。程序会按顺序：
    - 再次测试物理电子秤；
@@ -128,7 +129,7 @@ ScaleBridgeMaintenance.exe --config data\scale_bridge.json remove --yes
 
 ## com0com / hub4com 边界
 
-`com0com` 负责持久化创建 `COMx ↔ CNCBx` 虚拟配对，POS 称桥接页面通过 `setupc.exe list/install/remove` 检查、创建和安全删除；支付配对使用同一驱动，但由独立的收钱吧页面维护。`hub4com` 的典型手工命令（例如 `hub4com --route=All:All \\.\CNCB0 \\.\CNCB1 \\.\CNCB2`）只适合停服务后的诊断，不能与 `YgfScaleBridge` 同时打开同一个物理 COM 口，否则会产生端口占用和重复转发。
+`com0com` 负责持久化创建 `COMx ↔ CNCBx` 虚拟配对，POS 称桥接页面通过 `setupc.exe list/install/remove` 检查、创建和安全删除；支付配对使用同一驱动，但由独立的收钱吧页面维护。正式运行由 `YgfScaleBridge` 服务完成仲裁和转发，程序不会自动启动 `hub4com`。`hub4com` 的典型手工命令（例如 `hub4com --route=All:All \\.\CNCB0 \\.\CNCB1 \\.\CNCB2`）只适合停服务后的诊断，不能与 `YgfScaleBridge` 同时打开同一个物理 COM 口，否则会产生端口占用和重复转发。
 
 ## Windows 7 x64 安全边界
 

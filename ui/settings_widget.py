@@ -618,7 +618,7 @@ class SettingsWidget(QWidget):
         step1, step1_layout = step_panel(
             1,
             u"选择并测试物理电子秤",
-            u"先关闭可能占用真实串口的软件。点击识别后选择 DIBAL ACS-G315，再测试到出现实时重量。",
+            u"正式安装必须先选择并测试 DIBAL ACS-G315。开发机没有真实电子秤时，请使用下方的无秤开发验证；它只验证虚拟端口，不会启动正式桥接服务。",
         )
         physical_grid = QGridLayout()
         physical_grid.setHorizontalSpacing(12)
@@ -636,6 +636,10 @@ class SettingsWidget(QWidget):
         self._style_touch_action_btn(self.btn_test_bridge_physical, "purple")
         self.btn_test_bridge_physical.clicked.connect(self._test_scale_bridge_physical)
         physical_grid.addWidget(self.btn_test_bridge_physical, 3, 0)
+        self.btn_test_bridge_virtual_only = QPushButton(u"开发测试：无秤验证虚拟端口")
+        self._style_touch_action_btn(self.btn_test_bridge_virtual_only, "purple")
+        self.btn_test_bridge_virtual_only.clicked.connect(self._test_scale_bridge_virtual_only)
+        physical_grid.addWidget(self.btn_test_bridge_virtual_only, 4, 0)
         step1_layout.addLayout(physical_grid)
         layout.addWidget(step1)
 
@@ -675,7 +679,7 @@ class SettingsWidget(QWidget):
         step3, step3_layout = step_panel(
             3,
             u"初始化桥接",
-            u"此操作会再次测试物理秤、检查或安装虚拟串口驱动、创建两组秤端口、安装并启动 Windows 服务。重复执行用于修复，不会重复创建正确配对。",
+            u"正式初始化会再次测试物理秤、检查或安装虚拟串口驱动、创建两组秤端口、安装并启动 Windows 服务。开发验证按钮不会启动此服务。",
         )
         self.btn_initialize_scale_bridge = QPushButton(u"③ 初始化 / 修复 POS 称桥接")
         self._style_save_btn(self.btn_initialize_scale_bridge)
@@ -2302,6 +2306,92 @@ class SettingsWidget(QWidget):
             on_success,
             u"物理秤测试失败",
             [self.btn_test_bridge_physical],
+        )
+
+    def _test_scale_bridge_virtual_only(self):
+        """Development-only com0com test for machines without a real scale."""
+        from scale_bridge.com0com import find_pair_by_endpoint, list_pairs
+        from scale_bridge.lifecycle import (
+            ScaleBridgeLifecycle,
+            ScaleBridgeServiceController,
+            test_virtual_pair,
+        )
+        from ui.custom_dialog import show_error, show_info, show_question
+
+        if not show_question(
+            self,
+            u"开发测试：无秤验证虚拟端口",
+            u"本操作不读取真实电子秤，也不会安装或启动 ScaleBridge 服务。\n\n"
+            u"它会创建/复用官方 POS 和本 POS 的两组 com0com 配对，并对两组端口做双向字节测试。\n"
+            u"请先停止正在运行的 ScaleBridge 服务。\n"
+            u"这只能验证 com0com 虚拟串口链路，不能代替真实电子秤回包测试。是否继续？",
+        ):
+            return
+        try:
+            bridge_config = self._bridge_config_from_form()
+            lifecycle = ScaleBridgeLifecycle(self._scale_bridge_config_path())
+        except Exception as exc:
+            show_error(self, u"无秤开发验证失败", str(exc))
+            return
+
+        def operation():
+            state = ScaleBridgeServiceController().query()
+            if state.installed and state.state_code == 4:
+                raise RuntimeError("请先停止正在运行的 ScaleBridge 服务，再进行无秤虚拟端口测试")
+            report = lifecycle.initialize_virtual_only(bridge_config)
+            pairs = list_pairs()
+            results = []
+            for label, endpoint in (
+                (u"官方 POS", bridge_config.official_pos_virtual_port),
+                (u"本 POS", bridge_config.private_pos_virtual_port),
+            ):
+                pair = find_pair_by_endpoint(endpoint, pairs)
+                if not pair:
+                    results.append((label, None))
+                    continue
+                peer = pair.other(endpoint) or ""
+                if label == u"官方 POS":
+                    bridge_config.official_bridge_port = peer
+                else:
+                    bridge_config.private_bridge_port = peer
+                results.append((label, test_virtual_pair(endpoint, peer)))
+            return report, results
+
+        def on_success(result):
+            report, results = result
+            self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
+            self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
+            lines = []
+            all_ok = True
+            for label, item in results:
+                if item is None:
+                    all_ok = False
+                    lines.append(u"%s：未找到配对" % label)
+                else:
+                    all_ok = all_ok and item.ok
+                    lines.append(
+                        u"%s：%s ↔ %s — %s"
+                        % (label, item.side_a, item.side_b, u"双向正常" if item.ok else item.message)
+                    )
+            show_info(
+                self,
+                u"无秤开发验证完成" if all_ok else u"无秤开发验证未通过",
+                u"新建配对：%s\n复用配对：%s\n\n%s\n\n"
+                u"未启动正式服务，也未写入物理秤配置。"
+                % (
+                    u"、".join(report.created) or u"无",
+                    u"、".join(report.existing) or u"无",
+                    u"\n".join(lines),
+                ),
+            )
+
+        self._run_maintenance_with_spinner(
+            u"正在进行无秤开发验证",
+            u"正在创建/检查 com0com 配对并执行两组双向虚拟端口测试。",
+            operation,
+            on_success,
+            u"无秤开发验证失败",
+            [self.btn_test_bridge_virtual_only],
         )
 
     def _initialize_scale_bridge(self):

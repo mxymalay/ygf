@@ -644,6 +644,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result.weight_kg, 0.402)
         self.assertEqual(serial_instance.writes[0], b"$")
 
+    def test_physical_scale_missing_device_returns_without_opening_port(self):
+        cfg = ScaleBridgeConfig(physical_scale=ScaleDeviceIdentity(port="COM99"))
+        with patch("scale_bridge.lifecycle.enumerate_serial_ports", return_value=[]):
+            result = test_physical_scale(cfg)
+        self.assertFalse(result.ok)
+        self.assertIn("未出现在 Windows 真实串口设备列表", result.message)
+
     def test_virtual_pos_channel_queries_scale_end_to_end(self):
         class ChannelSerial(_FakeSerial):
             def __init__(self, **kwargs):
@@ -831,6 +838,29 @@ class _FakeLifecycleService(object):
 
 
 class FullLifecycleTests(unittest.TestCase):
+    def test_virtual_only_initialization_skips_physical_scale_and_service(self):
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="",
+            private_bridge_port="",
+            payment_pos_port="",
+            payment_plugin_port="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            lifecycle = ScaleBridgeLifecycle(
+                os.path.join(directory, "scale_bridge.json"),
+                os.path.join(directory, "installation.json"),
+                provisioner=_FakeProvisioner(),
+                service=_FakeLifecycleService(),
+            )
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
+                "scale_bridge.lifecycle.find_setupc", return_value="setupc.exe"
+            ):
+                report = lifecycle.initialize_virtual_only(cfg)
+            self.assertEqual(len(report.created), 2)
+            self.assertEqual(cfg.physical_scale_port, "COM5")
+            self.assertFalse(os.path.exists(os.path.join(directory, "scale_bridge.json")))
+
     def test_scale_initialize_rejects_pairs_missing_from_windows_device_list(self):
         runner = _StatefulSetupCRunner()
         cfg = ScaleBridgeConfig(
