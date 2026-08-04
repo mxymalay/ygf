@@ -5,7 +5,7 @@ POS 现代极简风格统一弹窗组件 (去系统原生框、圆角、无缝�
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSpinBox,
-    QGraphicsBlurEffect, QListWidget
+    QListWidget
 )
 
 class ModernDialog(QDialog):
@@ -122,26 +122,10 @@ class ModernDialog(QDialog):
         self.reject()
 
     def exec_(self):
-        parent_w = self.parent()
-        if parent_w and hasattr(parent_w, 'window'):
-            parent_w = parent_w.window()
-        
-        if parent_w:
-            try:
-                blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(42)
-                parent_w.setGraphicsEffect(blur)
-            except Exception:
-                pass
-
-        try:
-            return super().exec_()
-        finally:
-            if parent_w:
-                try:
-                    parent_w.setGraphicsEffect(None)
-                except Exception:
-                    pass
+        # Do not blur the parent top-level window here.  Qt 5 on Win7 uses an
+        # off-screen backing store for QGraphicsBlurEffect; opening/closing a
+        # modal dialog can then blank the POS window and expose the desktop.
+        return super().exec_()
 
 
 class ModernInputDialog(QDialog):
@@ -304,26 +288,7 @@ class ModernDoubleInputDialog(QDialog):
         self.accept()
 
     def exec_(self):
-        parent_w = self.parent()
-        if parent_w and hasattr(parent_w, 'window'):
-            parent_w = parent_w.window()
-        
-        if parent_w:
-            try:
-                blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(42)
-                parent_w.setGraphicsEffect(blur)
-            except Exception:
-                pass
-
-        try:
-            return super().exec_()
-        finally:
-            if parent_w:
-                try:
-                    parent_w.setGraphicsEffect(None)
-                except Exception:
-                    pass
+        return super().exec_()
 
 
 from PyQt5.QtCore import QTimer
@@ -479,26 +444,7 @@ class FirstRunInitDialog(QDialog):
         self.accept()
 
     def exec_(self):
-        parent_w = self.parent()
-        if parent_w and hasattr(parent_w, 'window'):
-            parent_w = parent_w.window()
-        
-        if parent_w:
-            try:
-                blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(42)
-                parent_w.setGraphicsEffect(blur)
-            except Exception:
-                pass
-
-        try:
-            return super().exec_()
-        finally:
-            if parent_w:
-                try:
-                    parent_w.setGraphicsEffect(None)
-                except Exception:
-                    pass
+        return super().exec_()
 
 
 # 便捷调用的封装函数
@@ -969,22 +915,9 @@ class ReceiptPreviewDialog(QDialog):
         screen_h = 768
         if parent_w:
             screen_h = parent_w.height()
-            try:
-                blur = QGraphicsBlurEffect(parent_w)
-                blur.setBlurRadius(42)
-                parent_w.setGraphicsEffect(blur)
-            except Exception:
-                pass
 
         max_dlg_h = min(540, max(400, screen_h - 70))
         self.setFixedHeight(max_dlg_h)
         self.setFixedWidth(440)
 
-        try:
-            return super().exec_()
-        finally:
-            if parent_w:
-                try:
-                    parent_w.setGraphicsEffect(None)
-                except Exception:
-                    pass
+        return super().exec_()
