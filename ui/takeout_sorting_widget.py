@@ -498,13 +498,13 @@ class TakeoutSortingWidget(QWidget):
 
     def _check_official_pos_status(self):
         if not self.interceptor:
-            self.on_interceptor_status(u"✕ 外卖中继守护进程未加载")
+            self.on_interceptor_status(u"中继守护进程未加载")
             return
         state = self.interceptor.get_status()
         if state.get("running"):
             self.btn_toggle.setChecked(True)
             self.btn_toggle.setText(u"停止中继")
-            self.on_interceptor_status(u"● 守护中继运行中：127.0.0.1:%d" % self.interceptor.port)
+            self.on_interceptor_status(u"守护中继运行中：127.0.0.1:%d" % self.interceptor.port)
             last_order = state.get("last_order", "")
             if last_order:
                 self.lbl_last_job.setText(u"守护中继最新：%s" % last_order)
@@ -514,11 +514,11 @@ class TakeoutSortingWidget(QWidget):
             # host.  Present a clear retry action instead.
             self.btn_toggle.setChecked(False)
             self.btn_toggle.setText(u"重新启动中继")
-            self.on_interceptor_status(u"✕ 中继异常：%s" % state.get("last_error"))
+            self.on_interceptor_status(u"中继异常：%s" % state.get("last_error"))
             return
         self.btn_toggle.setChecked(False)
         self.btn_toggle.setText(u"启动中继")
-        self.on_interceptor_status(u"○ 中继未启动；官方 POS 外卖单不会被拦截")
+        self.on_interceptor_status(u"中继未启动；官方 POS 外卖单不会被拦截")
 
     def _refresh_printer_info(self):
         printer_name = self.config.get("printer_name", "")
@@ -695,7 +695,12 @@ class TakeoutSortingWidget(QWidget):
 
     def on_interceptor_status(self, status):
         self.lbl_pos_status.setText(status)
-        color = "#10B981" if status.startswith((u"●", u"✓")) else ("#EF4444" if status.startswith(u"✕") else "#F59E0B")
+        if u"异常" in status or u"失败" in status or u"未加载" in status:
+            color = "#EF4444"
+        elif u"未启动" in status or u"停止" in status or u"正在启动" in status:
+            color = "#F59E0B"
+        else:
+            color = "#10B981"
         self.lbl_pos_status.setStyleSheet(
             "color: %s; background: rgba(14,165,233,0.15); font-size: 13px; font-weight: bold; padding: 4px 10px; border-radius: 6px;" % color
         )
@@ -780,9 +785,9 @@ class TakeoutSortingWidget(QWidget):
                 self.btn_toggle.setText(u"启动中继")
                 show_warning(self, u"中继未启动", self.interceptor.last_error or u"端口被占用或不可用")
             elif is_on:
-                self.on_interceptor_status(u"ⓘ 正在启动独立中继守护进程…")
+                self.on_interceptor_status(u"正在启动独立中继守护进程…")
             else:
-                self.on_interceptor_status(u"○ 已请求停止中继守护进程")
+                self.on_interceptor_status(u"已请求停止中继守护进程")
         else:
             show_warning(self, u"中继服务未加载", u"请重启 POS 后再启动外卖中继。")
 
@@ -866,4 +871,4 @@ class TakeoutSortingWidget(QWidget):
         self.btn_toggle.setText(u"启动中继")
         if self.interceptor:
             self.interceptor.update_config(self.config)
-        self.on_interceptor_status(u"○ 已清除本 POS 中继配置；Windows 队列未删除")
+        self.on_interceptor_status(u"已清除本 POS 中继配置；Windows 队列未删除")

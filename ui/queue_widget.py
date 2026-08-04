@@ -190,7 +190,7 @@ class QueueWidget(QWidget):
         header_layout = QVBoxLayout()
         header_layout.setSpacing(4)
 
-        lbl_title = QLabel(u"☕ 取餐号管理")
+        lbl_title = QLabel(u"取餐号管理")
         lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #F9FAFB; border: none; background: transparent;")
         header_layout.addWidget(lbl_title)
 

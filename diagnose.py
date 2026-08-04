@@ -41,7 +41,7 @@ def scan_com_ports():
         import serial.tools.list_ports
         ports = list(serial.tools.list_ports.comports())
         if not ports:
-            log("  ⚠ 未发现任何 COM 端口")
+            log("  未发现任何 COM 端口")
             return []
 
         for p in ports:
@@ -57,7 +57,7 @@ def scan_com_ports():
             log("")
         return ports
     except ImportError:
-        log("  ❌ pyserial 未安装，请运行: pip install pyserial")
+        log("  pyserial 未安装，请运行: pip install pyserial")
         return []
 
 
@@ -85,7 +85,7 @@ def scan_printers():
             log("")
         return printers
     except ImportError:
-        log("  ❌ pywin32 未安装，请运行: pip install pywin32")
+        log("  pywin32 未安装，请运行: pip install pywin32")
         log("  尝试使用 wmic 命令获取打印机列表...")
         try:
             import subprocess
@@ -112,7 +112,7 @@ def try_read_scale(port_name: str, baudrate: int = 9600, duration: int = 5):
             stopbits=1,
             timeout=1
         )
-        log(f"  ✅ 成功打开 {port_name}")
+        log(f"  成功打开 {port_name}")
         log(f"  正在读取 {duration} 秒的数据...")
         log("")
 
@@ -135,7 +135,7 @@ def try_read_scale(port_name: str, baudrate: int = 9600, duration: int = 5):
                 time.sleep(0.1)
 
         if lines_read == 0:
-            log("  ⚠ 未收到任何数据")
+            log("  未收到任何数据")
             log("  可能原因:")
             log("    - 秤未开机")
             log("    - 波特率不对 (尝试 4800)")
@@ -150,14 +150,14 @@ def try_read_scale(port_name: str, baudrate: int = 9600, duration: int = 5):
 
     except serial.SerialException as e:
         if "PermissionError" in str(e) or "Access" in str(e):
-            log(f"  ⚠ 端口 {port_name} 被占用！")
+            log(f"  端口 {port_name} 被占用！")
             log(f"    这可能就是公司收银系统正在使用的端口")
             log(f"    错误: {e}")
         else:
-            log(f"  ❌ 无法打开 {port_name}: {e}")
+            log(f"  无法打开 {port_name}: {e}")
         return -1
     except Exception as e:
-        log(f"  ❌ 读取失败: {e}")
+        log(f"  读取失败: {e}")
         return -1
 
 

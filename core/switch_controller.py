@@ -90,7 +90,7 @@ class AutoSwitchController(QObject):
                 self._hide_timer.stop()
                 log_event(CAT_SCALE, f"称重检测到放碗动作" if not is_surge else "称重稳定修正 (重量增加)", f"重量: {weight_kg:.3f}kg")
 
-                # 🤖 执行全自动智能决策算法
+                # 执行全自动智能决策算法
                 is_private_turn = self._evaluate_decision(weight_kg)
                 self._current_is_private = is_private_turn
 

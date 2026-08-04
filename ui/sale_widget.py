@@ -849,10 +849,10 @@ class SaleWidget(QWidget):
         led_layout = QHBoxLayout(led_banner)
         led_layout.setContentsMargins(12, 4, 12, 4)
 
-        # 状态指示图标: ⏳ vs ✅
-        self.lbl_scale_status_icon = QLabel(u"⏳")
+        # 状态文字不依赖 Win7 缺失的 Emoji 字体。
+        self.lbl_scale_status_icon = QLabel(u"等待")
         self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
-        self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 16px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
         # 模拟调试模式下显示重量模式列表；重量数字本身就是操作入口。
@@ -1153,13 +1153,13 @@ class SaleWidget(QWidget):
         clear_box = QHBoxLayout()
         clear_box.setSpacing(10)
         
-        self.btn_clear = QPushButton(u"清空重置")
+        self.btn_clear = QPushButton(u"重置")
         self.btn_clear.setObjectName("btn_clear")
         self.btn_clear.setCursor(Qt.PointingHandCursor)
         self.btn_clear.clicked.connect(self._on_clear)
         clear_box.addWidget(self.btn_clear, stretch=1)
         
-        self.btn_open_drawer = QPushButton(u"开钱箱")
+        self.btn_open_drawer = QPushButton(u"钱箱")
         self.btn_open_drawer.setObjectName("btn_open_drawer")
         self.btn_open_drawer.setCursor(Qt.PointingHandCursor)
         self.btn_open_drawer.clicked.connect(lambda: self.printer.open_cash_drawer() if self.printer else None)
@@ -1811,14 +1811,14 @@ class SaleWidget(QWidget):
 
         if abs(weight_kg - self._stable_weight) <= 0.005:
             self._is_stable = True
-            self.lbl_scale_status_icon.setText(u"✔")
-            self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
+            self.lbl_scale_status_icon.setText(u"正常")
+            self.lbl_scale_status_icon.setStyleSheet("font-size: 16px; font-weight: 900; color: #10B981; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"读数稳定，可随时打印！")
         else:
             self._is_stable = False
             self._stable_weight = weight_kg
-            self.lbl_scale_status_icon.setText(u"⏳")
-            self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
+            self.lbl_scale_status_icon.setText(u"读取")
+            self.lbl_scale_status_icon.setStyleSheet("font-size: 16px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"读数计算/变动中...")
 
     @pyqtSlot(bool, str)
@@ -1833,21 +1833,21 @@ class SaleWidget(QWidget):
 
         if connected:
             if not hasattr(self, '_is_stable') or not self._is_stable:
-                self.lbl_scale_status_icon.setText(u"✔")
-                self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
+                self.lbl_scale_status_icon.setText(u"正常")
+                self.lbl_scale_status_icon.setStyleSheet("font-size: 16px; font-weight: 900; color: #10B981; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"电子秤串口正常连通: %s" % msg)
         else:
             self._is_stable = False
-            self.lbl_scale_status_icon.setText(u"✕")
-            self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
+            self.lbl_scale_status_icon.setText(u"异常")
+            self.lbl_scale_status_icon.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"电子秤连接提示: %s" % msg)
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
         self._is_stable = True
         self._stable_weight = weight_kg
-        self.lbl_scale_status_icon.setText(u"✔")
-        self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
+        self.lbl_scale_status_icon.setText(u"正常")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 16px; font-weight: 900; color: #10B981; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
         
         # 称重稳定且预计价格低于配置阈值时，弹出一次黄色提醒
@@ -1871,8 +1871,8 @@ class SaleWidget(QWidget):
         if self._is_mock_mode:
             self.lbl_scale_status_icon.hide()
             return
-        self.lbl_scale_status_icon.setText(u"✕")
-        self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
+        self.lbl_scale_status_icon.setText(u"异常")
+        self.lbl_scale_status_icon.setStyleSheet("font-size: 16px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_random_weight_click(self):

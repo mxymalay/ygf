@@ -49,10 +49,10 @@ class ModernDialog(QDialog):
             icon_lbl.setText("!")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
         elif dialog_type == self.TYPE_ERROR:
-            icon_lbl.setText("❌")
+            icon_lbl.setText("!")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
         elif dialog_type == self.TYPE_QUESTION:
-            icon_lbl.setText("❓")
+            icon_lbl.setText("?")
             icon_lbl.setStyleSheet("font-size: 24px; border: none; background: transparent;")
         else:
             icon_lbl.setText("i")

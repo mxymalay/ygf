@@ -580,7 +580,7 @@ class SettingsWidget(QWidget):
         # log, direct mode tests the physical COM, and bridge mode tests the
         # private virtual channel.  The recommended official mode must not
         # leave the operator without a verification button.
-        self.btn_test_scale_com = QPushButton(u"⚡ 检测官方读数")
+        self.btn_test_scale_com = QPushButton(u"检测官方读数")
         self._style_touch_action_btn(self.btn_test_scale_com, "blue")
         self.btn_test_scale_com.clicked.connect(self._test_selected_scale_source)
         btn_box.addWidget(self.btn_test_scale_com, 0, 0)
@@ -1999,7 +1999,7 @@ class SettingsWidget(QWidget):
             self.cmb_scale_port.setEnabled(True)
             self._refresh_scale_com_ports()
             self.cmb_scale_baud.setEnabled(True)
-            self.btn_test_scale_com.setText(u"⚡ 测试物理秤连接")
+            self.btn_test_scale_com.setText(u"测试物理秤连接")
             self.lbl_scale_hint.setText(
                 u"i 本 POS 独占物理秤：\n"
                 u"• DIBAL ACS-G315 已验证参数：9600、8N1；程序每 200ms 发送 $ 查询重量。\n"
@@ -2012,8 +2012,8 @@ class SettingsWidget(QWidget):
             self.cmb_scale_baud.setEnabled(False)
             if bridge_config is not None:
                 self.cmb_scale_baud.setCurrentText(str(bridge_config.baudrate))
-            self.btn_test_scale_com.setText(u"⚡ 测试本 POS 桥接通道")
-            status_icon = u"✓" if ready else u"!"
+            self.btn_test_scale_com.setText(u"测试本 POS 桥接通道")
+            status_icon = u"已就绪" if ready else u"未就绪"
             port_text = (
                 bridge_config.private_pos_virtual_port
                 if bridge_config is not None and bridge_config.private_pos_virtual_port
@@ -2035,7 +2035,7 @@ class SettingsWidget(QWidget):
                 u"• 官方 POS 必须保持运行；若官方升级改变安装目录，请选择它的 serial 日志文件夹。\n"
                 u"• 如果希望本 POS 单独读秤或两个 POS 同时读秤，请选择对应方式。"
             )
-            self.btn_test_scale_com.setText(u"⚡ 检测官方读数")
+            self.btn_test_scale_com.setText(u"检测官方读数")
 
     def _pick_official_log_dir(self):
         selected = QFileDialog.getExistingDirectory(
@@ -2178,7 +2178,7 @@ class SettingsWidget(QWidget):
         """用一句话显示当前能否真正启用桥接，避免把草稿误认为已完成。"""
         _bridge_config, ready, status = self._scale_bridge_runtime_state()
         if ready:
-            self.lbl_scale_bridge_overall_status.setText(u"✅ 当前状态：%s。可以按步骤 4 验收并启用。" % status)
+            self.lbl_scale_bridge_overall_status.setText(u"当前状态：%s。可以按步骤 4 验收并启用。" % status)
             self.lbl_scale_bridge_overall_status.setStyleSheet(
                 "color: #A7F3D0; background: #064E3B; border: 1px solid #059669; "
                 "border-radius: 10px; padding: 12px 14px; font-size: 14px; font-weight: bold;"
@@ -2349,7 +2349,7 @@ class SettingsWidget(QWidget):
             show_error(self, u"桥接配置无法保存", str(exc))
             return
         self.lbl_scale_bridge_config.setText(
-            u"✓ 已保存桥接配置：%s。尚未启动服务，也未变更任何现有 POS 设置或 COM 映射。"
+            u"已保存桥接配置：%s。尚未启动服务，也未变更任何现有 POS 设置或 COM 映射。"
             % self._scale_bridge_config_path()
         )
         self._refresh_scale_bridge_overall_status()
@@ -2548,7 +2548,7 @@ class SettingsWidget(QWidget):
             self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
             self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
             self.lbl_scale_bridge_config.setText(
-                u"✓ 初始化完成，服务已安装并运行。配置：%s" % self._scale_bridge_config_path()
+                u"初始化完成，服务已安装并运行。配置：%s" % self._scale_bridge_config_path()
             )
             self._refresh_scale_bridge_overall_status()
             if self.cmb_scale_source.currentIndex() == 2:
@@ -3174,7 +3174,7 @@ class SettingsWidget(QWidget):
             elif weight_val is not None:
                 show_info(
                     self, u"测试连接成功",
-                    f"✓ 成功连通电子秤串口【{port}】！\n\n"
+                    f"成功连通电子秤串口【{port}】！\n\n"
                     f"• 通信端口: {port}\n• 通信波特率: {baudrate}\n"
                     f"• 捕获到的实时重量: {weight_val:.3f} kg\n\n"
                     u"硬件通信完全正常，可随时保存使用！"

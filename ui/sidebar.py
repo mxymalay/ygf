@@ -91,7 +91,7 @@ class SideNavBar(QWidget):
 
         # 2. 核心导航项目按钮组 (日常收银业务)
         # 0: 收银台
-        item_cashier = SideNavItem(u"⚖", u"收银台", 0)
+        item_cashier = SideNavItem(u"收", u"收银台", 0)
         item_cashier.clicked.connect(lambda: self._select_page(0))
         layout.addWidget(item_cashier)
         self._items.append(item_cashier)
@@ -113,7 +113,7 @@ class SideNavBar(QWidget):
 
         # 3. 运营与设置模块组
         # 4: 叫号设置
-        item_queue = SideNavItem(u"⚡", u"叫号设置", 4)
+        item_queue = SideNavItem(u"叫", u"叫号设置", 4)
         item_queue.clicked.connect(lambda: self._select_page(4))
         layout.addWidget(item_queue)
         self._items.append(item_queue)
@@ -131,7 +131,7 @@ class SideNavBar(QWidget):
         self._items.append(item_switch)
 
         # 6: 系统设置
-        item_settings = SideNavItem(u"⚙", u"系统设置", 6)
+        item_settings = SideNavItem(u"设", u"系统设置", 6)
         item_settings.clicked.connect(lambda: self._select_page(6))
         layout.addWidget(item_settings)
         self._items.append(item_settings)
@@ -154,7 +154,7 @@ class SideNavBar(QWidget):
         layout.addWidget(item_min)
 
         # 退出程序
-        item_exit = SideNavItem(u"✕", u"退出程序", -1)
+        item_exit = SideNavItem(u"退", u"退出程序", -1)
         item_exit.clicked.connect(lambda: self.exit_requested.emit())
         layout.addWidget(item_exit)
 
@@ -170,4 +170,4 @@ class SideNavBar(QWidget):
         if is_dark:
             self.item_theme.lbl_icon.setText(u"月")
         else:
-            self.item_theme.lbl_icon.setText(u"☀")
+            self.item_theme.lbl_icon.setText(u"亮")

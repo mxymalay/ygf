@@ -7,7 +7,7 @@ app = QApplication(sys.argv)
 w = QWidget()
 lay = QVBoxLayout(w)
 
-lbl = QLabel(u"👨‍🍳 制作联份数:")
+lbl = QLabel(u"制作联份数:")
 lay.addWidget(lbl)
 
 sb = QSpinBox()

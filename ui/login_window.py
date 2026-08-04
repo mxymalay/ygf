@@ -480,13 +480,13 @@ class LoginWindow(QDialog):
 
         # 1. 官方 POS 运行状态指示
         if not is_official_window_configured(self.config):
-            self.lbl_badge1.setText(u"✖ 未配置官方窗口")
+            self.lbl_badge1.setText(u"未配置官方窗口")
             self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
         elif official_running:
-            self.lbl_badge1.setText(u"✔ 官方 POS 运行中")
+            self.lbl_badge1.setText(u"官方 POS 运行中")
             self.lbl_badge1.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
-            self.lbl_badge1.setText(u"✖ 未找到官方 POS 窗口")
+            self.lbl_badge1.setText(u"未找到官方 POS 窗口")
             self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
 
         # 2. COM 电子秤串口连接指示
@@ -495,7 +495,7 @@ class LoginWindow(QDialog):
             self.lbl_badge1_sub.setText(u"— 跟随官方读数，无需独立 COM")
             self.lbl_badge1_sub.setStyleSheet("color: #BAE6FD; background-color: #0C4A6E; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0284C7;")
         elif scale_ok:
-            self.lbl_badge1_sub.setText(f"✔ {scale_detail}")
+            self.lbl_badge1_sub.setText(scale_detail)
             self.lbl_badge1_sub.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             self.lbl_badge1_sub.setText(f"! {scale_detail}")
@@ -532,7 +532,7 @@ class LoginWindow(QDialog):
         self.progress_bar.setValue(70)
         printers = scan_printers()
         if printers:
-            self.lbl_badge2.setText(u"✔ 设备就绪")
+            self.lbl_badge2.setText(u"设备就绪")
             self.lbl_badge2.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             self.lbl_badge2.setText(u"! 未连接")
@@ -559,7 +559,7 @@ class LoginWindow(QDialog):
             msg = f"检测异常: {exc}"
             print(f"[登录检测] 收钱吧检测异常: {exc}")
         if ok:
-            self.lbl_badge3.setText(u"✔ 串口通畅")
+            self.lbl_badge3.setText(u"串口通畅")
             self.lbl_badge3.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
             port = self.config.get("shouqianba_port", "COM10")

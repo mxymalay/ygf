@@ -721,7 +721,7 @@ class HistoryWidget(QWidget):
             pass
 
         if payment_state == REFUNDED:
-            tag_text, tag_color = u"⛔ 已退款", "#EF4444"
+            tag_text, tag_color = u"已退款", "#EF4444"
         self.lbl_header_status.setText(tag_text)
         self.lbl_header_status.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {tag_color}; border: 1px solid {tag_color}; border-radius: 4px; padding: 2px 8px; background: transparent;")
         tot = record.get("total_price", 0.0)
