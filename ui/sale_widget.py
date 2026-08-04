@@ -11,8 +11,8 @@ from PyQt5.QtWidgets import (
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
     QScrollArea, QDialog, QLineEdit, QComboBox, QListView
 )
-from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
-from PyQt5.QtGui import QPainter, QPolygon, QPoint, QFontMetrics
+from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer, QPoint
+from PyQt5.QtGui import QPainter, QPolygon, QFontMetrics
 
 from core.calculator import calculate_price, weight_display, price_unit_label
 from core.database import Database
