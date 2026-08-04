@@ -1130,6 +1130,62 @@ class PaymentPairLifecycle:
         )
         return provisioner.remove_owned_pairs({"payment"})
 
+    def remove_exact(
+        self,
+        sender_port: str,
+        plugin_port: str,
+        allow_unowned: bool = False,
+    ) -> Tuple[List[str], List[str]]:
+        """Remove exactly the configured payment pair after explicit confirmation.
+
+        This is the migration path for pairs created by an older release before
+        ownership records existed. It never performs a broad scan/delete: the
+        two configured endpoints must belong to the same com0com pair, and an
+        unowned pair is accepted only when the UI has obtained a second,
+        explicit confirmation from the operator.
+        """
+        if not is_administrator():
+            raise PermissionError("删除收钱吧虚拟串口配对必须以管理员身份运行 POS")
+        sender = str(sender_port or "").strip().upper()
+        plugin = str(plugin_port or "").strip().upper()
+        if not re.fullmatch(r"COM[1-9]\d*", sender) or not re.fullmatch(r"COM[1-9]\d*", plugin):
+            return [], ["当前收钱吧发送端和插件接收端必须都是 COM 端口"]
+        if sender == plugin:
+            return [], ["当前两个端口不能相同"]
+
+        provisioner = self.provisioner or Com0ComProvisioner(
+            manifest_path=self.manifest_path
+        )
+        pairs = provisioner._pairs()
+        pair = find_pair_by_endpoint(sender, pairs)
+        if not pair or not pair.contains(plugin):
+            return [], ["当前填写的 %s ↔ %s 不属于同一个 com0com 配对" % (sender, plugin)]
+
+        manifest = load_manifest(self.manifest_path)
+        owned = next(
+            (item for item in manifest.created_pairs
+             if item.purpose == "payment" and item.matches(pair)),
+            None,
+        )
+        if not owned and not allow_unowned:
+            return [], [
+                "%s ↔ %s 未在本系统所有权清单中；需要再次确认后才能清理旧版本配对"
+                % (sender, plugin)
+            ]
+
+        remove_pair(
+            pair.index,
+            setupc_path=provisioner._require_setupc(),
+            allow_mutation=True,
+            runner=provisioner.runner,
+        )
+        if any(item.index == pair.index for item in provisioner._pairs()):
+            raise RuntimeError("setupc 未能删除配对 #%d" % pair.index)
+        if owned:
+            manifest.created_pairs.remove(owned)
+            save_manifest(manifest, self.manifest_path)
+        return [Com0ComProvisioner._pair_description(pair)], []
+
 
 def collect_diagnostics(
     config: ScaleBridgeConfig,

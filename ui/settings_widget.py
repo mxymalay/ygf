@@ -1514,14 +1514,20 @@ class SettingsWidget(QWidget):
     def _refresh_com_ports(self, show_toast=False):
         self.cmb_sqb_port.clear()
         try:
-            from core.shouqianba_sender import get_available_com_ports
-            ports = get_available_com_ports()
+            # pyserial can omit com0com CNC endpoints on Windows. Use the
+            # shared WMI-backed discovery so old and newly created virtual
+            # ports (for example COM13/14/15/16) are selectable here too.
+            from scale_bridge.device_discovery import enumerate_serial_ports
+            ports = sorted({item.port.upper() for item in enumerate_serial_ports(include_virtual=True)})
         except Exception:
             ports = []
         all_ports = [f"COM{i}" for i in range(1, 13)]
         for p in ports:
             if p not in all_ports:
                 all_ports.append(p)
+        configured = str(self.config.get("shouqianba_port", "")).strip().upper()
+        if configured and configured not in all_ports:
+            all_ports.append(configured)
         for p in sorted(all_ports, key=lambda x: int(x.replace("COM", "")) if x.startswith("COM") and x[3:].isdigit() else 99):
             self.cmb_sqb_port.addItem(p)
         cur = self.config.get("shouqianba_port", "COM10")
@@ -2454,6 +2460,42 @@ class SettingsWidget(QWidget):
             removed, skipped = result
             if skipped:
                 raise RuntimeError("所有权不匹配，拒绝删除：" + "; ".join(skipped))
+            if not removed:
+                # Older releases did not persist ownership records. Offer a
+                # narrowly scoped migration cleanup, but require a second
+                # confirmation and verify the exact two configured endpoints
+                # in the worker before deleting anything.
+                if not show_question(
+                    self,
+                    u"发现未登记的旧配对",
+                    u"本系统没有记录当前收钱吧配对的创建者。\n\n"
+                    u"是否仅核对并删除当前填写的 %s ↔ %s？\n"
+                    u"不会扫描或删除其他虚拟串口。"
+                    % (sender or u"未填写", plugin or u"未填写"),
+                ):
+                    show_info(self, u"支付配对未删除", u"未记录的旧配对已保留，其他端口未改动。")
+                    return
+
+                def on_exact_success(exact_result):
+                    exact_removed, exact_skipped = exact_result
+                    if exact_skipped:
+                        raise RuntimeError("旧配对未删除：" + "; ".join(exact_skipped))
+                    show_info(
+                        self,
+                        u"旧支付配对删除完成",
+                        u"已精确删除：%s\n其他虚拟串口未改动。"
+                        % (u"、".join(exact_removed) or u"无"),
+                    )
+
+                self._run_maintenance_with_spinner(
+                    u"正在清理旧收钱吧配对",
+                    u"正在核对并删除当前填写的两个端口，请稍候。",
+                    lambda: PaymentPairLifecycle().remove_exact(sender, plugin, allow_unowned=True),
+                    on_exact_success,
+                    u"旧支付配对删除失败",
+                    [self.btn_remove_payment_pair],
+                )
+                return
             show_info(
                 self,
                 u"支付配对删除完成",
