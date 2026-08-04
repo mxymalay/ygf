@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
-    QFileDialog, QProgressBar, QApplication, QGraphicsBlurEffect
+    QFileDialog, QProgressBar, QApplication
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence, QDesktopServices
@@ -60,7 +60,9 @@ class _MaintenanceBusyDialog(QDialog):
         self.setWindowTitle(title)
         self.setModal(True)
         self.setWindowModality(Qt.ApplicationModal)
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        # Keep the progress window above elevated com0com setup dialogs and
+        # avoid a Win7 z-order transition that briefly exposes the desktop.
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setMinimumWidth(500)
         self.setStyleSheet(
@@ -124,7 +126,6 @@ class _MaintenanceBusyDialog(QDialog):
         self.setModal(False)
         self.setWindowModality(Qt.NonModal)
         self.done(0)
-        self.hide()
         # This dialog is shown with ApplicationModal (rather than exec_()).
         # Explicit deletion is required on Qt 5/Win7 to remove it from
         # QApplication.activeModalWidget(); hiding alone can leave an
@@ -1366,12 +1367,13 @@ class SettingsWidget(QWidget):
         for widget, _enabled in states:
             widget.setEnabled(False)
 
-        # Keep the operation visibly modal without making the whole window look
-        # frozen.  The effect is removed in the single cleanup path below.
-        blur = QGraphicsBlurEffect(self)
-        blur.setBlurRadius(8.0)
-        self._maintenance_blur = blur
-        self.setGraphicsEffect(blur)
+        # QGraphicsBlurEffect on a QWidget uses an off-screen backing store.
+        # On Win7, closing an application-modal child while a UAC/elevated
+        # helper is active can briefly discard that backing store and expose
+        # the desktop.  The busy dialog already provides an opaque modal
+        # surface, so keep the parent live and stable instead of blurring it.
+        blur = None
+        self._maintenance_blur = None
 
         dialog = _MaintenanceBusyDialog(title, message, self)
         thread = QThread(self)
@@ -1387,7 +1389,7 @@ class SettingsWidget(QWidget):
 
         def release_busy_visuals():
             restore_controls()
-            if getattr(self, "_maintenance_blur", None) is blur:
+            if blur is not None and getattr(self, "_maintenance_blur", None) is blur:
                 self.setGraphicsEffect(None)
                 self._maintenance_blur = None
 
@@ -1417,7 +1419,7 @@ class SettingsWidget(QWidget):
             # Let Qt finish closing the application-modal busy dialog before
             # opening the result message.  This prevents an invisible modal
             # window from swallowing all touch/mouse input.
-            QTimer.singleShot(0, lambda: show_success(result))
+            QTimer.singleShot(50, lambda: show_success(result))
 
         def failed(reason):
             dialog.finish()
@@ -1429,7 +1431,7 @@ class SettingsWidget(QWidget):
                 except Exception:
                     pass
             from ui.custom_dialog import show_error
-            QTimer.singleShot(0, lambda: show_error(self, error_title, reason))
+            QTimer.singleShot(50, lambda: show_error(self, error_title, reason))
 
         worker.succeeded.connect(succeeded)
         worker.failed.connect(failed)
@@ -1439,7 +1441,9 @@ class SettingsWidget(QWidget):
         # forever with no operation ever started.
         thread.started.connect(worker.run)
         thread.finished.connect(finish_thread)
-        dialog.show()
+        dialog.open()
+        dialog.raise_()
+        dialog.activateWindow()
         QApplication.processEvents()
         thread.start()
 
