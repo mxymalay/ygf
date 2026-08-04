@@ -20,6 +20,48 @@ class QueueOverflow(RuntimeError):
     pass
 
 
+class SimulatedScaleSerial:
+    """Tiny in-process DIBAL-like source used only by development mode."""
+
+    def __init__(self, weight_kg: float = 0.500):
+        self.weight_kg = float(weight_kg)
+        self._buffer = bytearray()
+        self._lock = threading.Lock()
+        self.closed = False
+        self.dtr = False
+        self.rts = False
+
+    @property
+    def in_waiting(self) -> int:
+        with self._lock:
+            return len(self._buffer)
+
+    def write(self, data: bytes) -> int:
+        if self.closed:
+            raise OSError("simulated scale is closed")
+        payload = bytes(data or b"")
+        if b"$" in payload:
+            frame = ("%.3f\r" % self.weight_kg).encode("ascii")
+            with self._lock:
+                self._buffer.extend(frame)
+        return len(payload)
+
+    def read(self, size: int = 1) -> bytes:
+        with self._lock:
+            if not self._buffer:
+                return b""
+            count = max(1, int(size or 1))
+            data = bytes(self._buffer[:count])
+            del self._buffer[:count]
+            return data
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class BoundedPriorityQueue:
     """Thread-safe FIFO queue with official traffic ahead of private traffic."""
 
@@ -255,6 +297,8 @@ class ScaleBridgeRuntime:
 
     def _prepare_physical_port(self) -> None:
         """Rebind a USB adapter only when saved identity produces one safe match."""
+        if self.config.development_simulation:
+            return
         candidates = enumerate_serial_ports(include_virtual=False)
         resolved, ambiguous = resolve_saved_device(self.config.physical_scale, candidates)
         configured = next((item for item in candidates if item.port == self.config.physical_scale_port.upper()), None)
@@ -280,14 +324,19 @@ class ScaleBridgeRuntime:
                 % self.config.physical_scale_port
             )
 
-    def _new_serial(self, port: str):
+    def _new_serial(self, port: str, simulated: bool = False):
+        if simulated:
+            return SimulatedScaleSerial()
+        open_port = port
         if self._serial_factory is None:
             import serial
             factory = serial.Serial
+            if str(port or "").upper().startswith("CNC"):
+                open_port = r"\\.\%s" % str(port).upper()
         else:
             factory = self._serial_factory
         ser = factory(
-            port=port,
+            port=open_port,
             baudrate=self.config.baudrate,
             bytesize=self.config.data_bits,
             parity=self.config.parity,
@@ -311,7 +360,10 @@ class ScaleBridgeRuntime:
         self._private_output_queue.clear()
         opened = []
         try:
-            physical = self._new_serial(self.config.physical_scale_port)
+            physical = self._new_serial(
+                self.config.physical_scale_port,
+                simulated=self.config.development_simulation,
+            )
             opened.append(physical)
             official = self._new_serial(self.config.official_bridge_port)
             opened.append(official)

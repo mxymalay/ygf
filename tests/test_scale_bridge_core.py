@@ -9,7 +9,7 @@ from scale_bridge.configuration import ScaleBridgeConfig, ScaleDeviceIdentity
 from scale_bridge.device_discovery import SerialPortCandidate, resolve_saved_device
 from scale_bridge.protocol import DibalFrameAssembler, parse_dibal_weight
 from scale_bridge.bridge import BoundedPriorityQueue
-from scale_bridge.bridge import ScaleBridgeRuntime
+from scale_bridge.bridge import ScaleBridgeRuntime, SimulatedScaleSerial
 from scale_bridge.com0com import check_pair, create_pair, parse_setupc_list, remove_pair, _run_setupc
 from scale_bridge.lifecycle import (
     Com0ComProvisioner,
@@ -593,6 +593,11 @@ class _FakeSerial(object):
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_simulated_scale_answers_dibal_query(self):
+        serial = SimulatedScaleSerial(0.5)
+        serial.write(b"$")
+        self.assertEqual(serial.read(64), b"0.500\r")
+
     def test_partial_port_open_is_closed_and_queues_are_not_replayed(self):
         opened = []
 

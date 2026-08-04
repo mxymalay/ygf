@@ -618,7 +618,7 @@ class SettingsWidget(QWidget):
         step1, step1_layout = step_panel(
             1,
             u"选择并测试物理电子秤",
-            u"正式安装必须先选择并测试 DIBAL ACS-G315。开发机没有真实电子秤时，请使用下方的无秤开发验证；它只验证虚拟端口，不会启动正式桥接服务。",
+            u"正式安装必须先选择并测试 DIBAL ACS-G315。开发机没有真实电子秤时，请使用下方的无秤开发验证；它会启动开发模拟秤和真实 ScaleBridge 服务。",
         )
         physical_grid = QGridLayout()
         physical_grid.setHorizontalSpacing(12)
@@ -636,10 +636,6 @@ class SettingsWidget(QWidget):
         self._style_touch_action_btn(self.btn_test_bridge_physical, "purple")
         self.btn_test_bridge_physical.clicked.connect(self._test_scale_bridge_physical)
         physical_grid.addWidget(self.btn_test_bridge_physical, 3, 0)
-        self.btn_test_bridge_virtual_only = QPushButton(u"开发测试：无秤验证虚拟端口")
-        self._style_touch_action_btn(self.btn_test_bridge_virtual_only, "purple")
-        self.btn_test_bridge_virtual_only.clicked.connect(self._test_scale_bridge_virtual_only)
-        physical_grid.addWidget(self.btn_test_bridge_virtual_only, 4, 0)
         step1_layout.addLayout(physical_grid)
         layout.addWidget(step1)
 
@@ -679,12 +675,16 @@ class SettingsWidget(QWidget):
         step3, step3_layout = step_panel(
             3,
             u"初始化桥接",
-            u"正式初始化会再次测试物理秤、检查或安装虚拟串口驱动、创建两组秤端口、安装并启动 Windows 服务。开发验证按钮不会启动此服务。",
+            u"正式初始化会再次测试物理秤、检查或安装虚拟串口驱动、创建两组秤端口、安装并启动 Windows 服务。开发测试会使用模拟秤启动同一个服务并验证两路回包。",
         )
         self.btn_initialize_scale_bridge = QPushButton(u"③ 初始化 / 修复 POS 称桥接")
         self._style_save_btn(self.btn_initialize_scale_bridge)
         self.btn_initialize_scale_bridge.clicked.connect(self._initialize_scale_bridge)
         step3_layout.addWidget(self.btn_initialize_scale_bridge)
+        self.btn_test_bridge_virtual_only = QPushButton(u"开发测试：模拟秤并启动服务（先完成步骤 2）")
+        self._style_touch_action_btn(self.btn_test_bridge_virtual_only, "purple")
+        self.btn_test_bridge_virtual_only.clicked.connect(self._test_scale_bridge_virtual_only)
+        step3_layout.addWidget(self.btn_test_bridge_virtual_only)
         self.lbl_scale_bridge_config = QLabel("")
         self.lbl_scale_bridge_config.setWordWrap(True)
         self.lbl_scale_bridge_config.setStyleSheet(
@@ -2309,22 +2309,23 @@ class SettingsWidget(QWidget):
         )
 
     def _test_scale_bridge_virtual_only(self):
-        """Development-only com0com test for machines without a real scale."""
-        from scale_bridge.com0com import find_pair_by_endpoint, list_pairs
+        """Run the real ScaleBridge service against an in-process simulated scale."""
         from scale_bridge.lifecycle import (
             ScaleBridgeLifecycle,
             ScaleBridgeServiceController,
-            test_virtual_pair,
+            test_scale_channel,
         )
+        from scale_bridge.configuration import ScaleDeviceIdentity, save_config as save_bridge_config
         from ui.custom_dialog import show_error, show_info, show_question
+        import time
 
         if not show_question(
             self,
-            u"开发测试：无秤验证虚拟端口",
-            u"本操作不读取真实电子秤，也不会安装或启动 ScaleBridge 服务。\n\n"
-            u"它会创建/复用官方 POS 和本 POS 的两组 com0com 配对，并对两组端口做双向字节测试。\n"
-            u"请先停止正在运行的 ScaleBridge 服务。\n"
-            u"这只能验证 com0com 虚拟串口链路，不能代替真实电子秤回包测试。是否继续？",
+            u"开发测试：模拟秤并启动服务",
+            u"本操作不会读取真实电子秤，而是使用固定 0.500 kg 的模拟回包。\n\n"
+            u"程序会创建/复用两组 com0com 配对，写入临时开发配置，安装/启动真实 ScaleBridge Windows 服务，"
+            u"再通过官方 POS 和本 POS 虚拟端口发送查询并验证回包。\n\n"
+            u"如果当前服务正在运行，请先停止。测试完成后请点击“停止服务”，程序会恢复测试前的配置。是否继续？",
         ):
             return
         try:
@@ -2337,60 +2338,61 @@ class SettingsWidget(QWidget):
         def operation():
             state = ScaleBridgeServiceController().query()
             if state.installed and state.state_code == 4:
-                raise RuntimeError("请先停止正在运行的 ScaleBridge 服务，再进行无秤虚拟端口测试")
+                raise RuntimeError("请先停止正在运行的 ScaleBridge 服务，再进行开发模拟测试")
             report = lifecycle.initialize_virtual_only(bridge_config)
-            pairs = list_pairs()
-            results = []
-            for label, endpoint in (
-                (u"官方 POS", bridge_config.official_pos_virtual_port),
-                (u"本 POS", bridge_config.private_pos_virtual_port),
-            ):
-                pair = find_pair_by_endpoint(endpoint, pairs)
-                if not pair:
-                    results.append((label, None))
-                    continue
-                peer = pair.other(endpoint) or ""
-                if label == u"官方 POS":
-                    bridge_config.official_bridge_port = peer
-                else:
-                    bridge_config.private_bridge_port = peer
-                results.append((label, test_virtual_pair(endpoint, peer)))
-            return report, results
+            bridge_config.physical_scale = ScaleDeviceIdentity(
+                port="SIMULATED", friendly_name="开发模拟秤（固定 0.500 kg）"
+            )
+            bridge_config.development_simulation = True
+            bridge_config.validate()
+            config_path = self._scale_bridge_config_path()
+            backup_path = config_path + ".before_development_simulation"
+            if os.path.isfile(config_path) and not os.path.isfile(backup_path):
+                shutil.copy2(config_path, backup_path)
+            save_bridge_config(bridge_config, config_path)
+            controller = ScaleBridgeServiceController()
+            installed = controller.install()
+            started = controller.start()
+            time.sleep(0.8)
+            results = [
+                (u"官方 POS", test_scale_channel(bridge_config, bridge_config.official_pos_virtual_port)),
+                (u"本 POS", test_scale_channel(bridge_config, bridge_config.private_pos_virtual_port)),
+            ]
+            return report, installed, started, results, backup_path
 
         def on_success(result):
-            report, results = result
+            report, installed, started, results, backup_path = result
             self.txt_bridge_official_peer.setText(bridge_config.official_bridge_port)
             self.txt_bridge_private_peer.setText(bridge_config.private_bridge_port)
             lines = []
             all_ok = True
             for label, item in results:
-                if item is None:
-                    all_ok = False
-                    lines.append(u"%s：未找到配对" % label)
-                else:
-                    all_ok = all_ok and item.ok
-                    lines.append(
-                        u"%s：%s ↔ %s — %s"
-                        % (label, item.side_a, item.side_b, u"双向正常" if item.ok else item.message)
-                    )
+                all_ok = all_ok and item.ok
+                lines.append(
+                    u"%s：%s — %s"
+                    % (label, u"模拟回包正常（%.3f kg）" % item.weight_kg if item.ok else item.message)
+                )
             show_info(
                 self,
-                u"无秤开发验证完成" if all_ok else u"无秤开发验证未通过",
-                u"新建配对：%s\n复用配对：%s\n\n%s\n\n"
-                u"未启动正式服务，也未写入物理秤配置。"
+                u"开发模拟服务验证完成" if all_ok else u"开发模拟服务验证未通过",
+                u"ScaleBridge 服务：%s\n新建配对：%s\n复用配对：%s\n\n%s\n\n"
+                u"当前运行的是模拟秤配置，备份文件：%s\n"
+                u"测试完成后请点击“停止服务”，恢复测试前配置。"
                 % (
+                    u"已启动" if started else u"已在运行",
                     u"、".join(report.created) or u"无",
                     u"、".join(report.existing) or u"无",
                     u"\n".join(lines),
+                    backup_path,
                 ),
             )
 
         self._run_maintenance_with_spinner(
-            u"正在进行无秤开发验证",
-            u"正在创建/检查 com0com 配对并执行两组双向虚拟端口测试。",
+            u"正在启动开发模拟 ScaleBridge",
+            u"正在创建/检查 com0com 配对、启动 Windows 服务并验证两路模拟回包。",
             operation,
             on_success,
-            u"无秤开发验证失败",
+            u"开发模拟服务验证失败",
             [self.btn_test_bridge_virtual_only],
         )
 
@@ -2727,11 +2729,31 @@ class SettingsWidget(QWidget):
 
     def _stop_scale_bridge_service(self):
         from scale_bridge.lifecycle import ScaleBridgeServiceController
+        from scale_bridge.configuration import load_config as load_bridge_config
         from ui.custom_dialog import show_error, show_info
 
         def on_success(changed):
+            restored = False
+            config_path = self._scale_bridge_config_path()
+            backup_path = config_path + ".before_development_simulation"
+            try:
+                current = load_bridge_config(config_path)
+                if current.development_simulation:
+                    if os.path.isfile(backup_path):
+                        shutil.copy2(backup_path, config_path)
+                        os.unlink(backup_path)
+                    elif os.path.isfile(config_path):
+                        os.unlink(config_path)
+                    restored = True
+            except Exception:
+                # Stopping the service already succeeded; leave the files in
+                # place so the operator can recover them manually if needed.
+                restored = False
             self._refresh_scale_bridge_overall_status()
-            show_info(self, u"ScaleBridge 服务", u"服务已停止。" if changed else u"服务未运行或尚未安装。")
+            message = u"服务已停止。" if changed else u"服务未运行或尚未安装。"
+            if restored:
+                message += u"\n开发模拟配置已移除，测试前的配置已恢复。"
+            show_info(self, u"ScaleBridge 服务", message)
 
         self._run_maintenance_with_spinner(
             u"正在停止 ScaleBridge 服务",

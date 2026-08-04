@@ -696,6 +696,14 @@ def test_physical_scale(
     timeout_seconds: float = 2.5,
 ) -> PhysicalScaleTestResult:
     """Maintenance-only direct test used before the Windows service starts."""
+    if config.development_simulation:
+        return PhysicalScaleTestResult(
+            True,
+            "SIMULATED",
+            0.500,
+            "30 2E 35 30 30 0D",
+            "开发模拟秤回包正常",
+        )
     port = config.physical_scale_port.upper()
     if not port:
         return PhysicalScaleTestResult(False, port, message="尚未选择物理电子秤端口")
@@ -1083,12 +1091,14 @@ class ScaleBridgeLifecycle:
         if not is_administrator():
             raise PermissionError("创建虚拟串口必须以管理员身份运行 POS")
         original_physical = config.physical_scale
+        original_simulation = config.development_simulation
         # The pair planner validates the complete production configuration. A
         # sentinel is used only in memory so a developer does not have to fake
         # a real scale COM port or persist an invalid hardware identity.
         config.physical_scale = ScaleDeviceIdentity(
             port="COM9999", friendly_name="开发模拟秤（不写入配置）"
         )
+        config.development_simulation = False
         try:
             config.validate_for_setup()
             setupc = find_setupc()
@@ -1122,6 +1132,7 @@ class ScaleBridgeLifecycle:
             return report
         finally:
             config.physical_scale = original_physical
+            config.development_simulation = original_simulation
 
     def remove(self, remove_driver: bool = False) -> RemovalReport:
         """Remove the owned service/pairs/config, leaving every other setting untouched."""

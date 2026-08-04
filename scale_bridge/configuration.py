@@ -97,6 +97,7 @@ class ScaleDeviceIdentity:
 class ScaleBridgeConfig:
     """Configuration for the bridge service, not for a POS UI process."""
     physical_scale: ScaleDeviceIdentity = field(default_factory=ScaleDeviceIdentity)
+    development_simulation: bool = False
     official_pos_virtual_port: str = "COM2"
     private_pos_virtual_port: str = "COM3"
     official_bridge_port: str = ""
@@ -162,6 +163,10 @@ class ScaleBridgeConfig:
                 "payment_plugin_port": self.payment_plugin_port,
             })
         for name, value in application_ports.items():
+            if name == "physical_scale.port" and self.development_simulation:
+                if value.upper() != "SIMULATED":
+                    raise ValueError("开发模拟模式的物理秤端口必须为 SIMULATED")
+                continue
             if value and not re.fullmatch(r"COM[1-9]\d*", value, re.IGNORECASE):
                 raise ValueError("%s must be a COM port name: %s" % (name, value))
         for name, value in {
@@ -202,6 +207,7 @@ class ScaleBridgeConfig:
         # External config names are intentionally stable and independent of Python fields.
         return {
             "PhysicalScalePort": data["physical_scale"]["port"],
+            "DevelopmentSimulation": self.development_simulation,
             "PhysicalScalePnpDeviceId": data["physical_scale"]["pnp_device_id"],
             "PhysicalScaleHardwareId": data["physical_scale"]["hardware_id"],
             "PhysicalScaleVid": data["physical_scale"]["vid"],
@@ -254,6 +260,7 @@ class ScaleBridgeConfig:
             parity = "N"
         cfg = cls(
             physical_scale=identity,
+            development_simulation=_safe_bool(_value(raw, "DevelopmentSimulation", None), False),
             official_pos_virtual_port=_as_text(_value(raw, "OfficialPosVirtualPort", "COM2"), "COM2").upper(),
             private_pos_virtual_port=_as_text(_value(raw, "PrivatePosVirtualPort", "COM3"), "COM3").upper(),
             official_bridge_port=_as_text(_value(raw, "OfficialBridgePort", "")).upper(),
