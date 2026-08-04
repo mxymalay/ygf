@@ -108,21 +108,21 @@ class SideNavBar(QWidget):
         layout.addWidget(item_report)
         self._items.append(item_report)
 
-        # 3: 外卖 RAW 打印中继
-        item_takeout = SideNavItem(u"外", u"外卖中继", 3)
-        item_takeout.clicked.connect(lambda: self._select_page(3))
-        layout.addWidget(item_takeout)
-        self._items.append(item_takeout)
-
-        # 将“核心业务组”与“设置管理组”平均拉开
+        # 将“核心业务组”与“运营/设置组”平均拉开
         layout.addStretch(1)
 
-        # 3. 设置管理模块组
+        # 3. 运营与设置模块组
         # 4: 叫号设置
         item_queue = SideNavItem(u"⚡", u"叫号设置", 4)
         item_queue.clicked.connect(lambda: self._select_page(4))
         layout.addWidget(item_queue)
         self._items.append(item_queue)
+
+        # 3: 外卖 RAW 打印中继（与叫号、切换等运营功能归为一组）
+        item_takeout = SideNavItem(u"外", u"外卖中继", 3)
+        item_takeout.clicked.connect(lambda: self._select_page(3))
+        layout.addWidget(item_takeout)
+        self._items.append(item_takeout)
 
         # 5: 切换算法
         item_switch = SideNavItem(u"⇄", u"切换算法", 5)
