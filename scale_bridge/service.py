@@ -10,9 +10,22 @@ import os
 import sys
 from typing import Optional
 
-from .bridge import ScaleBridgeRuntime
-from .configuration import DEFAULT_CONFIG_FILE, load_config
-from .ipc import StatusPipeServer
+# ``pythonservice.exe`` loads the configured service file as a stand-alone
+# module on source-tree installs.  In that mode ``__package__`` is empty, so
+# ordinary relative imports fail before the service can report STARTED.  Keep
+# the normal package imports for the application, but make the Windows service
+# host explicitly able to resolve its package from the project root too.
+if __package__:
+    from .bridge import ScaleBridgeRuntime
+    from .configuration import DEFAULT_CONFIG_FILE, load_config
+    from .ipc import StatusPipeServer
+else:
+    _source_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if _source_root not in sys.path:
+        sys.path.insert(0, _source_root)
+    from scale_bridge.bridge import ScaleBridgeRuntime
+    from scale_bridge.configuration import DEFAULT_CONFIG_FILE, load_config
+    from scale_bridge.ipc import StatusPipeServer
 
 
 SERVICE_NAME = "YgfScaleBridge"

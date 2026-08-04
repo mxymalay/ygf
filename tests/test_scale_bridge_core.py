@@ -1,5 +1,6 @@
 import unittest
 import os
+import runpy
 import tempfile
 import sys
 from unittest.mock import patch
@@ -28,6 +29,16 @@ from scale_bridge.lifecycle import (
     uninstall_com0com_driver,
     install_com0com_driver,
 )
+
+
+class WindowsServiceImportTests(unittest.TestCase):
+    def test_service_module_supports_pythonservice_loose_file_import(self):
+        """pywin32 can load service.py without package context in source mode."""
+        source_file = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "scale_bridge", "service.py")
+        )
+        namespace = runpy.run_path(source_file, run_name="pythonservice_loose_import_test")
+        self.assertIn("ScaleBridgeWindowsService", namespace)
 
 
 class Com0ComInstallerTests(unittest.TestCase):
