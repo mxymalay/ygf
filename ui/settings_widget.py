@@ -61,6 +61,7 @@ class _MaintenanceBusyDialog(QDialog):
         self.setModal(True)
         self.setWindowModality(Qt.ApplicationModal)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setMinimumWidth(500)
         self.setStyleSheet(
             "QDialog { background: #172136; border: 2px solid #7C3AED; border-radius: 16px; }"
@@ -101,6 +102,7 @@ class _MaintenanceBusyDialog(QDialog):
         layout.addWidget(hint)
 
         self._frame_index = 0
+        self._finishing = False
         self._timer = QTimer(self)
         self._timer.setInterval(180)
         self._timer.timeout.connect(self._advance_frame)
@@ -110,17 +112,24 @@ class _MaintenanceBusyDialog(QDialog):
         self._timer.start()
 
     def closeEvent(self, event):
-        if self._timer.isActive():
+        if self._timer.isActive() and not self._finishing:
             event.ignore()
             return
         super().closeEvent(event)
 
     def finish(self):
+        self._finishing = True
         self._timer.stop()
         # Allow the controlled close after the operation has completed.
         self.setModal(False)
         self.setWindowModality(Qt.NonModal)
-        self.close()
+        self.done(0)
+        self.hide()
+        # This dialog is shown with ApplicationModal (rather than exec_()).
+        # Explicit deletion is required on Qt 5/Win7 to remove it from
+        # QApplication.activeModalWidget(); hiding alone can leave an
+        # invisible modal window swallowing every click and scroll event.
+        self.deleteLater()
 
     def _advance_frame(self):
         self._frame_index = (self._frame_index + 1) % len(self._FRAMES)
@@ -1376,36 +1385,51 @@ class SettingsWidget(QWidget):
             for widget, enabled in states:
                 widget.setEnabled(enabled)
 
-        def finish_thread():
+        def release_busy_visuals():
             restore_controls()
             if getattr(self, "_maintenance_blur", None) is blur:
                 self.setGraphicsEffect(None)
                 self._maintenance_blur = None
+
+        def finish_thread():
+            # Do this both here and immediately before the result dialog.  On
+            # slower Win7 machines the QThread.finished event can arrive
+            # after a modal success message is shown; the settings page must
+            # already be clickable in that interval.
+            release_busy_visuals()
             self._maintenance_dialog = None
             self._maintenance_thread = None
             self._maintenance_worker = None
             worker.deleteLater()
             thread.deleteLater()
 
-        def succeeded(result):
-            dialog.finish()
-            thread.quit()
+        def show_success(result):
             try:
                 on_success(result)
             except Exception as exc:
                 from ui.custom_dialog import show_error
                 show_error(self, error_title, str(exc) or exc.__class__.__name__)
 
+        def succeeded(result):
+            dialog.finish()
+            thread.quit()
+            release_busy_visuals()
+            # Let Qt finish closing the application-modal busy dialog before
+            # opening the result message.  This prevents an invisible modal
+            # window from swallowing all touch/mouse input.
+            QTimer.singleShot(0, lambda: show_success(result))
+
         def failed(reason):
             dialog.finish()
             thread.quit()
+            release_busy_visuals()
             if on_failure:
                 try:
                     on_failure()
                 except Exception:
                     pass
             from ui.custom_dialog import show_error
-            show_error(self, error_title, reason)
+            QTimer.singleShot(0, lambda: show_error(self, error_title, reason))
 
         worker.succeeded.connect(succeeded)
         worker.failed.connect(failed)
