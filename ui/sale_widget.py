@@ -826,11 +826,14 @@ class SaleWidget(QWidget):
         # 模拟调试模式下显示的重量模式列表与触屏操作按钮
         mode_box = QVBoxLayout()
         mode_box.setSpacing(0)
+        mode_selector_row = QHBoxLayout()
+        mode_selector_row.setSpacing(6)
         self.cmb_mock_weight_mode = QComboBox()
         self.cmb_mock_weight_mode.addItem(u"手动输入重量（默认）", "manual")
         self.cmb_mock_weight_mode.addItem(u"随机生成重量", "random")
+        self.cmb_mock_weight_mode.addItem(u"切换到正常模式（检测设备）", "normal")
         self.cmb_mock_weight_mode.setMinimumHeight(56)
-        self.cmb_mock_weight_mode.setMinimumWidth(150)
+        self.cmb_mock_weight_mode.setMinimumWidth(205)
         self.cmb_mock_weight_mode.setFocusPolicy(Qt.NoFocus)
         self.cmb_mock_weight_mode.setStyleSheet(
             "QComboBox { background: #2E1065; color: #F5F3FF; border: 2px solid #8B5CF6; "
@@ -852,11 +855,22 @@ class SaleWidget(QWidget):
             "QListView::item:selected, QListView::item:hover { background: #7C3AED; color: #FFFFFF; }"
         )
         self.cmb_mock_weight_mode.setView(mode_view)
-        self.cmb_mock_weight_mode.setMaxVisibleItems(2)
+        self.cmb_mock_weight_mode.setMaxVisibleItems(3)
         self.cmb_mock_weight_mode.currentIndexChanged.connect(self._on_mock_weight_mode_changed)
-        mode_box.addWidget(self.cmb_mock_weight_mode)
+        mode_selector_row.addWidget(self.cmb_mock_weight_mode, stretch=1)
+        self.lbl_mock_mode_arrow = QLabel(u"▼")
+        self.lbl_mock_mode_arrow.setMinimumWidth(24)
+        self.lbl_mock_mode_arrow.setAlignment(Qt.AlignCenter)
+        self.lbl_mock_mode_arrow.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.lbl_mock_mode_arrow.setStyleSheet(
+            "color: #DDD6FE; font-size: 18px; font-weight: 900; "
+            "background: transparent; border: none;"
+        )
+        mode_selector_row.addWidget(self.lbl_mock_mode_arrow)
+        mode_box.addLayout(mode_selector_row)
         led_layout.addLayout(mode_box)
         self.mock_mode_box = mode_box
+        self._mock_mode_index = 0
 
         self.btn_random_weight = QPushButton(u"🎲 随机重量")
         self.btn_random_weight.setToolTip(u"手动模式：打开触屏数字键盘；随机模式：生成测试重量")
@@ -1827,8 +1841,28 @@ class SaleWidget(QWidget):
         self._apply_mock_weight(w)
 
     def _on_mock_weight_mode_changed(self, index):
-        """Switch the mock action between manual keypad and random generation."""
-        self.mock_weight_mode = "random" if int(index) == 1 else "manual"
+        """Switch mock input, or verify and leave simulation for real mode."""
+        index = int(index)
+        if self.cmb_mock_weight_mode.itemData(index) == "normal":
+            previous_index = getattr(self, "_mock_mode_index", 0)
+            self.cmb_mock_weight_mode.setEnabled(False)
+            try:
+                ready, reason = self._check_normal_scale_ready()
+            finally:
+                self.cmb_mock_weight_mode.setEnabled(True)
+            if not ready:
+                # A failed check must never leave the selector on an item
+                # that is not actually active.
+                self.cmb_mock_weight_mode.blockSignals(True)
+                self.cmb_mock_weight_mode.setCurrentIndex(previous_index)
+                self.cmb_mock_weight_mode.blockSignals(False)
+                show_warning(self, u"暂时不能切换到正常模式", reason)
+                return
+            self._leave_mock_mode()
+            return
+
+        self._mock_mode_index = index
+        self.mock_weight_mode = "random" if index == 1 else "manual"
         if not hasattr(self, "btn_random_weight"):
             return
         if self.mock_weight_mode == "manual":
@@ -1837,6 +1871,59 @@ class SaleWidget(QWidget):
         else:
             self.btn_random_weight.setText(u"🎲 随机重量")
             self.btn_random_weight.setToolTip(u"点击生成一组模拟重量")
+
+    def _check_normal_scale_ready(self):
+        """Return whether the configured real scale can be used right now."""
+        source = self.config.get("scale_source", "official")
+        if source == "official":
+            from utils.window_utils import is_official_window_configured, find_official_window_info
+            from core.official_pos import find_active_official_log
+
+            if not is_official_window_configured(self.config):
+                return False, u"尚未配置官方 POS 窗口识别词。请到“系统设置 → 官方 POS 窗口识别”先检测并选择窗口。"
+            info = find_official_window_info(self.config)
+            if not info:
+                return False, u"当前没有找到官方 POS 窗口。请先打开官方 POS，或重新选择正确的窗口识别词。"
+            log_file = find_active_official_log(self.config)
+            if not log_file:
+                return False, u"已找到官方 POS 窗口，但没有正在刷新的称重日志。请让官方 POS 读取一次重量后再切换。"
+            return True, u""
+
+        port = str(self.config.get("scale_port", "") or "").strip()
+        if not port:
+            return False, u"尚未配置电子秤 COM 端口，请先在称设置中选择并保存端口。"
+        if self.config.get("scale_connection_mode") == "bridge":
+            try:
+                from scale_bridge.lifecycle import ScaleBridgeServiceController
+                state = ScaleBridgeServiceController().query()
+                if not (state.installed and state.state_code == 4):
+                    return False, u"POS 称桥接服务未运行。请先到“POS 称桥接”启动服务，再切换正常模式。"
+            except Exception as exc:
+                return False, u"无法确认 POS 称桥接服务状态：%s" % exc
+        from ui.login_window import check_dibal_scale_connection
+        if not check_dibal_scale_connection(self.config):
+            return False, u"%s 没有返回有效重量。请确认电子秤、波特率和端口未被其它软件占用。" % port
+        return True, u""
+
+    def _leave_mock_mode(self):
+        """Switch this running window from simulation to the configured scale."""
+        self._is_mock_mode = False
+        # This is transient and is intentionally omitted from disk by
+        # save_config; retaining the in-memory value keeps all widgets in the
+        # same session consistent until the next startup.
+        self.config["is_mock_mode"] = False
+        self.current_weight = 0.0
+        self._stable_weight = 0.0
+        self._is_stable = False
+        self._scale_connected = False
+        self._last_weight_monotonic = 0.0
+        self.lbl_weight.setText("00.000 kg")
+        self.lbl_scale_status_icon.show()
+        self.cmb_mock_weight_mode.hide()
+        self.lbl_mock_mode_arrow.hide()
+        self.btn_random_weight.hide()
+        self._setup_scale()
+        self._show_toast(u"已切换到正常称重模式，正在读取电子秤")
 
     def _apply_mock_weight(self, weight_kg):
         """Apply a mock reading through the same UI path as a real scale."""
