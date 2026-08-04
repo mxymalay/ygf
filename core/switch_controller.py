@@ -39,6 +39,10 @@ class AutoSwitchController(QObject):
         self._last_popped_weight = 0.0  # 记录上次触发决策时的重量 (用于重量剧增二次更正)
         self._last_private_time = 0.0  # 记录上一次私域动作的时间戳 (用于私域购物车死锁超时)
         self._current_is_private = False
+        # Hardware maintenance may briefly reconnect a scale or emit a stale
+        # non-zero reading. It must never trigger focus/minimise automation
+        # while an operator is creating, testing or deleting COM resources.
+        self._maintenance_pause_count = 0
 
         # 退场延时定时器
         self._hide_timer = QTimer(self)
@@ -52,9 +56,19 @@ class AutoSwitchController(QObject):
         self._manual_override_until = time.time() + duration_sec
         log_event(CAT_SWITCH, f"店员手动干预锁定", f"优先尊重店员操作，暂停自动调度 {duration_sec} 秒")
 
+    def suspend_for_maintenance(self):
+        """Temporarily block automatic window switching during maintenance."""
+        self._maintenance_pause_count += 1
+        self._hide_timer.stop()
+
+    def resume_after_maintenance(self):
+        """Release one matching maintenance pause without changing settings."""
+        if self._maintenance_pause_count > 0:
+            self._maintenance_pause_count -= 1
+
     def on_weight_changed(self, weight_kg: float):
         """当称重数据变动时被触发，全自动运行决策引擎"""
-        if not self._auto_switch_enabled:
+        if self._maintenance_pause_count or not self._auto_switch_enabled:
             return
 
         now_ts = time.time()
@@ -214,6 +228,8 @@ class AutoSwitchController(QObject):
 
     def _on_auto_hide_timeout(self):
         """延时结束，隐退切回官方系统"""
+        if self._maintenance_pause_count:
+            return
         print("[AutoSwitch] 延时结束，自动隐退切回官方收银界面")
         log_event(CAT_SWITCH, f"自动隐退切回官方系统", f"延时 {self._auto_hide_delay_sec} 秒结束")
         ok = bring_official_to_front(self.config)

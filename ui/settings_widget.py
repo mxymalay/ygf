@@ -1367,6 +1367,16 @@ class SettingsWidget(QWidget):
         for widget, _enabled in states:
             widget.setEnabled(False)
 
+        # Scale-reader events can arrive while com0com changes devices. Pause
+        # automatic window routing for the whole maintenance interaction;
+        # otherwise a transient weight event can minimise this settings window
+        # underneath the loading or result dialog.
+        switch_controller = getattr(self.window(), "switch_controller", None)
+        switch_paused = False
+        if switch_controller and hasattr(switch_controller, "suspend_for_maintenance"):
+            switch_controller.suspend_for_maintenance()
+            switch_paused = True
+
         # QGraphicsBlurEffect on a QWidget uses an off-screen backing store.
         # On Win7, closing an application-modal child while a UAC/elevated
         # helper is active can briefly discard that backing store and expose
@@ -1386,6 +1396,12 @@ class SettingsWidget(QWidget):
         def restore_controls():
             for widget, enabled in states:
                 widget.setEnabled(enabled)
+
+        def resume_switch_routing():
+            nonlocal switch_paused
+            if switch_paused and hasattr(switch_controller, "resume_after_maintenance"):
+                switch_controller.resume_after_maintenance()
+            switch_paused = False
 
         def release_busy_visuals():
             restore_controls()
@@ -1411,6 +1427,22 @@ class SettingsWidget(QWidget):
             except Exception as exc:
                 from ui.custom_dialog import show_error
                 show_error(self, error_title, str(exc) or exc.__class__.__name__)
+            finally:
+                # on_success may show a blocking result dialog; only resume
+                # automatic routing after that dialog is dismissed.
+                resume_switch_routing()
+
+        def show_failure(reason):
+            try:
+                if on_failure:
+                    on_failure()
+            except Exception:
+                pass
+            from ui.custom_dialog import show_error
+            try:
+                show_error(self, error_title, reason)
+            finally:
+                resume_switch_routing()
 
         def succeeded(result):
             dialog.finish()
@@ -1425,13 +1457,7 @@ class SettingsWidget(QWidget):
             dialog.finish()
             thread.quit()
             release_busy_visuals()
-            if on_failure:
-                try:
-                    on_failure()
-                except Exception:
-                    pass
-            from ui.custom_dialog import show_error
-            QTimer.singleShot(50, lambda: show_error(self, error_title, reason))
+            QTimer.singleShot(50, lambda: show_failure(reason))
 
         worker.succeeded.connect(succeeded)
         worker.failed.connect(failed)
