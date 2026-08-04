@@ -25,6 +25,8 @@
 
 官方 POS 外卖单的 RAW 打印中继安装、测试、停用与删除步骤见 [外卖打印中继 Windows 7 操作手册](docs/takeout_proxy_win7.md)。
 
+官方 POS 窗口首次选择、启动检测与切换规则见 [官方 POS 窗口识别](docs/official_window_setup.md)。
+
 ---
 
 ## 📂 项目结构

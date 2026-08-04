@@ -12,7 +12,7 @@ from datetime import datetime
 
 # ─── 应用版本号 ───────────────────────────────────────
 APP_VERSION = "v1.2.0"
-CONFIG_SCHEMA_VERSION = 2
+CONFIG_SCHEMA_VERSION = 3
 
 # ─── 路径 ───────────────────────────────────────────
 if getattr(sys, 'frozen', False):
@@ -71,11 +71,15 @@ DEFAULT_CONFIG = {
     # 官方 POS 升级后可在设置页选择新的 serial 日志目录；留空时仅尝试
     # 兼容的历史路径和受限自动发现，不会每秒扫描整块硬盘。
     "official_pos_log_dir": "",
-    # Optional comma-separated identifiers used only by the foreground switch.
-    # Keep generic names such as "POS" out of the defaults to avoid stealing
-    # focus from unrelated payment applications after an official POS upgrade.
-    "official_pos_process_keywords": ["yangguofu.exe", "ygf-pos.exe", "ygf.exe"],
-    "official_pos_window_keywords": ["杨国福", "官方收银", "店长端", "餐饮管理"],
+    # Official POS identity is selected by the operator.  Generic historical
+    # defaults are intentionally not treated as a valid selection because the
+    # window identity controls both startup checks and foreground switching.
+    "official_pos_window_configured": False,
+    "official_pos_window_title": "",
+    "official_pos_window_class": "",
+    "official_pos_process_name": "",
+    "official_pos_process_keywords": [],
+    "official_pos_window_keywords": [],
     "config_schema_version": CONFIG_SCHEMA_VERSION,
 
     # 2. 切换算法配置 (algo.json)
@@ -223,6 +227,20 @@ def load_config() -> dict:
     merged.pop("simulation_mode", None)
     # 模拟模式是一次运行的临时状态，绝不能写入正式门店配置。
     merged.pop("is_mock_mode", None)
+
+    # v2 stored broad guessed keywords.  They were acceptable for log-path
+    # compatibility but are unsafe for window switching; require one explicit
+    # operator selection after upgrading to v3.
+    legacy_window_keywords = ["杨国福", "官方收银", "店长端", "餐饮管理"]
+    legacy_process_keywords = ["yangguofu.exe", "ygf-pos.exe", "ygf.exe"]
+    if not merged.get("official_pos_window_configured"):
+        if merged.get("official_pos_window_keywords") == legacy_window_keywords:
+            merged["official_pos_window_keywords"] = []
+        if merged.get("official_pos_process_keywords") == legacy_process_keywords:
+            merged["official_pos_process_keywords"] = []
+        merged["official_pos_window_title"] = ""
+        merged["official_pos_window_class"] = ""
+        merged["official_pos_process_name"] = ""
     # Before v1.2 the same flag only controlled a non-functional preview
     # thread.  Never reinterpret an old "enabled" value as permission to
     # start a real local printer proxy after upgrade.

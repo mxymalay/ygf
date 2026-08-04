@@ -1,7 +1,6 @@
 import os
 import re
 import time
-import subprocess
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QWidget, QGraphicsDropShadowEffect, QSizePolicy, QProgressBar, QFrame
@@ -10,24 +9,15 @@ from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 
 from utils.port_scanner import scan_printers
-from config import load_config
-from core.official_pos import find_active_official_log
+from config import save_config
+from utils.window_utils import find_official_window_handle, is_official_window_configured
 
 def check_ygf_official_running(config=None) -> bool:
-    """检测官方收银系统主程序是否正在运行"""
-    try:
-        cmd = 'tasklist /NH /FO CSV'
-        output = subprocess.check_output(cmd, shell=True).decode('gbk', errors='ignore')
-        for line in output.splitlines():
-            line_lower = line.lower()
-            if 'python' in line_lower:
-                continue
-            if ('yangguofu' in line_lower or 'ygf-pos' in line_lower or 'ygf.exe' in line_lower) and ('uninstall' not in line_lower):
-                return True
-    except Exception:
-        pass
-
-    return find_active_official_log(config) is not None
+    """检测已配置的官方 POS 窗口是否正在运行。"""
+    # Window identity is the shared truth for startup checks and foreground
+    # switching.  The serial log is a data source, not proof that the correct
+    # POS window is open.
+    return find_official_window_handle(config) is not None
 
 
 def check_dibal_scale_connection(config) -> bool:
@@ -287,7 +277,7 @@ class LoginWindow(QDialog):
         check_layout.addWidget(self.progress_bar)
 
         # 四项独立卡片 (官方 POS 与 COM 秤串口分开检测)
-        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方 POS 收银系统")
+        self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方 POS 窗口（按配置识别）")
         self.card1_sub, self.lbl_title1_sub, self.lbl_badge1_sub = self._create_check_card(u"⚖️  COM 电子秤串口数据源")
         self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"🖨️  热敏小票打印机外设")
         self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"💳  收钱吧串口通信联动")
@@ -388,6 +378,17 @@ class LoginWindow(QDialog):
         pwd = self.txt_pwd.text().strip()
         
         if user == "002" and pwd == "002":
+            # The first production startup must bind the real official POS
+            # window before any detection or switching is allowed.
+            if not self._ensure_official_window_selection():
+                self.form_widget.hide()
+                self.title_lbl.setText(u"POS辅助系统")
+                self.sub_lbl.setText(u"请先完成官方 POS 窗口选择")
+                self.btn_close.setText(u"退出系统")
+                self.check_widget.show()
+                self.lbl_err.setText(u"未完成官方 POS 窗口配置；检测结束后可进入模拟模式或退出。")
+                QTimer.singleShot(100, self._check_official_software)
+                return
             self.form_widget.hide()
             
             # 取消伪装，显示真实标题
@@ -400,6 +401,23 @@ class LoginWindow(QDialog):
             QTimer.singleShot(100, self._check_official_software)
         else:
             self.lbl_err.setText(u"账号或密码错误，请重试！")
+
+    def _ensure_official_window_selection(self):
+        """Prompt once for the official POS window when no identity is saved."""
+        if is_official_window_configured(self.config):
+            return True
+        from ui.official_window_dialog import OfficialWindowPickerDialog
+
+        dialog = OfficialWindowPickerDialog(parent=self)
+        if dialog.exec_() != QDialog.Accepted or not dialog.selected_window:
+            self.hardware_warnings.append("尚未选择官方 POS 窗口")
+            return False
+        from utils.window_utils import apply_official_window_selection
+        if not apply_official_window_selection(self.config, dialog.selected_window):
+            self.hardware_warnings.append("官方 POS 窗口选择无效")
+            return False
+        save_config(self.config)
+        return True
             
     def _check_official_software(self):
         self.progress_bar.setValue(15)
@@ -418,11 +436,14 @@ class LoginWindow(QDialog):
         scale_ok = check_dibal_scale_connection(self.config) if scale_source == "com" else False
 
         # 1. 官方 POS 运行状态指示
-        if official_running:
+        if not is_official_window_configured(self.config):
+            self.lbl_badge1.setText(u"✖ 未配置官方窗口")
+            self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
+        elif official_running:
             self.lbl_badge1.setText(u"✔ 官方 POS 运行中")
             self.lbl_badge1.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
         else:
-            self.lbl_badge1.setText(u"✖ 官方 POS 未运行")
+            self.lbl_badge1.setText(u"✖ 未找到官方 POS 窗口")
             self.lbl_badge1.setStyleSheet("color: #F87171; background-color: #7F1D1D; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #DC2626;")
 
         # 2. COM 电子秤串口连接指示
@@ -443,7 +464,10 @@ class LoginWindow(QDialog):
         else:
             self.official_ok = False
             if scale_source == "official":
-                self.hardware_warnings.append("当前选择跟随官方 POS，但官方收银未运行")
+                if not is_official_window_configured(self.config):
+                    self.hardware_warnings.append("尚未配置官方 POS 窗口识别词")
+                else:
+                    self.hardware_warnings.append("当前识别词未找到官方 POS 窗口")
             else:
                 self.hardware_warnings.append("当前选择 COM 称重，但秤串口检测失败")
             

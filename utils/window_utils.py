@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import subprocess
+from collections import OrderedDict
 
 try:
     user32 = ctypes.windll.user32
@@ -27,11 +28,157 @@ def _configured_keywords(config, key, defaults):
     return [str(item).strip().lower() for item in values if str(item).strip()]
 
 
+def is_official_window_configured(config=None):
+    """Return whether an operator has explicitly selected an official POS window.
+
+    Window recognition is deliberately opt-in.  Generic historical defaults are
+    not enough because they can accidentally match another checkout window.
+    """
+    cfg = config or {}
+    keywords = _configured_keywords(cfg, "official_pos_window_keywords", [])
+    return bool(cfg.get("official_pos_window_configured", False) and keywords)
+
+
+def _process_name_for_pid(pid, cache):
+    """Read a process executable basename without requiring psutil."""
+    if pid in cache:
+        return cache[pid]
+    name = ""
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            PROCESS_QUERY_INFORMATION = 0x0400
+            PROCESS_VM_READ = 0x0010
+            handle = kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                False,
+                int(pid),
+            )
+            if handle:
+                try:
+                    buffer = ctypes.create_unicode_buffer(1024)
+                    size = ctypes.c_uint32(len(buffer))
+                    query = getattr(kernel32, "QueryFullProcessImageNameW", None)
+                    if query and query(handle, 0, buffer, ctypes.byref(size)):
+                        name = os.path.basename(buffer.value)
+                finally:
+                    kernel32.CloseHandle(handle)
+        except Exception:
+            name = ""
+    cache[pid] = name
+    return name
+
+
+def get_window_info(hwnd, process_cache=None):
+    """Return a stable, displayable descriptor for a top-level HWND."""
+    if not user32 or not hwnd:
+        return None
+    try:
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return None
+        title_buffer = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, title_buffer, length + 1)
+        title = title_buffer.value.strip()
+        if not title:
+            return None
+
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        class_buffer = ctypes.create_unicode_buffer(256)
+        class_length = user32.GetClassNameW(hwnd, class_buffer, len(class_buffer))
+        class_name = class_buffer.value[:class_length] if class_length else ""
+        cache = process_cache if process_cache is not None else {}
+        process_name = _process_name_for_pid(pid.value, cache)
+        return {
+            "hwnd": int(hwnd),
+            "title": title,
+            "pid": int(pid.value),
+            "process_name": process_name,
+            "class_name": class_name,
+        }
+    except Exception:
+        return None
+
+
+def list_visible_windows():
+    """List visible, titled top-level windows for the operator's picker."""
+    if not user32:
+        return []
+    current_pid = os.getpid()
+    process_cache = {}
+    result = []
+
+    def callback(hwnd, _lparam):
+        try:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == current_pid:
+                return True
+            info = get_window_info(hwnd, process_cache)
+            if info:
+                result.append(info)
+        except Exception:
+            pass
+        return True
+
+    try:
+        callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
+        user32.EnumWindows(callback_type(callback), 0)
+    except Exception:
+        return []
+
+    # Keep one entry per HWND and make the list deterministic for touch use.
+    unique = OrderedDict((item["hwnd"], item) for item in result)
+    return sorted(unique.values(), key=lambda item: (item["title"].lower(), item["pid"]))
+
+
+def _window_title_matches(info, config):
+    keywords = _configured_keywords(config, "official_pos_window_keywords", [])
+    if not keywords:
+        return False
+    title = info.get("title", "")
+    title_lower = title.lower()
+    if any(marker in title for marker in ("免安装", "辅助", "排序")):
+        return False
+    return any(keyword in title_lower for keyword in keywords)
+
+
+def _window_process_matches(info, config):
+    keywords = _configured_keywords(config, "official_pos_process_keywords", [])
+    if not keywords:
+        return True
+    process_name = info.get("process_name", "").lower()
+    if not process_name:
+        return False
+    return any(keyword in process_name for keyword in keywords)
+
+
+def find_official_window_info(config=None):
+    """Find the configured official POS window and return its descriptor."""
+    if not user32 or not is_official_window_configured(config):
+        return None
+    windows = list_visible_windows()
+    title_matches = [item for item in windows if _window_title_matches(item, config)]
+    if not title_matches:
+        return None
+
+    # Prefer the selected process identity, but retain title matching as the
+    # required primary signal so a renamed executable can still be diagnosed.
+    process_matches = [item for item in title_matches if _window_process_matches(item, config)]
+    return (process_matches or title_matches)[0]
+
+
 def find_official_pids(config=None):
     """通过系统进程列表精准获取官方收银软件的 PID 集合"""
     pids = set()
     try:
-        process_names = _configured_keywords(config, "official_pos_process_keywords", OFFICIAL_PROCESS_NAMES)
+        process_names = _configured_keywords(config, "official_pos_process_keywords", [])
+        if not process_names:
+            return pids
         cmd = 'tasklist /NH /FO CSV'
         output = subprocess.check_output(cmd, shell=True).decode('gbk', errors='ignore')
         current_pid = os.getpid()
@@ -55,72 +202,49 @@ def find_official_pids(config=None):
 
 
 def find_official_window_handle(config=None):
-    """查找官方收银软件的窗口句柄 (HWND) - 优先纯 Win32 零阻塞匹配，匹配失败才回退进程列表"""
-    if not user32:
-        return None
+    """查找已配置的官方 POS 窗口；未配置窗口识别词时绝不猜测。"""
+    info = find_official_window_info(config)
+    return info.get("hwnd") if info else None
 
-    found_hwnd = [None]
-    current_pid = os.getpid()
 
-    title_keywords = _configured_keywords(config, "official_pos_window_keywords", OFFICIAL_WINDOW_TITLES)
-
-    # 1. 优先极速遍历窗口标题；不再用“POS/收银”等通用词误匹配其它软件。
-    def enum_title_callback(hwnd, lparam):
-        if not user32.IsWindowVisible(hwnd):
-            return True
-
-        pid = ctypes.c_ulong()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value == current_pid:
-            return True
-
-        length = user32.GetWindowTextLengthW(hwnd)
-        if length == 0:
-            return True
-
-        buffer = ctypes.create_unicode_buffer(length + 1)
-        user32.GetWindowTextW(hwnd, buffer, length + 1)
-        title = buffer.value
-
-        title_lower = title.lower()
-        for kw in title_keywords:
-            if kw in title_lower and "免安装" not in title and "辅助" not in title and "排序" not in title:
-                found_hwnd[0] = hwnd
-                return False
-
-        return True
-
-    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
-    cb = WNDENUMPROC(enum_title_callback)
-    user32.EnumWindows(cb, 0)
-
-    if found_hwnd[0]:
-        return found_hwnd[0]
-
-    # 2. 若标题未命中，回退到进程 PID 检测
-    official_pids = find_official_pids(config)
-    if not official_pids:
-        return None
-
-    def enum_pid_callback(hwnd, lparam):
-        if not user32.IsWindowVisible(hwnd):
-            return True
-        pid = ctypes.c_ulong()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value in official_pids:
-            found_hwnd[0] = hwnd
-            return False
-        return True
-
-    cb_pid = WNDENUMPROC(enum_pid_callback)
-    user32.EnumWindows(cb_pid, 0)
-    return found_hwnd[0]
+def apply_official_window_selection(config, info):
+    """Persist the operator-selected window identity into the shared config."""
+    if not config or not info:
+        return False
+    title = str(info.get("title", "")).strip()
+    if not title:
+        return False
+    # Titles often append a changing order/state suffix.  Keep the stable
+    # prefix as the required recognition word while retaining the full title
+    # for display and future diagnostics.
+    prefix = title
+    for separator in (" - ", " | ", " — ", " – "):
+        if separator in prefix:
+            prefix = prefix.split(separator, 1)[0].strip()
+    config["official_pos_window_configured"] = True
+    config["official_pos_window_title"] = title
+    config["official_pos_window_class"] = str(info.get("class_name", "")).strip()
+    config["official_pos_process_name"] = str(info.get("process_name", "")).strip()
+    config["official_pos_window_keywords"] = [prefix or title]
+    process_name = str(info.get("process_name", "")).strip()
+    config["official_pos_process_keywords"] = [process_name] if process_name else []
+    return True
 
 
 def bring_official_to_front(config=None):
     """强行将官方收银系统拉至最前"""
     if not user32:
         return False
+
+    if config is None:
+        # The emergency hotkey has no Qt/MainWindow argument.  Load the
+        # persisted identity so panic switching uses the same configured
+        # window as login detection and the normal auto-switch controller.
+        try:
+            from config import load_config
+            config = load_config()
+        except Exception:
+            config = {}
 
     hwnd = find_official_window_handle(config)
     if hwnd:

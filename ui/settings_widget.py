@@ -8,7 +8,7 @@ import hashlib
 import shutil
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog
@@ -21,6 +21,11 @@ from config import (
     export_config_bundle, import_config_bundle, backup_config_bundle,
 )
 from utils.port_scanner import scan_printers
+from utils.window_utils import (
+    apply_official_window_selection,
+    find_official_window_info,
+    is_official_window_configured,
+)
 
 
 SQB_INSTALLER_NAME = u"PC收款安装包v4.0.4.exe"
@@ -416,12 +421,6 @@ class SettingsWidget(QWidget):
         self.btn_pick_official_log_dir.clicked.connect(self._pick_official_log_dir)
         grid.addWidget(self.btn_pick_official_log_dir, 3, 2)
 
-        self.lbl_official_window_keywords = self._make_label(u"官方窗口识别词（可选）：")
-        grid.addWidget(self.lbl_official_window_keywords, 4, 0)
-        self.txt_official_window_keywords = QLineEdit(", ".join(self.config.get("official_pos_window_keywords", [])))
-        self.txt_official_window_keywords.setPlaceholderText(u"例如：新官方窗口标题词，多个用逗号分隔")
-        grid.addWidget(self.txt_official_window_keywords, 4, 1, 1, 2)
-
         # 提示信息
         self.lbl_scale_hint = QLabel("")
         self.lbl_scale_hint.setWordWrap(True)
@@ -779,8 +778,69 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_sys_page(self):
         card, layout = self._create_section_card(
-            u"⚙️", u"系统运行与触屏悬浮球", u"配置 Windows 开机自启、缓冲区延迟与桌面常驻悬浮球"
+            u"⚙️", u"系统运行与触屏悬浮球", u"先配置官方 POS 窗口识别，再设置 Windows 开机自启与桌面常驻悬浮球"
         )
+
+        # 官方 POS 窗口身份同时服务于启动检测和前台切换，不能混在称重
+        # 数据源里。首次启动会要求选择一次；这里可以随时重新检测/更换。
+        official_panel = QFrame()
+        official_panel.setStyleSheet(
+            "QFrame { background: #0F172A; border: 2px solid #8B5CF6; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        official_layout = QVBoxLayout(official_panel)
+        official_layout.setContentsMargins(18, 16, 18, 16)
+        official_layout.setSpacing(10)
+        official_title = QLabel(u"🖥️ 官方 POS 窗口识别（必填）")
+        official_title.setStyleSheet("color: #DDD6FE; font-size: 18px; font-weight: 900;")
+        official_layout.addWidget(official_title)
+        official_hint = QLabel(
+            u"本项用于登录检测、自动切换和老板键避险。首次使用请先启动官方 POS，"
+            u"点击“检测并选择窗口”；以后每次启动都按这里保存的识别词检测。"
+        )
+        official_hint.setWordWrap(True)
+        official_hint.setStyleSheet("color: #CBD5E1; font-size: 14px;")
+        official_layout.addWidget(official_hint)
+
+        official_grid = QGridLayout()
+        official_grid.setHorizontalSpacing(12)
+        official_grid.setVerticalSpacing(10)
+        official_grid.addWidget(self._make_label(u"当前状态："), 0, 0)
+        self.lbl_official_window_status = QLabel("")
+        self.lbl_official_window_status.setWordWrap(True)
+        self.lbl_official_window_status.setStyleSheet("color: #C4B5FD; font-size: 14px;")
+        official_grid.addWidget(self.lbl_official_window_status, 0, 1, 1, 2)
+
+        official_grid.addWidget(self._make_label(u"窗口识别词（必填）："), 1, 0)
+        self.txt_official_window_keywords = QLineEdit(
+            ", ".join(self.config.get("official_pos_window_keywords", []))
+        )
+        self.txt_official_window_keywords.setPlaceholderText(u"选择窗口后自动填写；多个识别词用逗号分隔")
+        official_grid.addWidget(self.txt_official_window_keywords, 1, 1, 1, 2)
+
+        official_grid.addWidget(self._make_label(u"辅助进程名："), 2, 0)
+        self.txt_official_process_name = QLineEdit(
+            self.config.get("official_pos_process_name", "")
+        )
+        self.txt_official_process_name.setReadOnly(True)
+        self.txt_official_process_name.setPlaceholderText(u"选择窗口后自动填写")
+        official_grid.addWidget(self.txt_official_process_name, 2, 1, 1, 2)
+        official_layout.addLayout(official_grid)
+
+        official_buttons = QHBoxLayout()
+        official_buttons.setSpacing(12)
+        self.btn_select_official_window = QPushButton(u"检测并选择窗口")
+        self._style_touch_action_btn(self.btn_select_official_window, "purple")
+        self.btn_select_official_window.clicked.connect(self._select_official_window)
+        official_buttons.addWidget(self.btn_select_official_window)
+        self.btn_test_official_window = QPushButton(u"按当前配置检测")
+        self._style_touch_action_btn(self.btn_test_official_window, "blue")
+        self.btn_test_official_window.clicked.connect(self._test_official_window)
+        official_buttons.addWidget(self.btn_test_official_window)
+        official_layout.addLayout(official_buttons)
+        layout.addWidget(official_panel)
+        self._refresh_official_window_status()
+
         grid = QGridLayout()
         grid.setSpacing(18)
         grid.setColumnStretch(0, 0)
@@ -1405,6 +1465,24 @@ class SettingsWidget(QWidget):
         show_info(self, u"保存成功", u"店铺与计价设置已保存！")
 
     def _on_save_sys(self):
+        from ui.custom_dialog import show_warning
+        window_keywords = [
+            value.strip()
+            for value in self.txt_official_window_keywords.text().split(",")
+            if value.strip()
+        ]
+        if not window_keywords:
+            show_warning(
+                self,
+                u"缺少官方 POS 窗口识别词",
+                u"窗口识别词是启动检测和界面切换的必填项。请点击“检测并选择窗口”，或手动填写标题关键词。",
+            )
+            return
+        self.config["official_pos_window_configured"] = True
+        self.config["official_pos_window_keywords"] = window_keywords
+        self.config["official_pos_process_name"] = self.txt_official_process_name.text().strip()
+        process_name = self.config["official_pos_process_name"]
+        self.config["official_pos_process_keywords"] = [process_name] if process_name else []
         self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
         self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
         self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
@@ -1429,6 +1507,82 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"系统运行与智能切换设置已保存！")
 
+    def _official_window_form_config(self):
+        """Build a temporary config from the system-settings form."""
+        cfg = dict(self.config)
+        keywords = [
+            value.strip()
+            for value in self.txt_official_window_keywords.text().split(",")
+            if value.strip()
+        ]
+        process_name = self.txt_official_process_name.text().strip()
+        cfg["official_pos_window_configured"] = bool(keywords)
+        cfg["official_pos_window_keywords"] = keywords
+        cfg["official_pos_process_name"] = process_name
+        cfg["official_pos_process_keywords"] = [process_name] if process_name else []
+        return cfg
+
+    def _refresh_official_window_status(self):
+        if not hasattr(self, "lbl_official_window_status"):
+            return
+        if not is_official_window_configured(self.config):
+            self.lbl_official_window_status.setText(
+                u"未配置。首次启动或点击“检测并选择窗口”完成绑定。"
+            )
+            self.lbl_official_window_status.setStyleSheet("color: #FCA5A5; font-size: 14px;")
+            return
+        info = find_official_window_info(self.config)
+        if info:
+            self.lbl_official_window_status.setText(
+                u"已识别：%s（%s）" % (
+                    info.get("title", ""), info.get("process_name") or u"未知进程"
+                )
+            )
+            self.lbl_official_window_status.setStyleSheet("color: #34D399; font-size: 14px;")
+        else:
+            self.lbl_official_window_status.setText(
+                u"已配置，但当前未找到窗口。请启动官方 POS 后点击“按当前配置检测”。"
+            )
+            self.lbl_official_window_status.setStyleSheet("color: #FBBF24; font-size: 14px;")
+
+    def _select_official_window(self):
+        from ui.custom_dialog import show_info, show_warning
+        from ui.official_window_dialog import OfficialWindowPickerDialog
+
+        current = {
+            "title": self.config.get("official_pos_window_title", ""),
+            "process_name": self.config.get("official_pos_process_name", ""),
+        }
+        dialog = OfficialWindowPickerDialog(current=current, parent=self)
+        if dialog.exec_() != QDialog.Accepted or not dialog.selected_window:
+            return
+        if not apply_official_window_selection(self.config, dialog.selected_window):
+            show_warning(self, u"选择失败", u"所选窗口信息无效，请重新刷新并选择。")
+            return
+        self.txt_official_window_keywords.setText(", ".join(self.config["official_pos_window_keywords"]))
+        self.txt_official_process_name.setText(self.config.get("official_pos_process_name", ""))
+        save_config(self.config)
+        self._refresh_official_window_status()
+        show_info(self, u"官方 POS 窗口已保存", u"以后启动检测和界面切换将按此窗口识别。")
+
+    def _test_official_window(self):
+        from ui.custom_dialog import show_info, show_warning
+        cfg = self._official_window_form_config()
+        if not cfg.get("official_pos_window_configured"):
+            show_warning(self, u"尚未填写识别词", u"窗口识别词不能为空，请先选择窗口或手动填写标题关键词。")
+            return
+        info = find_official_window_info(cfg)
+        if info:
+            self.lbl_official_window_status.setText(
+                u"检测通过：%s（%s）" % (info.get("title", ""), info.get("process_name") or u"未知进程")
+            )
+            self.lbl_official_window_status.setStyleSheet("color: #34D399; font-size: 14px;")
+            show_info(self, u"官方 POS 检测通过", u"已按当前识别词找到官方 POS 窗口。")
+        else:
+            self.lbl_official_window_status.setText(u"检测失败：当前未找到匹配窗口。")
+            self.lbl_official_window_status.setStyleSheet("color: #F87171; font-size: 14px;")
+            show_warning(self, u"未找到官方 POS", u"请确认官方 POS 已启动，或重新选择窗口并保存识别词。")
+
     def _open_settings_page(self, index):
         """从说明或下一步按钮跳转到指定的系统设置二级页面。"""
         if index < 0 or index >= self.stacked_widget.count():
@@ -1444,6 +1598,8 @@ class SettingsWidget(QWidget):
             self._on_scale_source_changed(2)
         elif index == 1:
             self._refresh_scale_bridge_overall_status()
+        elif index == 4:
+            self._refresh_official_window_status()
         elif index == 5:
             self._on_sqb_mode_changed()
 
@@ -1501,8 +1657,6 @@ class SettingsWidget(QWidget):
         self.lbl_official_log_dir.setVisible(not is_com)
         self.txt_official_log_dir.setVisible(not is_com)
         self.btn_pick_official_log_dir.setVisible(not is_com)
-        self.lbl_official_window_keywords.setVisible(not is_com)
-        self.txt_official_window_keywords.setVisible(not is_com)
         if hasattr(self, 'btn_test_scale_com'):
             self.btn_test_scale_com.setVisible(is_com)
         if hasattr(self, 'btn_go_scale_bridge'):
@@ -2351,9 +2505,6 @@ class SettingsWidget(QWidget):
         if selected_mode == "official":
             self.config["scale_source"] = "official"
             self.config["official_pos_log_dir"] = self.txt_official_log_dir.text().strip()
-            self.config["official_pos_window_keywords"] = [
-                value.strip() for value in self.txt_official_window_keywords.text().split(",") if value.strip()
-            ]
             success_message = u"已切换为跟随官方 POS 读取重量，无需配置 COM。"
         elif selected_mode == "direct":
             if not port_text:
