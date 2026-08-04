@@ -45,6 +45,17 @@ class MockWeightModeComboBox(QComboBox):
         painter.end()
 
 
+class ClickableWeightLabel(QLabel):
+    """Touch-friendly weight display that can act as the mock input target."""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class ManualWeightDialog(QDialog):
     """Large on-screen keypad for entering simulated scale weight in kg."""
 
@@ -845,7 +856,7 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
 
-        # 模拟调试模式下显示的重量模式列表与触屏操作按钮
+        # 模拟调试模式下显示重量模式列表；重量数字本身就是操作入口。
         mode_box = QVBoxLayout()
         mode_box.setSpacing(0)
         mode_selector_row = QHBoxLayout()
@@ -887,34 +898,19 @@ class SaleWidget(QWidget):
         self.mock_mode_box = mode_box
         self._mock_mode_index = 0
 
-        self.btn_random_weight = QPushButton(u"🎲 随机重量")
-        self.btn_random_weight.setToolTip(u"手动模式：打开触屏数字键盘；随机模式：生成测试重量")
-        self.btn_random_weight.setCursor(Qt.PointingHandCursor)
-        self.btn_random_weight.setFocusPolicy(Qt.NoFocus)
-        self.btn_random_weight.setStyleSheet("""
-            QPushButton {
-                background-color: #6D28D9; color: #FFFFFF; font-size: 13px; font-weight: bold;
-                padding: 5px 12px; border-radius: 6px; border: 1px solid #A78BFA; outline: none;
-            }
-            QPushButton:hover { background-color: #7C3AED; }
-            QPushButton:pressed { background-color: #5B21B6; }
-        """)
-        self.btn_random_weight.clicked.connect(self._on_random_weight_click)
-        self.btn_random_weight.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.btn_random_weight.customContextMenuRequested.connect(self._on_random_weight_menu)
-        led_layout.addWidget(self.btn_random_weight)
-
         if self._is_mock_mode:
             self.lbl_scale_status_icon.hide()
             self.cmb_mock_weight_mode.show()
-            self.btn_random_weight.show()
             self.cmb_mock_weight_mode.setCurrentIndex(0)
             self._on_mock_weight_mode_changed(0)
         else:
             self.cmb_mock_weight_mode.hide()
-            self.btn_random_weight.hide()
 
-        self.lbl_weight = QLabel("00.000 kg")
+        self.lbl_weight = ClickableWeightLabel("00.000 kg")
+        self.lbl_weight.clicked.connect(self._on_weight_display_click)
+        self.lbl_weight.setCursor(Qt.PointingHandCursor)
+        self.lbl_weight.setMinimumWidth(190)
+        self.lbl_weight.setToolTip(u"模拟模式：点击重量数字输入或生成重量")
         self.lbl_weight.setStyleSheet(
             "font-size: 36px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
             "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
@@ -1802,10 +1798,8 @@ class SaleWidget(QWidget):
         is_mock = self._is_mock_mode
         if is_mock:
             self.lbl_scale_status_icon.hide()
-            self.btn_random_weight.show()
             return
 
-        self.btn_random_weight.hide()
         self.lbl_scale_status_icon.show()
 
         if connected:
@@ -1855,6 +1849,11 @@ class SaleWidget(QWidget):
         w = max(0.100, w)
         self._apply_mock_weight(w)
 
+    def _on_weight_display_click(self):
+        """Use the large weight number as the only mock-weight action target."""
+        if self._is_mock_mode:
+            self._on_random_weight_click()
+
     def _on_mock_weight_mode_changed(self, index):
         """Switch mock input, or verify and leave simulation for real mode."""
         index = int(index)
@@ -1878,14 +1877,12 @@ class SaleWidget(QWidget):
 
         self._mock_mode_index = index
         self.mock_weight_mode = "random" if index == 1 else "manual"
-        if not hasattr(self, "btn_random_weight"):
+        if not hasattr(self, "lbl_weight"):
             return
         if self.mock_weight_mode == "manual":
-            self.btn_random_weight.setText(u"✎ 输入重量")
-            self.btn_random_weight.setToolTip(u"打开触屏数字键盘输入 kg；点击麻辣烫时也会要求输入")
+            self.lbl_weight.setToolTip(u"手动模式：点击重量数字打开触屏键盘输入 kg")
         else:
-            self.btn_random_weight.setText(u"🎲 随机重量")
-            self.btn_random_weight.setToolTip(u"点击生成一组模拟重量")
+            self.lbl_weight.setToolTip(u"随机模式：点击重量数字生成一组模拟重量")
 
     def _check_normal_scale_ready(self):
         """Return whether the configured real scale can be used right now."""
@@ -1935,7 +1932,6 @@ class SaleWidget(QWidget):
         self.lbl_weight.setText("00.000 kg")
         self.lbl_scale_status_icon.show()
         self.cmb_mock_weight_mode.hide()
-        self.btn_random_weight.hide()
         self._setup_scale()
         self._show_toast(u"已切换到正常称重模式，正在读取电子秤")
 
@@ -1951,31 +1947,6 @@ class SaleWidget(QWidget):
             return False
         self._apply_mock_weight(dlg.weight_kg)
         return True
-
-    def _on_random_weight_menu(self, pos):
-        from PyQt5.QtWidgets import QMenu
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background-color: #1E293B; color: #F9FAFB; border: 1px solid #334155; border-radius: 6px; padding: 4px 0; }
-            QMenu::item { padding: 6px 20px; font-size: 13px; }
-            QMenu::item:selected { background-color: #7C3AED; color: white; }
-        """)
-        
-        for preset in [0.120, 0.300, 0.500, 0.800, 1.000, 1.200]:
-            act = menu.addAction(u"设置重量: %.3f kg" % preset)
-            def trigger_preset(checked, val=preset):
-                self._apply_mock_weight(val)
-            act.triggered.connect(trigger_preset)
-            
-        act_custom = menu.addAction(u"自定义输入克数...")
-        def ask_custom():
-            val, ok = get_int_input(self, u"自定义重量", u"请输入克数（1–9999，例：500 表示 0.5kg）:", 500, 1, 9999)
-            if ok:
-                w = round(val / 1000.0, 3)
-                self._apply_mock_weight(w)
-        act_custom.triggered.connect(ask_custom)
-        
-        menu.exec_(self.btn_random_weight.mapToGlobal(pos))
 
     def _on_other_checkout(self):
         """点击 '去其他' 按钮：调起去除收钱吧和现金的备选支付模态框"""
