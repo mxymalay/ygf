@@ -831,6 +831,41 @@ class _FakeLifecycleService(object):
 
 
 class FullLifecycleTests(unittest.TestCase):
+    def test_scale_initialize_rejects_pairs_missing_from_windows_device_list(self):
+        runner = _StatefulSetupCRunner()
+        cfg = ScaleBridgeConfig(
+            physical_scale=ScaleDeviceIdentity(port="COM5"),
+            official_bridge_port="",
+            private_bridge_port="",
+            payment_pos_port="",
+            payment_plugin_port="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = os.path.join(directory, "installation.json")
+            config_path = os.path.join(directory, "scale_bridge.json")
+            provisioner = Com0ComProvisioner(
+                "setupc.exe",
+                manifest_path,
+                runner=runner,
+                port_enumerator=lambda include_virtual=True: [],
+            )
+            service = _FakeLifecycleService()
+            lifecycle = ScaleBridgeLifecycle(
+                config_path,
+                manifest_path,
+                provisioner=provisioner,
+                service=service,
+                verify_enumeration=True,
+            )
+            tester = lambda _cfg: PhysicalScaleTestResult(True, "COM5", 0.402, "30 30", "ok")
+            with patch("scale_bridge.lifecycle.is_administrator", return_value=True), patch(
+                "scale_bridge.lifecycle.find_setupc", return_value="setupc.exe"
+            ):
+                with self.assertRaisesRegex(RuntimeError, "设备管理器未枚举"):
+                    lifecycle.initialize(cfg, tester)
+            self.assertFalse(os.path.exists(config_path))
+            self.assertFalse(service.installed)
+
     def test_failed_physical_retest_restores_previously_running_service(self):
         cfg = ScaleBridgeConfig(
             physical_scale=ScaleDeviceIdentity(port="COM5"),

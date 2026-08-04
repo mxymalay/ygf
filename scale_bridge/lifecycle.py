@@ -955,11 +955,17 @@ class ScaleBridgeLifecycle:
         manifest_path: Optional[str] = None,
         provisioner: Optional[Com0ComProvisioner] = None,
         service: Optional[ScaleBridgeServiceController] = None,
+        verify_enumeration: Optional[bool] = None,
     ):
         self.config_path = os.path.abspath(config_path)
         self.manifest_path = manifest_path or default_manifest_path()
         self.provisioner = provisioner
         self.service = service or ScaleBridgeServiceController()
+        # A real provisioning run must verify that Windows has enumerated the
+        # two POS-facing COM endpoints after setupc reports success.  Injected
+        # provisioners used by tests/tools may intentionally omit a device
+        # enumerator, so they remain opt-in unless explicitly requested.
+        self.verify_enumeration = (provisioner is None) if verify_enumeration is None else bool(verify_enumeration)
 
     def initialize(
         self,
@@ -1004,6 +1010,22 @@ class ScaleBridgeLifecycle:
         pairs = provisioner.ensure_required_pairs(
             config, include_scale=True, include_payment=False
         )
+        if self.verify_enumeration:
+            candidates = provisioner.port_enumerator(include_virtual=True)
+            available = {item.port.upper() for item in candidates}
+            missing = [
+                port for port in (
+                    config.official_pos_virtual_port,
+                    config.private_pos_virtual_port,
+                )
+                if port.upper() not in available
+            ]
+            if missing:
+                raise RuntimeError(
+                    "setupc 已返回 POS 称桥接配对，但 Windows 设备管理器未枚举出 %s。"
+                    "请确认 com0com 驱动安装完成，必要时重启电脑后再初始化。"
+                    % "、".join(missing)
+                )
         save_config(config, self.config_path)
 
         installed = self.service.install()
