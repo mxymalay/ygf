@@ -408,19 +408,34 @@ def load_config(migration_policy="auto", selected_keys=None) -> dict:
 def save_config(cfg: dict):
     """保存配置：按模块拆分保存到 data/settings/*.json 文件"""
     # Do not let a stale widget/plugin key leak into the new modular files.
-    # Keep the caller's dictionary in sync because the rest of the UI shares
-    # this object and expects a save to remove transient simulation state.
+    # Keep the caller's dictionary in sync for foreign/legacy fields, but
+    # preserve transient runtime flags.  The same dictionary is shared by the
+    # running UI; removing ``is_mock_mode`` during an unrelated settings save
+    # used to silently switch the sales page to real-scale mode mid-session.
+    transient_values = {
+        key: cfg[key] for key in TRANSIENT_CONFIG_KEYS if key in cfg
+    }
     if "soup_price_4" in cfg:
         cfg.setdefault("special_soup_price", cfg["soup_price_4"])
         cfg.pop("soup_price_4", None)
     for key in list(cfg):
         if key not in KNOWN_CONFIG_KEYS or key in TRANSIENT_CONFIG_KEYS:
             cfg.pop(key, None)
+    cfg.update(transient_values)
     cfg["config_schema_version"] = CONFIG_SCHEMA_VERSION
+    persisted = {
+        key: value
+        for key, value in cfg.items()
+        if key in KNOWN_CONFIG_KEYS and key not in TRANSIENT_CONFIG_KEYS
+    }
+    # ``soup_price_4`` was removed from the live dictionary above; keep this
+    # guard for callers that pass a mapping with unusual iteration behavior.
+    persisted.pop("soup_price_4", None)
+    persisted["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
     # 按模块拆分保存到 data/settings/*.json
     module_buckets = {"sys": {}, "takeout": {}, "algo": {}, "shouqianba": {}}
-    for k, v in cfg.items():
+    for k, v in persisted.items():
         mod = _get_module_name(k)
         module_buckets[mod][k] = v
 

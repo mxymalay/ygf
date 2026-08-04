@@ -45,7 +45,12 @@ class SettingsWorkflowTests(unittest.TestCase):
         ), patch.object(SettingsWidget, "_refresh_printers", lambda *_args, **_kwargs: None), patch.object(
             SettingsWidget, "_load_scale_bridge_form", lambda _self: None
         ), patch.object(SettingsWidget, "_scale_bridge_runtime_state", return_value=runtime):
-            return SettingsWidget(config)
+            widget = SettingsWidget(config)
+        # Keep the runtime fixture active after construction as well.  The
+        # real workstation may have a user bridge file, which must not leak
+        # into this UI workflow test when the source selector changes.
+        widget._scale_bridge_runtime_state = lambda: runtime
+        return widget
 
     def test_scale_modes_only_request_a_port_when_needed(self):
         widget = self._create_widget(bridge_ready=False)

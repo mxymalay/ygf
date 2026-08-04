@@ -70,10 +70,14 @@ class ModularConfigMigrationTests(unittest.TestCase):
                 value["is_mock_mode"] = True
                 value["foreign_extension_key"] = {"x": 1}
                 config.save_config(value)
-                self.assertNotIn("is_mock_mode", value)
+                # Runtime simulation state must remain in the shared in-memory
+                # config so a settings save cannot switch the running POS to
+                # real hardware mode.  It is still excluded from disk.
+                self.assertTrue(value["is_mock_mode"])
                 self.assertNotIn("foreign_extension_key", value)
                 with open(modules["sys"], "r", encoding="utf-8") as stream:
                     persisted = json.load(stream)
+                self.assertNotIn("is_mock_mode", persisted)
                 self.assertNotIn("foreign_extension_key", persisted)
 
     def test_selective_migration_keeps_only_checked_legacy_fields(self):

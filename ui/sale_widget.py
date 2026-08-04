@@ -677,6 +677,7 @@ class SaleWidget(QWidget):
         # Simulation starts in the safer/manual mode.  It is intentionally a
         # session setting: real hardware configuration is never changed by
         # the mock controls.
+        self._is_mock_mode = bool(config.get("is_mock_mode", False))
         self.mock_weight_mode = "manual"
         
         # 购物车项目列表与选中项目索引与分页状态
@@ -874,7 +875,7 @@ class SaleWidget(QWidget):
         self.btn_random_weight.customContextMenuRequested.connect(self._on_random_weight_menu)
         led_layout.addWidget(self.btn_random_weight)
 
-        if self.config.get("is_mock_mode", False):
+        if self._is_mock_mode:
             self.lbl_scale_status_icon.hide()
             self.cmb_mock_weight_mode.show()
             self.btn_random_weight.show()
@@ -1235,7 +1236,9 @@ class SaleWidget(QWidget):
         price_unit = self.config.get("price_unit", "per_jin")
 
         if btn.is_soup:
-            is_mock = bool(self.config.get("is_mock_mode", False))
+            # Snapshot the launch mode.  A settings save must not be able to
+            # turn a running simulation into a real-scale checkout.
+            is_mock = self._is_mock_mode
             if is_mock and self.mock_weight_mode == "manual":
                 # Manual mode deliberately asks for the weight on every soup
                 # selection, so a previous bowl's value cannot be reused by
@@ -1248,7 +1251,7 @@ class SaleWidget(QWidget):
                 else:
                     show_warning(self, u"请先称重", u"当前电子秤读数为 0.000 kg，请先将麻辣烫放置在电子秤上！")
                 return
-            if not self.config.get("is_mock_mode", False):
+            if not is_mock:
                 if not self._scale_connected or time.monotonic() - self._last_weight_monotonic > 2.0:
                     show_warning(self, u"称重读数不可用", u"电子秤读数已断开或超过 2 秒未更新。请确认电子秤连接正常后重新称重。")
                     return
@@ -1728,10 +1731,17 @@ class SaleWidget(QWidget):
 
     def restart_scale(self):
         self.refresh_unit_price_info()
-        if hasattr(self, 'scale'):
+        if getattr(self, 'scale', None) is not None:
             self.scale.restart()
 
     def _setup_scale(self):
+        # Simulation is a complete session mode.  Do not start the real
+        # reader in the background: its disconnected/error signal used to
+        # paint a red X beside the mock selector and made the page look as if
+        # it had switched back to hardware mode.
+        if self._is_mock_mode:
+            self.scale = None
+            return
         self.scale = ScaleReader(self.config)
         self.scale.weight_updated.connect(self._on_weight_update)
         self.scale.status_changed.connect(self._on_status_change)
@@ -1760,7 +1770,7 @@ class SaleWidget(QWidget):
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
         self._scale_connected = connected
-        is_mock = self.config.get("is_mock_mode", False)
+        is_mock = self._is_mock_mode
         if is_mock:
             self.lbl_scale_status_icon.hide()
             self.btn_random_weight.show()
@@ -1799,12 +1809,15 @@ class SaleWidget(QWidget):
 
     @pyqtSlot(str)
     def _on_error(self, msg):
+        if self._is_mock_mode:
+            self.lbl_scale_status_icon.hide()
+            return
         self.lbl_scale_status_icon.setText(u"✕")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_random_weight_click(self):
-        if self.config.get("is_mock_mode", False) and self.mock_weight_mode == "manual":
+        if self._is_mock_mode and self.mock_weight_mode == "manual":
             self._prompt_manual_weight()
             return
         weights = [0.120, 0.150, 0.320, 0.450, 0.580, 0.640, 0.760, 0.850, 0.980, 1.150]
@@ -2035,5 +2048,5 @@ class SaleWidget(QWidget):
             parent_mw.switch_controller._current_is_private = False
 
     def cleanup(self):
-        if hasattr(self, 'scale'):
+        if getattr(self, 'scale', None) is not None:
             self.scale.stop()

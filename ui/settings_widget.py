@@ -435,7 +435,11 @@ class SettingsWidget(QWidget):
         btn_box.setColumnStretch(0, 1)
         btn_box.setColumnStretch(1, 1)
 
-        self.btn_test_scale_com = QPushButton(u"⚡ 测试串口连接")
+        # Source-aware test action: official mode verifies the live official
+        # log, direct mode tests the physical COM, and bridge mode tests the
+        # private virtual channel.  The recommended official mode must not
+        # leave the operator without a verification button.
+        self.btn_test_scale_com = QPushButton(u"⚡ 检测官方读数")
         self._style_touch_action_btn(self.btn_test_scale_com, "blue")
         self.btn_test_scale_com.clicked.connect(self._test_selected_scale_source)
         btn_box.addWidget(self.btn_test_scale_com, 0, 0)
@@ -1658,7 +1662,7 @@ class SettingsWidget(QWidget):
         self.txt_official_log_dir.setVisible(not is_com)
         self.btn_pick_official_log_dir.setVisible(not is_com)
         if hasattr(self, 'btn_test_scale_com'):
-            self.btn_test_scale_com.setVisible(is_com)
+            self.btn_test_scale_com.setVisible(True)
         if hasattr(self, 'btn_go_scale_bridge'):
             self.btn_go_scale_bridge.setVisible(is_bridge)
 
@@ -1704,6 +1708,7 @@ class SettingsWidget(QWidget):
                 u"• 官方 POS 必须保持运行；若官方升级改变安装目录，请选择它的 serial 日志文件夹。\n"
                 u"• 如果希望本 POS 单独读秤或两个 POS 同时读秤，请选择对应方式。"
             )
+            self.btn_test_scale_com.setText(u"⚡ 检测官方读数")
 
     def _pick_official_log_dir(self):
         selected = QFileDialog.getExistingDirectory(
@@ -1713,6 +1718,9 @@ class SettingsWidget(QWidget):
             self.txt_official_log_dir.setText(selected)
 
     def _test_selected_scale_source(self):
+        if self.cmb_scale_source.currentIndex() == 0:
+            self._test_official_scale()
+            return
         if self.cmb_scale_source.currentIndex() == 2:
             _bridge_config, ready, status = self._scale_bridge_runtime_state()
             if not ready:
@@ -1722,6 +1730,50 @@ class SettingsWidget(QWidget):
             self._test_scale_bridge_channel("private")
             return
         self._test_scale_com()
+
+    def _test_official_scale(self):
+        """检查当前官方 POS 日志并解析一条最新重量。"""
+        from ui.custom_dialog import show_info, show_warning
+        from core.scale_reader import ScaleReader, read_file_shared
+
+        # Test unsaved directory text too, so a POS upgrade can be verified
+        # before the operator commits the new setting.
+        test_config = dict(self.config)
+        test_config["official_pos_log_dir"] = self.txt_official_log_dir.text().strip()
+        reader = ScaleReader(test_config)
+        target_file = reader._find_active_ygf_log()
+        if not target_file:
+            show_warning(
+                self,
+                u"未检测到官方称重日志",
+                u"请确认官方 POS 已启动并正在刷新称重读数。\n\n"
+                u"如果官方软件升级过目录，请先选择包含 log_serial_ports 文件的 serial 文件夹，"
+                u"然后再次点击“检测官方读数”。",
+            )
+            return
+
+        content = read_file_shared(target_file)
+        latest_weight = None
+        for line in reversed(content.splitlines()[-100:]):
+            latest_weight = reader._parse_ygf_log_line(line)
+            if latest_weight is not None:
+                break
+        if latest_weight is None:
+            show_warning(
+                self,
+                u"日志已找到，但没有可解析重量",
+                u"文件：%s\n\n请把物品放上官方秤，让官方 POS 产生一条新的读数后重试。" % target_file,
+            )
+            return
+
+        show_info(
+            self,
+            u"官方读数检测成功",
+            u"已读取官方 POS 的实时称重日志。\n\n"
+            u"文件：%s\n当前重量：%.3f kg\n\n"
+            u"本 POS 运行时会继续跟随该日志读取，不需要选择 COM。"
+            % (target_file, latest_weight),
+        )
 
     def _show_scale_bridge_status(self):
         """Read service status through its local named pipe; never opens a serial port."""
