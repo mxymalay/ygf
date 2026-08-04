@@ -9,7 +9,8 @@ from PyQt5.QtWidgets import QApplication
 
 from config import DEFAULT_CONFIG
 from ui.login_window import LoginWindow
-from ui.settings_widget import SettingsWidget
+from ui.settings_widget import SettingsWidget, _MaintenanceBusyDialog
+from PyQt5.QtCore import Qt
 
 
 def _fake_scale_ports(widget, show_toast=False):
@@ -102,6 +103,14 @@ class SettingsWorkflowTests(unittest.TestCase):
         self.assertTrue(
             all(button.minimumHeight() >= 54 for button in widget.sqb_hotkey_preset_buttons)
         )
+
+    def test_maintenance_dialog_never_covers_windows_installer_prompt(self):
+        dialog = _MaintenanceBusyDialog("维护中", "测试")
+        self.addCleanup(dialog.deleteLater)
+
+        self.assertFalse(bool(dialog.windowFlags() & Qt.WindowStaysOnTopHint))
+        self.assertIn("最小化 POS", dialog.btn_minimize_for_windows.text())
+        self.assertGreaterEqual(dialog.btn_minimize_for_windows.minimumHeight(), 52)
 
     def test_login_official_mode_does_not_probe_an_unrelated_com(self):
         config = dict(DEFAULT_CONFIG)

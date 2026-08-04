@@ -60,9 +60,10 @@ class _MaintenanceBusyDialog(QDialog):
         self.setWindowTitle(title)
         self.setModal(True)
         self.setWindowModality(Qt.ApplicationModal)
-        # Keep the progress window above elevated com0com setup dialogs and
-        # avoid a Win7 z-order transition that briefly exposes the desktop.
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # Never keep this dialog above Windows installer/UAC prompts.  On a
+        # fullscreen Win7 POS that made the required driver confirmation
+        # visible but impossible to click.
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setMinimumWidth(500)
         self.setStyleSheet(
@@ -98,13 +99,29 @@ class _MaintenanceBusyDialog(QDialog):
         progress.setTextVisible(False)
         layout.addWidget(progress)
 
-        hint = QLabel(u"正在执行系统驱动/虚拟串口操作，请勿关闭程序或拔出设备。")
+        hint = QLabel(
+            u"正在执行系统驱动/虚拟串口操作，请勿关闭程序或拔出设备。\n"
+            u"如 Windows 弹出安装确认，请点击下方按钮后在 Windows 对话框继续。"
+        )
         hint.setAlignment(Qt.AlignCenter)
+        hint.setWordWrap(True)
         hint.setStyleSheet("color: #FDE68A; font-size: 13px;")
         layout.addWidget(hint)
 
+        self.btn_minimize_for_windows = QPushButton(u"最小化 POS，继续 Windows 安装确认")
+        self.btn_minimize_for_windows.setMinimumHeight(52)
+        self.btn_minimize_for_windows.setStyleSheet(
+            "QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #64748B; "
+            "border-radius: 10px; font-size: 15px; font-weight: bold; padding: 8px 16px; }"
+            "QPushButton:pressed { background: #475569; }"
+        )
+        self.btn_minimize_for_windows.clicked.connect(self._minimize_for_windows_prompt)
+        layout.addWidget(self.btn_minimize_for_windows)
+
         self._frame_index = 0
         self._finishing = False
+        self._minimized_for_windows_prompt = False
+        self._parent_was_fullscreen = False
         self._timer = QTimer(self)
         self._timer.setInterval(180)
         self._timer.timeout.connect(self._advance_frame)
@@ -131,6 +148,35 @@ class _MaintenanceBusyDialog(QDialog):
         # QApplication.activeModalWidget(); hiding alone can leave an
         # invisible modal window swallowing every click and scroll event.
         self.deleteLater()
+
+    def _minimize_for_windows_prompt(self):
+        """Yield the foreground to an installer window without cancelling work."""
+        parent_window = self.window()
+        self._minimized_for_windows_prompt = True
+        self._parent_was_fullscreen = bool(
+            parent_window is not None and parent_window.isFullScreen()
+        )
+        # A hidden application-modal dialog can otherwise remain the active
+        # modal widget on Qt 5/Win7 and keep swallowing the installer click.
+        self.setModal(False)
+        self.setWindowModality(Qt.NonModal)
+        self.hide()
+        if parent_window is not None:
+            parent_window.showMinimized()
+
+    def restore_parent_after_windows_prompt(self):
+        if not self._minimized_for_windows_prompt:
+            return
+        parent_window = self.window()
+        self._minimized_for_windows_prompt = False
+        if parent_window is None:
+            return
+        if self._parent_was_fullscreen:
+            parent_window.showFullScreen()
+        else:
+            parent_window.showNormal()
+        parent_window.raise_()
+        parent_window.activateWindow()
 
     def _advance_frame(self):
         self._frame_index = (self._frame_index + 1) % len(self._FRAMES)
@@ -1449,6 +1495,7 @@ class SettingsWidget(QWidget):
                 resume_switch_routing()
 
         def succeeded(result):
+            dialog.restore_parent_after_windows_prompt()
             dialog.finish()
             thread.quit()
             release_busy_visuals()
@@ -1458,6 +1505,7 @@ class SettingsWidget(QWidget):
             QTimer.singleShot(50, lambda: show_success(result))
 
         def failed(reason):
+            dialog.restore_parent_after_windows_prompt()
             dialog.finish()
             thread.quit()
             release_busy_visuals()
