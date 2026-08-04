@@ -2343,13 +2343,25 @@ class SettingsWidget(QWidget):
             self.config["shouqianba_plugin_port"] = plugin
             self.config["shouqianba_pair_mode"] = "managed"
             save_config(self.config)
+            created_text = u"、".join(report.created)
+            existing_text = u"、".join(report.existing)
+            if report.created:
+                title = u"支付配对创建成功"
+                result_hint = u"已按当前填写的端口新建配对。"
+            elif report.existing:
+                title = u"支付配对已存在，已复用"
+                result_hint = u"没有重复创建；当前填写的端口已经属于下面的现有配对。"
+            else:
+                title = u"支付配对检查完成"
+                result_hint = u"未发现新建或复用记录，请点击检查按钮确认端口状态。"
             show_info(
                 self,
-                u"支付配对已就绪",
-                u"新建：%s\n复用：%s\n清理旧配对：%s\n\n下一步：关闭占用两端口的软件，再点击“双向测试支付配对”。"
+                title,
+                u"%s\n\n新建：%s\n复用：%s\n清理旧配对：%s\n\n下一步：关闭占用两端口的软件，再点击“双向测试支付配对”。"
                 % (
-                    u"、".join(report.created) or u"无",
-                    u"、".join(report.existing) or u"无",
+                    result_hint,
+                    created_text or u"无",
+                    existing_text or u"无",
                     u"、".join(report.removed_obsolete) or u"无",
                 ),
             )
