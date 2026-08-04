@@ -74,6 +74,28 @@ def _unique_deployment_dir(base_dir):
     return candidate
 
 
+def _remove_readonly(func, path, _exc_info):
+    """Allow build-cache cleanup to remove files copied as read-only."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        # The caller will detect that the directory still exists and choose a
+        # fresh build directory instead of silently reusing stale artifacts.
+        pass
+
+
+def _clean_build_tree(path):
+    """Best-effort removal of a build tree; report whether it remains."""
+    if not os.path.exists(path):
+        return True
+    try:
+        shutil.rmtree(path, onerror=_remove_readonly)
+    except OSError:
+        pass
+    return not os.path.exists(path)
+
+
 def main():
     start_time = time.time()
 
@@ -108,14 +130,16 @@ def main():
     print("[*] 正在清理历史构建缓存...")
     for folder in ["build", "dist"]:
         if os.path.exists(folder):
-            try:
-                shutil.rmtree(folder)
-            except Exception:
-                pass
+            if not _clean_build_tree(folder):
+                print("[i] 无法完全清理旧构建目录，后续将避开被占用文件")
 
     # 3. 构造主程序与独立 Windows 服务的 PyInstaller 参数
     app_name = "驱动"
     package_dir = os.path.join("dist", "YGF-POS")
+    if os.path.exists(package_dir):
+        # A previous deployment may still have the bundled installer open.
+        # Never overwrite that locked tree; stage this build beside it.
+        package_dir = _unique_deployment_dir(package_dir + "-build")
     os.makedirs(package_dir, exist_ok=True)
     os.makedirs(os.path.join("build", "spec"), exist_ok=True)
     common_hidden = [
