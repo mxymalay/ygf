@@ -40,6 +40,33 @@ class WindowsServiceImportTests(unittest.TestCase):
         namespace = runpy.run_path(source_file, run_name="pythonservice_loose_import_test")
         self.assertIn("ScaleBridgeWindowsService", namespace)
 
+    def test_source_service_host_registers_a_file_based_entry_point(self):
+        """Source installs must not require pythonservice to find our package."""
+        import scale_bridge.service as service_module
+        import win32serviceutil
+
+        host_file = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "scale_bridge_service.py")
+        )
+        captured = []
+        with patch.object(
+            service_module.win32serviceutil,
+            "HandleCommandLine",
+            side_effect=lambda service_class: captured.append(service_class) or 0,
+        ), patch.object(sys, "argv", [host_file, "--help"]):
+            with self.assertRaises(SystemExit):
+                runpy.run_path(host_file, run_name="__main__")
+
+        self.assertEqual(len(captured), 1)
+        class_string = win32serviceutil.GetServiceClassString(
+            captured[0],
+            argv=[host_file],
+        )
+        self.assertEqual(
+            class_string,
+            os.path.splitext(host_file)[0] + ".ScaleBridgeWindowsService",
+        )
+
 
 class Com0ComInstallerTests(unittest.TestCase):
     def test_installer_runs_with_package_directory_as_working_directory(self):

@@ -152,16 +152,24 @@ def _write_source_service_python_path() -> None:
         )
 
 
-def main(argv=None) -> int:
+def main(argv=None, service_class=None) -> int:
+    """Run service maintenance commands or host a service class.
+
+    ``service_class`` is supplied by the source-tree host script.  Keeping the
+    class in that root-level script makes pywin32 register an absolute file
+    entry point, which pythonservice.exe can import before it knows about this
+    project's package directory.
+    """
     args = list(sys.argv[1:] if argv is None else argv)
+    active_service_class = service_class or ScaleBridgeWindowsService
     # A frozen service executable is launched by the Windows Service Control
     # Manager with no arguments.  HandleCommandLine is only for maintenance
     # commands; with no arguments it prints usage and exits instead of hosting.
     if getattr(sys, "frozen", False) and not args:
-        if not servicemanager or not ScaleBridgeWindowsService:
+        if not servicemanager or not active_service_class:
             raise RuntimeError("pywin32 service dispatcher is unavailable")
         servicemanager.Initialize()
-        servicemanager.PrepareToHostSingle(ScaleBridgeWindowsService)
+        servicemanager.PrepareToHostSingle(active_service_class)
         servicemanager.StartServiceCtrlDispatcher()
         return 0
     if args[:1] == ["debug"]:
@@ -169,7 +177,7 @@ def main(argv=None) -> int:
         return 0
     if not win32serviceutil:
         raise RuntimeError("pywin32 is required to install or host ScaleBridge as a Windows service")
-    result = int(win32serviceutil.HandleCommandLine(ScaleBridgeWindowsService) or 0)
+    result = int(win32serviceutil.HandleCommandLine(active_service_class) or 0)
     if any(str(item).lower() == "install" for item in args):
         _write_source_service_python_path()
     return result
