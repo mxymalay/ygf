@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QDialog, QLineEdit, QComboBox, QListView
 )
 from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
+from PyQt5.QtGui import QPainter, QPolygon, QPoint, QFontMetrics
 
 from core.calculator import calculate_price, weight_display, price_unit_label
 from core.database import Database
@@ -21,6 +22,27 @@ from core.call_number_manager import CallNumberManager
 from core.order_draft import clear_draft, load_draft, save_draft
 from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
 from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER, CAT_SYSTEM
+
+
+class MockWeightModeComboBox(QComboBox):
+    """Compact touch selector with its arrow immediately after the text."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        text = self.currentText()
+        if not text:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        metrics = QFontMetrics(self.font())
+        # Keep the indicator beside the final character instead of reserving
+        # a wide right-hand drop-down column that squeezes the kg display.
+        x = min(12 + metrics.horizontalAdvance(text) + 6, self.width() - 14)
+        y = self.height() // 2
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self.palette().text().color())
+        painter.drawPolygon(QPolygon([QPoint(x, y - 3), QPoint(x + 8, y - 3), QPoint(x + 4, y + 4)]))
+        painter.end()
 
 
 class ManualWeightDialog(QDialog):
@@ -828,18 +850,20 @@ class SaleWidget(QWidget):
         mode_box.setSpacing(0)
         mode_selector_row = QHBoxLayout()
         mode_selector_row.setSpacing(6)
-        self.cmb_mock_weight_mode = QComboBox()
+        self.cmb_mock_weight_mode = MockWeightModeComboBox()
         self.cmb_mock_weight_mode.addItem(u"手动输入重量", "manual")
         self.cmb_mock_weight_mode.addItem(u"随机生成重量", "random")
         self.cmb_mock_weight_mode.addItem(u"切换到正常模式（检测设备）", "normal")
         self.cmb_mock_weight_mode.setMinimumHeight(56)
-        self.cmb_mock_weight_mode.setMinimumWidth(205)
+        self.cmb_mock_weight_mode.setMinimumWidth(150)
+        self.cmb_mock_weight_mode.setMaximumWidth(185)
         self.cmb_mock_weight_mode.setFocusPolicy(Qt.NoFocus)
         self.cmb_mock_weight_mode.setStyleSheet(
             "QComboBox { background: #2E1065; color: #F5F3FF; border: 2px solid #8B5CF6; "
             "border-radius: 9px; padding: 7px 12px; font-size: 14px; font-weight: 900; }"
             "QComboBox:focus { border: 2px solid #C4B5FD; background: #4C1D95; }"
-            "QComboBox::drop-down { width: 36px; border: none; }"
+            "QComboBox::drop-down { width: 0px; border: none; }"
+            "QComboBox::down-arrow { image: none; width: 0px; height: 0px; }"
             "QComboBox QAbstractItemView { background: #1E1B4B; color: #F5F3FF; "
             "border: 2px solid #8B5CF6; border-radius: 10px; padding: 6px; outline: none; }"
             "QListView::item { min-height: 56px; padding: 14px 16px; margin: 2px 4px; "
@@ -857,16 +881,7 @@ class SaleWidget(QWidget):
         self.cmb_mock_weight_mode.setView(mode_view)
         self.cmb_mock_weight_mode.setMaxVisibleItems(3)
         self.cmb_mock_weight_mode.currentIndexChanged.connect(self._on_mock_weight_mode_changed)
-        mode_selector_row.addWidget(self.cmb_mock_weight_mode, stretch=1)
-        self.lbl_mock_mode_arrow = QLabel(u"▼")
-        self.lbl_mock_mode_arrow.setMinimumWidth(24)
-        self.lbl_mock_mode_arrow.setAlignment(Qt.AlignCenter)
-        self.lbl_mock_mode_arrow.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.lbl_mock_mode_arrow.setStyleSheet(
-            "color: #DDD6FE; font-size: 18px; font-weight: 900; "
-            "background: transparent; border: none;"
-        )
-        mode_selector_row.addWidget(self.lbl_mock_mode_arrow)
+        mode_selector_row.addWidget(self.cmb_mock_weight_mode)
         mode_box.addLayout(mode_selector_row)
         led_layout.addLayout(mode_box)
         self.mock_mode_box = mode_box
@@ -1920,7 +1935,6 @@ class SaleWidget(QWidget):
         self.lbl_weight.setText("00.000 kg")
         self.lbl_scale_status_icon.show()
         self.cmb_mock_weight_mode.hide()
-        self.lbl_mock_mode_arrow.hide()
         self.btn_random_weight.hide()
         self._setup_scale()
         self._show_toast(u"已切换到正常称重模式，正在读取电子秤")
