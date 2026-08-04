@@ -4,7 +4,8 @@
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QCheckBox, QFormLayout, QFrame, QMessageBox, QScrollArea, QGroupBox, QTextEdit
+    QCheckBox, QFormLayout, QFrame, QMessageBox, QScrollArea, QGroupBox, QTextEdit,
+    QSizePolicy
 )
 from PyQt5.QtCore import Qt, QTimer
 from config import save_config
@@ -114,14 +115,20 @@ class SwitchSettingsWidget(QWidget):
         self.log_timer.stop()
 
     def _build_ui(self):
-        root = QHBoxLayout(self)
-        root.setContentsMargins(30, 20, 30, 20)
-        root.setSpacing(20)
+        # The previous side-by-side 60/40 layout required more width than a
+        # Win7 touch POS window provides, so the right edge of the form was
+        # clipped.  Stack configuration and logs vertically: the only
+        # scrolling direction is vertical and every row gets the full width.
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(10)
 
         # ==========================================
         # 左侧：配置项 (占 60% 宽度)
         # ==========================================
         left_panel = QWidget()
+        left_panel.setMinimumWidth(0)
+        left_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -133,6 +140,7 @@ class SwitchSettingsWidget(QWidget):
         # 核心滚动区
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(0)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("""
             QScrollArea { border: none; background: transparent; }
@@ -163,6 +171,8 @@ class SwitchSettingsWidget(QWidget):
         """)
 
         form_container = QWidget()
+        form_container.setMinimumWidth(0)
+        form_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         form_vlayout = QVBoxLayout(form_container)
         form_vlayout.setContentsMargins(10, 10, 20, 20)
         form_vlayout.setSpacing(20)
@@ -276,6 +286,10 @@ class SwitchSettingsWidget(QWidget):
         # 右侧：实时日志监控 (占 40% 宽度，带分页)
         # ==========================================
         right_panel = QWidget()
+        right_panel.setMinimumWidth(0)
+        right_panel.setMinimumHeight(170)
+        right_panel.setMaximumHeight(230)
+        right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(10, 0, 0, 0)
         right_layout.setSpacing(10)
@@ -334,9 +348,9 @@ class SwitchSettingsWidget(QWidget):
 
         right_layout.addLayout(log_paging_bar)
 
-        # 添加左右面板到根布局 (比例 6:4)
-        root.addWidget(left_panel, 6)
-        root.addWidget(right_panel, 4)
+        # 纵向排列，避免任何横向滚动或右侧裁切。
+        root.addWidget(left_panel, 1)
+        root.addWidget(right_panel, 0)
 
     def _refresh_logs(self):
         """拉取日志，仅筛选 决策、切换、避险"""
