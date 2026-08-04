@@ -22,12 +22,15 @@ else:
 
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
+DB_DIR = os.path.join(DATA_DIR, "db")
+os.makedirs(DB_DIR, exist_ok=True)
 
 # 拆分后的模块化配置文件目录 data/settings/
 SETTINGS_DIR = os.path.join(DATA_DIR, "settings")
 os.makedirs(SETTINGS_DIR, exist_ok=True)
 
-DB_PATH = os.path.join(DATA_DIR, "sales.db")
+DB_PATH = os.path.join(DB_DIR, "sales.db")
+LEGACY_DB_PATH = os.path.join(DATA_DIR, "sales.db")
 CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
 TEMPLATE_FILE = os.path.join(DATA_DIR, "settings.json.template")
 
@@ -198,6 +201,32 @@ def _atomic_json_write(filepath: str, data: dict):
     os.replace(temporary, filepath)
 
 
+def migrate_legacy_database():
+    """Move the old root-level SQLite file into ``data/db`` exactly once.
+
+    This migration is intentionally independent from configuration choices:
+    rebuilding/keeping settings never backs up, deletes, or recreates the
+    sales database.  If a new database already exists, the old one is left
+    untouched for manual recovery rather than risking an overwrite.
+    """
+    if os.path.abspath(DB_PATH) == os.path.abspath(LEGACY_DB_PATH):
+        return False
+    suffixes = ("", "-wal", "-shm")
+    old_files = [LEGACY_DB_PATH + suffix for suffix in suffixes if os.path.exists(LEGACY_DB_PATH + suffix)]
+    if not old_files or any(os.path.exists(DB_PATH + suffix) for suffix in suffixes):
+        return False
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    moved = False
+    try:
+        for source in old_files:
+            target = DB_PATH + source[len(LEGACY_DB_PATH):]
+            shutil.move(source, target)
+            moved = True
+    except OSError as exc:
+        print("[数据库迁移 Warning] 无法将旧数据库移动到 %s: %s" % (DB_PATH, exc))
+    return moved
+
+
 def _backup_paths(paths, reason="config"):
     existing = [path for path in paths if os.path.isfile(path)]
     if not existing:
@@ -215,6 +244,37 @@ def _backup_paths(paths, reason="config"):
 def backup_config_bundle(reason="manual"):
     """Create a recoverable snapshot before import or reset."""
     return _backup_paths(list(MODULE_FILES.values()) + [CONFIG_FILE], reason)
+
+
+def detect_legacy_config():
+    """Return a read-only snapshot used by the first-run migration dialog."""
+    if not os.path.isfile(CONFIG_FILE):
+        return None
+    items = {}
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if isinstance(raw, dict):
+            items = _known_config_only(raw)
+    except (OSError, TypeError, ValueError):
+        # The migration dialog can still offer rebuild/automatic recovery for
+        # a malformed legacy file; it must not crash before the UI appears.
+        items = {}
+    return {
+        "path": CONFIG_FILE,
+        "items": items,
+        "valid": bool(items),
+    }
+
+
+def _remove_config_files():
+    for path in [CONFIG_FILE] + list(MODULE_FILES.values()):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print("[配置迁移 Warning] 无法删除旧配置 %s: %s" % (path, exc))
 
 
 def _load_json_object(path, label):
@@ -241,10 +301,17 @@ def _load_json_object(path, label):
         return None
 
 
-def load_config() -> dict:
-    """从模板、旧版大 settings.json 以及 data/settings/ 拆分模块文件中加载配置
-    若检测到旧版 settings.json，将自动拆分并迁移至 data/settings/ 下各模块 JSON 文件
+def load_config(migration_policy="auto", selected_keys=None) -> dict:
+    """Load settings and apply the requested legacy migration policy.
+
+    ``auto`` preserves the historical behaviour for non-GUI callers.  The
+    main POS startup shows a touch migration dialog first and passes either
+    ``rebuild``, ``selective`` or ``auto`` with the selected field names.
     """
+    policies = {"auto", "rebuild", "selective"}
+    if migration_policy not in policies:
+        raise ValueError("未知配置迁移策略: %s" % migration_policy)
+    migrate_legacy_database()
     base_defaults = copy.deepcopy(DEFAULT_CONFIG)
 
     # 1. 检查 template 模板
@@ -255,19 +322,45 @@ def load_config() -> dict:
 
     merged = base_defaults.copy()
     has_legacy_config = os.path.exists(CONFIG_FILE)
+    legacy_backup = ""
+
+    if has_legacy_config and migration_policy in ("rebuild", "selective", "auto"):
+        legacy_backup = backup_config_bundle(
+            "before_rebuild" if migration_policy == "rebuild" else "legacy_migration"
+        )
+
+    if has_legacy_config and migration_policy == "rebuild":
+        # Rebuild only settings files.  The database relocation above is the
+        # sole database operation and never archives/deletes sales data.
+        _remove_config_files()
+        has_legacy_config = False
 
     # 2. 读取旧的 data/settings.json (包含历史全量配置)
+    legacy_values = {}
     if has_legacy_config:
         saved = _load_json_object(CONFIG_FILE, "legacy")
         if saved:
-            merged.update(_known_config_only(saved))
+            legacy_values = _known_config_only(saved)
 
     # 3. 读取拆分后的 data/settings/*.json (模块化文件覆盖)
+    module_values = {}
     for mod, path in MODULE_FILES.items():
         if os.path.exists(path):
             mod_data = _load_json_object(path, mod)
             if mod_data:
-                merged.update(_known_config_only(mod_data))
+                module_values.update(_known_config_only(mod_data))
+    if migration_policy == "auto":
+        merged.update(legacy_values)
+        # Existing split files are the newer source of truth when both old
+        # and new stores are present.
+        merged.update(module_values)
+    elif migration_policy == "selective":
+        merged.update(module_values)
+        selected = set(selected_keys or ())
+        merged.update({key: value for key, value in legacy_values.items() if key in selected})
+    else:
+        # Rebuild deliberately ignores both legacy and existing module values.
+        pass
 
     # 模拟模式是一次运行的临时状态，绝不能写入正式门店配置。
     for key in TRANSIENT_CONFIG_KEYS:
@@ -298,15 +391,14 @@ def load_config() -> dict:
         merged["takeout_proxy_mode_version"] = 1
     merged["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
-    # 4. 自动拆分并同步写回 data/settings/ 目录下各个模块文件 (自动迁移逻辑)
+    # 4. 拆分并同步写回 data/settings/ 目录下各个模块文件
     save_config(merged)
 
-    # 5. 若存在旧版 settings.json 大文件，完成迁移后自动删除清理
-    if has_legacy_config:
+    # 5. 若存在旧版 settings.json 大文件，完成迁移后删除清理
+    if os.path.exists(CONFIG_FILE):
         try:
-            backup = _backup_paths([CONFIG_FILE], "legacy_migration")
             os.remove(CONFIG_FILE)
-            print(f"[配置迁移] 已迁移旧配置并保留备份: {backup or '未生成'}")
+            print(f"[配置迁移] 已应用 {migration_policy} 策略，旧配置已备份: {legacy_backup or '未生成'}")
         except Exception as e:
             print(f"[配置迁移 Warning] 物理删除旧配置文件失败: {e}")
 

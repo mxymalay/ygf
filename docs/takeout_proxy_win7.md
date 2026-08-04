@@ -6,6 +6,8 @@
 
 外卖业务设置保存在 `data/settings/takeout.json`。`data/takeout_proxy_status.json`、`data/takeout_proxy_control.json` 和 `data/takeout_jobs.json` 是守护进程运行状态、停止信号和订单流水，不是设置项，因此有意保留在 `data/` 根目录，不参与设置导入/拆分。
 
+销售数据库固定在 `data/db/sales.db`；从旧版本启动时只会把 `data/sales.db`（以及 SQLite 的 `-wal/-shm` 伴随文件）移动到新目录，不会因配置迁移选项被删除。
+
 中继守护进程与收银主界面是两个进程：首次启动成功后，关闭或崩溃本 POS 界面都不会关闭 `127.0.0.1:9101` 的监听。只有在“外卖中继”页面主动停止/清除配置，或 Windows 注销/关机时，守护进程才会停止。
 
 ## 首次配置

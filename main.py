@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
-from config import load_config, save_config
+from config import detect_legacy_config, load_config
 from ui.main_window import MainWindow
 from ui.login_window import LoginWindow
 from utils.system_utils import apply_auto_start_settings
@@ -24,39 +24,10 @@ def main():
         from core.takeout_proxy_host import run_takeout_proxy_host
         sys.exit(run_takeout_proxy_host())
 
-    # 加载配置
-    config = load_config()
-
-    # 首次运行时保存默认配置
-    from config import CONFIG_FILE
-    if not os.path.exists(CONFIG_FILE):
-        save_config(config)
-
-    # 启动时自动清理超过 3 天的旧日志
-    try:
-        removed = cleanup_old_logs()
-        if removed > 0:
-            print(f"[Logger] 自动清理了 {removed} 条过期日志")
-    except Exception:
-        pass
-
-    log_event(CAT_SYSTEM, "系统启动", f"POS 辅助系统开始初始化")
-
-    # 0. 尝试同步开机自启动设置
-    apply_auto_start_settings(
-        config.get("auto_start_enabled", True), 
-        config.get("auto_start_delay", 8)
-    )
-
-    # 0.5 如果是被系统的“开机自启”拉起的，等待指定秒数让硬件驱动(串口/网卡)先加载完毕
-    if "--delayed-start" in sys.argv:
-        try:
-            delay_idx = sys.argv.index("--delayed-start") + 1
-            delay_sec = int(sys.argv[delay_idx])
-        except (ValueError, IndexError):
-            delay_sec = 8
-        if delay_sec > 0:
-            time.sleep(delay_sec)
+    # Detect before loading so the legacy monolithic file is still available
+    # for the touch migration dialog.  Detached takeout-host mode returns
+    # above and keeps the historical automatic migration behaviour.
+    legacy_info = detect_legacy_config()
 
     # 启用高分辨率屏幕(High DPI)自适应缩放支持 (必须在创建 QApplication 之前设置)
     if hasattr(Qt, 'AA_EnableHighDpiScaling'):
@@ -71,6 +42,45 @@ def main():
     # 设置默认字体
     font = QFont("Microsoft YaHei", 10)
     app.setFont(font)
+
+    if legacy_info:
+        from ui.config_migration_dialog import ConfigMigrationDialog
+
+        migration_dialog = ConfigMigrationDialog(legacy_info)
+        if migration_dialog.exec_() != QDialog.Accepted:
+            sys.exit(0)
+        config = load_config(
+            migration_dialog.choice,
+            selected_keys=migration_dialog.selected_keys,
+        )
+    else:
+        config = load_config()
+
+    # 启动时自动清理超过 3 天的旧日志
+    try:
+        removed = cleanup_old_logs()
+        if removed > 0:
+            print(f"[Logger] 自动清理了 {removed} 条过期日志")
+    except Exception:
+        pass
+
+    log_event(CAT_SYSTEM, "系统启动", f"POS 辅助系统开始初始化")
+
+    # 0. 尝试同步开机自启动设置
+    apply_auto_start_settings(
+        config.get("auto_start_enabled", True),
+        config.get("auto_start_delay", 8)
+    )
+
+    # 0.5 如果是被系统的“开机自启”拉起的，等待指定秒数让硬件驱动(串口/网卡)先加载完毕
+    if "--delayed-start" in sys.argv:
+        try:
+            delay_idx = sys.argv.index("--delayed-start") + 1
+            delay_sec = int(sys.argv[delay_idx])
+        except (ValueError, IndexError):
+            delay_sec = 8
+        if delay_sec > 0:
+            time.sleep(delay_sec)
 
     # 1. 弹出登录与检测界面
     login_dlg = LoginWindow(config)

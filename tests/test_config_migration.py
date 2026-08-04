@@ -36,6 +36,10 @@ class ModularConfigMigrationTests(unittest.TestCase):
                 )
             template = os.path.join(root, "template.json")
             with patch.object(config, "DATA_DIR", root), patch.object(
+                config, "DB_DIR", os.path.join(root, "db")
+            ), patch.object(config, "DB_PATH", os.path.join(root, "db", "sales.db")), patch.object(
+                config, "LEGACY_DB_PATH", os.path.join(root, "sales.db")
+            ), patch.object(
                 config, "SETTINGS_DIR", settings
             ), patch.object(config, "CONFIG_FILE", legacy), patch.object(
                 config, "TEMPLATE_FILE", template
@@ -56,6 +60,10 @@ class ModularConfigMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             settings, modules = self._paths(root)
             with patch.object(config, "DATA_DIR", root), patch.object(
+                config, "DB_DIR", os.path.join(root, "db")
+            ), patch.object(config, "DB_PATH", os.path.join(root, "db", "sales.db")), patch.object(
+                config, "LEGACY_DB_PATH", os.path.join(root, "sales.db")
+            ), patch.object(
                 config, "SETTINGS_DIR", settings
             ), patch.object(config, "MODULE_FILES", modules):
                 value = dict(config.DEFAULT_CONFIG)
@@ -67,6 +75,67 @@ class ModularConfigMigrationTests(unittest.TestCase):
                 with open(modules["sys"], "r", encoding="utf-8") as stream:
                     persisted = json.load(stream)
                 self.assertNotIn("foreign_extension_key", persisted)
+
+    def test_selective_migration_keeps_only_checked_legacy_fields(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings, modules = self._paths(root)
+            legacy = os.path.join(root, "settings.json")
+            with open(legacy, "w", encoding="utf-8") as stream:
+                json.dump({"shop_name": "旧店名", "unit_price": 88.0}, stream)
+            with patch.object(config, "DATA_DIR", root), patch.object(
+                config, "DB_DIR", os.path.join(root, "db")
+            ), patch.object(config, "DB_PATH", os.path.join(root, "db", "sales.db")), patch.object(
+                config, "LEGACY_DB_PATH", os.path.join(root, "sales.db")
+            ), patch.object(config, "SETTINGS_DIR", settings), patch.object(
+                config, "CONFIG_FILE", legacy
+            ), patch.object(config, "TEMPLATE_FILE", os.path.join(root, "template.json")), patch.object(
+                config, "MODULE_FILES", modules
+            ):
+                loaded = config.load_config("selective", selected_keys=["shop_name"])
+            self.assertEqual(loaded["shop_name"], "旧店名")
+            self.assertEqual(loaded["unit_price"], config.DEFAULT_CONFIG["unit_price"])
+            self.assertFalse(os.path.exists(legacy))
+            self.assertTrue(os.path.isdir(os.path.join(root, "backups")))
+
+    def test_rebuild_uses_defaults_and_does_not_touch_database(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings, modules = self._paths(root)
+            legacy = os.path.join(root, "settings.json")
+            database = os.path.join(root, "db", "sales.db")
+            os.makedirs(os.path.dirname(database))
+            with open(legacy, "w", encoding="utf-8") as stream:
+                json.dump({"shop_name": "旧店名"}, stream)
+            with open(database, "wb") as stream:
+                stream.write(b"sales")
+            with patch.object(config, "DATA_DIR", root), patch.object(
+                config, "DB_DIR", os.path.join(root, "db")
+            ), patch.object(config, "DB_PATH", database), patch.object(
+                config, "LEGACY_DB_PATH", os.path.join(root, "sales.db")
+            ), patch.object(config, "SETTINGS_DIR", settings), patch.object(
+                config, "CONFIG_FILE", legacy
+            ), patch.object(config, "TEMPLATE_FILE", os.path.join(root, "template.json")), patch.object(
+                config, "MODULE_FILES", modules
+            ):
+                loaded = config.load_config("rebuild")
+            self.assertEqual(loaded["shop_name"], config.DEFAULT_CONFIG["shop_name"])
+            self.assertTrue(os.path.isfile(database))
+            self.assertFalse(os.path.exists(legacy))
+
+    def test_database_relocation_does_not_create_a_backup_or_delete_data(self):
+        with tempfile.TemporaryDirectory() as root:
+            old_path = os.path.join(root, "sales.db")
+            new_path = os.path.join(root, "db", "sales.db")
+            with open(old_path, "wb") as stream:
+                stream.write(b"sqlite-placeholder")
+            with patch.object(config, "DATA_DIR", root), patch.object(
+                config, "DB_DIR", os.path.join(root, "db")
+            ), patch.object(config, "DB_PATH", new_path), patch.object(
+                config, "LEGACY_DB_PATH", old_path
+            ):
+                self.assertTrue(config.migrate_legacy_database())
+            self.assertTrue(os.path.isfile(new_path))
+            self.assertFalse(os.path.exists(old_path))
+            self.assertFalse(os.path.isdir(os.path.join(root, "backups")))
 
 
 if __name__ == "__main__":
