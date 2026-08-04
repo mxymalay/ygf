@@ -43,9 +43,11 @@ ThirdParty/**/*.msi
 ThirdParty/**/*.zip
 ThirdParty/**/*.rar
 
-# The store-approved Shouqianba assistant and signed com0com installer are explicitly bundled;
+# The store-approved Shouqianba assistant, com0com installer, and hub4com utility are explicitly bundled;
 # all other third-party executables remain ignored.
 !ThirdParty/shouqianba/
 !ThirdParty/shouqianba/PC收款安装包v4.0.4.exe
 !ThirdParty/com0com/
 !ThirdParty/com0com/Setup_com0com_v3.0.0.0_W7_x64_signed.exe
+!ThirdParty/hub4com/
+!ThirdParty/hub4com/*
