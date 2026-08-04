@@ -2473,10 +2473,11 @@ class SettingsWidget(QWidget):
                 # in the worker before deleting anything.
                 if not show_question(
                     self,
-                    u"发现未登记的旧配对",
+                    u"高危操作：删除未登记的旧配对",
                     u"本系统没有记录当前收钱吧配对的创建者。\n\n"
-                    u"是否仅核对并删除当前填写的 %s ↔ %s？\n"
-                    u"不会扫描或删除其他虚拟串口。"
+                    u"如果这对端口是其他软件创建的，确认后也会被删除，可能导致其他软件无法通信。\n\n"
+                    u"仅当你确定 %s ↔ %s 就是本 POS 要清理的旧配对时，才点击“是”。\n"
+                    u"如果不知道端口来源，请点击“否”；不会扫描或删除其他虚拟串口。"
                     % (sender or u"未填写", plugin or u"未填写"),
                 ):
                     show_info(self, u"支付配对未删除", u"未记录的旧配对已保留，其他端口未改动。")
