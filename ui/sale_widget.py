@@ -782,6 +782,8 @@ class SaleWidget(QWidget):
         self._is_stable = False
         self._low_price_warning_shown = False
         self._scale_connected = False
+        # 首次收到硬件数据前，不把“没有读数”伪装成正常的 0.000 kg。
+        self._has_scale_reading = False
         self._last_weight_monotonic = 0.0
         # A new soup may only capture a reading after the previous bowl has
         # been removed and the scale has crossed back through zero.
@@ -1151,7 +1153,8 @@ class SaleWidget(QWidget):
         else:
             self.cmb_mock_weight_mode.hide()
 
-        self.lbl_weight = ClickableWeightLabel("00.000 kg")
+        initial_weight_text = "00.000 kg" if self._is_mock_mode else u"等待读数"
+        self.lbl_weight = ClickableWeightLabel(initial_weight_text)
         self.lbl_weight.clicked.connect(self._on_weight_display_click)
         self.lbl_weight.setCursor(Qt.PointingHandCursor)
         self.lbl_weight.setMinimumWidth(215)
@@ -1160,6 +1163,11 @@ class SaleWidget(QWidget):
             "font-size: 32px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
             "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
         )
+        if self._is_mock_mode:
+            self.lbl_weight.setToolTip(u"模拟模式：点击重量数字输入或生成重量")
+        else:
+            self._set_weight_placeholder()
+            self.lbl_weight.setToolTip(u"正常模式：等待电子秤读数；也可以点击右侧进入模拟模式")
         led_layout.addWidget(self.lbl_weight, stretch=1, alignment=Qt.AlignRight)
 
         left_layout.addWidget(led_banner)
@@ -2160,8 +2168,15 @@ class SaleWidget(QWidget):
     @pyqtSlot(float)
     def _on_weight_update(self, weight_kg):
         self.current_weight = weight_kg
+        self._has_scale_reading = True
         self._last_weight_monotonic = time.monotonic()
-        self.lbl_weight.setText("%06.3f kg" % weight_kg)
+        set_live_text = getattr(self, "_set_live_weight_text", None)
+        if callable(set_live_text):
+            set_live_text(weight_kg)
+        else:
+            # Keep the signal handler usable by lightweight test/recovery
+            # objects that only provide the original label attribute.
+            self.lbl_weight.setText("%06.3f kg" % weight_kg)
         # Only ScaleReader's configured N-sample stability window may mark a
         # reading stable.  Two matching UI frames are not sufficient.
         if abs(weight_kg - self._stable_weight) > 0.005:
@@ -2185,21 +2200,32 @@ class SaleWidget(QWidget):
                 self.lbl_scale_status_icon.setText(u"⏳")
                 self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
                 self.lbl_scale_status_icon.setToolTip(u"电子秤已连接，正在等待稳定读数: %s" % msg)
+                if not self._has_scale_reading:
+                    self._set_weight_placeholder()
+                    self.lbl_weight.setToolTip(u"电子秤已连接，正在等待第一条读数")
             else:
                 self.lbl_scale_status_icon.setToolTip(u"电子秤串口正常连通: %s" % msg)
         else:
             self._is_stable = False
+            self._has_scale_reading = False
             self.lbl_scale_status_icon.setText(u"✕")
             self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"电子秤连接提示: %s" % msg)
+            self._set_weight_placeholder()
+            self.lbl_weight.setToolTip(u"电子秤未连接或暂时没有可用读数")
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
         self.current_weight = float(weight_kg)
+        self._has_scale_reading = True
         self._last_weight_monotonic = time.monotonic()
         self._is_stable = True
         self._stable_weight = float(weight_kg)
-        self.lbl_weight.setText("%06.3f kg" % self.current_weight)
+        set_live_text = getattr(self, "_set_live_weight_text", None)
+        if callable(set_live_text):
+            set_live_text(self.current_weight)
+        else:
+            self.lbl_weight.setText("%06.3f kg" % self.current_weight)
         self.lbl_scale_status_icon.setText(u"✔")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
@@ -2267,6 +2293,52 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setText(u"✕")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
+        self._set_weight_placeholder()
+        self.lbl_weight.setToolTip(u"电子秤读数失败：%s" % msg)
+
+    def _set_weight_placeholder(self):
+        """显示无读数时的中性占位符，不伪装成正常的 0.000 kg。"""
+        self.lbl_weight.setText(u"--.--- kg")
+        self.lbl_weight.setStyleSheet(
+            "font-size: 32px; font-weight: 900; color: #FED7AA; border: none; background: transparent; "
+            "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
+        )
+
+    def _set_live_weight_text(self, weight_kg):
+        self.lbl_weight.setText("%06.3f kg" % float(weight_kg))
+        self.lbl_weight.setStyleSheet(
+            "font-size: 32px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
+            "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
+        )
+
+    def _enter_mock_mode(self):
+        """Stop the live reader and enter the safe manual simulation mode."""
+        if getattr(self, "scale", None) is not None:
+            try:
+                self.scale.stop()
+            except Exception as exc:
+                log_event(CAT_SYSTEM, "切换模拟模式时停止称重线程失败", str(exc))
+            self.scale = None
+        self._is_mock_mode = True
+        self.config["is_mock_mode"] = True
+        self.mock_weight_mode = "manual"
+        self.current_weight = 0.0
+        self._stable_weight = 0.0
+        self._has_scale_reading = False
+        self._is_stable = False
+        self._weight_cycle_ready = True
+        self._cycle_present = False
+        self._scale_connected = False
+        self._update_weight_banner_style()
+        self.lbl_scale_status_icon.hide()
+        self.cmb_mock_weight_mode.blockSignals(True)
+        self.cmb_mock_weight_mode.setCurrentIndex(0)
+        self.cmb_mock_weight_mode.blockSignals(False)
+        self.cmb_mock_weight_mode.show()
+        self._mock_mode_index = 0
+        self._set_live_weight_text(0.0)
+        self.lbl_weight.setToolTip(u"手动模式：点击重量数字打开触屏键盘输入 kg")
+        self._show_toast(u"已进入模拟称重模式，默认手动输入重量")
 
     def _on_random_weight_click(self):
         if not self._weight_cycle_ready:
@@ -2295,6 +2367,31 @@ class SaleWidget(QWidget):
                 self._prompt_manual_weight(allow_zero=True, zero_only=True)
                 return
             self._on_random_weight_click()
+        else:
+            self._show_scale_detail_dialog()
+
+    def _show_scale_detail_dialog(self):
+        """Show live scale details and offer a guarded simulator fallback."""
+        if self._has_scale_reading:
+            weight_text = "%06.3f kg" % float(self.current_weight)
+        else:
+            weight_text = u"暂无读数（--.--- kg）"
+        if self._scale_connected:
+            state_text = u"串口状态：已连接"
+            advice = u"当前电子秤已连接，建议继续使用正常模式。"
+        else:
+            state_text = u"串口状态：暂未收到连接/读数"
+            advice = u"当前没有可用读数，建议进入模拟模式进行开发或无秤测试。"
+        if self.cart_items or self._cycle_present or not self._weight_cycle_ready:
+            advice += u"\n当前订单/称重周期未结束，暂时不能切换。"
+            show_info(self, u"电子秤状态详情", "%s\n当前读数：%s\n\n%s" % (state_text, weight_text, advice))
+            return
+        message = (
+            u"%s\n当前读数：%s\n\n%s\n\n"
+            u"点击“是”进入模拟模式；不会修改 COM、桥接或官方 POS 配置。"
+        ) % (state_text, weight_text, advice)
+        if show_question(self, u"电子秤状态详情", message):
+            self._enter_mock_mode()
 
     def _on_mock_weight_mode_changed(self, index):
         """Switch mock input, or verify and leave simulation for real mode."""
@@ -2387,8 +2484,10 @@ class SaleWidget(QWidget):
         self._cycle_present = False
         self._low_price_warning_shown = False
         self._scale_connected = False
+        self._has_scale_reading = False
         self._last_weight_monotonic = 0.0
-        self.lbl_weight.setText("00.000 kg")
+        self._set_weight_placeholder()
+        self.lbl_weight.setToolTip(u"正在等待正常电子秤的第一条读数")
         self.lbl_scale_status_icon.show()
         self.cmb_mock_weight_mode.hide()
         self._setup_scale()
@@ -2595,7 +2694,14 @@ class SaleWidget(QWidget):
         """清空购物车与所有按钮角标"""
         if route_resolution != "paid":
             try:
-                parent_mw = self.window()
+                # 正常运行时 ``self`` 是 QWidget；部分开发/恢复流程会
+                # 用 SimpleNamespace 作为轻量 SaleWidget 替身。清空购物
+                # 车本身不应因为替身没有 window() 而失败并刷屏写日志。
+                window_method = getattr(self, "window", None)
+                if callable(window_method):
+                    parent_mw = window_method()
+                else:
+                    parent_mw = getattr(self, "main_window", None)
                 controller = getattr(parent_mw, "switch_controller", None)
                 if controller and hasattr(controller, "abandon_pending_private_routes"):
                     controller.abandon_pending_private_routes("用户清空购物车，未完成私有结账")

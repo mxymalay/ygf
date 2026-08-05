@@ -265,6 +265,13 @@ class MainWindow(QMainWindow):
         elif index == 7:
             self.log_page._load_logs()
 
+    def open_switch_chart(self):
+        """从悬浮球的剩余重量提示直接打开并定位到分流折线图。"""
+        self._on_page_changed(5)
+        if hasattr(self.sidebar, "set_active_page"):
+            self.sidebar.set_active_page(5)
+        QTimer.singleShot(0, self.switch_settings_page.focus_weight_chart)
+
     def open_history_order(self, order_id=None, record=None):
         """Navigate to order details from the cashier's previous-order card."""
         self.stack.setCurrentIndex(1)

@@ -91,6 +91,7 @@ class FloatingBall(QWidget):
         self._next_switch_is_private = None
         self._switch_remaining_kg = None
         self._switch_next_channel = ""
+        self._progress_hint_pressed = False
 
     def set_quota_progress(self, private_ratio, target_private_ratio, is_private):
         """更新悬浮球内的配额水位，并保留上一份水位作浅色背景。"""
@@ -291,7 +292,7 @@ class FloatingBall(QWidget):
             painter.setFont(QFont("Microsoft YaHei", 7, QFont.Bold))
             painter.drawText(
                 QRect(3, 1, 86, 14), Qt.AlignCenter,
-                u"再称 %.3f kg" % self._switch_remaining_kg,
+                u"还需 %.3f kg" % self._switch_remaining_kg,
             )
 
         # 出票后倒计时数字放在胶囊右侧，不占用顶部剩余重量和底部状态栏。
@@ -365,6 +366,17 @@ class FloatingBall(QWidget):
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
             self._is_dragging = False
 
+            # 顶部“还需 xxx kg”是独立的信息入口。点击它只打开并定位
+            # 到算法折线图，不应触发原有的官方/私有切换或三连击避险。
+            self._progress_hint_pressed = bool(
+                self._switch_remaining_kg is not None
+                and QRect(0, 0, 92, 16).contains(event.pos())
+            )
+            if self._progress_hint_pressed:
+                self._long_press_timer.stop()
+                event.accept()
+                return
+
             # 启动长按定时器 (1.2秒未松开则触发紧急销毁)
             self._long_press_timer.start(1200)
 
@@ -391,11 +403,27 @@ class FloatingBall(QWidget):
         if event.button() == Qt.LeftButton:
             self._long_press_timer.stop()
 
+            if self._progress_hint_pressed:
+                if not self._is_dragging:
+                    self._on_progress_hint_click()
+                self._progress_hint_pressed = False
+                self._is_dragging = False
+                event.accept()
+                return
+
             if not self._is_dragging and self._tap_count < 3:
                 self._on_click_toggle()
 
             self._is_dragging = False
             event.accept()
+
+    def _on_progress_hint_click(self):
+        """打开切换算法页，并自动滚动到今日称重折线图。"""
+        opener = getattr(self.main_window, "open_switch_chart", None)
+        if callable(opener):
+            opener()
+        elif hasattr(self.main_window, "status"):
+            self.main_window.status.showMessage(u"请打开切换算法设置查看今日称重图表", 4000)
 
     def _on_long_press_panic(self):
         """长按 1.2 秒触屏紧急销毁避险"""

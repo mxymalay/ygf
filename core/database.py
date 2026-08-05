@@ -705,3 +705,24 @@ class Database:
             return [dict(row) for row in rows]
         finally:
             conn.close()
+
+    def get_weighing_route_events(self, stat_date=None):
+        """Return the day's individual weighing decisions for visualisation.
+
+        This is intentionally a read-only view of the route-event ledger.  A
+        chart must show every stable weighing decision, including official
+        events whose payment is unknown, so it must not be built from the
+        sales table or from the quota aggregate alone.
+        """
+        key = self._switch_stat_date(stat_date)
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM weighing_route_events
+                   WHERE DATE(created_at) = ?
+                   ORDER BY created_at ASC, id ASC""",
+                (key,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()

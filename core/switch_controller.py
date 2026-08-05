@@ -638,12 +638,23 @@ class AutoSwitchController(QObject):
         when the configured target makes a switch impossible (0% or 100%).
         """
         if not self._switch_cycle_initialized or self._switch_cycle_is_private is None:
+            # The floating ball is created before the first bowl is weighed.
+            # Callers that only need a visual refresh have no cycle baseline
+            # yet, so keep the switch direction visible and let the caller
+            # establish the baseline instead of silently hiding the label.
             return 0.0, None, "官方 POS"
         target = min(1.0, max(0.0, self._target_private_ratio / 100.0))
         base_total = max(0.0, float(self._switch_cycle_start_total_weight or 0.0))
         base_private = max(0.0, float(self._switch_cycle_start_private_weight or 0.0))
         if base_total <= 0.000001:
-            return 0.0, None, "官方 POS" if self._switch_cycle_is_private else "私有 POS"
+            # With no accumulated weight there is no historical distance to
+            # calculate.  For a usable middle target (e.g. 30/70), expose a
+            # zero baseline rather than returning None and making the UI
+            # remove the remaining-kg indicator altogether.  0% and 100%
+            # remain intentionally non-switching configurations.
+            if target <= 0.0 or (self._switch_cycle_is_private and target >= 1.0):
+                return 0.0, None, "官方 POS" if self._switch_cycle_is_private else "私有 POS"
+            return 0.0, 0.0, "官方 POS" if self._switch_cycle_is_private else "私有 POS"
         delta_total = max(0.0, self._total_weight_kg - base_total)
         delta_private = max(0.0, self._private_weight_kg - base_private)
         delta_official = max(0.0, delta_total - delta_private)
@@ -796,6 +807,16 @@ class AutoSwitchController(QObject):
             return
         if is_private is None:
             is_private = bool(getattr(fb, "is_our_pos_active", True))
+        # On startup there is no first weighing event to establish a cycle,
+        # but the operator still needs to see the next-switch forecast.  Use
+        # today's persisted counters as the baseline; this does not change
+        # quota statistics or create a decision record.
+        if not self._switch_cycle_initialized:
+            self._switch_cycle_initialized = True
+            self._switch_cycle_is_private = bool(is_private)
+            self._switch_cycle_start_total_weight = self._total_weight_kg
+            self._switch_cycle_start_private_weight = self._private_weight_kg
+            self._current_is_private = bool(is_private)
         progress, remaining, next_channel = self.get_switch_progress_status()
         fb.set_switch_progress(
             progress,

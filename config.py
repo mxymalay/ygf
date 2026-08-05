@@ -11,7 +11,7 @@ import copy
 from datetime import datetime
 
 # ─── 应用版本号 ───────────────────────────────────────
-APP_VERSION = "v1.2.0"
+APP_VERSION = "v1.3.0"
 CONFIG_SCHEMA_VERSION = 3
 
 # ─── 路径 ───────────────────────────────────────────

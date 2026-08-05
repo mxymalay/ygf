@@ -458,11 +458,6 @@ class SettingsWidget(QWidget):
 
         sb_layout.addStretch()
 
-        # 版本标记底栏
-        lbl_ver = QLabel(u"v2.5 Pro 店面自动化版")
-        lbl_ver.setStyleSheet("color: #475569; font-size: 12px; padding-left: 8px;")
-        sb_layout.addWidget(lbl_ver)
-
         main_layout.addWidget(sidebar)
 
         # ════════════════════════════════════════════════════════════
