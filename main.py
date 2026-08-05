@@ -13,6 +13,7 @@ from PyQt5.QtGui import QFont
 from config import detect_legacy_config, load_config
 from ui.main_window import MainWindow
 from ui.login_window import LoginWindow
+from ui.startup_loading_dialog import StartupLoadingDialog
 from utils.system_utils import apply_auto_start_settings
 from core.app_logger import log_event, cleanup_old_logs, CAT_SYSTEM
 from core.safe_console import install_safe_console_streams
@@ -97,15 +98,35 @@ def main():
     config["is_mock_mode"] = getattr(login_dlg, 'is_mock_mode', False)
     hw_warnings = getattr(login_dlg, 'hardware_warnings', [])
 
-    # 2. 验证通过 (或选择跳过进入模拟调试)，打开主系统
-    window = MainWindow(config, hardware_warnings=hw_warnings)
-    # Use a maximized *normal* window: it fills the available work area while
-    # keeping the Windows taskbar visible.  Full-screen mode hid the taskbar
-    # and made every automatic channel switch look like a restore/maximize
-    # flicker.
-    window.showMaximized()
-    window.raise_()
-    window.activateWindow()
+    # 2. 验证通过 (或选择跳过进入模拟调试)，打开主系统。
+    # 主窗口创建会初始化数据库、收银台、打印和自动切换组件，Win7 上
+    # 可能出现短暂空档；在这段时间保留明确的加载提示，不让用户看到空白桌面。
+    startup_loading = StartupLoadingDialog()
+    startup_loading.show()
+    app.processEvents()
+    try:
+        startup_loading.set_message(
+            u"检测完成，正在加载收银系统",
+            u"正在初始化数据库、称重、打印和自动切换服务，请稍候。",
+        )
+        app.processEvents()
+        window = MainWindow(config, hardware_warnings=hw_warnings)
+        startup_loading.set_message(
+            u"界面即将显示",
+            u"收银系统已准备完成，正在打开主窗口。",
+        )
+        app.processEvents()
+        # Use a maximized *normal* window: it fills the available work area while
+        # keeping the Windows taskbar visible.  Full-screen mode hid the taskbar
+        # and made every automatic channel switch look like a restore/maximize
+        # flicker.
+        window.showMaximized()
+        window.raise_()
+        window.activateWindow()
+        app.processEvents()
+    finally:
+        startup_loading.close()
+        startup_loading.deleteLater()
     log_event(CAT_SYSTEM, "主界面就绪", f"开始运营服务，模拟模式: {config.get('is_mock_mode', False)}")
 
     sys.exit(app.exec_())
