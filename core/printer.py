@@ -28,12 +28,13 @@ def fmt_lr_48(left: str, right: str, width: int = 48) -> str:
 
 
 # 可编辑模板的最小语法：每行可用 [C]/[L]/[R] 指定对齐，
-# [B] 加粗， [D] 双倍高度， [X] 双倍宽高；其余内容使用 {变量} 替换。
+# [B] 加粗， [D] 双倍高度， [X] 双倍宽高， [Y] 三倍宽高；其余内容使用 {变量} 替换。
 OFFICIAL_CUSTOMER_TEMPLATE = """[C][B]{shop_subtitle}
 [L]{separator}
-[L][B][X]取餐号：{call_no}
+[L][B][D]{pickup_line}
 [L]{separator}
-[L]名称                 规格  单价  数量  小计
+[L]{table_header}
+[L]{separator}
 [L]{items}
 [L]{separator}
 [L][B]{total_line}
@@ -44,13 +45,13 @@ OFFICIAL_CUSTOMER_TEMPLATE = """[C][B]{shop_subtitle}
 [L]订单时间：{time}
 [L]{separator}
 [L][B]加盟电话：{service_phone}"""
-OFFICIAL_KITCHEN_TEMPLATE = """[L][B][X]取餐号：{kitchen_call_no}
-[L][B][X]{pos_order_no}
-[C][B][D]制作单
+OFFICIAL_KITCHEN_TEMPLATE = """[L][B][Y]取餐号：{kitchen_call_no}
+[L]{separator}
+[L][B][D]{kitchen_title_line}
 [L]{separator}
 [L][B][X]{item_name}
-[L][B][X]重量：{weight} kg
-[L][B][X]口味：{flavor}
+[R][B][X]{weight} kg
+[L][B][X]  {flavor}
 [L]{separator}
 [L]操作人：{operator}
 [L]下单时间：{created_at}"""
@@ -135,6 +136,43 @@ class ReceiptPrinter:
         profile = str(self.config.get("printer_template_profile", "legacy") or "legacy").strip().lower()
         return profile if profile in ("legacy", "official_v2", "custom") else "legacy"
 
+    @staticmethod
+    def _fit_column(value, width, align="left"):
+        """Fit one table cell to printable columns without breaking alignment."""
+        text = str(value or "")
+        result = ""
+        used = 0
+        for char in text:
+            char_width = str_w(char)
+            if used + char_width > width:
+                break
+            result += char
+            used += char_width
+        padding = " " * max(0, width - used)
+        return padding + result if align == "right" else result + padding
+
+    def _customer_table_widths(self):
+        width = self._line_width()
+        if width >= 44:
+            return (20, 6, 7, 6, width - 39)
+        # Keep a usable compact layout on 58mm paper as well.
+        name_width = max(8, width - 20)
+        return (name_width, 4, 5, 4, width - name_width - 13)
+
+    def _customer_table_row(self, name, spec, unit_price, quantity, subtotal):
+        widths = self._customer_table_widths()
+        cells = (
+            self._fit_column(name, widths[0]),
+            self._fit_column(spec, widths[1]),
+            self._fit_column(unit_price, widths[2], "right"),
+            self._fit_column(quantity, widths[3], "right"),
+            self._fit_column(subtotal, widths[4], "right"),
+        )
+        return "".join(cells)
+
+    def _customer_table_header(self):
+        return self._customer_table_row("名称", "规格", "单价", "数量", "小计")
+
     def _customer_item_lines(self, sale):
         """Return compact item rows used by the official/custom templates."""
         rows = []
@@ -146,12 +184,16 @@ class ReceiptPrinter:
                 weight = float(item.get("weight", sale.get("weight_kg", 0.0)) or 0.0)
                 subtotal = float(item.get("price", 0.0) or 0.0)
                 display_name = name if name.endswith("（KG）") else name + "（KG）"
-                rows.append("%s  KG  %.2f  %.3f  %.2f" % (display_name, unit_price, weight, subtotal))
+                rows.append(self._customer_table_row(
+                    display_name, "KG", "%.2f" % unit_price, "%.3f" % weight, "%.2f" % subtotal
+                ))
             else:
                 qty = int(item.get("qty", 1) or 1)
                 unit_price = float(item.get("base_price", item.get("price", 0.0) / max(1, qty)) or 0.0)
                 subtotal = float(item.get("price", 0.0) or 0.0)
-                rows.append("%s  %s  %.2f  %d  %.2f" % (name, item.get("unit", "份"), unit_price, qty, subtotal))
+                rows.append(self._customer_table_row(
+                    name, item.get("unit", "份"), "%.2f" % unit_price, str(qty), "%.2f" % subtotal
+                ))
         return rows
 
     def _template_context(self, sale, item=None, index=1):
@@ -195,6 +237,9 @@ class ReceiptPrinter:
             "call_no": call_no,
             "kitchen_call_no": kitchen_call_no,
             "pos_order_no": "POS#" + kitchen_call_no,
+            "pickup_line": fmt_lr_48("取餐号：" + str(call_no), "[POS点餐]", self._line_width()).rstrip("\n"),
+            "table_header": self._customer_table_header(),
+            "kitchen_title_line": fmt_lr_48("制作单", "POS#" + kitchen_call_no, self._line_width()).rstrip("\n"),
             "index": index,
             "item_name": item_name,
             "weight": weight,
@@ -263,6 +308,12 @@ class ReceiptPrinter:
                 painter = QPainter(image)
                 renderer.render(painter)
                 painter.end()
+                width, height = image.width(), image.height()
+                bundled_svg = os.path.abspath(path) == os.path.abspath(svg_path)
+                # 圆形图标是 Logo 的组成部分，不能裁掉。热敏纸没有白墨，
+                # 因此圆形区域内的橙色底转成黑点，白色“杨”字保持空白，
+                # 才能得到黑圆白字；右侧白色字标则正常转成黑字。
+                icon_width = int(round(width * 0.32)) if bundled_svg else 0
             else:
                 image = QImage(path).convertToFormat(QImage.Format_ARGB32)
                 if image.isNull():
@@ -288,7 +339,10 @@ class ReceiptPrinter:
                     # icon both become printable black dots.
                     luma = (color.red() + color.green() + color.blue()) / 3.0
                     if is_svg:
-                        logo_pixel = color.alpha() >= 32
+                        if bundled_svg and x < icon_width:
+                            logo_pixel = color.alpha() >= 32 and luma < 200
+                        else:
+                            logo_pixel = color.alpha() >= 32
                     else:
                         logo_pixel = luma >= 80 if dark_background else luma <= 180
                     if logo_pixel:
@@ -310,6 +364,7 @@ class ReceiptPrinter:
             bold = False
             double_height = False
             double_size = False
+            triple_size = False
             while True:
                 if line.startswith("[C]"):
                     alignment, line = self.ALIGN_CENTER, line[3:]
@@ -324,17 +379,22 @@ class ReceiptPrinter:
                 elif line.startswith("[X]"):
                     # 官方新版模板的大字：同时放大宽度和高度。
                     double_size, line = True, line[3:]
+                elif line.startswith("[Y]"):
+                    # 取餐号专用的三倍宽高，适配后厨远距离识别。
+                    triple_size, line = True, line[3:]
                 else:
                     break
             data += alignment
             if bold:
                 data += self.BOLD_ON
-            if double_size:
+            if triple_size:
+                data += b'\x1d\x21\x22'
+            elif double_size:
                 data += self.DOUBLE_SIZE
             elif double_height:
                 data += self.DOUBLE_HEIGHT
             data += (line + "\n").encode("gbk", errors="ignore")
-            if double_size or double_height:
+            if triple_size or double_size or double_height:
                 data += self.NORMAL_SIZE
             if bold:
                 data += self.BOLD_OFF

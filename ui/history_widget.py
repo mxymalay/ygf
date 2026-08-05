@@ -24,9 +24,9 @@ class OrderCard(QFrame):
         self.record = record
         self.is_selected = is_selected
         self.setCursor(Qt.PointingHandCursor)
-        # Win7 的 Qt 字体度量比 Win11 更容易把两行内容撑高；固定一个
-        # 足够的卡片高度，避免下一张卡片压住当前卡片的底边。
-        self.setMinimumHeight(80)
+        # Win7 的 Qt 字体度量比 Win11 更容易把两行内容撑高；固定卡片
+        # 高度，避免下一张卡片压住当前卡片的底边。
+        self.setFixedHeight(80)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._setup_ui()
 
@@ -350,15 +350,26 @@ class HistoryWidget(QWidget):
 
         left_col.addLayout(search_row)
 
-        # (3) 订单列表容器 (取消滑动，纯分页展示)
+        # (3) 订单列表：卡片总高度可能超过 Win7 可用窗口高度，必须放进
+        # 独立滚动区域。否则布局会把卡片挤到一起，选中边框被下一张覆盖。
         self.order_list_container = QWidget()
         self.order_list_layout = QVBoxLayout(self.order_list_container)
         self.order_list_layout.setContentsMargins(0, 0, 0, 0)
-        # 卡片之间保留明确间距，避免 Win7 下边框与下一张卡片相互覆盖。
-        self.order_list_layout.setSpacing(14)
+        self.order_list_layout.setSpacing(10)
         self.order_list_layout.setAlignment(Qt.AlignTop)
 
-        left_col.addWidget(self.order_list_container, stretch=1)
+        self.order_list_scroll = QScrollArea()
+        self.order_list_scroll.setWidgetResizable(True)
+        self.order_list_scroll.setFrameShape(QFrame.NoFrame)
+        self.order_list_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.order_list_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.order_list_scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+            "QScrollBar:vertical { width: 10px; background: #111827; margin: 0; }"
+            "QScrollBar::handle:vertical { background: #475569; border-radius: 5px; min-height: 32px; }"
+        )
+        self.order_list_scroll.setWidget(self.order_list_container)
+        left_col.addWidget(self.order_list_scroll, stretch=1)
 
         # 底部翻页控制
         left_page_row = QHBoxLayout()

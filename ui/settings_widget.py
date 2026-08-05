@@ -998,7 +998,7 @@ class SettingsWidget(QWidget):
         layout.addLayout(profile_grid)
 
         self.lbl_printer_custom_template_hint = QLabel(
-            u"自定义模板语法：每行前可加 [C]居中、[L]左对齐、[R]右对齐、[B]粗体、[D]双倍高度、[X]双倍宽高。"
+            u"自定义模板语法：每行前可加 [C]居中、[L]左对齐、[R]右对齐、[B]粗体、[D]双倍高度、[X]双倍宽高、[Y]三倍宽高。"
             u"可用变量：{shop_name}、{call_no}、{items}、{total}、{payment_method}、{order_id}、"
             u"{total_line}、{due_line}、{paid_line}、{kitchen_call_no}、{item_name}、{weight}、"
             u"{item_line}、{flavor}、{operator}、{time}、{service_phone}、{separator}。"
@@ -1122,8 +1122,8 @@ class SettingsWidget(QWidget):
     def _official_customer_template_text():
         return (
             "[C][B]{shop_subtitle}\n[L]{separator}\n"
-            "[L][B][X]取餐号：{call_no}\n[L]{separator}\n"
-            "[L]名称                 规格  单价  数量  小计\n[L]{items}\n"
+            "[L][B][D]{pickup_line}\n[L]{separator}\n"
+            "[L]{table_header}\n[L]{separator}\n[L]{items}\n"
             "[L]{separator}\n[L][B]{total_line}\n[L][B]{due_line}\n"
             "[L][B][D]{paid_line}\n[L]{separator}\n"
             "[L]订单号：{order_id}\n[L]订单时间：{time}\n[L]{separator}\n"
@@ -1133,10 +1133,10 @@ class SettingsWidget(QWidget):
     @staticmethod
     def _official_kitchen_template_text():
         return (
-            "[L][B][X]取餐号：{kitchen_call_no}\n[L][B][X]{pos_order_no}\n"
-            "[C][B][D]制作单\n[L]{separator}\n"
-            "[L][B][X]{item_name}\n[L][B][X]重量：{weight} kg\n"
-            "[L][B][X]口味：{flavor}\n[L]{separator}\n"
+            "[L][B][Y]取餐号：{kitchen_call_no}\n[L]{separator}\n"
+            "[L][B][D]{kitchen_title_line}\n[L]{separator}\n"
+            "[L][B][X]{item_name}\n[R][B][X]{weight} kg\n"
+            "[L][B][X]  {flavor}\n[L]{separator}\n"
             "[L]操作人：{operator}\n[L]下单时间：{created_at}"
         )
 
