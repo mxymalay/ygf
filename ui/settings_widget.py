@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit
 )
-from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence, QDesktopServices
 
 from config import (
@@ -55,7 +55,7 @@ class _MaintenanceBusyDialog(QDialog):
 
     _FRAMES = (u"◐", u"◓", u"◑", u"◒")
 
-    def __init__(self, title, message, parent=None):
+    def __init__(self, title, message, parent=None, stages=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -99,6 +99,24 @@ class _MaintenanceBusyDialog(QDialog):
         progress.setTextVisible(False)
         layout.addWidget(progress)
 
+        self.lbl_stage = QLabel("")
+        self.lbl_stage.setWordWrap(True)
+        self.lbl_stage.setStyleSheet(
+            "color: #E9D5FF; background: #24144A; border: 1px solid #6D28D9; "
+            "border-radius: 8px; padding: 10px 12px; font-size: 15px; font-weight: bold;"
+        )
+        layout.addWidget(self.lbl_stage)
+
+        self.txt_stage_log = QPlainTextEdit()
+        self.txt_stage_log.setReadOnly(True)
+        self.txt_stage_log.setMinimumHeight(84)
+        self.txt_stage_log.setMaximumHeight(126)
+        self.txt_stage_log.setStyleSheet(
+            "QPlainTextEdit { color: #CBD5E1; background: #0F172A; border: 1px solid #334155; "
+            "border-radius: 8px; padding: 6px; font-size: 12px; }"
+        )
+        layout.addWidget(self.txt_stage_log)
+
         hint = QLabel(
             u"正在执行系统驱动/虚拟串口操作，请勿关闭程序或拔出设备。\n"
             u"如 Windows 弹出安装确认，请点击下方按钮后在 Windows 对话框继续。"
@@ -122,13 +140,22 @@ class _MaintenanceBusyDialog(QDialog):
         self._finishing = False
         self._minimized_for_windows_prompt = False
         self._parent_was_fullscreen = False
+        self._stages = [str(item) for item in (stages or []) if str(item).strip()]
+        if not self._stages:
+            self._stages = [message, u"等待 Windows 驱动、串口或服务返回", u"正在核对操作结果"]
+        self._stage_index = 0
         self._timer = QTimer(self)
         self._timer.setInterval(180)
         self._timer.timeout.connect(self._advance_frame)
+        self._stage_timer = QTimer(self)
+        self._stage_timer.setInterval(2600)
+        self._stage_timer.timeout.connect(self._advance_stage)
+        self.set_stage(self._stages[0])
 
     def showEvent(self, event):
         super().showEvent(event)
         self._timer.start()
+        self._stage_timer.start()
 
     def closeEvent(self, event):
         if self._timer.isActive() and not self._finishing:
@@ -139,6 +166,7 @@ class _MaintenanceBusyDialog(QDialog):
     def finish(self):
         self._finishing = True
         self._timer.stop()
+        self._stage_timer.stop()
         # Allow the controlled close after the operation has completed.
         self.setModal(False)
         self.setWindowModality(Qt.NonModal)
@@ -181,6 +209,29 @@ class _MaintenanceBusyDialog(QDialog):
     def _advance_frame(self):
         self._frame_index = (self._frame_index + 1) % len(self._FRAMES)
         self.lbl_spinner.setText(self._FRAMES[self._frame_index])
+
+    def set_stage(self, stage):
+        """Show the current maintenance phase and retain a screenshotable log."""
+        text = str(stage or "").strip()
+        if not text:
+            return
+        self.lbl_stage.setText(u"当前步骤：" + text)
+        stamp = QDateTime.currentDateTime().toString("HH:mm:ss")
+        lines = self.txt_stage_log.toPlainText().splitlines()
+        lines.append(u"[%s] %s" % (stamp, text))
+        self.txt_stage_log.setPlainText("\n".join(lines[-6:]))
+        self.txt_stage_log.verticalScrollBar().setValue(
+            self.txt_stage_log.verticalScrollBar().maximum()
+        )
+
+    def stage_log(self):
+        return self.txt_stage_log.toPlainText()
+
+    def _advance_stage(self):
+        if len(self._stages) < 2:
+            return
+        self._stage_index = (self._stage_index + 1) % len(self._stages)
+        self.set_stage(self._stages[self._stage_index])
 
 
 class HotKeyRecorderEdit(QLineEdit):
@@ -711,8 +762,28 @@ class SettingsWidget(QWidget):
         step3, step3_layout = step_panel(
             3,
             u"初始化桥接",
-            u"正式初始化会再次测试物理秤、检查或安装虚拟串口驱动、创建两组秤端口、安装并启动 Windows 服务。开发测试会使用模拟秤启动同一个服务并验证两路回包。",
+            u"建议先完成上方 com0com 驱动安装，再初始化桥接。初始化会测试物理秤、创建两组秤端口、安装并启动 Windows 服务。开发测试会使用模拟秤验证同一条服务链路。",
         )
+        driver_hint = QLabel(
+            u"首次使用或设备管理器显示黄色叹号时，请先单独安装 com0com 驱动。"
+            u"安装只处理驱动，不创建串口、不启动桥接服务；Windows 可能会弹出驱动确认。"
+        )
+        driver_hint.setWordWrap(True)
+        driver_hint.setStyleSheet(
+            "color: #FDE68A; background: #422006; border: 1px solid #A16207; "
+            "border-radius: 8px; padding: 10px 12px; font-size: 14px;"
+        )
+        step3_layout.addWidget(driver_hint)
+        self.btn_install_com0com = QPushButton(u"③-0 安装 / 检查 com0com 驱动")
+        self._style_touch_action_btn(self.btn_install_com0com, "purple")
+        self.btn_install_com0com.clicked.connect(self._install_com0com_driver)
+        step3_layout.addWidget(self.btn_install_com0com)
+        self.lbl_com0com_status = QLabel("")
+        self.lbl_com0com_status.setWordWrap(True)
+        self.lbl_com0com_status.setStyleSheet(
+            "color: #94A3B8; background: #0F172A; border-radius: 8px; padding: 8px 10px; font-size: 13px;"
+        )
+        step3_layout.addWidget(self.lbl_com0com_status)
         self.btn_initialize_scale_bridge = QPushButton(u"③ 初始化 / 修复 POS 称桥接")
         self._style_save_btn(self.btn_initialize_scale_bridge)
         self.btn_initialize_scale_bridge.clicked.connect(self._initialize_scale_bridge)
@@ -797,6 +868,7 @@ class SettingsWidget(QWidget):
         layout.addWidget(maintenance)
 
         self._load_scale_bridge_form()
+        self._refresh_com0com_status()
         self._refresh_scale_bridge_overall_status()
         return self._wrap_in_scroll(card)
 
@@ -1836,7 +1908,7 @@ class SettingsWidget(QWidget):
 
     def _run_maintenance_with_spinner(
         self, title, message, operation, on_success, error_title, busy_widgets,
-        on_failure=None,
+        on_failure=None, stages=None,
     ):
         """Run driver/virtual-port maintenance without freezing touch UI."""
         if getattr(self, "_maintenance_thread", None) is not None:
@@ -1864,7 +1936,7 @@ class SettingsWidget(QWidget):
         blur = None
         self._maintenance_blur = None
 
-        dialog = _MaintenanceBusyDialog(title, message, self)
+        dialog = _MaintenanceBusyDialog(title, message, self, stages=stages)
         thread = QThread(self)
         worker = _MaintenanceWorker(operation)
         worker.moveToThread(thread)
@@ -1911,7 +1983,7 @@ class SettingsWidget(QWidget):
                 # automatic routing after that dialog is dismissed.
                 resume_switch_routing()
 
-        def show_failure(reason):
+        def show_failure(reason, stage_log=""):
             try:
                 if on_failure:
                     on_failure()
@@ -1919,7 +1991,10 @@ class SettingsWidget(QWidget):
                 pass
             from ui.custom_dialog import show_error
             try:
-                show_error(self, error_title, reason)
+                detail = reason
+                if stage_log:
+                    detail += u"\n\n操作阶段记录（可截图反馈）：\n" + stage_log
+                show_error(self, error_title, detail)
             finally:
                 resume_switch_routing()
 
@@ -1934,11 +2009,12 @@ class SettingsWidget(QWidget):
             QTimer.singleShot(50, lambda: show_success(result))
 
         def failed(reason):
+            stage_log = dialog.stage_log()
             dialog.restore_parent_after_windows_prompt()
             dialog.finish()
             thread.quit()
             release_busy_visuals()
-            QTimer.singleShot(50, lambda: show_failure(reason))
+            QTimer.singleShot(50, lambda: show_failure(reason, stage_log))
 
         worker.succeeded.connect(succeeded)
         worker.failed.connect(failed)
@@ -2997,6 +3073,83 @@ class SettingsWidget(QWidget):
             on_success,
             u"开发模拟服务验证失败",
             [self.btn_test_bridge_virtual_only],
+            stages=[
+                u"检查管理员权限和当前 ScaleBridge 服务",
+                u"检查或创建开发测试用的 com0com 配对",
+                u"写入临时模拟秤配置",
+                u"安装并启动 ScaleBridge Windows 服务",
+                u"通过官方 POS 和本 POS 端口验证模拟回包",
+            ],
+        )
+
+    def _refresh_com0com_status(self):
+        """Refresh the independent driver status without changing anything."""
+        if not hasattr(self, "lbl_com0com_status"):
+            return
+        try:
+            from scale_bridge.lifecycle import find_com0com_installer, find_setupc
+            setupc = find_setupc()
+            installer = find_com0com_installer()
+            if setupc:
+                self.lbl_com0com_status.setText(u"✓ com0com 已安装：%s" % setupc)
+                self.lbl_com0com_status.setStyleSheet(
+                    "color: #86EFAC; background: #052E16; border: 1px solid #166534; "
+                    "border-radius: 8px; padding: 8px 10px; font-size: 13px;"
+                )
+            elif installer:
+                self.lbl_com0com_status.setText(
+                    u"尚未检测到 com0com；安装包已就绪：%s" % installer
+                )
+            else:
+                self.lbl_com0com_status.setText(
+                    u"尚未检测到 com0com，且当前程序目录没有附带安装包。"
+                )
+        except Exception as exc:
+            self.lbl_com0com_status.setText(u"无法读取 com0com 状态：%s" % exc)
+
+    def _install_com0com_driver(self):
+        """Install only the bundled com0com driver; do not create any pairs."""
+        from scale_bridge.lifecycle import find_setupc, install_com0com_driver
+        from ui.custom_dialog import show_error, show_info, show_question
+
+        if not show_question(
+            self,
+            u"安装 com0com 驱动",
+            u"本操作只安装/检查 com0com 驱动，不创建 COM 配对，不删除现有串口，也不启动 POS 桥接服务。\n\n"
+            u"需要管理员权限；安装过程中可能出现 Windows 驱动确认窗口。是否继续？",
+        ):
+            return
+
+        def operation():
+            setupc = find_setupc()
+            if setupc:
+                return False, setupc
+            return True, install_com0com_driver()
+
+        def on_success(result):
+            installed, setupc = result
+            self._refresh_com0com_status()
+            show_info(
+                self,
+                u"com0com 驱动已就绪",
+                (u"本次已完成安装。" if installed else u"检测到已安装，无需重复安装。")
+                + u"\nsetupc.exe：%s\n\n下一步请再执行“③ 初始化 / 修复 POS 称桥接”。"
+                % setupc,
+            )
+
+        self._run_maintenance_with_spinner(
+            u"正在安装 / 检查 com0com",
+            u"正在单独准备虚拟串口驱动；此步骤不会创建任何端口。",
+            operation,
+            on_success,
+            u"com0com 驱动安装失败",
+            [self.btn_install_com0com],
+            stages=[
+                u"检查管理员权限和现有 setupc.exe",
+                u"启动 com0com 安装程序（可能出现 Windows 确认）",
+                u"等待安装程序注册驱动文件",
+                u"检查 setupc.exe 是否已经可用",
+            ],
         )
 
     def _initialize_scale_bridge(self):
@@ -3006,7 +3159,7 @@ class SettingsWidget(QWidget):
 
         if not show_question(
             self, u"初始化或修复 POS 称桥接",
-            u"将依次测试物理秤、检查/安装 com0com、只创建官方 POS 与本 POS 的两组称重端口，"
+            u"将依次测试物理秤、检查 com0com、只创建官方 POS 与本 POS 的两组称重端口，"
             u"然后安装并启动 Windows 服务。\n\n"
             u"不会创建或修改收钱吧支付配对，也不会修改现有 POS 设置。是否继续？",
         ):
@@ -3052,6 +3205,14 @@ class SettingsWidget(QWidget):
             on_success,
             u"POS 称桥接初始化失败",
             [self.btn_initialize_scale_bridge],
+            stages=[
+                u"测试物理电子秤协议和当前读数",
+                u"检查 com0com 驱动与 setupc.exe",
+                u"创建或复用官方 POS / 本 POS 两组配对",
+                u"等待 Windows 注册新的虚拟 COM 端口",
+                u"安装并启动 ScaleBridge Windows 服务",
+                u"核对桥接配置和服务状态",
+            ],
         )
 
     def _initialize_payment_pair(self):
@@ -3104,6 +3265,13 @@ class SettingsWidget(QWidget):
             on_success,
             u"支付配对创建失败",
             [self.btn_initialize_payment_pair],
+            stages=[
+                u"检查收钱吧发送端和插件接收端端口",
+                u"检查 com0com 驱动与现有配对",
+                u"创建或复用收钱吧两端虚拟串口",
+                u"等待 Windows 注册支付端口",
+                u"保存配对所有权和配置结果",
+            ],
         )
 
     def _check_payment_pair(self):
@@ -3198,6 +3366,12 @@ class SettingsWidget(QWidget):
                     on_exact_success,
                     u"旧支付配对删除失败",
                     [self.btn_remove_payment_pair],
+                    stages=[
+                        u"核对当前配对和所有权记录",
+                        u"停止可能占用端口的关联流程",
+                        u"删除确认的旧收钱吧配对",
+                        u"等待 Windows 注销虚拟端口",
+                    ],
                 )
                 return
             show_info(
@@ -3216,6 +3390,12 @@ class SettingsWidget(QWidget):
             on_success,
             u"支付配对删除失败",
             [self.btn_remove_payment_pair],
+            stages=[
+                u"读取本产品创建的支付配对清单",
+                u"停止并清理收钱吧配对",
+                u"等待 Windows 注销虚拟 COM 端口",
+                u"核对其他软件创建的端口未被改动",
+            ],
         )
 
     def _test_scale_bridge_payment_pair(self):
@@ -3456,6 +3636,13 @@ class SettingsWidget(QWidget):
             on_success,
             u"删除桥接功能失败",
             [self.btn_remove_scale_bridge],
+            stages=[
+                u"核对 ScaleBridge 服务和本产品所有权",
+                u"停止并删除 ScaleBridge Windows 服务",
+                u"删除本产品登记的官方 / 本 POS 称重配对",
+                u"等待 Windows 注销虚拟 COM 端口",
+                u"删除独立桥接配置并保留其他配对",
+            ],
         )
 
     def _check_scale_bridge_pairs(self):

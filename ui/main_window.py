@@ -24,18 +24,33 @@ from ui.styles import DARK_STYLE, LIGHT_STYLE
 class MainWindow(QMainWindow):
     """应用主窗口"""
 
-    def __init__(self, config, hardware_warnings=None):
+    def __init__(self, config, hardware_warnings=None, startup_loading=None):
         super().__init__()
         self.config = config
         self.hardware_warnings = hardware_warnings or []
+        self._startup_loading = startup_loading
         self.db = Database()
+        self._startup_checkpoint(u"正在准备数据库", u"本地订单账本已打开", 10)
         self.call_mgr = CallNumberManager(config)
         self.is_dark_mode = True
 
         self._init_window()
+        self._startup_checkpoint(u"正在创建收银界面", u"正在加载称重和点餐页面", 18)
         self._build_ui()
+        self._startup_checkpoint(u"正在完成界面设置", u"正在启动时钟和状态栏", 92)
         self._setup_clock()
         QTimer.singleShot(600, self._check_first_run_price)
+
+    def _startup_checkpoint(self, message, detail, progress):
+        loading = getattr(self, "_startup_loading", None)
+        if loading is None:
+            return
+        try:
+            loading.set_message(message, detail)
+            loading.pump(progress)
+        except Exception:
+            # A splash is only feedback; never let it prevent POS startup.
+            pass
 
     def _init_window(self):
         self.setWindowFlags(Qt.FramelessWindowHint)
@@ -76,14 +91,17 @@ class MainWindow(QMainWindow):
         # 页面 0: 称重收银 (收银台)
         self.sale_page = SaleWidget(self.config, self.db, self.call_mgr)
         self.stack.addWidget(self.sale_page)
+        self._startup_checkpoint(u"正在加载收银台", u"收银台和电子秤界面已准备", 35)
 
         # 页面 1: 订单查询
         self.history_page = HistoryWidget(self.db, printer=self.sale_page.printer, config=self.config)
         self.stack.addWidget(self.history_page)
+        self._startup_checkpoint(u"正在加载订单查询", u"历史订单模块已准备", 45)
 
         # 页面 2: 交班报表
         self.report_page = ReportWidget(self.db, printer=self.sale_page.printer, config=self.config)
         self.stack.addWidget(self.report_page)
+        self._startup_checkpoint(u"正在加载报表", u"营业统计模块已准备", 53)
 
         # 页面 3: 外卖 RAW 打印中继与排序
         from ui.takeout_sorting_widget import TakeoutSortingWidget
@@ -98,18 +116,22 @@ class MainWindow(QMainWindow):
         if self.config.get("takeout_interceptor_enabled", False) and self.config.get("takeout_proxy_queue_name", "").strip():
             self.takeout_interceptor.start()
         self.stack.addWidget(self.takeout_page)
+        self._startup_checkpoint(u"正在加载外卖中继", u"外卖打印模块已准备", 62)
 
         # 页面 4: 叫号设置 (独立叫号避重菜单)
         self.queue_page = QueueWidget(self.config, self.call_mgr)
         self.stack.addWidget(self.queue_page)
+        self._startup_checkpoint(u"正在加载叫号设置", u"叫号模块已准备", 68)
 
         # 页面 5: 切换算法设置
         self.switch_settings_page = SwitchSettingsWidget(self.config)
         self.stack.addWidget(self.switch_settings_page)
+        self._startup_checkpoint(u"正在加载切换算法", u"自动分流设置已准备", 75)
 
         # 页面 6: 系统设置
         self.settings_page = SettingsWidget(self.config)
         self.stack.addWidget(self.settings_page)
+        self._startup_checkpoint(u"正在加载系统设置", u"硬件和打印设置已准备", 84)
 
         # 页面 7: 运营日志
         self.log_page = LogWidget()
@@ -137,6 +159,7 @@ class MainWindow(QMainWindow):
 
         # 4. 智能双系统切换与老板键组件初始化
         self._init_smart_switch_components()
+        self._startup_checkpoint(u"正在启动后台服务", u"称重、自动切换和悬浮球已准备", 96)
 
     def _init_smart_switch_components(self):
         """初始化称重自动弹出、常驻触屏悬浮球以及全局老板键避险线程"""
@@ -241,6 +264,16 @@ class MainWindow(QMainWindow):
             self.queue_page._load_settings()
         elif index == 7:
             self.log_page._load_logs()
+
+    def open_history_order(self, order_id=None, record=None):
+        """Navigate to order details from the cashier's previous-order card."""
+        self.stack.setCurrentIndex(1)
+        # Keep the navigation rail in sync without emitting page_changed a
+        # second time (which would reload the history list and lose selection).
+        if hasattr(self.sidebar, "set_active_page"):
+            self.sidebar.set_active_page(1)
+        if not self.history_page.open_order(order_id=order_id, record=record):
+            self.history_page._on_query()
 
     def _check_first_run_price(self):
         """首次使用初始化弹窗，提示用户设定/修改公斤单价与分店名称"""

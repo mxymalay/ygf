@@ -47,7 +47,11 @@ class StartupLoadingDialog(QDialog):
         layout.addWidget(self.lbl_message)
 
         self.progress = QProgressBar()
-        self.progress.setRange(0, 0)
+        # A determinate bar with a small automatic advance is more reassuring
+        # on Win7 than Qt's indeterminate chunk, which can appear frozen while
+        # the main thread is constructing widgets.
+        self.progress.setRange(0, 100)
+        self.progress.setValue(4)
         self.progress.setTextVisible(False)
         layout.addWidget(self.progress)
 
@@ -59,14 +63,19 @@ class StartupLoadingDialog(QDialog):
         self._timer = QTimer(self)
         self._timer.setInterval(450)
         self._timer.timeout.connect(self._animate)
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setInterval(120)
+        self._progress_timer.timeout.connect(self._advance_progress)
 
     def showEvent(self, event):
         super().showEvent(event)
         self._center_on_screen()
         self._timer.start()
+        self._progress_timer.start()
 
     def closeEvent(self, event):
         self._timer.stop()
+        self._progress_timer.stop()
         super().closeEvent(event)
 
     def _center_on_screen(self):
@@ -82,10 +91,31 @@ class StartupLoadingDialog(QDialog):
         self._dots = (self._dots + 1) % 4
         self.lbl_message.setText(self._message + ("." * self._dots))
 
+    def _advance_progress(self):
+        """Move the visual indicator while the event loop is responsive."""
+        value = int(self.progress.value())
+        if value < 92:
+            self.progress.setValue(value + 1)
+
+    def set_progress(self, value):
+        """Set a real initialization checkpoint without moving backwards."""
+        try:
+            value = max(0, min(100, int(value)))
+        except (TypeError, ValueError):
+            return
+        self.progress.setValue(max(self.progress.value(), value))
+
+    def pump(self, progress=None):
+        """Refresh the splash during synchronous Win7 initialization stages."""
+        if progress is not None:
+            self.set_progress(progress)
+        self._advance_progress()
+        self._animate()
+        QApplication.processEvents()
+
     def set_message(self, message, detail=None):
         self._message = str(message or u"正在加载收银系统")
         self._dots = 0
         self.lbl_message.setText(self._message)
         if detail is not None:
             self.lbl_detail.setText(str(detail))
-

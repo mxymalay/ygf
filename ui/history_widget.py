@@ -166,6 +166,80 @@ class HistoryWidget(QWidget):
     def reload_orders(self):
         self._on_query()
 
+    def open_order(self, order_id=None, record=None):
+        """Show one order directly, bypassing the current date filter.
+
+        ``record`` is preferred because the cashier summary already has the
+        exact ledger row.  ``order_id`` remains as a compatibility fallback
+        for callers that only know the identifier.
+        """
+        if record is None:
+            if not order_id:
+                return False
+            record = self.db.get_sale_by_order_id(str(order_id))
+        if not record:
+            return False
+
+        # When the cashier page is opened with a different date selected,
+        # move the history filter to this order's date first.  This makes the
+        # left-hand list and the detail pane point at the same order instead
+        # of showing a detail record that is invisible in the list.
+        created_at = str(record.get("created_at", "") or "")
+        target_date = created_at[:10]
+        current_date = ""
+        try:
+            current_date = "%04d-%02d-%02d" % (
+                int(self.cbo_year.currentData()),
+                int(self.cbo_month.currentData()),
+                int(self.cbo_day.currentData()),
+            )
+        except (AttributeError, TypeError, ValueError):
+            pass
+        if target_date and target_date != current_date:
+            try:
+                year, month, day = [int(part) for part in target_date.split("-")]
+                self.cbo_year.blockSignals(True)
+                self.cbo_month.blockSignals(True)
+                self.cbo_day.blockSignals(True)
+                self.cbo_year.setCurrentText("%d年" % year)
+                self.cbo_month.setCurrentText("%02d月" % month)
+                self._update_days()
+                self.cbo_day.setCurrentText("%02d日" % day)
+                self.cbo_year.blockSignals(False)
+                self.cbo_month.blockSignals(False)
+                self.cbo_day.blockSignals(False)
+                self._on_query()
+            except (AttributeError, TypeError, ValueError):
+                # Older/invalid timestamps should still open in the detail
+                # pane even when the date controls cannot be adjusted.
+                for combo in (self.cbo_year, self.cbo_month, self.cbo_day):
+                    combo.blockSignals(False)
+
+        record_key = record.get("id")
+        if record_key is None:
+            record_key = record.get("order_id") or order_id
+        match_index = None
+        for index, candidate in enumerate(self.records):
+            candidate_key = candidate.get("id")
+            if candidate_key is None:
+                candidate_key = candidate.get("order_id")
+            if record_key is not None and str(candidate_key) == str(record_key):
+                match_index = index
+                break
+        if match_index is not None:
+            self.current_page = match_index // max(1, self.items_per_page)
+            self._render_order_list()
+            # _render_order_list creates the visible card for this page; use
+            # the in-list row so its highlight and detail pane stay linked.
+            self._select_order(self.records[match_index])
+            if hasattr(self, "order_list_scroll"):
+                self.order_list_scroll.verticalScrollBar().setValue(0)
+        else:
+            # Keep the direct-detail fallback for rows filtered out by a
+            # keyword/time filter or legacy records outside the date range.
+            self._select_order(record)
+        return True
+
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 12, 12, 12)
@@ -197,11 +271,23 @@ class HistoryWidget(QWidget):
         self.cbo_month = QComboBox()
         self.cbo_day = QComboBox()
 
-        for cbo in (self.cbo_year, self.cbo_month, self.cbo_day):
+        for cbo, combo_width, popup_width in (
+            (self.cbo_year, 112, 128),
+            (self.cbo_month, 96, 108),
+            (self.cbo_day, 96, 108),
+        ):
             cbo.setStyleSheet(cbo_style)
             # 为了触屏体验，注入强制高度委托
             from ui.styles import apply_touch_combo_style
             apply_touch_combo_style(cbo, item_height=48)
+            cbo.setMinimumWidth(combo_width)
+            cbo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            # Win7 原生样式会把过窄的列表项自动省略成“0…”。日期只有
+            # 3~5 个字符，不应出现省略号；同时给触屏弹出层留足宽度。
+            popup = cbo.view()
+            popup.setTextElideMode(Qt.ElideNone)
+            popup.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            popup.setMinimumWidth(popup_width)
 
         curr_year = QDate.currentDate().year()
         for y in range(2020, curr_year + 5):
@@ -223,34 +309,58 @@ class HistoryWidget(QWidget):
         date_layout.addWidget(self.cbo_month)
         date_layout.addWidget(self.cbo_day)
 
-        # ── 添加时间筛选 (从 X 时 到 X 时) ──
-        lbl_from = QLabel(u" 从 ")
+        # ── 添加时间筛选 (从时分到时分) ──
+        lbl_time = QLabel(u" 时间 ")
+        lbl_time.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
+        date_layout.addWidget(lbl_time)
+
+        lbl_from = QLabel(u"从")
         lbl_from.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
         date_layout.addWidget(lbl_from)
 
         self.cbo_start_hour = QComboBox()
+        self.cbo_start_minute = QComboBox()
         self.cbo_end_hour = QComboBox()
+        self.cbo_end_minute = QComboBox()
 
-        for cbo in (self.cbo_start_hour, self.cbo_end_hour):
+        for cbo, suffix in (
+            (self.cbo_start_hour, u"时"),
+            (self.cbo_start_minute, u"分"),
+            (self.cbo_end_hour, u"时"),
+            (self.cbo_end_minute, u"分"),
+        ):
             cbo.setStyleSheet(cbo_style)
             from ui.styles import apply_touch_combo_style
             apply_touch_combo_style(cbo, item_height=48)
-            for h in range(0, 24):
-                cbo.addItem(f"{h:02d}时", h)
+            cbo.setMinimumWidth(80)
+            cbo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            popup = cbo.view()
+            popup.setTextElideMode(Qt.ElideNone)
+            popup.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            popup.setMinimumWidth(88)
+            maximum = 24 if suffix == u"时" else 60
+            for value in range(maximum):
+                cbo.addItem(f"{value:02d}{suffix}", value)
 
         self.cbo_start_hour.setCurrentIndex(0)  # 00时
+        self.cbo_start_minute.setCurrentIndex(0)  # 00分
         self.cbo_end_hour.setCurrentIndex(23)   # 23时
+        self.cbo_end_minute.setCurrentIndex(59)  # 59分
 
         self.cbo_start_hour.currentIndexChanged.connect(self._on_query)
+        self.cbo_start_minute.currentIndexChanged.connect(self._on_query)
         self.cbo_end_hour.currentIndexChanged.connect(self._on_query)
+        self.cbo_end_minute.currentIndexChanged.connect(self._on_query)
 
         date_layout.addWidget(self.cbo_start_hour)
+        date_layout.addWidget(self.cbo_start_minute)
         
-        lbl_to = QLabel(u" 到 ")
+        lbl_to = QLabel(u"至")
         lbl_to.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
         date_layout.addWidget(lbl_to)
         
         date_layout.addWidget(self.cbo_end_hour)
+        date_layout.addWidget(self.cbo_end_minute)
 
         header_bar.addLayout(date_layout)
 
@@ -586,16 +696,22 @@ class HistoryWidget(QWidget):
         kw = self.txt_search.text().strip()
         stype = self.cbo_search_type.currentText()
         start_h = self.cbo_start_hour.currentData()
+        start_minute = self.cbo_start_minute.currentData()
         end_h = self.cbo_end_hour.currentData()
+        end_minute = self.cbo_end_minute.currentData()
+        start_time = int(start_h or 0) * 60 + int(start_minute or 0)
+        end_time = int(end_h or 0) * 60 + int(end_minute or 0)
         
         filtered = []
         for r in raw_records:
-            # 1. 时间筛选逻辑 (解析 created_at 字段的小时)
+            # 1. 时间筛选逻辑 (精确到分钟)
             created_at = r.get("created_at", "")
-            if len(created_at) >= 13:
+            if len(created_at) >= 16:
                 try:
                     hour_int = int(created_at[11:13])
-                    if not (start_h <= hour_int <= end_h):
+                    minute_int = int(created_at[14:16])
+                    created_time = hour_int * 60 + minute_int
+                    if not (start_time <= created_time <= end_time):
                         continue
                 except ValueError:
                     pass

@@ -167,6 +167,11 @@ class SideNavBar(QWidget):
             item.setChecked(item.page_index == index)
         self.page_changed.emit(index)
 
+    def set_active_page(self, index):
+        """Update the highlighted item without triggering page navigation."""
+        for item in self._items:
+            item.setChecked(item.page_index == index)
+
     def update_theme_icon(self, is_dark: bool):
         if is_dark:
             self.item_theme.lbl_icon.setText(u"🌙")

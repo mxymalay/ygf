@@ -147,7 +147,12 @@ def main():
             u"正在初始化数据库、称重、打印和自动切换服务，请稍候。",
         )
         app.processEvents()
-        window = MainWindow(config, hardware_warnings=hw_warnings)
+        window = MainWindow(
+            config,
+            hardware_warnings=hw_warnings,
+            startup_loading=startup_loading,
+        )
+        startup_loading.set_progress(100)
         startup_loading.set_message(
             u"界面即将显示",
             u"收银系统已准备完成，正在打开主窗口。",

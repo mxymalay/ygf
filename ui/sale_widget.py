@@ -3,6 +3,7 @@
 PyQt5 + Python 3.8 兼容
 """
 import random
+import re
 import time
 import uuid
 from datetime import datetime
@@ -52,6 +53,37 @@ def is_receipt_order_id(value):
     return len(text) == ORDER_ID_LENGTH and text.isdigit()
 
 
+def format_order_time_hint(value, now=None):
+    """Return a quiet absolute + relative time hint for the previous order."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parsed = None
+    for candidate in (text, text.replace("T", " ").split(".", 1)[0]):
+        try:
+            parsed = datetime.strptime(candidate[:19], "%Y-%m-%d %H:%M:%S")
+            break
+        except (TypeError, ValueError):
+            continue
+    if parsed is None:
+        return text[:19]
+    current = now or datetime.now()
+    seconds = max(0, int((current - parsed).total_seconds()))
+    if seconds < 60:
+        relative = u"刚刚"
+    elif seconds < 3600:
+        relative = u"%d分钟前" % (seconds // 60)
+    elif seconds < 86400:
+        relative = u"%d小时前" % (seconds // 3600)
+    elif seconds < 30 * 86400:
+        relative = u"%d天前" % (seconds // 86400)
+    elif seconds < 365 * 86400:
+        relative = u"%d个月前" % max(1, seconds // (30 * 86400))
+    else:
+        relative = u"%d年前" % max(1, seconds // (365 * 86400))
+    return u"%s · %s" % (parsed.strftime("%Y-%m-%d %H:%M:%S"), relative)
+
+
 class MockWeightModeComboBox(QComboBox):
     """Compact touch selector with its arrow immediately after the text."""
 
@@ -71,6 +103,17 @@ class MockWeightModeComboBox(QComboBox):
         painter.setBrush(self.palette().text().color())
         painter.drawPolygon(QPolygon([QPoint(x, y - 3), QPoint(x + 8, y - 3), QPoint(x + 4, y + 4)]))
         painter.end()
+
+
+class ClickableSummaryCard(QFrame):
+    """触屏友好的上一单摘要卡片。"""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 class ClickableWeightLabel(QLabel):
@@ -763,6 +806,11 @@ class SaleWidget(QWidget):
         self._resize_timer = None
         self._cart_dirty = True
         self._draft_signature = ""
+        self._previous_order_created_at = ""
+        # Keep the complete ledger row behind the summary card.  Passing the
+        # row itself avoids a second lookup that can fail for legacy rows or
+        # while the history date filter is on another day.
+        self._previous_order_record = None
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
         self._draft_timer.timeout.connect(self._save_draft_now)
@@ -771,6 +819,10 @@ class SaleWidget(QWidget):
         self._restore_draft()
         self._last_order_change = 0.0
         self._refresh_previous_order_card()
+        self._previous_order_time_timer = QTimer(self)
+        self._previous_order_time_timer.setInterval(30000)
+        self._previous_order_time_timer.timeout.connect(self._refresh_previous_order_time_hint)
+        self._previous_order_time_timer.start()
         self._setup_scale()
         self.refresh_call_number_display()
 
@@ -856,6 +908,11 @@ class SaleWidget(QWidget):
         self.lbl_previous_title.setStyleSheet(
             "font-size: 15px; font-weight: 700; color: %s; border: none; background: transparent;" % title_color
         )
+        if hasattr(self, "lbl_previous_call_no"):
+            self.lbl_previous_call_no.setStyleSheet(
+                "font-size: 11px; color: %s; border: none; background: transparent; padding-top: 2px;" %
+                ("#64748B" if self.is_dark_mode else "#94A3B8")
+            )
         self.lbl_previous_status.setStyleSheet(
             "font-size: 24px; font-weight: 800; color: #10B981; border: none; background: transparent;"
         )
@@ -875,6 +932,11 @@ class SaleWidget(QWidget):
             value.setStyleSheet(
                 "font-size: 16px; font-weight: 700; color: %s; border: none; background: transparent;" % value_color
             )
+        if hasattr(self, "lbl_previous_time"):
+            self.lbl_previous_time.setStyleSheet(
+                "font-size: 10px; color: %s; border: none; background: transparent; padding-top: 2px;" %
+                ("#64748B" if self.is_dark_mode else "#94A3B8")
+            )
 
     def _refresh_previous_order_card(self, record=None, change=None):
         """Refresh the previous-order summary from the local sales ledger."""
@@ -890,21 +952,27 @@ class SaleWidget(QWidget):
                 record = None
 
         if not record:
+            self._previous_order_record = None
+            self._previous_order_created_at = ""
+            self._previous_order_id = ""
             self.lbl_previous_status.setText(u"—")
-            # Use half-width parentheses here.  On the Win7 fallback fonts the
-            # full-width ``（`` glyph has a large left side bearing, making the
-            # second line look indented even though both lines share the same
-            # QLabel origin.
-            self.lbl_previous_title.setText(u"上一单\n(暂无记录)")
+            self.lbl_previous_title.setText(
+                u'<span style="font-size:22px; font-weight:800;">上一单</span>'
+                u'<br><span style="font-size:14px; color:#94A3B8;">(暂无记录)</span>'
+            )
+            if hasattr(self, "lbl_previous_call_no"):
+                self.lbl_previous_call_no.setText(u"#---")
             for value in (
                 self.lbl_previous_change,
                 self.lbl_previous_paid,
                 self.lbl_previous_due,
             ):
                 value.setText(u"￥0.00")
+            self.lbl_previous_time.setText("")
             self.previous_order_card.setVisible(not bool(self.cart_items))
             return
 
+        self._previous_order_record = dict(record) if hasattr(record, "keys") else record
         import json
         try:
             items = json.loads(record.get("cart_items_json") or "[]")
@@ -922,6 +990,8 @@ class SaleWidget(QWidget):
                 item_count += 1
         weight_kg = float(record.get("weight_kg", 0.0) or 0.0)
         total = float(record.get("total_price", 0.0) or 0.0)
+        self._previous_order_created_at = str(record.get("created_at", "") or "")
+        self._previous_order_id = str(record.get("order_id", "") or "")
         # Legacy rows may predate cart_items_json; still present a useful
         # one-item summary instead of showing an impossible zero-item sale.
         if item_count == 0 and (weight_kg > 0.0 or total > 0.0):
@@ -932,16 +1002,33 @@ class SaleWidget(QWidget):
             "font-size: 24px; font-weight: 800; color: %s; border: none; background: transparent;"
             % ("#10B981" if is_paid else "#F59E0B")
         )
+        remark = str(record.get("remark", "") or "")
+        call_match = re.search(r"叫号:#?(\w+)", remark)
+        call_no = call_match.group(1) if call_match else str(record.get("sale_no", "") or "")[-3:]
         self.lbl_previous_title.setText(
-            u"上一单\n(共%d项，%.3f kg)" % (item_count, weight_kg)
+            u'<span style="font-size:22px; font-weight:800;">上一单</span>'
+            u'<br><span style="font-size:14px; color:#CBD5E1;">(共%d项，%.3f kg)</span>' %
+            (item_count, weight_kg)
         )
+        if hasattr(self, "lbl_previous_call_no"):
+            self.lbl_previous_call_no.setText(u"#%s" % call_no)
         if change is not None:
             self._last_order_change = float(change or 0.0)
         change_value = self._last_order_change
         self.lbl_previous_change.setText(u"￥%.2f" % change_value)
         self.lbl_previous_paid.setText(u"￥%.2f" % total)
         self.lbl_previous_due.setText(u"￥%.2f" % total)
+        self.lbl_previous_time.setText(format_order_time_hint(self._previous_order_created_at))
         self.previous_order_card.setVisible(not bool(self.cart_items))
+
+    def _refresh_previous_order_time_hint(self):
+        """Refresh only the quiet relative-time line while the POS is idle."""
+        if not hasattr(self, "lbl_previous_time"):
+            return
+        if self._previous_order_created_at:
+            self.lbl_previous_time.setText(
+                format_order_time_hint(self._previous_order_created_at)
+            )
 
     def _gen_temp_order_no(self):
         return "%05d" % random.randint(10000, 99999)
@@ -1079,9 +1166,12 @@ class SaleWidget(QWidget):
 
         # 上一单摘要：当前购物车为空时显示，便于收银员快速核对上一笔金额。
         # 有新订单时隐藏，不占用点菜/购物车区域。
-        self.previous_order_card = QFrame()
+        self.previous_order_card = ClickableSummaryCard()
         self.previous_order_card.setObjectName("PreviousOrderCard")
-        self.previous_order_card.setMinimumHeight(158)
+        self.previous_order_card.setMinimumHeight(178)
+        self.previous_order_card.setCursor(Qt.PointingHandCursor)
+        self.previous_order_card.setToolTip(u"点击查看这一单的订单详情")
+        self.previous_order_card.clicked.connect(self._open_previous_order)
         previous_layout = QVBoxLayout(self.previous_order_card)
         previous_layout.setContentsMargins(16, 12, 16, 12)
         previous_layout.setSpacing(6)
@@ -1091,10 +1181,18 @@ class SaleWidget(QWidget):
         self.lbl_previous_status.setFixedWidth(34)
         self.lbl_previous_status.setAlignment(Qt.AlignCenter)
         previous_header.addWidget(self.lbl_previous_status)
-        self.lbl_previous_title = QLabel(u"上一单\n(暂无记录)")
+        self.lbl_previous_title = QLabel(
+            u'<span style="font-size:22px; font-weight:800;">上一单</span>'
+            u'<br><span style="font-size:14px; color:#94A3B8;">(暂无记录)</span>'
+        )
+        self.lbl_previous_title.setTextFormat(Qt.RichText)
         self.lbl_previous_title.setWordWrap(True)
         self.lbl_previous_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         previous_header.addWidget(self.lbl_previous_title, stretch=1)
+        self.lbl_previous_call_no = QLabel(u"#---")
+        self.lbl_previous_call_no.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        self.lbl_previous_call_no.setToolTip(u"取餐号")
+        previous_header.addWidget(self.lbl_previous_call_no)
         previous_layout.addLayout(previous_header)
 
         def _summary_row(label_text):
@@ -1111,6 +1209,12 @@ class SaleWidget(QWidget):
         self.lbl_previous_change_label, self.lbl_previous_change = _summary_row(u"找零")
         self.lbl_previous_paid_label, self.lbl_previous_paid = _summary_row(u"实付")
         self.lbl_previous_due_label, self.lbl_previous_due = _summary_row(u"应收")
+        self.lbl_previous_time = QLabel("")
+        self.lbl_previous_time.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        previous_layout.addWidget(self.lbl_previous_time)
+        # 子标签不拦截触屏点击，让整张卡片都能打开订单详情。
+        for child in self.previous_order_card.findChildren(QLabel):
+            child.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._style_previous_order_card()
 
         # 2. 订单消费卡片列表 (ScrollArea 禁用下滑条，采用精准分页)
@@ -1386,6 +1490,17 @@ class SaleWidget(QWidget):
         layout.addLayout(right, stretch=7)
 
         self._update_price_display()
+
+    def _open_previous_order(self):
+        """Open the exact previous order in the order-detail page."""
+        record = getattr(self, "_previous_order_record", None)
+        order_id = str(getattr(self, "_previous_order_id", "") or "")
+        if not record and not order_id:
+            return
+        main_window = self.window()
+        if main_window is None or not hasattr(main_window, "open_history_order"):
+            return
+        main_window.open_history_order(order_id=order_id, record=record)
 
     def _update_weight_banner_style(self):
         """Keep simulation styling separate from the live scale screen."""
