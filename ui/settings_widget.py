@@ -1000,7 +1000,8 @@ class SettingsWidget(QWidget):
         self.lbl_printer_custom_template_hint = QLabel(
             u"自定义模板语法：每行前可加 [C]居中、[L]左对齐、[R]右对齐、[B]粗体、[D]双倍高度。"
             u"可用变量：{shop_name}、{call_no}、{items}、{total}、{payment_method}、{order_id}、"
-            u"{kitchen_call_no}、{item_name}、{flavor}、{operator}、{time}、{service_phone}、{separator}。"
+            u"{total_line}、{due_line}、{paid_line}、{kitchen_call_no}、{item_name}、{weight}、"
+            u"{item_line}、{flavor}、{operator}、{time}、{service_phone}、{separator}。"
         )
         self.lbl_printer_custom_template_hint.setWordWrap(True)
         self.lbl_printer_custom_template_hint.setStyleSheet("color: #FDE68A; font-size: 14px; background: transparent;")
@@ -1112,7 +1113,7 @@ class SettingsWidget(QWidget):
             self,
             u"选择打印 Logo 图片",
             "",
-            u"图片文件 (*.png *.jpg *.jpeg *.bmp);;所有文件 (*.*)",
+            u"图片文件 (*.png *.jpg *.jpeg *.bmp *.svg);;所有文件 (*.*)",
         )
         if path:
             self.txt_printer_logo_path.setText(path)
@@ -1120,19 +1121,20 @@ class SettingsWidget(QWidget):
     @staticmethod
     def _official_customer_template_text():
         return (
-            "[C][D]{shop_name}\n[C]{shop_subtitle}\n"
-            "[L]{separator}\n[L]取餐号：{call_no}    [POS点餐]\n"
+            "[C]{shop_subtitle}\n[L]{separator}\n"
+            "[L][B][D]取餐号：{call_no}    [POS点餐]\n"
             "[L]名称                 规格  单价  数量  小计\n[L]{items}\n"
-            "[L]{separator}\n[R]合计                  {total}\n[R]应付                  {total}\n"
-            "[R]{payment_method}              {total}\n[L]订单号：{order_id}\n"
+            "[L]{separator}\n[L]{total_line}\n[L]{due_line}\n[L]{paid_line}\n"
+            "[L]订单号：{order_id}\n"
             "[L]订单时间：{time}\n[L]服务热线：{service_phone}"
         )
 
     @staticmethod
     def _official_kitchen_template_text():
         return (
-            "[C][D]取餐号：{kitchen_call_no}\n[C][D]制作单\n[C][D]{item_name}\n"
-            "[C]{flavor}\n[L]{separator}\n[L]操作人：{operator}\n[L]下单时间：{created_at}"
+            "[L][B][D]取餐号：{kitchen_call_no}    {pos_order_no}\n"
+            "[C][B][D]制作单\n[C][B][D]{item_line}\n[C]{flavor}\n[L]{separator}\n"
+            "[L]操作人：{operator}\n[L]下单时间：{created_at}"
         )
 
     def _on_printer_template_profile_changed(self, index):

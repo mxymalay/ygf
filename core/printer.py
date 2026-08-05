@@ -29,8 +29,8 @@ def fmt_lr_48(left: str, right: str, width: int = 48) -> str:
 
 # 可编辑模板的最小语法：每行可用 [C]/[L]/[R] 指定对齐，
 # [B] 加粗， [D] 双倍高度；其余内容使用 {变量} 替换。
-OFFICIAL_CUSTOMER_TEMPLATE = """[C][D]{shop_name}\n[C]{shop_subtitle}\n[L]{separator}\n[L]取餐号：{call_no}    [POS点餐]\n[L]名称                 规格  单价  数量  小计\n[L]{items}\n[L]{separator}\n[R]合计                  {total}\n[R]应付                  {total}\n[R]{payment_method}              {total}\n[L]订单号：{order_id}\n[L]订单时间：{time}\n[L]服务热线：{service_phone}"""
-OFFICIAL_KITCHEN_TEMPLATE = """[C][D]取餐号：{kitchen_call_no}\n[C][D]制作单\n[C][D]{item_name}\n[C]{flavor}\n[L]{separator}\n[L]操作人：{operator}\n[L]下单时间：{created_at}"""
+OFFICIAL_CUSTOMER_TEMPLATE = """[C]{shop_subtitle}\n[L]{separator}\n[L][B][D]取餐号：{call_no}    [POS点餐]\n[L]名称                 规格  单价  数量  小计\n[L]{items}\n[L]{separator}\n[L]{total_line}\n[L]{due_line}\n[L]{paid_line}\n[L]订单号：{order_id}\n[L]订单时间：{time}\n[L]服务热线：{service_phone}"""
+OFFICIAL_KITCHEN_TEMPLATE = """[L][B][D]取餐号：{kitchen_call_no}    {pos_order_no}\n[C][B][D]制作单\n[C][B][D]{item_line}\n[C]{flavor}\n[L]{separator}\n[L]操作人：{operator}\n[L]下单时间：{created_at}"""
 
 
 class ReceiptPrinter:
@@ -122,7 +122,8 @@ class ReceiptPrinter:
                 unit_price = float(item.get("unit_price", sale.get("unit_price", 47.60)) or 0.0)
                 weight = float(item.get("weight", sale.get("weight_kg", 0.0)) or 0.0)
                 subtotal = float(item.get("price", 0.0) or 0.0)
-                rows.append("%s（KG）  KG  %.2f  %.3f  %.2f" % (name, unit_price, weight, subtotal))
+                display_name = name if name.endswith("（KG）") else name + "（KG）"
+                rows.append("%s  KG  %.2f  %.3f  %.2f" % (display_name, unit_price, weight, subtotal))
             else:
                 qty = int(item.get("qty", 1) or 1)
                 unit_price = float(item.get("base_price", item.get("price", 0.0) / max(1, qty)) or 0.0)
@@ -160,6 +161,8 @@ class ReceiptPrinter:
                 1 for row in sale.get("cart_items", [])
                 if row.get("type") == "soup" or "weight" in row
             )
+            if not item_name.endswith("（KG）"):
+                item_name += "（KG）"
         kitchen_call_no = str(call_no)
         if kitchen_count > 1 and kitchen_index > 0:
             kitchen_call_no = "%s - %d" % (call_no, kitchen_index)
@@ -168,13 +171,18 @@ class ReceiptPrinter:
             "shop_subtitle": sale.get("shop_subtitle", "") or "杨国福(肥西水晶城店)",
             "call_no": call_no,
             "kitchen_call_no": kitchen_call_no,
+            "pos_order_no": "POS#" + kitchen_call_no,
             "index": index,
             "item_name": item_name,
             "weight": weight,
+            "item_line": (item_name + "    " + weight) if item_name else "",
             "flavor": flavor,
             "created_at": created_at,
             "time": now_str,
             "total": "%.2f" % total,
+            "total_line": fmt_lr_48("合计", "%.2f" % total, self._line_width()).rstrip("\n"),
+            "due_line": fmt_lr_48("应付", "%.2f" % total, self._line_width()).rstrip("\n"),
+            "paid_line": fmt_lr_48("实付", "%.2f" % total, self._line_width()).rstrip("\n"),
             "payment_method": payment or "实付",
             "order_id": sale.get("order_id") or sale.get("temp_order_no") or "",
             "service_phone": self.config.get("printer_service_phone", "400-6058-777"),
@@ -195,29 +203,52 @@ class ReceiptPrinter:
             return b""
         path = str(self.config.get("printer_logo_path", "") or "").strip()
         if not path:
-            path = os.path.join(DATA_DIR, "assets", "yangguofu_logo_source.png")
+            # SVG 是官方提供的透明矢量 Logo，优先使用；没有 QtSvg 或 SVG
+            # 文件时再回退到旧 PNG，避免把透明背景当成黑色整块打印。
+            svg_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo.svg")
+            png_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo_source.png")
+            path = svg_path if os.path.isfile(svg_path) else png_path
         if not os.path.isfile(path):
             return b""
         try:
             from PyQt5.QtCore import Qt
-            from PyQt5.QtGui import QImage
+            from PyQt5.QtGui import QImage, QPainter
 
-            image = QImage(path).convertToFormat(QImage.Format_ARGB32)
-            if image.isNull():
-                return b""
             try:
                 target_width = min(512, max(160, int(self.config.get("printer_logo_width_px", 384))))
             except (TypeError, ValueError):
                 target_width = 384
-            if image.width() > target_width:
-                image = image.scaledToWidth(target_width, Qt.SmoothTransformation)
+            is_svg = path.lower().endswith(".svg")
+            if is_svg:
+                from PyQt5.QtSvg import QSvgRenderer
+
+                renderer = QSvgRenderer(path)
+                if not renderer.isValid():
+                    return b""
+                source_size = renderer.defaultSize()
+                source_width = max(1, source_size.width())
+                source_height = max(1, source_size.height())
+                target_height = max(1, int(round(target_width * source_height / float(source_width))))
+                image = QImage(target_width, target_height, QImage.Format_ARGB32)
+                image.fill(0)
+                painter = QPainter(image)
+                renderer.render(painter)
+                painter.end()
+            else:
+                image = QImage(path).convertToFormat(QImage.Format_ARGB32)
+                if image.isNull():
+                    return b""
+                if image.width() > target_width:
+                    image = image.scaledToWidth(target_width, Qt.SmoothTransformation)
             width, height = image.width(), image.height()
             corner_points = [(0, 0), (max(0, width - 1), 0), (0, max(0, height - 1)), (max(0, width - 1), max(0, height - 1))]
             corner_luma = sum(
                 sum(image.pixelColor(x, y).getRgb()[:3]) / 3.0
                 for x, y in corner_points
             ) / max(1, len(corner_points))
-            dark_background = corner_luma < 100
+            # 透明 SVG 没有背景，所有 alpha 非零的矢量内容都应成为黑点；
+            # 旧 PNG 则继续按深色背景阈值处理。
+            dark_background = False if is_svg else corner_luma < 100
             bytes_per_row = (width + 7) // 8
             payload = bytearray()
             for y in range(height):
@@ -227,7 +258,10 @@ class ReceiptPrinter:
                     # Dark charcoal background is blank; white text and orange
                     # icon both become printable black dots.
                     luma = (color.red() + color.green() + color.blue()) / 3.0
-                    logo_pixel = luma >= 80 if dark_background else luma <= 180
+                    if is_svg:
+                        logo_pixel = color.alpha() >= 32
+                    else:
+                        logo_pixel = luma >= 80 if dark_background else luma <= 180
                     if logo_pixel:
                         row[x // 8] |= 0x80 >> (x % 8)
                 payload.extend(row)

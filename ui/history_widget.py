@@ -7,7 +7,7 @@ from datetime import date
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QDateEdit, QLineEdit, QComboBox, QFrame, QScrollArea,
-    QGridLayout, QMessageBox, QDialog
+    QGridLayout, QMessageBox, QDialog, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor, QFont
@@ -24,7 +24,10 @@ class OrderCard(QFrame):
         self.record = record
         self.is_selected = is_selected
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(64)
+        # Win7 的 Qt 字体度量比 Win11 更容易把两行内容撑高；固定一个
+        # 足够的卡片高度，避免下一张卡片压住当前卡片的底边。
+        self.setMinimumHeight(78)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -351,7 +354,8 @@ class HistoryWidget(QWidget):
         self.order_list_container = QWidget()
         self.order_list_layout = QVBoxLayout(self.order_list_container)
         self.order_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.order_list_layout.setSpacing(6)
+        # 卡片之间保留明确间距，避免 Win7 下边框与下一张卡片相互覆盖。
+        self.order_list_layout.setSpacing(10)
         self.order_list_layout.setAlignment(Qt.AlignTop)
 
         left_col.addWidget(self.order_list_container, stretch=1)
