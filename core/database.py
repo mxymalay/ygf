@@ -118,6 +118,23 @@ class Database:
                     inherited_private_weight_kg REAL NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL DEFAULT ''
                 );
+
+                -- One row per stable weighing event.  This is deliberately
+                -- separate from both ``sales`` and the operational quota:
+                -- private payment can be confirmed locally, while official
+                -- POS payment has no callback and must remain "unknown".
+                CREATE TABLE IF NOT EXISTS weighing_route_events (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_key       TEXT UNIQUE NOT NULL,
+                    weight_kg       REAL NOT NULL,
+                    channel         TEXT NOT NULL,
+                    decision_kind   TEXT DEFAULT '',
+                    status          TEXT NOT NULL DEFAULT 'PENDING',
+                    order_id        TEXT DEFAULT '',
+                    created_at      TEXT NOT NULL,
+                    resolved_at     TEXT DEFAULT '',
+                    resolution_note TEXT DEFAULT ''
+                );
                 """
             )
 
@@ -155,6 +172,14 @@ class Database:
             # SQLite abort before `_ensure_column` ever gets a chance to run.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_no ON sales(sale_no)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_route_events_date "
+                "ON weighing_route_events(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_route_events_status "
+                "ON weighing_route_events(status, channel)"
+            )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_order_id "
                 "ON sales(order_id) WHERE order_id IS NOT NULL"
@@ -541,5 +566,142 @@ class Database:
                 (weight, now, key),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # Stable-weighing lifecycle ledger
+    # ------------------------------------------------------------------
+    def create_weighing_route_event(self, weight_kg, is_private, decision_kind="", event_key=None):
+        """Create a pending record for one stable weighing decision.
+
+        The routing quota remains an immediate, observable-weight counter so
+        the POS can switch without waiting for payment.  This ledger carries
+        the separate truth state: private payment can later be confirmed,
+        while official payment is explicitly unknown.
+        """
+        import uuid
+
+        key = str(event_key or uuid.uuid4().hex)
+        channel = "private" if is_private else "official"
+        weight = max(0.0, float(weight_kg or 0.0))
+        now = _now_text()
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """INSERT OR IGNORE INTO weighing_route_events
+                   (event_key, weight_kg, channel, decision_kind, status, created_at)
+                   VALUES (?, ?, ?, ?, 'PENDING', ?)""",
+                (key, weight, channel, str(decision_kind or ""), now),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM weighing_route_events WHERE event_key = ?", (key,)
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def resolve_weighing_route_event(self, event_key, status, order_id="", note=""):
+        """Resolve one pending event without deleting its audit trail."""
+        if not event_key:
+            return False
+        allowed = {"PRIVATE_PAID", "NOT_PAID", "OFFICIAL_UNKNOWN", "MANUAL_UNKNOWN"}
+        status = str(status or "").upper()
+        if status not in allowed:
+            raise ValueError("invalid weighing route status: %s" % status)
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """UPDATE weighing_route_events
+                   SET status = ?, order_id = ?, resolved_at = ?, resolution_note = ?
+                   WHERE event_key = ? AND status = 'PENDING'""",
+                (status, str(order_id or ""), _now_text(), str(note or "")[:500], str(event_key)),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def convert_weighing_route_event_to_private(self, event_key, note="官方窗口在切换竞态中消失"):
+        """Correct an event whose initial official route fell back to private."""
+        if not event_key:
+            return False
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """UPDATE weighing_route_events
+                   SET channel = 'private', resolution_note = ?
+                   WHERE event_key = ? AND status = 'PENDING'""",
+                (str(note or "")[:500], str(event_key)),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def resolve_pending_weighing_events(self, channel=None, status="NOT_PAID", note=""):
+        """Resolve all current-day pending events matching ``channel``.
+
+        Returning the count lets the UI log what happened without exposing
+        SQLite details to the checkout flow.
+        """
+        status = str(status or "").upper()
+        allowed = {"PRIVATE_PAID", "NOT_PAID", "OFFICIAL_UNKNOWN", "MANUAL_UNKNOWN"}
+        if status not in allowed:
+            raise ValueError("invalid weighing route status: %s" % status)
+        where = "status = 'PENDING' AND DATE(created_at) = DATE('now', 'localtime')"
+        params = []
+        if channel:
+            where += " AND channel = ?"
+            params.append(str(channel))
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """UPDATE weighing_route_events
+                   SET status = ?, resolved_at = ?, resolution_note = ?
+                   WHERE """ + where,
+                [status, _now_text(), str(note or "")[:500]] + params,
+            )
+            conn.commit()
+            return int(cursor.rowcount or 0)
+        finally:
+            conn.close()
+
+    def resolve_pending_private_weighing_events(self, status, order_id="", note=""):
+        """Resolve pending private events for the current unfinished basket."""
+        status = str(status or "").upper()
+        allowed = {"PRIVATE_PAID", "NOT_PAID", "MANUAL_UNKNOWN"}
+        if status not in allowed:
+            raise ValueError("invalid private route status: %s" % status)
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """UPDATE weighing_route_events
+                   SET status = ?, order_id = ?, resolved_at = ?, resolution_note = ?
+                   WHERE channel = 'private' AND status = 'PENDING'
+                     AND DATE(created_at) = DATE('now', 'localtime')""",
+                (status, str(order_id or ""), _now_text(), str(note or "")[:500]),
+            )
+            conn.commit()
+            return int(cursor.rowcount or 0)
+        finally:
+            conn.close()
+
+    def get_weighing_route_summary(self, stat_date=None):
+        """Return confirmed/unknown route-event totals for diagnostics/UI."""
+        key = self._switch_stat_date(stat_date)
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT channel, status, COUNT(*) AS count,
+                          COALESCE(SUM(weight_kg), 0) AS weight_kg
+                   FROM weighing_route_events
+                   WHERE DATE(created_at) = ?
+                   GROUP BY channel, status
+                   ORDER BY channel, status""",
+                (key,),
+            ).fetchall()
+            return [dict(row) for row in rows]
         finally:
             conn.close()

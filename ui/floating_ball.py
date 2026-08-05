@@ -291,7 +291,7 @@ class FloatingBall(QWidget):
             painter.setFont(QFont("Microsoft YaHei", 7, QFont.Bold))
             painter.drawText(
                 QRect(3, 1, 86, 14), Qt.AlignCenter,
-                u"还需 %.3f kg" % self._switch_remaining_kg,
+                u"再称 %.3f kg" % self._switch_remaining_kg,
             )
 
         # 出票后倒计时数字放在胶囊右侧，不占用顶部剩余重量和底部状态栏。

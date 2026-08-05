@@ -77,6 +77,26 @@ class DatabaseLedgerTests(unittest.TestCase):
         conn.close()
         self.assertIn("order_id", columns)
 
+    def test_weighing_route_lifecycle_keeps_payment_truth_separate(self):
+        private = self.db.create_weighing_route_event(0.42, True, "quota")
+        official = self.db.create_weighing_route_event(0.31, False, "forced_official")
+        self.assertEqual(private["status"], "PENDING")
+        self.assertEqual(official["channel"], "official")
+
+        self.assertEqual(
+            self.db.resolve_pending_private_weighing_events("PRIVATE_PAID", "order-1"),
+            1,
+        )
+        self.assertEqual(
+            self.db.resolve_pending_weighing_events(
+                channel="official", status="OFFICIAL_UNKNOWN", note="no callback"
+            ),
+            1,
+        )
+        summary = {(row["channel"], row["status"]): row for row in self.db.get_weighing_route_summary()}
+        self.assertEqual(summary[("private", "PRIVATE_PAID")]["weight_kg"], 0.42)
+        self.assertEqual(summary[("official", "OFFICIAL_UNKNOWN")]["count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

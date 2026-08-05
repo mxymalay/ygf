@@ -2129,6 +2129,19 @@ class SaleWidget(QWidget):
         self._cycle_present = False
         self._weight_cycle_ready = True
         self._low_price_warning_shown = False
+        # Resolve only what can be known from this UI: an empty private cart
+        # means the stable bowl was removed without a local order.  Official
+        # POS has no payment callback, so its route is recorded as unknown.
+        try:
+            parent_mw = self.window()
+            controller = getattr(parent_mw, "switch_controller", None)
+            if controller and hasattr(controller, "resolve_pending_route_events_on_zero"):
+                has_private_soup = any(
+                    item.get("type") == "soup" for item in (self.cart_items or [])
+                )
+                controller.resolve_pending_route_events_on_zero(has_private_soup)
+        except Exception as exc:
+            log_event(CAT_SYSTEM, "称重待确认状态处理失败", str(exc))
         self.weighing_cycle_zeroed.emit()
 
     @pyqtSlot(str)
@@ -2365,7 +2378,11 @@ class SaleWidget(QWidget):
             existing = self.db.get_sale_by_order_id(self.current_order_id)
             if existing:
                 log_event(CAT_ORDER, "拦截重复结账", "订单标识: %s" % self.current_order_id)
-                self._on_clear()
+                parent_mw = self.window()
+                controller = getattr(parent_mw, "switch_controller", None)
+                if controller and hasattr(controller, "confirm_pending_private_routes"):
+                    controller.confirm_pending_private_routes(self.current_order_id)
+                self._on_clear(route_resolution="paid")
                 return True
 
             actual_num = self.call_mgr.get_next_number()
@@ -2387,7 +2404,11 @@ class SaleWidget(QWidget):
                 show_warning(self, u"订单未完成", u"本地账本写入失败，订单未清空。请检查磁盘和数据库后重试。\n%s" % exc)
                 return False
             if not created:
-                self._on_clear()
+                parent_mw = self.window()
+                controller = getattr(parent_mw, "switch_controller", None)
+                if controller and hasattr(controller, "confirm_pending_private_routes"):
+                    controller.confirm_pending_private_routes(self.current_order_id)
+                self._on_clear(route_resolution="paid")
                 return True
             log_event(CAT_ORDER, f"订单成交入库: 叫号#{sale_data['call_no']}", f"支付方式: {payment_method} | 实付: ¥{total_price:.2f} | 明细: {items_summary}")
 
@@ -2404,7 +2425,11 @@ class SaleWidget(QWidget):
 
             self.db.mark_print_result(record["id"], success, getattr(self.printer, "last_error", ""))
             self._refresh_previous_order_card(full_sale)
-            self._on_clear()
+            parent_mw = self.window()
+            controller = getattr(parent_mw, "switch_controller", None)
+            if controller and hasattr(controller, "confirm_pending_private_routes"):
+                controller.confirm_pending_private_routes(self.current_order_id)
+            self._on_clear(route_resolution="paid")
             self.refresh_call_number_display()
 
             if success:
@@ -2451,8 +2476,16 @@ class SaleWidget(QWidget):
         """去现金结账"""
         self._open_checkout_dialog(mode="CASH")
 
-    def _on_clear(self):
+    def _on_clear(self, route_resolution=None):
         """清空购物车与所有按钮角标"""
+        if route_resolution != "paid":
+            try:
+                parent_mw = self.window()
+                controller = getattr(parent_mw, "switch_controller", None)
+                if controller and hasattr(controller, "abandon_pending_private_routes"):
+                    controller.abandon_pending_private_routes("用户清空购物车，未完成私有结账")
+            except Exception as exc:
+                log_event(CAT_SYSTEM, "清空购物车时处理称重状态失败", str(exc))
         self.cart_items.clear()
         self.selected_item_index = -1
         for b in self.menu_buttons.values():
