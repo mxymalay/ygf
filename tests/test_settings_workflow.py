@@ -98,6 +98,8 @@ class SettingsWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(widget.cmb_scale_source.minimumHeight(), 56)
         self.assertGreaterEqual(widget.cmb_sqb_port.minimumHeight(), 56)
         self.assertGreaterEqual(widget.txt_sqb_payment_peer.minimumHeight(), 56)
+        self.assertGreaterEqual(widget.txt_sqb_install_dir.minimumHeight(), 56)
+        self.assertGreaterEqual(widget.btn_browse_sqb_dir.minimumHeight(), 54)
         self.assertGreaterEqual(widget.btn_initialize_scale_bridge.minimumHeight(), 60)
         self.assertGreaterEqual(widget.btn_test_payment_pair.minimumHeight(), 56)
         self.assertTrue(

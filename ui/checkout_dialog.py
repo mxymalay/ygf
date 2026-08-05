@@ -485,7 +485,10 @@ class CheckoutDialog(QDialog):
         # 如果点击的是【收钱吧】，先唤起收钱吧并推送金额，启动后台无感侦测
         if method == PAYMENT_SQB:
             try:
-                from core.shouqianba_sender import send_shouqianba_amount
+                from core.shouqianba_sender import (
+                    begin_sqb_payment_probe,
+                    send_shouqianba_amount,
+                )
                 total_amt = self.sale_data.get("total_price", 0.0)
                 cfg = self.sale_data.get("config", {})
                 parent_w = self.parent()
@@ -493,6 +496,9 @@ class CheckoutDialog(QDialog):
                     parent_w = parent_w.window()
                 if not cfg and parent_w and hasattr(parent_w, 'config'):
                     cfg = parent_w.config
+                # Snapshot the plugin log at the exact start of this order.
+                # SQB logs use integer cents, so 1.00 yuan is matched to 100.
+                begin_sqb_payment_probe(total_amt, cfg)
                 send_shouqianba_amount(total_amt, cfg)
             except Exception as e:
                 print(f"[CheckoutDialog] 调起收钱吧金额异常: {e}")
@@ -569,7 +575,11 @@ class CheckoutDialog(QDialog):
         if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
             self.lbl_sqb_desc.setText(u"⚡ 已调起收钱吧，等待扣款中...")
 
-        from core.shouqianba_sender import get_sqb_overall_status
+        from core.shouqianba_sender import (
+            get_sqb_overall_status,
+            reset_payment_toast_probe,
+        )
+        reset_payment_toast_probe()
 
         monitoring_timer = QTimer(self)
         self._payment_monitors.append(monitoring_timer)
@@ -585,16 +595,26 @@ class CheckoutDialog(QDialog):
                 return
             elapsed_ms[0] += 250
             
-            sqb_status = get_sqb_overall_status()
+            sqb_status = get_sqb_overall_status(self.config)
 
             # 1. 优先检测【支付成功】
             if sqb_status == "SUCCESS":
                 # 收钱吧无回调，颜色信号至少连续命中两次才作为自动入账依据。
+                # 付款窗口刚唤起时，官方 POS 可能还残留上一笔通知；
+                # 首 1.5 秒只建立状态，不允许它直接完成新订单。
+                if elapsed_ms[0] < 1500:
+                    success_hits[0] = 0
+                    return
                 success_hits[0] += 1
                 if success_hits[0] < 2:
                     return
                 monitoring_timer.stop()
                 print("[CheckoutDialog] 🎯 智能无感感知：检测到收钱吧【支付成功】！零弹窗直接自动出票完成结账！")
+                try:
+                    from core.app_logger import log_event, CAT_SYSTEM
+                    log_event(CAT_SYSTEM, u"收钱吧到账已确认，准备完成结账", u"金额=%.2f" % amount)
+                except Exception:
+                    pass
                 if hasattr(self, 'status_widget') and self.status_widget:
                     self.status_widget.set_state("SUCCESS")
                 if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
@@ -602,6 +622,20 @@ class CheckoutDialog(QDialog):
                 QTimer.singleShot(600, lambda: self._complete_checkout(method))
                 return
             success_hits[0] = 0
+
+            # 日志明确记录取消/失败时结束本次监听，但绝不把订单记为已付。
+            if sqb_status == "FAILED":
+                monitoring_timer.stop()
+                self._restore_pay_buttons()
+                if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
+                    self.lbl_sqb_desc.setText(u"支付已取消或失败，请重新发起收款")
+                print("[CheckoutDialog] 收钱吧日志确认本次支付已取消或失败。")
+                try:
+                    from core.app_logger import log_event, CAT_SYSTEM
+                    log_event(CAT_SYSTEM, u"收钱吧支付已取消或失败", u"金额=%.2f" % amount)
+                except Exception:
+                    pass
+                return
 
             # 2. 识别到正处于【付款界面】 (宝蓝顶栏 / 付款码 OCR)
             if sqb_status == "WAITING":
@@ -613,15 +647,28 @@ class CheckoutDialog(QDialog):
                     self._show_sqb_confirm_overlay(amount, method)
                 return
 
-            # 3. 前 500ms 为窗口唤起留缓冲
-            if elapsed_ms[0] < 750:
+            # 3. 收钱吧启动/绘制留缓冲；Win7 首次唤起可能超过 1 秒
+            if elapsed_ms[0] < 1500:
                 return
 
-            # 4. 如果窗口出现过且被关闭，300ms 极速响应弹出确认卡片
+            # 4. 只有确认窗口消失后才询问；启动阶段不能因一次识别空帧
+            # 误判为未到账。未知但仍存在的收钱吧窗口由检测器返回 WAITING。
             closed_count[0] += 1
-            if (window_ever_seen[0] and closed_count[0] >= 3) or elapsed_ms[0] >= 2500:
+            if window_ever_seen[0] and closed_count[0] >= 8:
                 monitoring_timer.stop()
                 print("[CheckoutDialog] ℹ️ 检测到收钱吧付款窗口已关闭（且未到账），展现确认卡片。")
+                self._restore_pay_buttons()
+                self._show_sqb_confirm_overlay(amount, method)
+                return
+
+            # 从未识别到窗口不等于窗口已经关闭。继续监听右下角支付成功
+            # 通知；4 秒只能更新提示，绝不能据此询问是否到账。
+            if not window_ever_seen[0] and 4000 <= elapsed_ms[0] < 4250:
+                if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
+                    self.lbl_sqb_desc.setText(u"正在等待收钱吧付款，并持续监听支付成功通知...")
+
+            if not window_ever_seen[0] and elapsed_ms[0] >= 90000:
+                monitoring_timer.stop()
                 self._restore_pay_buttons()
                 self._show_sqb_confirm_overlay(amount, method)
 

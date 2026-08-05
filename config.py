@@ -105,6 +105,8 @@ DEFAULT_CONFIG = {
     "shouqianba_baudrate": 2400,
     "shouqianba_format": "QA",
     "shouqianba_hotkey": "Shift+Q",
+    # 可填写 smskv3 根目录或具体 v版本目录；留空时运行期自动扫描。
+    "shouqianba_install_dir": "",
 
     # 4. 外卖 RAW 打印中继与排序配置 (takeout.json)
     # 默认关闭：必须先把官方 POS 的外卖打印机改为本机 TCP 中继队列后才启用。

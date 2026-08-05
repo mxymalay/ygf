@@ -46,6 +46,7 @@ FIELD_LABELS = {
     "shouqianba_baudrate": "收钱吧波特率",
     "shouqianba_format": "收钱吧格式",
     "shouqianba_hotkey": "收钱吧快捷键",
+    "shouqianba_install_dir": "收钱吧插件安装目录",
     "takeout_interceptor_enabled": "外卖中继启用",
     "takeout_proxy_port": "外卖中继端口",
     "takeout_proxy_queue_name": "外卖中继队列",

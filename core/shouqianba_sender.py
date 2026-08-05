@@ -13,6 +13,9 @@ import serial.tools.list_ports
 import threading
 import logging
 import ctypes
+from ctypes import wintypes
+import os
+import re
 import time
 try:
     import keyboard
@@ -34,12 +37,390 @@ VK_MAPPING = {
     "SPACE": 0x20, "ENTER": 0x0D, "TAB": 0x09,
 }
 SQB_TAB_FOCUS_DELAY = 0.2
+_payment_probe_lock = threading.Lock()
+_payment_probe_started_at = 0.0
+_payment_probe_baseline_hwnds = set()
+_payment_probe_baseline_foreground = 0
+_sqb_log_lock = threading.Lock()
+_sqb_log_files = {}
+_sqb_log_install_dir = ""
+_sqb_log_expected_cents = None
+_sqb_log_session_started_at = 0.0
+_sqb_log_session_status = "UNKNOWN"
+
+
+def _write_sqb_monitor_event(message, detail=""):
+    """Persist sparse state transitions for field diagnosis."""
+    try:
+        from core.app_logger import log_event, CAT_SYSTEM
+        log_event(CAT_SYSTEM, message, detail)
+    except Exception:
+        pass
 
 for i in range(26):
     ch = chr(ord('A') + i)
     VK_MAPPING[ch] = 0x41 + i
 for i in range(10):
     VK_MAPPING[str(i)] = 0x30 + i
+
+
+def _visible_external_window_hwnds():
+    """Return visible top-level windows owned by another process."""
+    if os.name != "nt":
+        return []
+    try:
+        user32 = ctypes.windll.user32
+        current_pid = os.getpid()
+        result = []
+
+        def callback(hwnd, _lparam):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if not pid.value or pid.value == current_pid:
+                    return True
+                rect = wintypes.RECT()
+                if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                    return True
+                width = rect.right - rect.left
+                height = rect.bottom - rect.top
+                # Ignore tooltips, tray helpers and full desktop/shell windows.
+                if 160 <= width <= 1500 and 100 <= height <= 1100:
+                    result.append(int(hwnd))
+            except Exception:
+                pass
+            return True
+
+        callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
+        user32.EnumWindows(callback_type(callback), 0)
+        return result
+    except Exception:
+        return []
+
+
+def begin_sqb_payment_probe(amount=None, config=None):
+    """Snapshot windows before sending the amount/opening the payment UI.
+
+    Older SQB builds use changing or empty window titles.  A window that
+    appears after the hotkey, or becomes the foreground external window, is a
+    stronger runtime signal than guessing a fixed product title.
+    """
+    global _payment_probe_started_at, _payment_probe_baseline_hwnds
+    global _payment_probe_baseline_foreground
+    baseline = set(_visible_external_window_hwnds())
+    foreground = 0
+    try:
+        foreground = int(ctypes.windll.user32.GetForegroundWindow() or 0)
+    except Exception:
+        pass
+    with _payment_probe_lock:
+        _payment_probe_baseline_hwnds = baseline
+        _payment_probe_baseline_foreground = foreground
+        _payment_probe_started_at = time.monotonic()
+    _begin_sqb_log_probe(amount, config)
+
+
+def _version_sort_key(path):
+    """Return a numeric key for directories such as v4.0.4."""
+    name = os.path.basename(os.path.normpath(path))
+    numbers = re.findall(r"\d+", name)
+    return tuple(int(value) for value in numbers) if numbers else (0,)
+
+
+def _sqb_version_dirs(install_dir):
+    """Resolve either the smskv3 root, a version folder, or its logs folder."""
+    if not install_dir:
+        return []
+    root = os.path.abspath(os.path.expandvars(os.path.expanduser(str(install_dir).strip().strip('"'))))
+    if os.path.basename(root).lower() == "logs":
+        root = os.path.dirname(root)
+    if os.path.isdir(os.path.join(root, "logs")):
+        return [root]
+    if not os.path.isdir(root):
+        return []
+
+    versions = []
+    try:
+        for name in os.listdir(root):
+            candidate = os.path.join(root, name)
+            if os.path.isdir(os.path.join(candidate, "logs")):
+                versions.append(candidate)
+    except OSError:
+        return []
+    return sorted(versions, key=_version_sort_key, reverse=True)
+
+
+def discover_shouqianba_install_dir(config=None):
+    """Find the SQB installation root without assuming one fixed version.
+
+    A user-selected folder has priority.  The default PC plugin currently
+    installs below ``C:\\smskv3``, but scanning drive roots also keeps the
+    integration usable when a store chooses another disk.
+    """
+    configured = ""
+    if isinstance(config, dict):
+        configured = str(config.get("shouqianba_install_dir", "") or "").strip()
+    if configured and _sqb_version_dirs(configured):
+        return os.path.normpath(os.path.abspath(os.path.expandvars(configured.strip('"'))))
+
+    candidates = []
+    system_drive = os.environ.get("SystemDrive", "C:")
+    candidates.append(os.path.join(system_drive + os.sep, "smskv3"))
+    for drive_letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        candidate = drive_letter + r":\smskv3"
+        if candidate not in candidates:
+            candidates.append(candidate)
+    for candidate in candidates:
+        if _sqb_version_dirs(candidate):
+            return os.path.normpath(candidate)
+    return ""
+
+
+def get_shouqianba_log_paths(config=None, install_dir=None):
+    """Return current info/debug logs from the newest installed SQB version.
+
+    ``biz.log`` is deliberately excluded.  SQB v4.0.4 writes “支付取消” there
+    even after a successful payment because its success cleanup calls an
+    internal function named payCancel.
+    """
+    root = install_dir or discover_shouqianba_install_dir(config)
+    for version_dir in _sqb_version_dirs(root):
+        logs_dir = os.path.join(version_dir, "logs")
+        paths = []
+        for category in ("info", "debug"):
+            path = os.path.join(logs_dir, category, category + ".log")
+            if os.path.isfile(path):
+                paths.append(os.path.normpath(path))
+        if paths:
+            return paths
+    return []
+
+
+def validate_shouqianba_install_dir(path):
+    """Validate a setting-page folder and explain which log will be used."""
+    value = str(path or "").strip().strip('"')
+    if not value:
+        return False, u"尚未选择收钱吧安装目录。"
+    normalized = os.path.abspath(os.path.expandvars(os.path.expanduser(value)))
+    if not os.path.isdir(normalized):
+        return False, u"目录不存在：%s" % normalized
+    paths = get_shouqianba_log_paths(install_dir=normalized)
+    if not paths:
+        return False, u"没有找到 logs\\info\\info.log 或 logs\\debug\\debug.log。请选择 smskv3 根目录或 v版本目录。"
+    return True, u"支付日志可用：%s" % u"；".join(paths)
+
+
+def _amount_matches_log_text(text, expected_cents, require_amount=False):
+    """Match SQB's integer-cent JSON amount or its printed yuan amount."""
+    if expected_cents is None:
+        return True
+    cents_values = [int(value) for value in re.findall(
+        r'"total_amount"\s*:\s*"?(\d+)"?', text
+    )]
+    yuan_values = []
+    for value in re.findall(r"订单总金额\s*[：:]\s*(\d+(?:\.\d+)?)\s*元", text):
+        try:
+            yuan_values.append(int(round(float(value) * 100)))
+        except (TypeError, ValueError):
+            pass
+    values = cents_values + yuan_values
+    if values:
+        return int(expected_cents) in values
+    return not require_amount
+
+
+def _classify_sqb_log_text(text, expected_cents=None, source_kind="info"):
+    """Classify only conclusive records appended during the current payment.
+
+    The outer API field ``biz_response.result_code=SUCCESS`` only means that
+    a query was handled successfully.  The money is received exclusively
+    when the nested transaction is ``status=SUCCESS`` and
+    ``order_status=PAID`` for the expected amount.
+    """
+    if not text:
+        return "UNKNOWN"
+
+    # info.log writes each server response on one line.  Keeping both fields
+    # on the same line prevents unrelated records from being combined.
+    for line in text.splitlines():
+        if (
+            re.search(r'"status"\s*:\s*"SUCCESS"', line)
+            and re.search(r'"order_status"\s*:\s*"PAID"', line)
+            and _amount_matches_log_text(line, expected_cents, require_amount=True)
+        ):
+            return "SUCCESS"
+
+    # debug.log contains a multi-line receipt.  It is a valid fallback only
+    # when the receipt amount agrees with the POS checkout amount.
+    success_marker = text.rfind("ui.upaySuccess")
+    if success_marker >= 0:
+        success_block = text[success_marker:]
+        if _amount_matches_log_text(success_block, expected_cents, require_amount=True):
+            return "SUCCESS"
+
+    # Generic payCancel is also emitted after success, so only the explicit
+    # upay failure (or the info log's poll-cancel record) means failure.
+    if re.search(r"upay failed\s*:\s*PAY_CANCEL", text, re.IGNORECASE):
+        return "FAILED"
+    if u"取消支付结果轮询" in text:
+        return "FAILED"
+    if re.search(r'"(?:status|order_status)"\s*:\s*"(?:FAILED|FAIL|CANCELLED|CANCELED)"', text):
+        return "FAILED"
+
+    if (
+        "PAY_IN_PROGRESS" in text
+        or re.search(r'"status"\s*:\s*"IN_PROG"', text)
+        or u"正在发起支付" in text
+    ):
+        return "WAITING"
+    return "UNKNOWN"
+
+
+def _begin_sqb_log_probe(amount=None, config=None):
+    """Snapshot current log ends so historical payments can never match."""
+    global _sqb_log_files, _sqb_log_install_dir, _sqb_log_expected_cents
+    global _sqb_log_session_started_at, _sqb_log_session_status
+    expected_cents = None
+    if amount is not None:
+        try:
+            expected_cents = int(round(float(amount) * 100))
+        except (TypeError, ValueError):
+            expected_cents = None
+
+    started_at = time.time()
+    install_dir = discover_shouqianba_install_dir(config)
+    file_states = {}
+    for path in get_shouqianba_log_paths(install_dir=install_dir):
+        try:
+            offset = os.path.getsize(path)
+        except OSError:
+            continue
+        file_states[path] = {
+            "offset": offset,
+            "buffer": "",
+            "kind": os.path.basename(os.path.dirname(path)).lower(),
+        }
+    with _sqb_log_lock:
+        _sqb_log_files = file_states
+        _sqb_log_install_dir = install_dir
+        _sqb_log_expected_cents = expected_cents
+        _sqb_log_session_started_at = started_at
+        _sqb_log_session_status = "UNKNOWN"
+    logger.info(
+        "开始监听收钱吧日志：金额=%s分，文件=%s",
+        expected_cents,
+        list(file_states),
+    )
+    _write_sqb_monitor_event(
+        u"收钱吧支付日志监听已启动",
+        u"预期金额=%s分；安装目录=%s；日志=%s" % (
+            expected_cents,
+            install_dir or u"未找到",
+            u" | ".join(file_states) if file_states else u"未找到",
+        ),
+    )
+
+
+def _sqb_log_probe_available():
+    with _sqb_log_lock:
+        return bool(_sqb_log_session_started_at and _sqb_log_files)
+
+
+def _get_sqb_log_payment_status(config=None):
+    """Tail only newly appended SQB records for the active checkout."""
+    global _sqb_log_session_status
+    with _sqb_log_lock:
+        if not _sqb_log_session_started_at:
+            return "UNKNOWN"
+
+        # A log may be created only after the plugin starts.  Add it from byte
+        # zero when its modification time belongs to this active session;
+        # otherwise begin at EOF to avoid accepting an old transaction.
+        current_paths = (
+            get_shouqianba_log_paths(install_dir=_sqb_log_install_dir)
+            if _sqb_log_install_dir else []
+        )
+        for path in current_paths:
+            if path in _sqb_log_files:
+                continue
+            try:
+                size = os.path.getsize(path)
+                mtime = os.path.getmtime(path)
+            except OSError:
+                continue
+            _sqb_log_files[path] = {
+                "offset": 0 if mtime >= _sqb_log_session_started_at - 1.0 else size,
+                "buffer": "",
+                "kind": os.path.basename(os.path.dirname(path)).lower(),
+            }
+
+        observed = []
+        for path, state in list(_sqb_log_files.items()):
+            try:
+                size = os.path.getsize(path)
+                if size < state["offset"]:
+                    state["offset"] = 0
+                    state["buffer"] = ""
+                if size > state["offset"]:
+                    with open(path, "rb") as handle:
+                        handle.seek(state["offset"])
+                        payload = handle.read()
+                        state["offset"] = handle.tell()
+                    state["buffer"] = (
+                        state["buffer"] + payload.decode("utf-8", errors="ignore")
+                    )[-262144:]
+                observed.append(_classify_sqb_log_text(
+                    state["buffer"],
+                    _sqb_log_expected_cents,
+                    state["kind"],
+                ))
+            except (OSError, ValueError) as exc:
+                logger.debug("读取收钱吧日志失败 %s: %s", path, exc)
+
+        previous_status = _sqb_log_session_status
+        if "SUCCESS" in observed:
+            _sqb_log_session_status = "SUCCESS"
+        elif _sqb_log_session_status != "SUCCESS" and "FAILED" in observed:
+            _sqb_log_session_status = "FAILED"
+        elif _sqb_log_session_status == "UNKNOWN" and "WAITING" in observed:
+            _sqb_log_session_status = "WAITING"
+        if _sqb_log_session_status != previous_status:
+            _write_sqb_monitor_event(
+                u"收钱吧支付日志状态变化",
+                u"%s -> %s；预期金额=%s分" % (
+                    previous_status,
+                    _sqb_log_session_status,
+                    _sqb_log_expected_cents,
+                ),
+            )
+        return _sqb_log_session_status
+
+
+def _find_runtime_payment_hwnds():
+    """Find newly shown/foreground external windows during active payment."""
+    if os.name != "nt":
+        return []
+    with _payment_probe_lock:
+        started_at = _payment_probe_started_at
+        baseline = set(_payment_probe_baseline_hwnds)
+        baseline_foreground = _payment_probe_baseline_foreground
+    if not started_at or time.monotonic() - started_at > 120.0:
+        return []
+
+    visible = _visible_external_window_hwnds()
+    candidates = [hwnd for hwnd in visible if hwnd not in baseline]
+    try:
+        foreground = int(ctypes.windll.user32.GetForegroundWindow() or 0)
+        if (
+            foreground and foreground != baseline_foreground
+            and foreground in visible and foreground not in candidates
+        ):
+            candidates.append(foreground)
+    except Exception:
+        pass
+    return candidates
 
 
 def _find_shouqianba_hwnds():
@@ -64,8 +445,14 @@ def _find_shouqianba_hwnds():
         except Exception:
             pass
 
-        # Do not match a generic "收款" title; many POS and banking windows use it.
-        keywords = ["收钱吧", "PC收款", "收款助手", "Shouqianba", "bqsqq"]
+        # Keep the strong identifiers first, but retain the V4 window titles
+        # used by older PC收款 builds.  A generic "收款" candidate is still
+        # passed through the colour/status classifier below; it is never
+        # accepted as payment success from the title alone.
+        keywords = [
+            "收钱吧", "PC收款", "收款助手", "Shouqianba", "bqsqq",
+            "收款", "V4.", "V3.",
+        ]
 
         def foreach_window(hwnd, lParam):
             if user32.IsWindowVisible(hwnd):
@@ -77,17 +464,27 @@ def _find_shouqianba_hwnds():
                         target_hwnds.append(hwnd)
                         return True
 
-                # 文本标题匹配
+                # 文本标题匹配。旧版仅显示“收款”/“V4.”时，必须再用
+                # 对话框尺寸过滤，避免把普通银行/POS窗口当成收钱吧。
                 length = user32.GetWindowTextLengthW(hwnd)
                 if length > 0:
                     buf = ctypes.create_unicode_buffer(length + 1)
                     user32.GetWindowTextW(hwnd, buf, length + 1)
                     title = buf.value
-                    if any(kw in title for kw in keywords):
+                    strong_match = any(kw in title for kw in keywords[:5])
+                    legacy_match = any(kw in title for kw in keywords[5:])
+                    if strong_match:
                         target_hwnds.append(hwnd)
+                    elif legacy_match:
+                        rect = wintypes.RECT()
+                        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                        width = rect.right - rect.left
+                        height = rect.bottom - rect.top
+                        if 200 <= width <= 900 and 200 <= height <= 900:
+                            target_hwnds.append(hwnd)
             return True
 
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
         return target_hwnds
     except Exception:
@@ -206,7 +603,7 @@ def bring_shouqianba_to_front():
                         target_hwnd.append(hwnd)
             return True
 
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
 
         if target_hwnd:
@@ -277,6 +674,67 @@ def _get_ocr_engine():
     return _rapid_ocr_engine if _rapid_ocr_engine else None
 
 
+def _qimage_to_numpy_rgb(qimg):
+    """Convert QImage to packed RGB safely for RapidOCR.
+
+    ``convertToFormat(4)`` is RGB32 (four bytes/pixel), not RGB888.  The old
+    code then reshaped that buffer as three bytes/pixel, corrupting OCR input.
+    Qt also pads scanlines, so bytesPerLine must be handled explicitly.
+    """
+    import numpy as np
+    from PyQt5.QtGui import QImage
+
+    rgb = qimg.convertToFormat(QImage.Format_RGB888)
+    width, height = rgb.width(), rgb.height()
+    stride = rgb.bytesPerLine()
+    ptr = rgb.bits()
+    ptr.setsize(rgb.byteCount())
+    rows = np.frombuffer(ptr, np.uint8).reshape((height, stride))
+    return rows[:, :width * 3].reshape((height, width, 3)).copy()
+
+
+def _grab_qt_window(screen, hwnd):
+    """Grab a window, falling back to its screen rectangle on Win7.
+
+    Some Chromium/Qt layered windows return a black or null pixmap when
+    passed directly to QScreen.grabWindow().  Capturing the same rectangle
+    from the desktop is reliable while the payment UI is visible.
+    """
+    def usable(candidate):
+        if candidate.isNull() or candidate.width() < 120 or candidate.height() < 120:
+            return False
+        try:
+            image = candidate.toImage()
+            values = []
+            for gx in range(1, 8):
+                x = min(image.width() - 1, int(image.width() * gx / 8))
+                for gy in range(1, 8):
+                    y = min(image.height() - 1, int(image.height() * gy / 8))
+                    pixel = image.pixelColor(x, y)
+                    values.append(pixel.red() + pixel.green() + pixel.blue())
+            return bool(values and max(values) > 45 and max(values) - min(values) > 24)
+        except Exception:
+            return False
+
+    pixmap = screen.grabWindow(hwnd)
+    if usable(pixmap):
+        return pixmap
+    if os.name == "nt":
+        try:
+            user32 = ctypes.windll.user32
+            rect = wintypes.RECT()
+            if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                width = rect.right - rect.left
+                height = rect.bottom - rect.top
+                if width >= 120 and height >= 120:
+                    desktop_pixmap = screen.grabWindow(0, rect.left, rect.top, width, height)
+                    if usable(desktop_pixmap):
+                        return desktop_pixmap
+        except Exception:
+            pass
+    return pixmap
+
+
 def _analyze_sqb_window_image_success(hwnd) -> bool:
     """双模式视觉+OCR深度分析：优先使用 RapidOCR 识别真实文本，辅以色彩采样"""
     try:
@@ -288,7 +746,7 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
         if not screen:
             return False
 
-        pixmap = screen.grabWindow(hwnd)
+        pixmap = _grab_qt_window(screen, hwnd)
         if pixmap.isNull() or pixmap.width() < 120 or pixmap.height() < 120:
             return False
 
@@ -302,11 +760,7 @@ def _analyze_sqb_window_image_success(hwnd) -> bool:
         ocr_engine = _get_ocr_engine()
         if ocr_engine:
             try:
-                import numpy as np
-                qimg_rgb = qimg.convertToFormat(4) # QImage.Format_RGB888
-                ptr = qimg_rgb.bits()
-                ptr.setsize(h * w * 3)
-                img_np = np.frombuffer(ptr, np.uint8).reshape((h, w, 3))
+                img_np = _qimage_to_numpy_rgb(qimg)
 
                 result, _ = ocr_engine(img_np)
                 if result:
@@ -437,7 +891,7 @@ def check_shouqianba_payment_success() -> bool:
                 return False
             return True
 
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
         child_proc = WNDENUMPROC(foreach_child)
 
         def foreach_window(hwnd, lParam):
@@ -451,7 +905,7 @@ def check_shouqianba_payment_success() -> bool:
                     return False
 
                 # 引擎 2：视觉图像色彩特征 (专治自绘UI/Chromium/Qt渲染的无文本句柄窗口)
-                rect = ctypes.wintypes.RECT()
+                rect = wintypes.RECT()
                 user32.GetWindowRect(hwnd, ctypes.byref(rect))
                 w = rect.right - rect.left
                 h = rect.bottom - rect.top
@@ -519,7 +973,7 @@ def check_shouqianba_payment_state() -> str:
                         state[0] = "WAITING"
 
                 # B. 视觉/RapidOCR 提取识别
-                rect = ctypes.wintypes.RECT()
+                rect = wintypes.RECT()
                 user32.GetWindowRect(hwnd, ctypes.byref(rect))
                 w = rect.right - rect.left
                 h = rect.bottom - rect.top
@@ -534,13 +988,10 @@ def check_shouqianba_payment_state() -> str:
                             from PyQt5.QtWidgets import QApplication
                             screen = QApplication.primaryScreen()
                             if screen:
-                                pixmap = screen.grabWindow(hwnd)
+                                pixmap = _grab_qt_window(screen, hwnd)
                                 if not pixmap.isNull() and pixmap.width() >= 120 and pixmap.height() >= 120:
-                                    qimg = pixmap.toImage().convertToFormat(4)
-                                    import numpy as np
-                                    ptr = qimg.bits()
-                                    ptr.setsize(qimg.height() * qimg.width() * 3)
-                                    img_np = np.frombuffer(ptr, np.uint8).reshape((qimg.height(), qimg.width(), 3))
+                                    qimg = pixmap.toImage()
+                                    img_np = _qimage_to_numpy_rgb(qimg)
                                     result, _ = ocr_engine(img_np)
                                     if result:
                                         ocr_text = "".join([line[1] for line in result])
@@ -553,7 +1004,7 @@ def check_shouqianba_payment_state() -> str:
                             pass
             return True
 
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
         
         if state[0] != "SUCCESS" and check_shouqianba_payment_success():
@@ -578,7 +1029,7 @@ def _analyze_sqb_window_colour_status(hwnd) -> str:
         screen = QApplication.primaryScreen() if app else None
         if not screen:
             return "NONE"
-        pixmap = screen.grabWindow(hwnd)
+        pixmap = _grab_qt_window(screen, hwnd)
         if pixmap.isNull() or pixmap.width() < 120 or pixmap.height() < 120:
             return "NONE"
         qimg = pixmap.toImage()
@@ -590,24 +1041,27 @@ def _analyze_sqb_window_colour_status(hwnd) -> str:
                 pixel = qimg.pixelColor(x, y)
                 r, g, b = pixel.red(), pixel.green(), pixel.blue()
                 samples += 1
-                if g > r + 30 and g > b + 30 and g > 100:
+                # Allow Win7/DPI antialiasing to desaturate the V4 header;
+                # requiring a large pure-green/blue delta made valid frames
+                # disappear on some store displays.
+                if g > r + 18 and g > b + 8 and g > 90:
                     green += 1
-                elif b > r + 30 and b > g + 30 and b > 100:
+                elif b > r + 18 and b > g + 8 and b > 85:
                     blue += 1
         if not samples:
             return "NONE"
-        if green / samples > 0.30:
+        if green / samples > 0.20:
             button_green = button_samples = 0
             for x in range(int(w * 0.20), int(w * 0.80), 5):
                 for y in range(int(h * 0.62), max(int(h * 0.62) + 1, h - 8), 5):
                     pixel = qimg.pixelColor(x, y)
                     r, g, b = pixel.red(), pixel.green(), pixel.blue()
                     button_samples += 1
-                    if g > r + 30 and g > b + 30 and g > 100:
+                    if g > r + 18 and g > b + 8 and g > 90:
                         button_green += 1
-            if button_samples and button_green / button_samples > 0.04:
+            if button_samples and button_green / button_samples > 0.025:
                 return "SUCCESS"
-        if blue / samples > 0.30:
+        if blue / samples > 0.20:
             return "WAITING"
     except Exception as exc:
         logger.warning("收钱吧颜色状态识别异常: %s", exc)
@@ -619,7 +1073,12 @@ def _analyze_sqb_window_image_status(hwnd) -> str:
     复用 RapidOCR + 宝蓝/亮绿顶栏色彩双引擎深度分类收钱吧窗口状态:
     返回 "SUCCESS" / "WAITING" / "NONE"
     """
-    return _analyze_sqb_window_colour_status(hwnd)
+    # The V4 colour detector is the primary path validated on the store PC.
+    # OCR remains only a fallback for themed/scaled windows whose pixels do
+    # not meet the colour thresholds.
+    colour_state = _analyze_sqb_window_colour_status(hwnd)
+    if colour_state != "NONE":
+        return colour_state
 
     try:
         from PyQt5.QtWidgets import QApplication
@@ -630,7 +1089,7 @@ def _analyze_sqb_window_image_status(hwnd) -> str:
         if not screen:
             return "NONE"
 
-        pixmap = screen.grabWindow(hwnd)
+        pixmap = _grab_qt_window(screen, hwnd)
         if pixmap.isNull() or pixmap.width() < 120 or pixmap.height() < 120:
             return "NONE"
 
@@ -642,11 +1101,7 @@ def _analyze_sqb_window_image_status(hwnd) -> str:
         ocr_engine = _get_ocr_engine()
         if ocr_engine:
             try:
-                import numpy as np
-                qimg_rgb = qimg.convertToFormat(4) # Format_RGB888
-                ptr = qimg_rgb.bits()
-                ptr.setsize(h * w * 3)
-                img_np = np.frombuffer(ptr, np.uint8).reshape((h, w, 3))
+                img_np = _qimage_to_numpy_rgb(qimg)
 
                 result, _ = ocr_engine(img_np)
                 if result:
@@ -676,15 +1131,15 @@ def _analyze_sqb_window_image_status(hwnd) -> str:
                 pixel = qimg.pixelColor(x, y)
                 r, g, b = pixel.red(), pixel.green(), pixel.blue()
                 total_samples += 1
-                if g > r + 30 and g > b + 30 and g > 100:
+                if g > r + 18 and g > b + 8 and g > 90:
                     green_count += 1
-                elif b > r + 30 and b > g + 30 and b > 100:
+                elif b > r + 18 and b > g + 8 and b > 85:
                     blue_count += 1
 
         if total_samples > 0:
-            if green_count / total_samples > 0.30:
+            if green_count / total_samples > 0.20:
                 return "SUCCESS"
-            if blue_count / total_samples > 0.30: # 经典宝蓝顶栏 = 正处于等待付款界面
+            if blue_count / total_samples > 0.20: # 经典宝蓝顶栏 = 正处于等待付款界面
                 return "WAITING"
 
     except Exception as e:
@@ -693,21 +1148,267 @@ def _analyze_sqb_window_image_status(hwnd) -> str:
     return "NONE"
 
 
-def get_sqb_overall_status() -> str:
+_PAYMENT_SUCCESS_KEYWORDS = ("支付成功", "收款成功", "交易成功", "收钱吧到账")
+_PAYMENT_FAILURE_KEYWORDS = ("支付失败", "交易失败", "支付中", "输入密码", "待支付")
+_toast_probe_lock = threading.Lock()
+_toast_probe_at = 0.0
+_toast_probe_result = False
+
+
+def _rect_is_bottom_right_toast(rect, screen_width, screen_height):
+    """Return whether a window rectangle looks like a lower-right POS toast."""
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+    return (
+        140 <= width <= 760 and 45 <= height <= 420
+        and rect.left >= int(screen_width * 0.52)
+        and rect.top >= int(screen_height * 0.48)
+        and rect.right >= int(screen_width * 0.78)
+    )
+
+
+def _window_contains_payment_success_text(hwnd, user32):
+    """Read normal Win32 text from a toast and its child controls.
+
+    The official POS notification in the store build is often a separate
+    lower-right window.  Its text can be available through Win32 even when
+    screenshot OCR is unavailable, so this is deliberately tried first.
     """
-    遍历全局窗口获取收钱吧实时状态：
+    def text_of(handle):
+        try:
+            length = user32.GetWindowTextLengthW(handle)
+            if length <= 0 or length > 2048:
+                return ""
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(handle, buffer, length + 1)
+            return buffer.value.strip()
+        except Exception:
+            return ""
+
+    texts = [text_of(hwnd)]
+    found = [any(k in texts[0] for k in _PAYMENT_SUCCESS_KEYWORDS)]
+
+    def child_callback(child_hwnd, _lparam):
+        txt = text_of(child_hwnd)
+        if txt:
+            texts.append(txt)
+            if any(k in txt for k in _PAYMENT_SUCCESS_KEYWORDS):
+                found[0] = True
+                return False
+        return True
+
+    try:
+        callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
+        user32.EnumChildWindows(hwnd, callback_type(child_callback), 0)
+    except Exception:
+        pass
+    if found[0]:
+        return True
+    # Do not interpret a text-free white window, or a visible
+    # failure/waiting toast, as success.
+    return False
+
+
+def _detect_payment_success_toast_text(config=None):
+    """Detect the official POS lower-right success notification without OCR."""
+    if os.name != "nt":
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        screen_width = int(user32.GetSystemMetrics(0))
+        screen_height = int(user32.GetSystemMetrics(1))
+        if screen_width <= 0 or screen_height <= 0:
+            return False
+
+        configured_hwnd = None
+        try:
+            from utils.window_utils import find_official_window_handle
+            configured_hwnd = find_official_window_handle(config)
+        except Exception:
+            configured_hwnd = None
+
+        current_pid = os.getpid()
+        found = [False]
+
+        def inspect_window(hwnd, require_toast_rect=True):
+            if not user32.IsWindowVisible(hwnd):
+                return
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == current_pid:
+                return
+            rect = wintypes.RECT()
+            if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                return
+            if require_toast_rect and not _rect_is_bottom_right_toast(rect, screen_width, screen_height):
+                return
+            if _window_contains_payment_success_text(hwnd, user32):
+                found[0] = True
+
+        # Prefer the operator-selected official POS window.  Its main window
+        # is full-screen, so its child toast controls are inspected directly.
+        if configured_hwnd:
+            def configured_child_callback(child_hwnd, _lparam):
+                rect = wintypes.RECT()
+                if user32.IsWindowVisible(child_hwnd) and user32.GetWindowRect(child_hwnd, ctypes.byref(rect)):
+                    if _rect_is_bottom_right_toast(rect, screen_width, screen_height):
+                        if _window_contains_payment_success_text(child_hwnd, user32):
+                            found[0] = True
+                            return False
+                return True
+            callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
+            user32.EnumChildWindows(configured_hwnd, callback_type(configured_child_callback), 0)
+        else:
+            def foreach_window(hwnd, _lparam):
+                if found[0]:
+                    return False
+                inspect_window(hwnd, True)
+                return not found[0]
+            callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
+            user32.EnumWindows(callback_type(foreach_window), 0)
+        return found[0]
+    except Exception as exc:
+        logger.debug("读取官方 POS 支付通知失败: %s", exc)
+        return False
+
+
+def _detect_payment_success_toast_ocr(config=None):
+    """OCR the lower-right notification region on every attached screen."""
+    try:
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance()
+        screens = QApplication.screens() if app else []
+        if not screens:
+            return False
+        engine = _get_ocr_engine()
+        if not engine:
+            return False
+
+        def pixmap_has_success(pixmap):
+            if pixmap.isNull() or pixmap.width() < 180 or pixmap.height() < 80:
+                return False
+            left = int(pixmap.width() * 0.50)
+            top = int(pixmap.height() * 0.46)
+            crop = pixmap.copy(
+                left,
+                top,
+                pixmap.width() - left,
+                pixmap.height() - top,
+            )
+            values = _qimage_to_numpy_rgb(crop.toImage())
+            result, _ = engine(values)
+            if not result:
+                return False
+            text = "".join(line[1] for line in result)
+            # The crop can contain background words such as “待支付”; an
+            # explicit “支付成功” notification must take precedence.
+            return any(k in text for k in _PAYMENT_SUCCESS_KEYWORDS)
+
+        # First inspect the configured official POS window itself.  This can
+        # still expose its rendered toast on Win11 even when another window
+        # overlaps it on the desktop.
+        official_hwnd = None
+        try:
+            from utils.window_utils import find_official_window_handle
+            official_hwnd = find_official_window_handle(config)
+        except Exception:
+            official_hwnd = None
+        if official_hwnd:
+            for screen in screens:
+                pixmap = screen.grabWindow(official_hwnd)
+                if pixmap_has_success(pixmap):
+                    return True
+
+        for screen in screens:
+            geometry = screen.availableGeometry()
+            left = geometry.left() + int(geometry.width() * 0.56)
+            top = geometry.top() + int(geometry.height() * 0.52)
+            width = geometry.width() - (left - geometry.left())
+            height = int(geometry.height() * 0.46)
+            pixmap = screen.grabWindow(0, left, top, width, height)
+            if pixmap.isNull() or pixmap.width() < 180 or pixmap.height() < 80:
+                continue
+            values = _qimage_to_numpy_rgb(pixmap.toImage())
+            result, _ = engine(values)
+            if not result:
+                continue
+            text = "".join(line[1] for line in result)
+            if any(k in text for k in _PAYMENT_SUCCESS_KEYWORDS):
+                return True
+        return False
+    except Exception as exc:
+        logger.debug("读取官方 POS 支付通知 OCR 失败: %s", exc)
+        return False
+
+
+def _detect_payment_success_toast(config=None):
+    """Throttled notification probe used only while a payment is active."""
+    global _toast_probe_at, _toast_probe_result
+    now = time.monotonic()
+    with _toast_probe_lock:
+        if now - _toast_probe_at < 0.45:
+            return _toast_probe_result
+        result = _detect_payment_success_toast_text(config)
+        if not result:
+            result = _detect_payment_success_toast_ocr(config)
+        _toast_probe_at = now
+        _toast_probe_result = bool(result)
+        return _toast_probe_result
+
+
+def reset_payment_toast_probe():
+    """Forget a previous toast before starting a new checkout monitor."""
+    global _toast_probe_at, _toast_probe_result
+    with _toast_probe_lock:
+        _toast_probe_at = 0.0
+        _toast_probe_result = False
+
+
+def get_sqb_overall_status(config=None) -> str:
+    """
+    获取收钱吧实时状态。安装目录可用时以插件自身日志为准：
     - "SUCCESS" : 扣款成功
+    - "FAILED"  : 本次支付取消或失败
     - "WAITING" : 付款码弹窗显示中 (蓝顶/付款文本)
     - "CLOSED"  : 无付款弹窗
     """
+    log_status = _get_sqb_log_payment_status(config)
+    if log_status in ("SUCCESS", "FAILED"):
+        return log_status
+
+    # Once info/debug logs are available, they are the authoritative signal.
+    # OCR and colours remain only a compatibility fallback for old installs
+    # that expose no logs.  This prevents an unrelated official-POS toast or
+    # a stale green window from completing the current SQB order.
+    if _sqb_log_probe_available():
+        return "WAITING"
+
     # Never enumerate all visible Windows windows here: only the verified
     # 收钱吧 process/window is eligible for visual payment detection.
-    for hwnd in _find_shouqianba_hwnds():
-        result = _analyze_sqb_window_colour_status(hwnd)
+    # Use both stable identity matching and the payment-session window
+    # snapshot.  The latter covers SQB builds with empty/changing titles.
+    candidates = list(dict.fromkeys(
+        _find_shouqianba_hwnds() + _find_runtime_payment_hwnds()
+    ))
+    saw_waiting = False
+    for hwnd in candidates:
+        result = _analyze_sqb_window_image_status(hwnd)
         if result == "SUCCESS":
             return "SUCCESS"
         if result == "WAITING":
-            return "WAITING"
+            saw_waiting = True
+    # The lower-right “支付成功” notification has higher priority than the
+    # payment window.  Some SQB builds keep their blue waiting window alive
+    # for a short time after payment; suppressing toast detection while
+    # saw_waiting=True made successful payments impossible to observe.
+    if _detect_payment_success_toast(config):
+        return "SUCCESS"
+    # A recognised 收钱吧 payment window whose pixels are temporarily
+    # unavailable (DWM/Win7 repaint, animation, remote desktop) is safer to
+    # treat as WAITING than as CLOSED.  Only a missing candidate window may
+    # trigger the "是否到账" confirmation dialog.
+    if candidates:
+        return "WAITING"
     return "CLOSED"
 
     import sys
@@ -720,7 +1421,7 @@ def get_sqb_overall_status() -> str:
 
         def foreach_window(hwnd, lParam):
             if user32.IsWindowVisible(hwnd):
-                rect = ctypes.wintypes.RECT()
+                rect = wintypes.RECT()
                 user32.GetWindowRect(hwnd, ctypes.byref(rect))
                 w = rect.right - rect.left
                 h = rect.bottom - rect.top
@@ -734,7 +1435,7 @@ def get_sqb_overall_status() -> str:
                         status[0] = "WAITING"
             return True
 
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
         user32.EnumWindows(WNDENUMPROC(foreach_window), 0)
         return status[0]
     except Exception:

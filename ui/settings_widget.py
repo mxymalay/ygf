@@ -1198,7 +1198,48 @@ class SettingsWidget(QWidget):
             self.cmb_sqb_fmt.setCurrentIndex(1)
         grid.addWidget(self.cmb_sqb_fmt, 5, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"唤起快捷键："), 6, 0)
+        grid.addWidget(self._make_label(u"插件安装目录："), 6, 0)
+        install_dir_box = QVBoxLayout()
+        install_dir_box.setSpacing(8)
+        self.txt_sqb_install_dir = QLineEdit()
+        self.txt_sqb_install_dir.setPlaceholderText(u"例如 C:\\smskv3；也可选择具体的 v4.0.4 目录")
+        configured_install_dir = str(self.config.get("shouqianba_install_dir", "") or "").strip()
+        if not configured_install_dir:
+            try:
+                from core.shouqianba_sender import discover_shouqianba_install_dir
+                configured_install_dir = discover_shouqianba_install_dir(self.config)
+            except Exception:
+                configured_install_dir = ""
+        self.txt_sqb_install_dir.setText(configured_install_dir)
+        self.txt_sqb_install_dir.textChanged.connect(self._refresh_sqb_install_log_status)
+        install_dir_box.addWidget(self.txt_sqb_install_dir)
+
+        install_dir_buttons = QHBoxLayout()
+        install_dir_buttons.setSpacing(10)
+        self.btn_auto_detect_sqb_dir = QPushButton(u"自动检测安装目录")
+        self._style_touch_action_btn(self.btn_auto_detect_sqb_dir, "purple")
+        self.btn_auto_detect_sqb_dir.clicked.connect(self._auto_detect_sqb_install_dir)
+        install_dir_buttons.addWidget(self.btn_auto_detect_sqb_dir)
+        self.btn_browse_sqb_dir = QPushButton(u"选择目录")
+        self._style_touch_action_btn(self.btn_browse_sqb_dir, "purple")
+        self.btn_browse_sqb_dir.clicked.connect(self._browse_sqb_install_dir)
+        install_dir_buttons.addWidget(self.btn_browse_sqb_dir)
+        install_dir_box.addLayout(install_dir_buttons)
+
+        self.lbl_sqb_log_status = QLabel("")
+        self.lbl_sqb_log_status.setWordWrap(True)
+        self.lbl_sqb_log_status.setStyleSheet("font-size: 13px; color: #94A3B8; border: none;")
+        install_dir_box.addWidget(self.lbl_sqb_log_status)
+        log_rule_tip = QLabel(
+            u"到账以插件新增日志为准：金额单位为分（100 = 1.00 元），只有最终 PAID 才算支付成功。"
+        )
+        log_rule_tip.setWordWrap(True)
+        log_rule_tip.setStyleSheet("font-size: 13px; color: #C4B5FD; border: none;")
+        install_dir_box.addWidget(log_rule_tip)
+        grid.addLayout(install_dir_box, 6, 1, 1, 2)
+        self._refresh_sqb_install_log_status()
+
+        grid.addWidget(self._make_label(u"唤起快捷键："), 7, 0)
         
         hk_box = QVBoxLayout()
         hk_box.setSpacing(10)
@@ -1221,7 +1262,7 @@ class SettingsWidget(QWidget):
             hotkey_presets.addWidget(btn_hk, index // 2, index % 2)
         hk_box.addLayout(hotkey_presets)
 
-        grid.addLayout(hk_box, 6, 1, 1, 2)
+        grid.addLayout(hk_box, 7, 1, 1, 2)
         connection_layout.addLayout(grid)
         layout.addWidget(self.sqb_connection_panel)
 
@@ -1580,6 +1621,9 @@ class SettingsWidget(QWidget):
             self.txt_sqb_payment_peer,
             self.cmb_sqb_baud,
             self.cmb_sqb_fmt,
+            self.txt_sqb_install_dir,
+            self.btn_auto_detect_sqb_dir,
+            self.btn_browse_sqb_dir,
             self.txt_sqb_hotkey,
         ):
             widget.setEnabled(enabled)
@@ -1604,6 +1648,50 @@ class SettingsWidget(QWidget):
                 u"当前选择“使用现场已有配对”。本系统不会创建或删除端口；请填写配对两端后先检查。"
                 u"如果检查显示不存在，请改选“由本系统创建”。"
             )
+
+    def _refresh_sqb_install_log_status(self, _text=None):
+        """Show whether the selected plugin directory exposes reliable logs."""
+        if not hasattr(self, "txt_sqb_install_dir") or not hasattr(self, "lbl_sqb_log_status"):
+            return
+        from core.shouqianba_sender import validate_shouqianba_install_dir
+        ok, message = validate_shouqianba_install_dir(self.txt_sqb_install_dir.text())
+        color = "#34D399" if ok else "#FBBF24"
+        prefix = u"已找到：" if ok else u"尚不可用："
+        self.lbl_sqb_log_status.setText(prefix + message)
+        self.lbl_sqb_log_status.setStyleSheet(
+            "font-size: 13px; color: %s; border: none;" % color
+        )
+
+    def _auto_detect_sqb_install_dir(self, _checked=False):
+        """Detect the smskv3 root on any local drive and verify its logs."""
+        from core.shouqianba_sender import discover_shouqianba_install_dir
+        from ui.custom_dialog import show_info, show_warning
+        detected = discover_shouqianba_install_dir({})
+        if not detected:
+            show_warning(
+                self,
+                u"未检测到收钱吧插件",
+                u"没有在本机磁盘根目录找到 smskv3。请先安装收钱吧 PC 助手，或点击“选择目录”手动指定。",
+            )
+            return
+        self.txt_sqb_install_dir.setText(detected)
+        self._refresh_sqb_install_log_status()
+        show_info(self, u"检测完成", u"已找到收钱吧插件目录：\n%s" % detected)
+
+    def _browse_sqb_install_dir(self, _checked=False):
+        """Let the operator choose either smskv3 or a concrete version dir."""
+        current = self.txt_sqb_install_dir.text().strip()
+        if not os.path.isdir(current):
+            current = os.environ.get("SystemDrive", "C:") + os.sep
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            u"选择收钱吧插件安装目录",
+            current,
+            QFileDialog.ShowDirsOnly,
+        )
+        if selected:
+            self.txt_sqb_install_dir.setText(os.path.normpath(selected))
+            self._refresh_sqb_install_log_status()
 
     def _refresh_com_ports(self, show_toast=False):
         self.cmb_sqb_port.clear()
@@ -3299,6 +3387,7 @@ class SettingsWidget(QWidget):
         pair_mode = self.cmb_sqb_pair_mode.currentData() or "managed"
         sender = self.cmb_sqb_port.currentText().strip().upper()
         plugin = self.txt_sqb_payment_peer.text().strip().upper()
+        install_dir = self.txt_sqb_install_dir.text().strip().strip('"')
         if enabled:
             invalid = [value for value in (sender, plugin) if not re.fullmatch(r"COM[1-9]\d*", value)]
             if invalid:
@@ -3323,6 +3412,15 @@ class SettingsWidget(QWidget):
                     u"请使用 Ctrl、Alt、Shift、F1-F12、字母、数字、Tab 或 Enter 的组合，例如 Shift+Q。",
                 )
                 return
+            from core.shouqianba_sender import validate_shouqianba_install_dir
+            logs_ok, logs_message = validate_shouqianba_install_dir(install_dir)
+            if not logs_ok:
+                show_warning(
+                    self,
+                    u"收钱吧安装目录不可用",
+                    logs_message + u"\n\n可靠的到账判断需要读取插件 info/debug 日志，本设置尚未保存。",
+                )
+                return
 
         self.config["shouqianba_enabled"] = enabled
         self.config["shouqianba_pair_mode"] = pair_mode
@@ -3335,6 +3433,7 @@ class SettingsWidget(QWidget):
         fmt_text = self.cmb_sqb_fmt.currentText()
         self.config["shouqianba_format"] = fmt_text.split(" - ")[0].strip()
         self.config["shouqianba_hotkey"] = self.txt_sqb_hotkey.text().strip()
+        self.config["shouqianba_install_dir"] = os.path.normpath(install_dir) if install_dir else ""
         save_config(self.config)
         if not enabled:
             message = u"收钱吧金额推送已关闭。端口参数已保留，未创建或删除任何配对。"

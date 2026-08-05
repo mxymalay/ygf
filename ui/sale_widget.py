@@ -2123,7 +2123,14 @@ class SaleWidget(QWidget):
 
         if mode == "SCAN_CODE":
             try:
-                from core.shouqianba_sender import send_shouqianba_amount
+                from core.shouqianba_sender import (
+                    begin_sqb_payment_probe,
+                    send_shouqianba_amount,
+                )
+                # “去扫码”模式直接进入等待页，不会经过
+                # CheckoutDialog._on_payment_selected。必须在发送金额之前
+                # 从日志 EOF 建立本笔会话，否则 PAID 日志无法归属当前单。
+                begin_sqb_payment_probe(total_price, self.config)
                 send_shouqianba_amount(total_price, self.config)
             except Exception as e:
                 print(f"[SaleWidget] 唤起收钱吧金额失败: {e}")
