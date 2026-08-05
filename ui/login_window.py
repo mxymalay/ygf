@@ -319,7 +319,7 @@ class LoginWindow(QDialog):
         # 四项独立卡片 (官方 POS 与 COM 秤串口分开检测)
         self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方 POS 窗口（按配置识别）")
         self.card1_sub, self.lbl_title1_sub, self.lbl_badge1_sub = self._create_check_card(u"⚖️  COM 电子秤串口数据源")
-        self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"🖨️  热敏小票打印机外设")
+        self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"▤  热敏小票打印机外设")
         self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"💳  收钱吧串口通信联动")
 
         check_layout.addWidget(self.card1)

@@ -96,7 +96,7 @@ class TakeoutSortingWidget(QWidget):
         hc_layout = QHBoxLayout(header_card)
         hc_layout.setContentsMargins(16, 10, 16, 10)
 
-        lbl_title = QLabel(u"🛵 外卖打印中继与排序")
+        lbl_title = QLabel(u"↔ 外卖打印中继与排序")
         lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none;")
         hc_layout.addWidget(lbl_title)
 
@@ -205,7 +205,7 @@ class TakeoutSortingWidget(QWidget):
         tc_lay.setSpacing(10)
 
         tbl_hdr = QHBoxLayout()
-        lbl_t_title = QLabel(u"📋 分类排序与关键字")
+        lbl_t_title = QLabel(u"≡ 分类排序与关键字")
         lbl_t_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #F8FAFC; border: none;")
         tbl_hdr.addWidget(lbl_t_title)
 
@@ -291,7 +291,7 @@ class TakeoutSortingWidget(QWidget):
             }
         """)
         tc_lay.addWidget(self.table)
-        self.tabs.addTab(tab_categories, u"📋 菜品分类排序")
+        self.tabs.addTab(tab_categories, u"≡ 菜品分类排序")
 
         # Tab B: 排版字号、多份⭐标记与联数
         tab_format = QWidget()
@@ -393,7 +393,7 @@ class TakeoutSortingWidget(QWidget):
 
         tf_lay.addWidget(f_card2)
         tf_lay.addStretch()
-        self.tabs.addTab(tab_format, u"🖨️ 字号与联数设置")
+        self.tabs.addTab(tab_format, u"▤ 字号与联数设置")
 
         # Tab C: 外卖地址、单号与预订单
         tab_header = QWidget()

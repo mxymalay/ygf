@@ -241,9 +241,9 @@ class SettingsWidget(QWidget):
         ("biz", u"🏪  店铺与计价"),
         ("sys", u"⚙️  系统与流转"),
         ("scale", u"⚖️  电子秤设置"),
-        ("bridge", u"🔀  POS 称桥接"),
+        ("bridge", u"⇄  POS 称桥接"),
         ("sqb", u"💵  收钱吧插件"),
-        ("printer", u"🖨️  小票打印机"),
+        ("printer", u"▤  小票打印机"),
         ("danger", u"⚠️  还原与重置"),
     ]
 
@@ -607,7 +607,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_bridge_page(self):
         card, layout = self._create_section_card(
-            u"🔀", u"POS 称桥接", u"让官方 POS 和本 POS 同时读取同一台物理电子秤"
+            u"⇄", u"POS 称桥接", u"让官方 POS 和本 POS 同时读取同一台物理电子秤"
         )
 
         overview = QLabel(
@@ -805,7 +805,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_printer_page(self):
         card, layout = self._create_section_card(
-            u"🖨️", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
+            u"▤", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
         )
         grid = QGridLayout()
         grid.setSpacing(18)
@@ -1747,9 +1747,9 @@ class SettingsWidget(QWidget):
                 self._on_reset_sys_config
             ),
             (
-                u"🛵", u"还原【外卖中继与排序规则】",
+                u"↔", u"还原【外卖中继与排序规则】",
                 u"仅还原外卖分类、菜品关键字、匹配模式及打票字号规则 (takeout.json)。", 
-                u"🛵 还原外卖规则",
+                u"↔ 还原外卖规则",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_takeout_config
             ),

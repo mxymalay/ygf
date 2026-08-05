@@ -1129,8 +1129,10 @@ class SaleWidget(QWidget):
         self.cart_scroll.setWidget(self.cart_container)
         left_layout.addWidget(self.cart_scroll, stretch=1)
 
-        # 3. 分页控制栏 (◀ 上一页 | 第 X / Y 页 | 下一页 ▶)
-        self.page_bar = QHBoxLayout()
+        # 3. 分页控制栏 (◀ 上一页 | 第 X / Y 页 | 下一页 ▶)。
+        # 单页时整个控件隐藏，避免在收银台底部占用无意义的空间。
+        self.page_bar_widget = QWidget()
+        self.page_bar = QHBoxLayout(self.page_bar_widget)
         self.page_bar.setContentsMargins(0, 4, 0, 4)
 
         self.btn_prev_page = QPushButton(u"◀ 上一页")
@@ -1160,7 +1162,7 @@ class SaleWidget(QWidget):
         self.btn_next_page.clicked.connect(self._next_cart_page)
         self.page_bar.addWidget(self.btn_next_page)
 
-        left_layout.addLayout(self.page_bar)
+        left_layout.addWidget(self.page_bar_widget)
 
         # 3. 结算金额栏
         footer_line = QHBoxLayout()
@@ -1909,6 +1911,7 @@ class SaleWidget(QWidget):
             self.lbl_cart_page.setText(u"第 %d / %d 页 (共 %d 项)" % (self.cart_page + 1, total_pages, total_items_count))
             self.btn_prev_page.setEnabled(self.cart_page > 0)
             self.btn_next_page.setEnabled(self.cart_page < total_pages - 1)
+            self.page_bar_widget.setVisible(total_pages > 1)
 
         start_idx, end_idx = pages[self.cart_page]
 
