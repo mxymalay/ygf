@@ -393,7 +393,7 @@ class TakeoutSortingWidget(QWidget):
 
         tf_lay.addWidget(f_card2)
         tf_lay.addStretch()
-        self.tabs.addTab(tab_format, u"▤ 字号与联数设置")
+        self.tabs.addTab(tab_format, u"♨ 字号与联数设置")
 
         # Tab C: 外卖地址、单号与预订单
         tab_header = QWidget()

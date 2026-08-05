@@ -243,7 +243,7 @@ class SettingsWidget(QWidget):
         ("scale", u"⚖️  电子秤设置"),
         ("bridge", u"⇄  POS 称桥接"),
         ("sqb", u"💵  收钱吧插件"),
-        ("printer", u"▤  小票打印机"),
+        ("printer", u"♨  小票打印机"),
         ("danger", u"⚠️  还原与重置"),
     ]
 
@@ -805,7 +805,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_printer_page(self):
         card, layout = self._create_section_card(
-            u"▤", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
+            u"♨", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
         )
         grid = QGridLayout()
         grid.setSpacing(18)
