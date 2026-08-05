@@ -24,6 +24,34 @@ from ui.custom_dialog import show_warning, show_info, show_question, get_int_inp
 from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER, CAT_SYSTEM
 
 
+# Official Yang Guo Fu receipts use a long numeric merchant order number
+# (the sample provided is 25 digits).  Keep the same shape for new private
+# POS orders so the number is readable on paper and can be reconciled with
+# the sales ledger.  The timestamp makes it sortable while the UUID-derived
+# suffix avoids collisions when several bowls are opened within one second.
+ORDER_ID_LENGTH = 25
+
+
+def generate_order_id(now=None):
+    """Return a new 25-digit, receipt-compatible order identifier.
+
+    Layout: ``YYMMDDHHMMSS`` + milliseconds (3 digits) + a 10-digit
+    collision-resistant suffix.  ``now`` is injectable for deterministic
+    tests; production callers use the local clock.
+    """
+    stamp = now or datetime.now()
+    prefix = stamp.strftime("%y%m%d%H%M%S")
+    millis = "%03d" % (stamp.microsecond // 1000)
+    suffix = "%010d" % (uuid.uuid4().int % 10000000000)
+    return prefix + millis + suffix
+
+
+def is_receipt_order_id(value):
+    """Whether *value* already follows the current 25-digit rule."""
+    text = str(value or "").strip()
+    return len(text) == ORDER_ID_LENGTH and text.isdigit()
+
+
 class MockWeightModeComboBox(QComboBox):
     """Compact touch selector with its arrow immediately after the text."""
 
@@ -730,7 +758,7 @@ class SaleWidget(QWidget):
         self.menu_buttons = {}
 
         self.temp_order_no = self._gen_temp_order_no()
-        self.current_order_id = uuid.uuid4().hex
+        self.current_order_id = generate_order_id()
         self._detail_expanded = False
         self._resize_timer = None
         self._cart_dirty = True
@@ -753,7 +781,14 @@ class SaleWidget(QWidget):
             return
         self.cart_items = draft["cart_items"]
         self.temp_order_no = draft.get("temp_order_no") or self._gen_temp_order_no()
-        self.current_order_id = draft.get("order_id") or uuid.uuid4().hex
+        # Migrate an old UUID-based draft to the receipt-compatible format.
+        # A draft has not been inserted into the sales ledger yet, so changing
+        # this identifier cannot create a duplicate paid sale.
+        draft_order_id = draft.get("order_id")
+        self.current_order_id = (
+            draft_order_id if is_receipt_order_id(draft_order_id)
+            else generate_order_id()
+        )
         self.selected_item_index = len(self.cart_items) - 1
         self._weight_cycle_ready = not any(
             item.get("type") == "soup" for item in self.cart_items
@@ -2420,7 +2455,7 @@ class SaleWidget(QWidget):
         for b in self.menu_buttons.values():
             b.set_count(0)
         self.temp_order_no = self._gen_temp_order_no()
-        self.current_order_id = uuid.uuid4().hex
+        self.current_order_id = generate_order_id()
         self._draft_signature = ""
         clear_draft()
         self._update_price_display()

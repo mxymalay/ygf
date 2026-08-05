@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
-    QFileDialog, QProgressBar, QApplication
+    QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence, QDesktopServices
@@ -861,12 +861,353 @@ class SettingsWidget(QWidget):
 
         layout.addLayout(grid)
 
+        # 说明：旧版打印代码固定使用 48 个半角列（更接近 80mm 纸），
+        # 但 58mm 热敏纸通常只有 32 列。这里把纸宽、列数、走纸和切刀
+        # 都显式化，避免继续依赖散落在 printer.py 里的硬编码。
+        width_hint = QLabel(
+            u"版式说明：中文按 2 列、英文/数字按 1 列计算。旧版默认 48 列；"
+            u"常见 58mm 纸请选择 32 列，打印内容会自动使用紧凑表头。"
+        )
+        width_hint.setWordWrap(True)
+        width_hint.setStyleSheet("color: #94A3B8; font-size: 14px; background: transparent;")
+        layout.addWidget(width_hint)
+
+        layout.addWidget(self._printer_section_title(u"纸宽与走纸参数"))
+        format_grid = QGridLayout()
+        format_grid.setSpacing(14)
+        format_grid.setColumnStretch(1, 1)
+        format_grid.addWidget(self._make_label(u"纸张预设："), 0, 0)
+        self.cmb_printer_width = QComboBox()
+        self.cmb_printer_width.addItems([
+            u"80 mm - 48 列（当前模板）",
+            u"58 mm - 32 列（常见窄纸）",
+            u"自定义列数",
+        ])
+        try:
+            saved_width = int(self.config.get("printer_paper_width_mm", 80) or 0)
+            saved_columns = int(self.config.get("printer_chars_per_line", 48) or 48)
+        except (TypeError, ValueError):
+            saved_width, saved_columns = 80, 48
+        if saved_width == 58 and saved_columns == 32:
+            self.cmb_printer_width.setCurrentIndex(1)
+        elif saved_width != 80 or saved_columns != 48:
+            self.cmb_printer_width.setCurrentIndex(2)
+        format_grid.addWidget(self.cmb_printer_width, 0, 1)
+
+        format_grid.addWidget(self._make_label(u"每行列数："), 1, 0)
+        self.spin_printer_columns = QSpinBox()
+        self.spin_printer_columns.setRange(16, 64)
+        self.spin_printer_columns.setValue(int(self.config.get("printer_chars_per_line", 48) or 48))
+        format_grid.addWidget(self.spin_printer_columns, 1, 1)
+
+        format_grid.addWidget(self._make_label(u"分隔线字符："), 2, 0)
+        self.txt_printer_separator = QLineEdit(str(self.config.get("printer_separator_char", "-") or "-"))
+        self.txt_printer_separator.setMaxLength(1)
+        self.txt_printer_separator.setPlaceholderText(u"例如：-")
+        format_grid.addWidget(self.txt_printer_separator, 2, 1)
+
+        format_grid.addWidget(self._make_label(u"末尾走纸行数："), 3, 0)
+        self.spin_printer_feed_lines = QSpinBox()
+        self.spin_printer_feed_lines.setRange(0, 12)
+        self.spin_printer_feed_lines.setValue(int(self.config.get("printer_feed_lines", 4) or 4))
+        format_grid.addWidget(self.spin_printer_feed_lines, 3, 1)
+
+        self.chk_printer_auto_cut = QCheckBox(u"打印完成后自动切纸")
+        self.chk_printer_auto_cut.setChecked(bool(self.config.get("printer_auto_cut_enabled", True)))
+        format_grid.addWidget(self.chk_printer_auto_cut, 4, 1)
+        self.chk_printer_cash_drawer = QCheckBox(u"现金收款时发送钱箱开启指令")
+        self.chk_printer_cash_drawer.setChecked(bool(self.config.get("printer_cash_drawer_enabled", True)))
+        format_grid.addWidget(self.chk_printer_cash_drawer, 5, 1)
+        layout.addLayout(format_grid)
+
+        layout.addWidget(self._printer_section_title(u"单据开关与打印份数"))
+        slips_grid = QGridLayout()
+        slips_grid.setSpacing(14)
+        slips_grid.setColumnStretch(1, 1)
+        slips_grid.setColumnStretch(3, 0)
+
+        self.chk_printer_customer = QCheckBox(u"打印顾客单")
+        self.chk_printer_customer.setChecked(bool(self.config.get("printer_customer_enabled", True)))
+        slips_grid.addWidget(self.chk_printer_customer, 0, 0, 1, 2)
+        slips_grid.addWidget(self._make_label(u"份数："), 0, 2)
+        self.spin_printer_customer_copies = QSpinBox()
+        self.spin_printer_customer_copies.setRange(0, 20)
+        self.spin_printer_customer_copies.setValue(int(self.config.get("printer_customer_copies", 1) or 0))
+        slips_grid.addWidget(self.spin_printer_customer_copies, 0, 3)
+
+        self.chk_printer_kitchen = QCheckBox(u"打印后厨制作单")
+        self.chk_printer_kitchen.setChecked(bool(self.config.get("printer_kitchen_enabled", True)))
+        slips_grid.addWidget(self.chk_printer_kitchen, 1, 0, 1, 2)
+        slips_grid.addWidget(self._make_label(u"每个汤底份数："), 1, 2)
+        self.spin_printer_kitchen_copies = QSpinBox()
+        self.spin_printer_kitchen_copies.setRange(0, 20)
+        self.spin_printer_kitchen_copies.setValue(int(self.config.get("printer_kitchen_copies", 1) or 0))
+        slips_grid.addWidget(self.spin_printer_kitchen_copies, 1, 3)
+
+        self.chk_printer_report = QCheckBox(u"允许打印营业汇总报表")
+        self.chk_printer_report.setChecked(bool(self.config.get("printer_report_enabled", True)))
+        slips_grid.addWidget(self.chk_printer_report, 2, 0, 1, 2)
+        slips_grid.addWidget(self._make_label(u"报表份数："), 2, 2)
+        self.spin_printer_report_copies = QSpinBox()
+        self.spin_printer_report_copies.setRange(0, 20)
+        self.spin_printer_report_copies.setValue(int(self.config.get("printer_report_copies", 1) or 0))
+        slips_grid.addWidget(self.spin_printer_report_copies, 2, 3)
+
+        self.chk_printer_show_tags = QCheckBox(u"小票显示口味/备注标签")
+        self.chk_printer_show_tags.setChecked(bool(self.config.get("printer_show_tags", True)))
+        slips_grid.addWidget(self.chk_printer_show_tags, 3, 0, 1, 2)
+        self.chk_printer_takeout_banner = QCheckBox(u"打包制作单显示醒目“打包”标记")
+        self.chk_printer_takeout_banner.setChecked(bool(self.config.get("printer_takeout_banner_enabled", True)))
+        slips_grid.addWidget(self.chk_printer_takeout_banner, 4, 0, 1, 2)
+        slips_grid.addWidget(self._make_label(u"标记行数："), 4, 2)
+        self.spin_printer_takeout_banner_lines = QSpinBox()
+        self.spin_printer_takeout_banner_lines.setRange(0, 8)
+        self.spin_printer_takeout_banner_lines.setValue(int(self.config.get("printer_takeout_banner_lines", 3) or 0))
+        slips_grid.addWidget(self.spin_printer_takeout_banner_lines, 4, 3)
+        layout.addLayout(slips_grid)
+        takeout_note = QLabel(
+            u"说明：外卖中继的外卖单是否打印、分类排序和外卖份数，继续在“外卖中继”页面单独设置；"
+            u"这里控制的是本 POS 的顾客单、制作单和营业报表。"
+        )
+        takeout_note.setWordWrap(True)
+        takeout_note.setStyleSheet("color: #94A3B8; font-size: 14px; background: transparent;")
+        layout.addWidget(takeout_note)
+
+        layout.addWidget(self._printer_section_title(u"打印模板"))
+        template_hint = QLabel(
+            u"以下内容支持变量：顾客单标题可使用 {shop_name}、{shop_subtitle}、{call_no}；"
+            u"制作单标题可使用 {call_no}、{index}、{service_type}；底部可使用 {time}。"
+        )
+        template_hint.setWordWrap(True)
+        template_hint.setStyleSheet("color: #94A3B8; font-size: 14px; background: transparent;")
+        layout.addWidget(template_hint)
+        profile_grid = QGridLayout()
+        profile_grid.setSpacing(14)
+        profile_grid.setColumnStretch(1, 1)
+        profile_grid.addWidget(self._make_label(u"模板方案："), 0, 0)
+        self.cmb_printer_template_profile = QComboBox()
+        self.cmb_printer_template_profile.addItems([
+            u"旧版当前格式（保持原样）",
+            u"官方新版参考（80mm）",
+            u"自定义模板（以后换版用）",
+        ])
+        profile = str(self.config.get("printer_template_profile", "legacy") or "legacy")
+        profile_index = {"legacy": 0, "official_v2": 1, "custom": 2}.get(profile, 0)
+        self.cmb_printer_template_profile.setCurrentIndex(profile_index)
+        profile_grid.addWidget(self.cmb_printer_template_profile, 0, 1)
+        layout.addLayout(profile_grid)
+
+        self.lbl_printer_custom_template_hint = QLabel(
+            u"自定义模板语法：每行前可加 [C]居中、[L]左对齐、[R]右对齐、[B]粗体、[D]双倍高度。"
+            u"可用变量：{shop_name}、{call_no}、{items}、{total}、{payment_method}、{order_id}、"
+            u"{kitchen_call_no}、{item_name}、{flavor}、{operator}、{time}、{service_phone}、{separator}。"
+        )
+        self.lbl_printer_custom_template_hint.setWordWrap(True)
+        self.lbl_printer_custom_template_hint.setStyleSheet("color: #FDE68A; font-size: 14px; background: transparent;")
+        layout.addWidget(self.lbl_printer_custom_template_hint)
+
+        self.lbl_printer_customer_template = self._make_label(u"自定义顾客单正文：")
+        layout.addWidget(self.lbl_printer_customer_template, alignment=Qt.AlignLeft)
+        self.txt_printer_customer_template = QPlainTextEdit()
+        self.txt_printer_customer_template.setPlainText(
+            self.config.get("printer_customer_template_custom", "") or self._official_customer_template_text()
+        )
+        self.txt_printer_customer_template.setMinimumHeight(190)
+        self.txt_printer_customer_template.setStyleSheet(
+            "QPlainTextEdit { background: #0F172A; color: #F8FAFC; border: 1px solid #334155; "
+            "border-radius: 10px; padding: 12px; font-size: 14px; }"
+        )
+        layout.addWidget(self.txt_printer_customer_template)
+
+        self.lbl_printer_kitchen_template = self._make_label(u"自定义制作单正文：")
+        layout.addWidget(self.lbl_printer_kitchen_template, alignment=Qt.AlignLeft)
+        self.txt_printer_kitchen_template = QPlainTextEdit()
+        self.txt_printer_kitchen_template.setPlainText(
+            self.config.get("printer_kitchen_template_custom", "") or self._official_kitchen_template_text()
+        )
+        self.txt_printer_kitchen_template.setMinimumHeight(150)
+        self.txt_printer_kitchen_template.setStyleSheet(
+            "QPlainTextEdit { background: #0F172A; color: #F8FAFC; border: 1px solid #334155; "
+            "border-radius: 10px; padding: 12px; font-size: 14px; }"
+        )
+        layout.addWidget(self.txt_printer_kitchen_template)
+        logo_grid = QGridLayout()
+        logo_grid.setSpacing(14)
+        logo_grid.setColumnStretch(1, 1)
+        self.chk_printer_logo = QCheckBox(u"官方新版/自定义顾客单打印 Logo")
+        self.chk_printer_logo.setChecked(bool(self.config.get("printer_logo_enabled", True)))
+        logo_grid.addWidget(self.chk_printer_logo, 0, 0)
+        self.txt_printer_logo_path = QLineEdit(self.config.get("printer_logo_path", ""))
+        self.txt_printer_logo_path.setPlaceholderText(u"留空使用内置杨国福 Logo 图片")
+        logo_grid.addWidget(self.txt_printer_logo_path, 0, 1)
+        self.btn_browse_printer_logo = QPushButton(u"选择图片")
+        self._style_touch_action_btn(self.btn_browse_printer_logo)
+        self.btn_browse_printer_logo.clicked.connect(self._browse_printer_logo)
+        logo_grid.addWidget(self.btn_browse_printer_logo, 0, 2)
+        layout.addLayout(logo_grid)
+        template_grid = QGridLayout()
+        template_grid.setSpacing(14)
+        template_grid.setColumnStretch(1, 1)
+        self.lbl_printer_customer_title = self._make_label(u"顾客单标题（旧版）：")
+        template_grid.addWidget(self.lbl_printer_customer_title, 0, 0)
+        self.txt_printer_customer_title = QLineEdit(self.config.get("printer_customer_title", "POS点餐 堂食"))
+        template_grid.addWidget(self.txt_printer_customer_title, 0, 1)
+        self.lbl_printer_customer_footer = self._make_label(u"顾客单底部（旧版）：")
+        template_grid.addWidget(self.lbl_printer_customer_footer, 1, 0)
+        self.txt_printer_customer_footer = QLineEdit(self.config.get("printer_customer_footer", "打印时间：{time}"))
+        template_grid.addWidget(self.txt_printer_customer_footer, 1, 1)
+        self.lbl_printer_kitchen_title_dinein = self._make_label(u"堂食制作单标题（旧版）：")
+        template_grid.addWidget(self.lbl_printer_kitchen_title_dinein, 2, 0)
+        self.txt_printer_kitchen_title_dinein = QLineEdit(self.config.get("printer_kitchen_title_dinein", "制作单-堂食"))
+        template_grid.addWidget(self.txt_printer_kitchen_title_dinein, 2, 1)
+        self.lbl_printer_kitchen_title_takeout = self._make_label(u"打包制作单标题（旧版）：")
+        template_grid.addWidget(self.lbl_printer_kitchen_title_takeout, 3, 0)
+        self.txt_printer_kitchen_title_takeout = QLineEdit(self.config.get("printer_kitchen_title_takeout", "制作单-打包"))
+        template_grid.addWidget(self.txt_printer_kitchen_title_takeout, 3, 1)
+        self.lbl_printer_kitchen_footer = self._make_label(u"制作单底部（旧版）：")
+        template_grid.addWidget(self.lbl_printer_kitchen_footer, 4, 0)
+        self.txt_printer_kitchen_footer = QLineEdit(self.config.get("printer_kitchen_footer", "打印时间：{time}"))
+        template_grid.addWidget(self.txt_printer_kitchen_footer, 4, 1)
+        self.lbl_printer_report_title = self._make_label(u"营业报表标题（报表）：")
+        template_grid.addWidget(self.lbl_printer_report_title, 5, 0)
+        self.txt_printer_report_title = QLineEdit(self.config.get("printer_report_title", "营业汇总报表"))
+        template_grid.addWidget(self.txt_printer_report_title, 5, 1)
+        self.lbl_printer_report_footer = self._make_label(u"营业报表底部（报表）：")
+        template_grid.addWidget(self.lbl_printer_report_footer, 6, 0)
+        self.txt_printer_report_footer = QLineEdit(self.config.get("printer_report_footer", "打印时间：{time}"))
+        template_grid.addWidget(self.txt_printer_report_footer, 6, 1)
+        self.lbl_printer_service_phone = self._make_label(u"服务热线（官方新版/自定义）：")
+        template_grid.addWidget(self.lbl_printer_service_phone, 7, 0)
+        self.txt_printer_service_phone = QLineEdit(self.config.get("printer_service_phone", "400-6058-777"))
+        template_grid.addWidget(self.txt_printer_service_phone, 7, 1)
+        self.lbl_printer_operator = self._make_label(u"制作单操作人（官方新版/自定义）：")
+        template_grid.addWidget(self.lbl_printer_operator, 8, 0)
+        self.txt_printer_operator = QLineEdit(self.config.get("printer_operator", ""))
+        self.txt_printer_operator.setPlaceholderText(u"留空则打印“收银员”")
+        template_grid.addWidget(self.txt_printer_operator, 8, 1)
+        layout.addLayout(template_grid)
+
         btn_save_printer = QPushButton(u"💾 保存打印机设置")
         self._style_save_btn(btn_save_printer)
         btn_save_printer.clicked.connect(self._on_save_printer)
         layout.addWidget(btn_save_printer, alignment=Qt.AlignRight)
 
+        self.cmb_printer_width.currentIndexChanged.connect(self._on_printer_width_changed)
+        self.cmb_printer_template_profile.currentIndexChanged.connect(self._on_printer_template_profile_changed)
+        self._on_printer_width_changed()
+        self._on_printer_template_profile_changed(self.cmb_printer_template_profile.currentIndex())
+
         return self._wrap_in_scroll(card)
+
+    def _printer_section_title(self, text):
+        label = QLabel(text)
+        label.setStyleSheet(
+            "color: #38BDF8; font-size: 18px; font-weight: 900; "
+            "padding-top: 8px; background: transparent;"
+        )
+        return label
+
+    def _browse_printer_logo(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            u"选择打印 Logo 图片",
+            "",
+            u"图片文件 (*.png *.jpg *.jpeg *.bmp);;所有文件 (*.*)",
+        )
+        if path:
+            self.txt_printer_logo_path.setText(path)
+
+    @staticmethod
+    def _official_customer_template_text():
+        return (
+            "[C][D]{shop_name}\n[C]{shop_subtitle}\n"
+            "[L]{separator}\n[L]取餐号：{call_no}    [POS点餐]\n"
+            "[L]名称                 规格  单价  数量  小计\n[L]{items}\n"
+            "[L]{separator}\n[R]合计                  {total}\n[R]应付                  {total}\n"
+            "[R]{payment_method}              {total}\n[L]订单号：{order_id}\n"
+            "[L]订单时间：{time}\n[L]服务热线：{service_phone}"
+        )
+
+    @staticmethod
+    def _official_kitchen_template_text():
+        return (
+            "[C][D]取餐号：{kitchen_call_no}\n[C][D]制作单\n[C][D]{item_name}\n"
+            "[C]{flavor}\n[L]{separator}\n[L]操作人：{operator}\n[L]下单时间：{created_at}"
+        )
+
+    def _on_printer_template_profile_changed(self, index):
+        """只在选择自定义方案时显示自定义模板编辑区。"""
+        if not hasattr(self, "txt_printer_customer_template"):
+            return
+        is_custom = index == 2
+        custom_widgets = (
+            self.lbl_printer_custom_template_hint,
+            self.lbl_printer_customer_template,
+            self.txt_printer_customer_template,
+            self.lbl_printer_kitchen_template,
+            self.txt_printer_kitchen_template,
+        )
+        for widget in custom_widgets:
+            widget.setVisible(is_custom)
+            widget.setEnabled(is_custom)
+        # 旧版方案使用下方的标题/底部字段；新版和自定义方案以正文模板
+        # 为准，避免用户修改了一个当前方案不会读取的输入框。
+        legacy_fields = (
+            self.lbl_printer_customer_title,
+            self.lbl_printer_customer_footer,
+            self.lbl_printer_kitchen_title_dinein,
+            self.lbl_printer_kitchen_title_takeout,
+            self.lbl_printer_kitchen_footer,
+            self.txt_printer_customer_title,
+            self.txt_printer_customer_footer,
+            self.txt_printer_kitchen_title_dinein,
+            self.txt_printer_kitchen_title_takeout,
+            self.txt_printer_kitchen_footer,
+        )
+        for field in legacy_fields:
+            field.setVisible(index == 0)
+            field.setEnabled(index == 0)
+        report_fields = (
+            self.lbl_printer_report_title,
+            self.txt_printer_report_title,
+            self.lbl_printer_report_footer,
+            self.txt_printer_report_footer,
+        )
+        for field in report_fields:
+            field.setVisible(True)
+            field.setEnabled(True)
+        template_fields = (
+            self.chk_printer_logo,
+            self.txt_printer_logo_path,
+            self.btn_browse_printer_logo,
+            self.lbl_printer_service_phone,
+            self.txt_printer_service_phone,
+            self.lbl_printer_operator,
+            self.txt_printer_operator,
+        )
+        for field in template_fields:
+            field.setVisible(index in (1, 2))
+            field.setEnabled(index in (1, 2))
+        if index == 1:
+            self.txt_printer_customer_template.setPlainText(self._official_customer_template_text())
+            self.txt_printer_kitchen_template.setPlainText(self._official_kitchen_template_text())
+        elif index == 0:
+            self.txt_printer_customer_template.setPlainText(self._official_customer_template_text())
+            self.txt_printer_kitchen_template.setPlainText(self._official_kitchen_template_text())
+
+    def _on_printer_width_changed(self):
+        """同步纸宽预设与列数；自定义列数时开放数字框。"""
+        if not hasattr(self, "cmb_printer_width"):
+            return
+        index = self.cmb_printer_width.currentIndex()
+        if index == 0:
+            self.spin_printer_columns.setValue(48)
+            self.spin_printer_columns.setEnabled(False)
+        elif index == 1:
+            self.spin_printer_columns.setValue(32)
+            self.spin_printer_columns.setEnabled(False)
+        else:
+            self.spin_printer_columns.setEnabled(True)
 
     # ────────────────────────────────────────────────────────────
     # 页面 1: 店铺与计价设置
@@ -1861,6 +2202,47 @@ class SettingsWidget(QWidget):
         self.config["printer_name"] = self.cmb_printer_name.currentText()
         self.config["printer_ip"] = self.txt_ip.text()
         self.config["printer_port"] = self.spin_net_port.value()
+        width_index = self.cmb_printer_width.currentIndex()
+        if width_index == 0:
+            self.config["printer_paper_width_mm"] = 80
+            self.config["printer_chars_per_line"] = 48
+        elif width_index == 1:
+            self.config["printer_paper_width_mm"] = 58
+            self.config["printer_chars_per_line"] = 32
+        else:
+            self.config["printer_paper_width_mm"] = 0
+            self.config["printer_chars_per_line"] = self.spin_printer_columns.value()
+        self.config["printer_separator_char"] = self.txt_printer_separator.text() or "-"
+        self.config["printer_feed_lines"] = self.spin_printer_feed_lines.value()
+        self.config["printer_auto_cut_enabled"] = self.chk_printer_auto_cut.isChecked()
+        self.config["printer_cash_drawer_enabled"] = self.chk_printer_cash_drawer.isChecked()
+        self.config["printer_customer_enabled"] = self.chk_printer_customer.isChecked()
+        self.config["printer_customer_copies"] = self.spin_printer_customer_copies.value()
+        self.config["printer_kitchen_enabled"] = self.chk_printer_kitchen.isChecked()
+        self.config["printer_kitchen_copies"] = self.spin_printer_kitchen_copies.value()
+        self.config["printer_report_enabled"] = self.chk_printer_report.isChecked()
+        self.config["printer_report_copies"] = self.spin_printer_report_copies.value()
+        self.config["printer_show_tags"] = self.chk_printer_show_tags.isChecked()
+        self.config["printer_takeout_banner_enabled"] = self.chk_printer_takeout_banner.isChecked()
+        self.config["printer_takeout_banner_lines"] = self.spin_printer_takeout_banner_lines.value()
+        self.config["printer_customer_title"] = self.txt_printer_customer_title.text()
+        self.config["printer_customer_footer"] = self.txt_printer_customer_footer.text()
+        self.config["printer_kitchen_title_dinein"] = self.txt_printer_kitchen_title_dinein.text()
+        self.config["printer_kitchen_title_takeout"] = self.txt_printer_kitchen_title_takeout.text()
+        self.config["printer_kitchen_footer"] = self.txt_printer_kitchen_footer.text()
+        self.config["printer_report_title"] = self.txt_printer_report_title.text()
+        self.config["printer_report_footer"] = self.txt_printer_report_footer.text()
+        self.config["printer_service_phone"] = self.txt_printer_service_phone.text()
+        self.config["printer_operator"] = self.txt_printer_operator.text()
+        self.config["printer_logo_enabled"] = self.chk_printer_logo.isChecked()
+        self.config["printer_logo_path"] = self.txt_printer_logo_path.text().strip()
+        self.config["printer_template_profile"] = {
+            0: "legacy",
+            1: "official_v2",
+            2: "custom",
+        }.get(self.cmb_printer_template_profile.currentIndex(), "legacy")
+        self.config["printer_customer_template_custom"] = self.txt_printer_customer_template.toPlainText()
+        self.config["printer_kitchen_template_custom"] = self.txt_printer_kitchen_template.toPlainText()
         save_config(self.config)
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"打印机设置已保存！")

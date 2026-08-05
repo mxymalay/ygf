@@ -50,6 +50,40 @@ DEFAULT_CONFIG = {
     "printer_ip": "192.168.1.100",
     "printer_port": 9100,
     "printer_serial_port": "COM4",
+    # ESC/POS 排版：历史模板固定使用 48 列（更接近 80mm 纸），保留
+    # 该默认值以免升级后旧门店出现突然折行；58mm 常用 32 列可在设置页选择。
+    "printer_paper_width_mm": 80,
+    "printer_chars_per_line": 48,
+    "printer_customer_enabled": True,
+    "printer_customer_copies": 1,
+    "printer_kitchen_enabled": True,
+    "printer_kitchen_copies": 1,
+    "printer_report_enabled": True,
+    "printer_report_copies": 1,
+    "printer_auto_cut_enabled": True,
+    "printer_feed_lines": 4,
+    "printer_cash_drawer_enabled": True,
+    "printer_show_tags": True,
+    "printer_takeout_banner_enabled": True,
+    "printer_takeout_banner_lines": 3,
+    "printer_separator_char": "-",
+    "printer_customer_title": "POS点餐 堂食",
+    "printer_kitchen_title_dinein": "制作单-堂食",
+    "printer_kitchen_title_takeout": "制作单-打包",
+    "printer_customer_footer": "打印时间：{time}",
+    "printer_kitchen_footer": "打印时间：{time}",
+    "printer_report_title": "营业汇总报表",
+    "printer_report_footer": "打印时间：{time}",
+    # 模板方案：legacy 保留旧版当前格式，official_v2 对齐新版官方票面，
+    # custom 使用设置页中的可编辑正文，便于以后换版时无需改程序。
+    "printer_template_profile": "legacy",
+    "printer_service_phone": "400-6058-777",
+    "printer_operator": "",
+    "printer_logo_path": "",
+    "printer_logo_enabled": True,
+    "printer_logo_width_px": 384,
+    "printer_customer_template_custom": "",
+    "printer_kitchen_template_custom": "",
     "unit_price": 47.60,
     "special_soup_price": 50.00,
     "price_unit": "per_kg",
@@ -96,6 +130,10 @@ DEFAULT_CONFIG = {
     # 2. 切换算法配置 (algo.json)
     "private_ratio_percent": 30,
     "min_private_weight_kg": 0.25,
+    # 私域 POS 当日累计收款上限。按周中/周末分别设置；保留旧键
+    # max_daily_revenue_limit 作为老配置的兼容别名。
+    "weekday_max_daily_revenue_limit": 500.0,
+    "weekend_max_daily_revenue_limit": 1000.0,
 
     # 3. 收钱吧配置 (shouqianba.json)
     "shouqianba_enabled": True,
@@ -156,6 +194,8 @@ OPTIONAL_CONFIG_KEYS = {
     "custom_start_no",
     "custom_end_no",
     "max_daily_revenue_limit",
+    "weekday_max_daily_revenue_limit",
+    "weekend_max_daily_revenue_limit",
     "min_valid_weight_kg",
     "official_lock_sec",
     "zeroing_unlock_sec",
@@ -172,7 +212,11 @@ KNOWN_CONFIG_KEYS = frozenset(DEFAULT_CONFIG).union(OPTIONAL_CONFIG_KEYS)
 # Key 属于哪个模块文件的映射规则
 MODULAR_KEYS = {
     "takeout": lambda k: k.startswith("takeout_"),
-    "algo": lambda k: k in ("private_ratio_percent", "min_private_weight_kg"),
+    "algo": lambda k: k in (
+        "private_ratio_percent", "min_private_weight_kg",
+        "max_daily_revenue_limit",
+        "weekday_max_daily_revenue_limit", "weekend_max_daily_revenue_limit",
+    ),
     "shouqianba": lambda k: k.startswith("shouqianba_"),
 }
 
@@ -370,6 +414,20 @@ def load_config(migration_policy="auto", selected_keys=None) -> dict:
     else:
         # Rebuild deliberately ignores both legacy and existing module values.
         pass
+
+    # 老版本只有一个 max_daily_revenue_limit。若来源文件没有新的周中/周末
+    # 字段，就把旧值迁移到两项，避免 DEFAULT_CONFIG 的新默认值悄悄覆盖
+    # 门店原有的限额；全新配置则保留周中 500、周末 1000 的默认值。
+    source_values = dict(legacy_values)
+    source_values.update(module_values)
+    if (
+        "max_daily_revenue_limit" in source_values
+        and "weekday_max_daily_revenue_limit" not in source_values
+        and "weekend_max_daily_revenue_limit" not in source_values
+    ):
+        old_limit = source_values["max_daily_revenue_limit"]
+        merged["weekday_max_daily_revenue_limit"] = old_limit
+        merged["weekend_max_daily_revenue_limit"] = old_limit
 
     # 模拟模式是一次运行的临时状态，绝不能写入正式门店配置。
     for key in TRANSIENT_CONFIG_KEYS:

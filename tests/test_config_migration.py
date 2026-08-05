@@ -56,6 +56,25 @@ class ModularConfigMigrationTests(unittest.TestCase):
                 with open(path, "r", encoding="utf-8") as stream:
                     self.assertNotIn("obsolete_plugin_setting", json.load(stream))
 
+    def test_legacy_single_daily_limit_migrates_to_both_periods(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings, modules = self._paths(root)
+            legacy = os.path.join(root, "settings.json")
+            with open(legacy, "w", encoding="utf-8") as stream:
+                json.dump({"max_daily_revenue_limit": 123.0}, stream)
+            with patch.object(config, "DATA_DIR", root), patch.object(
+                config, "DB_DIR", os.path.join(root, "db")
+            ), patch.object(config, "DB_PATH", os.path.join(root, "db", "sales.db")), patch.object(
+                config, "LEGACY_DB_PATH", os.path.join(root, "sales.db")
+            ), patch.object(config, "SETTINGS_DIR", settings), patch.object(
+                config, "CONFIG_FILE", legacy
+            ), patch.object(config, "TEMPLATE_FILE", os.path.join(root, "template.json")), patch.object(
+                config, "MODULE_FILES", modules
+            ):
+                loaded = config.load_config()
+            self.assertEqual(loaded["weekday_max_daily_revenue_limit"], 123.0)
+            self.assertEqual(loaded["weekend_max_daily_revenue_limit"], 123.0)
+
     def test_save_does_not_persist_runtime_or_foreign_fields(self):
         with tempfile.TemporaryDirectory() as root:
             settings, modules = self._paths(root)

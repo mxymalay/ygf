@@ -161,6 +161,9 @@ class MainWindow(QMainWindow):
             if self.config.get("floating_ball_enabled", True):
                 self.floating_ball = FloatingBall(self)
                 self.floating_ball.show()
+                # 启动时把已持久化的当日配额同步到水位显示，避免必须
+                # 等下一碗称重后悬浮球才出现进度。
+                self.switch_controller.refresh_floating_ball_progress(True)
 
             # C. 全局老板键线程 (键盘 F10 备用)
             panic_key = self.config.get("panic_hotkey", "F10")

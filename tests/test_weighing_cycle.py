@@ -99,6 +99,25 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertEqual(controller._min_valid_weight, 0.08)
         self.assertEqual(controller._auto_hide_delay_sec, 10)
 
+    def test_daily_revenue_limit_uses_weekday_and_weekend_values(self):
+        controller = AutoSwitchController(
+            SimpleNamespace(db=None, sale_page=SimpleNamespace(cart_items=[]), floating_ball=None),
+            {
+                "weekday_max_daily_revenue_limit": 500,
+                "weekend_max_daily_revenue_limit": 1000,
+            },
+        )
+        self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 2)), 500.0)
+        self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 5)), 1000.0)
+
+    def test_daily_revenue_limit_legacy_value_is_used_when_new_keys_missing(self):
+        controller = AutoSwitchController(
+            SimpleNamespace(db=None, sale_page=SimpleNamespace(cart_items=[]), floating_ball=None),
+            {"max_daily_revenue_limit": 123},
+        )
+        self.assertEqual(controller._weekday_max_daily_revenue_limit, 123.0)
+        self.assertEqual(controller._weekend_max_daily_revenue_limit, 123.0)
+
     def test_cart_clear_keeps_cycle_locked_until_stable_zero(self):
         dummy = SimpleNamespace(
             cart_items=[{"type": "soup"}],
@@ -127,6 +146,46 @@ class WeighingCycleTests(unittest.TestCase):
         SaleWidget._on_weight_update(dummy, 0.4)
         SaleWidget._on_weight_update(dummy, 0.4)
         self.assertFalse(dummy._is_stable)
+
+    def test_switch_progress_is_for_current_channel_cycle_not_daily_ratio(self):
+        controller = self._controller()
+        controller._target_private_ratio = 30.0
+        controller._switch_cycle_initialized = True
+        controller._switch_cycle_is_private = False  # 当前连续使用官方 POS
+        controller._switch_cycle_start_total_weight = 1.0
+        controller._switch_cycle_start_private_weight = 0.5
+        controller._total_weight_kg = 1.5
+        controller._private_weight_kg = 0.5
+
+        progress, remaining, next_channel = controller.get_switch_progress_status()
+        # 目标私域 30%：从 0.5/1.0 开始，还需约 0.667kg 官方重量降到 30%。
+        self.assertAlmostEqual(progress, 0.75, places=3)
+        self.assertAlmostEqual(remaining, 1.0 / 6.0, places=3)
+        self.assertEqual(next_channel, "私有 POS")
+        controller._hide_timer.stop()
+        controller._zero_unlock_timer.stop()
+
+    def test_manual_switch_resets_cycle_baseline_but_keeps_daily_counters(self):
+        controller = self._controller()
+        controller._target_private_ratio = 30.0
+        controller._total_weight_kg = 4.0
+        controller._private_weight_kg = 2.0
+        controller._total_evaluated_orders = 8
+        controller._private_orders_count = 3
+        controller.reset_switch_cycle_for_manual(False)
+
+        self.assertTrue(controller._switch_cycle_initialized)
+        self.assertFalse(controller._switch_cycle_is_private)
+        self.assertAlmostEqual(controller._switch_cycle_start_total_weight, 4.0)
+        self.assertAlmostEqual(controller._switch_cycle_start_private_weight, 2.0)
+        self.assertEqual(controller._total_evaluated_orders, 8)
+        self.assertEqual(controller._private_orders_count, 3)
+        progress, remaining, next_channel = controller.get_switch_progress_status()
+        self.assertAlmostEqual(progress, 0.0)
+        self.assertAlmostEqual(remaining, (2.0 - 0.3 * 4.0) / 0.3)
+        self.assertEqual(next_channel, "私有 POS")
+        controller._hide_timer.stop()
+        controller._zero_unlock_timer.stop()
 
     def test_restored_locked_order_does_not_forward_old_bowl(self):
         emitted = Mock()

@@ -10,7 +10,7 @@
 import time
 import math
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
+from PyQt5.QtCore import Qt, QPoint, QRect, QRectF, QTimer
 from PyQt5.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QPainterPath
 
 from utils.window_utils import (
@@ -40,12 +40,13 @@ class FloatingBall(QWidget):
 
         # 88x84 黄金比例胶囊尺寸：顶部预留16px显示出票倒计时，底部
         # 仍保留原有暂停/锁定/对勾状态栏。
-        self.setFixedSize(88, 84)
+        # 右侧额外预留方向箭头区域，胶囊本体尺寸保持不变。
+        self.setFixedSize(104, 84)
 
         # 移动到屏幕右上角默认位置
         from PyQt5.QtWidgets import QApplication
         screen = QApplication.primaryScreen().geometry()
-        self.move(screen.width() - 110, 110)
+        self.move(screen.width() - 126, 110)
 
         self._drag_pos = QPoint()
         self._is_dragging = False
@@ -81,6 +82,56 @@ class FloatingBall(QWidget):
         self._checkmark_timer = QTimer(self)
         self._checkmark_timer.setSingleShot(True)
         self._checkmark_timer.timeout.connect(self._hide_checkmark)
+
+        # 分流配额可视化：当前累计进度与上一份累计进度同时保留。
+        # 进度的分母是“目标私域重量占比”，达到 100% 表示已经到达目标。
+        self._quota_progress = 0.0
+        self._quota_previous_progress = 0.0
+        self._quota_is_private = True
+        self._quota_previous_is_private = True
+        self._next_switch_is_private = None
+
+    def set_quota_progress(self, private_ratio, target_private_ratio, is_private):
+        """更新悬浮球内的配额水位，并保留上一份水位作浅色背景。"""
+        try:
+            private_ratio = max(0.0, float(private_ratio or 0.0))
+            target = max(0.0, float(target_private_ratio or 0.0))
+        except (TypeError, ValueError):
+            private_ratio, target = 0.0, 0.0
+        progress = 1.0 if target <= 0.0 else min(1.0, private_ratio / target)
+        mode = bool(is_private)
+        # 倒计时/状态刷新可能重复调用；相同快照不应伪造“上一份进度”。
+        if (
+            abs(progress - self._quota_progress) < 0.0001
+            and mode == self._quota_is_private
+        ):
+            return
+        self._quota_previous_progress = self._quota_progress
+        self._quota_previous_is_private = self._quota_is_private
+        self._quota_progress = progress
+        self._quota_is_private = mode
+        self.update()
+
+    def set_switch_progress(self, progress, is_private, next_is_private=None):
+        """设置“距离下一次自动切换”的本轮进度（0.0 至 1.0）。"""
+        try:
+            progress = max(0.0, min(1.0, float(progress or 0.0)))
+        except (TypeError, ValueError):
+            progress = 0.0
+        mode = bool(is_private)
+        next_mode = None if next_is_private is None else bool(next_is_private)
+        if (
+            abs(progress - self._quota_progress) < 0.0001
+            and mode == self._quota_is_private
+            and next_mode == self._next_switch_is_private
+        ):
+            return
+        self._quota_previous_progress = self._quota_progress
+        self._quota_previous_is_private = self._quota_is_private
+        self._quota_progress = progress
+        self._quota_is_private = mode
+        self._next_switch_is_private = next_mode
+        self.update()
 
     def show_decision_checkmark(self):
         """显示右下角的决策对钩，1.5秒后消失"""
@@ -127,14 +178,14 @@ class FloatingBall(QWidget):
 
         # 1. 颜色风格与边框主题
         if self.is_our_pos_active:
-            bg_color1 = QColor(16, 185, 129, 235)   # 翡翠绿 (私域 POS)
-            bg_color2 = QColor(5, 150, 105, 235)
-            border_outer = QColor(52, 211, 153)     # 亮高光绿外框
+            bg_color1 = QColor(110, 231, 183, 235)  # 未填充浅绿
+            bg_color2 = QColor(16, 185, 129, 235)   # 胶囊末端背景
+            border_outer = QColor(16, 185, 129, 235) # 与未填充背景一致
             led_color = QColor(52, 211, 153)
         else:
-            bg_color1 = QColor(37, 99, 235, 235)    # 宝蓝色 (官方系统)
-            bg_color2 = QColor(29, 78, 216, 235)
-            border_outer = QColor(147, 197, 253)    # 浅亮蓝外框
+            bg_color1 = QColor(147, 197, 253, 235)  # 未填充浅蓝
+            bg_color2 = QColor(37, 99, 235, 235)    # 胶囊末端背景
+            border_outer = QColor(37, 99, 235, 235)  # 与未填充背景一致
             led_color = QColor(96, 165, 250)
 
         # 渐变底色
@@ -147,9 +198,74 @@ class FloatingBall(QWidget):
         painter.setPen(QPen(border_outer, 2.0))
         painter.drawRoundedRect(1, 17, 86, 48, 24, 24)
 
+        # 2.1 配额“水位”：上一份用浅色铺底，本次增加量用较深同色系填充。
+        # 采用裁剪路径，水位不会溢出胶囊圆角；文字和状态图标仍绘制在其上方。
+        painter.save()
+        liquid_path = QPainterPath()
+        liquid_path.addRoundedRect(QRectF(2, 18, 84, 46), 23, 23)
+        painter.setClipPath(liquid_path)
+
+        def liquid_gradient(private, alpha, start_x, end_x):
+            """Create the translucent left-to-right liquid sheen."""
+            if private:
+                base = (5, 150, 105)    # 进度加深绿
+            else:
+                base = (29, 78, 216)    # 进度加深蓝
+            grad = QLinearGradient(start_x, 0, max(start_x + 1.0, end_x), 0)
+            grad.setColorAt(0.0, QColor(base[0], base[1], base[2], min(220, alpha + 30)))
+            grad.setColorAt(0.45, QColor(base[0], base[1], base[2], alpha))
+            grad.setColorAt(1.0, QColor(base[0], base[1], base[2], max(12, alpha - 22)))
+            return grad
+
+        track_x, track_y, track_w, track_h = 2.0, 18.0, 84.0, 46.0
+        previous_w = track_w * max(0.0, min(1.0, self._quota_previous_progress))
+        current_w = track_w * max(0.0, min(1.0, self._quota_progress))
+        if previous_w > 0:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(liquid_gradient(
+                self._quota_previous_is_private, 92, track_x, track_x + previous_w
+            )))
+            painter.drawRect(QRectF(track_x, track_y, previous_w, track_h))
+
+        # 同模式且水位上升时，只绘制新增区，能同时看出上一份和本次增加量。
+        same_mode = self._quota_previous_is_private == self._quota_is_private
+        if same_mode and current_w >= previous_w:
+            current_x, current_width = track_x + previous_w, current_w - previous_w
+        else:
+            current_x, current_width = track_x, current_w
+        if current_width > 0:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(liquid_gradient(
+                self._quota_is_private, 154, current_x, current_x + current_width
+            )))
+            painter.drawRect(QRectF(current_x, track_y, current_width, track_h))
+        if current_w > 0:
+            if self._quota_is_private:
+                boundary = QColor(5, 150, 105, 225)
+            else:
+                boundary = QColor(29, 78, 216, 225)
+            painter.setPen(QPen(boundary, 1.0))
+            painter.drawLine(track_x + current_w, track_y + 5, track_x + current_w, track_y + track_h - 5)
+        painter.restore()
+
+        # 右侧小方向箭头：只在确实存在下一自动切换目标时显示。
+        if self._next_switch_is_private is not None:
+            arrow_color = QColor(52, 211, 153) if self._next_switch_is_private else QColor(96, 165, 250)
+            painter.setPen(QPen(arrow_color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            arrow_y = 42
+            if self._next_switch_is_private:
+                # 下一次切到私有 POS：左箭头
+                painter.drawLine(98, arrow_y - 6, 91, arrow_y)
+                painter.drawLine(91, arrow_y, 98, arrow_y + 6)
+            else:
+                # 下一次切到官方 POS：右箭头
+                painter.drawLine(92, arrow_y - 6, 99, arrow_y)
+                painter.drawLine(99, arrow_y, 92, arrow_y + 6)
+
         # 3. 绘制内侧微高光倒角线 (3D 玻璃质感)
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor(255, 255, 255, 70), 1.0))
+        # 内侧线也使用未填充背景色，避免白色高光把边框误显示成进度色。
+        painter.setPen(QPen(QColor(bg_color2.red(), bg_color2.green(), bg_color2.blue(), 220), 1.0))
         painter.drawRoundedRect(3, 19, 82, 44, 22, 22)
 
         # 4. 边框嵌入式 LED 呼吸指示灯 (位于文字前方垂直居中)
@@ -301,10 +417,20 @@ class FloatingBall(QWidget):
                 )
                 return
             self.is_our_pos_active = False
+            controller = getattr(self.main_window, "switch_controller", None)
+            if controller and hasattr(controller, "reset_switch_cycle_for_manual"):
+                controller.reset_switch_cycle_for_manual(False)
+            elif controller and hasattr(controller, "refresh_floating_ball_progress"):
+                controller.refresh_floating_ball_progress(False)
             self.update()
         else:
             bring_our_pos_to_front(self.main_window)
             self.is_our_pos_active = True
+            controller = getattr(self.main_window, "switch_controller", None)
+            if controller and hasattr(controller, "reset_switch_cycle_for_manual"):
+                controller.reset_switch_cycle_for_manual(True)
+            elif controller and hasattr(controller, "refresh_floating_ball_progress"):
+                controller.refresh_floating_ball_progress(True)
             self.update()
 
     def _show_official_unavailable(self, message):

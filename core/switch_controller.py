@@ -52,7 +52,7 @@ class AutoSwitchController(QObject):
         self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
         self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
         self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
-        self._max_daily_revenue_limit = max(0.0, _config_float(self.config, "max_daily_revenue_limit", 0.0))
+        self._load_daily_revenue_limits()
 
         # Quota counters are persisted per local day.  The official POS does
         # not expose its payment amount, so the routing target uses observable
@@ -77,6 +77,12 @@ class AutoSwitchController(QObject):
         self._current_is_private = False
         self._last_decision_kind = ""
         self._last_decision_reason = ""
+        # 当前“通道周期”的切换进度：例如官方连续收单时，累计了多少
+        # 官方重量后会越过目标比例并切回私有 POS。它不是全天配额统计。
+        self._switch_cycle_initialized = False
+        self._switch_cycle_is_private = None
+        self._switch_cycle_start_total_weight = 0.0
+        self._switch_cycle_start_private_weight = 0.0
         # Hardware maintenance may briefly reconnect a scale or emit a stale
         # non-zero reading. It must never trigger focus/minimise automation
         # while an operator is creating, testing or deleting COM resources.
@@ -95,6 +101,32 @@ class AutoSwitchController(QObject):
         self._zero_unlock_timer = QTimer(self)
         self._zero_unlock_timer.setSingleShot(True)
         self._zero_unlock_timer.timeout.connect(self._on_zero_unlock_timeout)
+
+    def _load_daily_revenue_limits(self):
+        """读取周中/周末累计收款上限，并兼容旧版单一上限配置。"""
+        legacy_present = "max_daily_revenue_limit" in self.config
+        legacy = max(0.0, _config_float(self.config, "max_daily_revenue_limit", 500.0))
+        self._weekday_max_daily_revenue_limit = max(
+            0.0, _config_float(self.config, "weekday_max_daily_revenue_limit", legacy)
+        )
+        self._weekend_max_daily_revenue_limit = max(
+            0.0, _config_float(
+                self.config, "weekend_max_daily_revenue_limit",
+                legacy if legacy_present else 1000.0,
+            )
+        )
+        self._max_daily_revenue_limit = self._current_daily_revenue_limit()
+
+    def _current_daily_revenue_limit(self, today=None):
+        """周六、周日使用周末值，其余日期使用周中值。0 表示不限制。"""
+        current = today or date.today()
+        limit = (
+            self._weekend_max_daily_revenue_limit
+            if current.weekday() >= 5
+            else self._weekday_max_daily_revenue_limit
+        )
+        self._max_daily_revenue_limit = max(0.0, float(limit))
+        return self._max_daily_revenue_limit
 
     def notify_manual_switch(self, duration_sec: float = -1.0):
         """店员手动点击悬浮球/快捷键触发：锁定指定秒数内不被称重自动抢抓覆盖"""
@@ -148,6 +180,10 @@ class AutoSwitchController(QObject):
         self._forced_official_orders = 0
         self._inherited_private_orders = 0
         self._inherited_official_orders = 0
+        self._switch_cycle_initialized = False
+        self._switch_cycle_is_private = None
+        self._switch_cycle_start_total_weight = 0.0
+        self._switch_cycle_start_private_weight = 0.0
         self._load_persisted_quota_state()
 
     def _record_quota_decision(self, weight_kg, is_private, forced_official=False):
@@ -301,6 +337,11 @@ class AutoSwitchController(QObject):
             self._hide_timer.stop()
         log_event(CAT_SCALE, "称重检测到稳定放碗动作", f"重量: {weight_kg:.3f}kg")
 
+        # 在本次决策前保存周期起点。若本次最终渠道发生变化，当前这份
+        # 重量就是新周期的第一份；否则继续累加到原周期。
+        cycle_start_total = self._total_weight_kg
+        cycle_start_private = self._private_weight_kg
+        previous_cycle_channel = self._switch_cycle_is_private
         is_private_turn = self._evaluate_decision(
             weight_kg, official_available=self._official_available()
         )
@@ -309,7 +350,24 @@ class AutoSwitchController(QObject):
             if not ok:
                 self._fallback_to_private_after_official_failure(weight_kg)
                 is_private_turn = True
+        if (
+            not self._switch_cycle_initialized
+            or previous_cycle_channel is None
+            or is_private_turn != previous_cycle_channel
+        ):
+            # 第一次没有历史重量时不能用 0 作为分母，否则阈值公式会
+            # 直接得到 0kg，进度条刚开始就满格。先用本次结果建立基线，
+            # 从下一份称重开始显示真实推进量。
+            if not self._switch_cycle_initialized and cycle_start_total <= 0.000001:
+                self._switch_cycle_start_total_weight = self._total_weight_kg
+                self._switch_cycle_start_private_weight = self._private_weight_kg
+            else:
+                self._switch_cycle_start_total_weight = cycle_start_total
+                self._switch_cycle_start_private_weight = cycle_start_private
+            self._switch_cycle_is_private = is_private_turn
+            self._switch_cycle_initialized = True
         self._current_is_private = is_private_turn
+        self._update_switch_cycle_progress()
 
         if is_private_turn:
             self._last_private_time = time.time()
@@ -383,14 +441,15 @@ class AutoSwitchController(QObject):
             log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < {self._official_lock_sec}s | 本次称重 {weight_kg:.3f}kg")
             return False
 
-        # 规则 0C：当日累计收款封顶保护 (如果今日私域累积收款达到/超过上限，停止切回本 POS，分配给官方)
-        if self._max_daily_revenue_limit > 0:
+        # 规则 0C：当日累计收款封顶保护。周中/周末使用不同门限。
+        daily_limit = self._current_daily_revenue_limit()
+        if daily_limit > 0:
             try:
                 db = getattr(self.main_window, 'db', None)
                 if db:
                     today_summary = db.get_today_summary()
                     today_amount = float(today_summary.get("total_amount", 0.0))
-                    if today_amount >= self._max_daily_revenue_limit:
+                    if today_amount >= daily_limit:
                         if not official_available:
                             self._record_quota_decision(weight_kg, True)
                             self._last_decision_kind = "quota_private"
@@ -401,9 +460,10 @@ class AutoSwitchController(QObject):
                         self._last_decision_kind = "forced_official"
                         self._last_decision_reason = "私有 POS 达到当日金额上限"
                         self._last_official_time = now_ts
-                        msg = f"今日本POS已收款 ¥{today_amount:.2f} 达到/超过设定上限 ¥{self._max_daily_revenue_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
+                        period = "周末" if date.today().weekday() >= 5 else "周中"
+                        msg = f"今日本POS已收款 ¥{today_amount:.2f} 达到/超过{period}上限 ¥{daily_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
                         _safe_console(f"[AutoDecisionEngine] {msg}")
-                        log_event(CAT_DECISION, "当日收款封顶 -> 走官方", f"今日已收 ¥{today_amount:.2f} >= 门限 ¥{self._max_daily_revenue_limit:.2f}")
+                        log_event(CAT_DECISION, "当日收款封顶 -> 走官方", f"今日已收 ¥{today_amount:.2f} >= {period}门限 ¥{daily_limit:.2f}")
                         return False
             except Exception as e:
                 _safe_console(f"[AutoDecisionEngine] 查询今日收款汇总异常: {e}")
@@ -461,6 +521,82 @@ class AutoSwitchController(QObject):
         if self._total_weight_kg <= 0.0:
             return 0.0
         return (self._private_weight_kg / self._total_weight_kg) * 100.0
+
+    def get_switch_progress_status(self):
+        """Return ``(progress, remaining_kg, next_channel)`` for this cycle.
+
+        ``progress`` is the fraction of weight needed to trigger the next
+        automatic channel switch.  It deliberately uses the current channel
+        cycle, not the day's cumulative quota.  ``remaining_kg`` is ``None``
+        when the configured target makes a switch impossible (0% or 100%).
+        """
+        if not self._switch_cycle_initialized or self._switch_cycle_is_private is None:
+            return 0.0, None, "官方 POS"
+        target = min(1.0, max(0.0, self._target_private_ratio / 100.0))
+        base_total = max(0.0, float(self._switch_cycle_start_total_weight or 0.0))
+        base_private = max(0.0, float(self._switch_cycle_start_private_weight or 0.0))
+        if base_total <= 0.000001:
+            return 0.0, None, "官方 POS" if self._switch_cycle_is_private else "私有 POS"
+        delta_total = max(0.0, self._total_weight_kg - base_total)
+        delta_private = max(0.0, self._private_weight_kg - base_private)
+        delta_official = max(0.0, delta_total - delta_private)
+
+        if self._switch_cycle_is_private:
+            next_channel = "官方 POS"
+            if target >= 1.0:
+                return 0.0, None, next_channel
+            required = (target * base_total - base_private) / (1.0 - target)
+            progressed = delta_private
+        else:
+            next_channel = "私有 POS"
+            if target <= 0.0:
+                return 0.0, None, next_channel
+            required = (base_private - target * base_total) / target
+            progressed = delta_official
+
+        required = max(0.0, required)
+        if required <= 0.000001:
+            return 1.0, 0.0, next_channel
+        remaining = max(0.0, required - progressed)
+        return min(1.0, progressed / required), remaining, next_channel
+
+    def _update_switch_cycle_progress(self):
+        """Refresh the per-cycle progress bar after a stable weighing decision."""
+        progress, remaining, next_channel = self.get_switch_progress_status()
+        fb = getattr(self.main_window, "floating_ball", None)
+        if fb and hasattr(fb, "set_switch_progress"):
+            fb.set_switch_progress(
+                progress,
+                bool(self._switch_cycle_is_private),
+                next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
+            )
+
+    def reset_switch_cycle_for_manual(self, is_private):
+        """Start a fresh visual/forecast cycle after a manual channel switch.
+
+        The daily quota ledger remains untouched; only the forecast baseline
+        for the next automatic switch is reset to the current accumulated
+        weights.  This prevents old automatic progress from misleading the
+        operator after an intentional manual intervention.
+        """
+        self._switch_cycle_initialized = True
+        self._switch_cycle_is_private = bool(is_private)
+        self._switch_cycle_start_total_weight = self._total_weight_kg
+        self._switch_cycle_start_private_weight = self._private_weight_kg
+        self._current_is_private = bool(is_private)
+        fb = getattr(self.main_window, "floating_ball", None)
+        if fb and hasattr(fb, "set_switch_progress"):
+            _progress, remaining, next_channel = self.get_switch_progress_status()
+            fb.set_switch_progress(
+                0.0,
+                bool(is_private),
+                next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
+            )
+        log_event(
+            CAT_SWITCH,
+            "手动切换后重置本轮切换进度",
+            "累计分流统计保留，下一次自动切换从当前重量起算",
+        )
 
     def _quota_status_text(self) -> str:
         return (
@@ -520,13 +656,39 @@ class AutoSwitchController(QObject):
             fb.is_our_pos_active = is_private
             weight_pct = self.get_actual_private_weight_ratio()
             count_pct = self.get_actual_private_ratio()
+            progress, remaining_kg, next_channel = self.get_switch_progress_status()
+            if hasattr(fb, "set_switch_progress"):
+                fb.set_switch_progress(
+                    progress,
+                    is_private,
+                    next_is_private=(next_channel == "私有 POS") if remaining_kg is not None else None,
+                )
+            if remaining_kg is None:
+                switch_text = "按配置不会自动切换"
+            else:
+                switch_text = f"切换进度: {progress * 100:.0f}% | 还需约 {remaining_kg:.3f}kg 后切到{next_channel}"
             fb.setToolTip(
-                f"自动决策系统 | 私域重量占比: {weight_pct:.1f}% | 次数: {count_pct:.1f}%\n"
+                f"自动决策系统 | 本轮{switch_text}\n"
+                f"当日累计私域重量占比: {weight_pct:.1f}% / 目标 {self._target_private_ratio:.1f}% | 次数: {count_pct:.1f}%\n"
                 f"{reason}\n轻触: 手动切换 | 长按/三连击: 紧急避险销毁"
             )
             if show_checkmark:
                 fb.show_decision_checkmark()
             fb.update()
+
+    def refresh_floating_ball_progress(self, is_private=None):
+        """手动切屏后只刷新水位颜色，不新增一份配额快照。"""
+        fb = getattr(self.main_window, "floating_ball", None)
+        if not fb or not hasattr(fb, "set_switch_progress"):
+            return
+        if is_private is None:
+            is_private = bool(getattr(fb, "is_our_pos_active", True))
+        progress, remaining, next_channel = self.get_switch_progress_status()
+        fb.set_switch_progress(
+            progress,
+            bool(is_private),
+            next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
+        )
 
     def update_config(self, config: dict):
         """更新配置参数"""
@@ -540,4 +702,4 @@ class AutoSwitchController(QObject):
         self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
         self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
         self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
-        self._max_daily_revenue_limit = max(0.0, _config_float(self.config, "max_daily_revenue_limit", 0.0))
+        self._load_daily_revenue_limits()

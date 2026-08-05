@@ -578,7 +578,11 @@ class HistoryWidget(QWidget):
                     if kw not in remark and kw not in r.get("sale_no", ""):
                         continue
                 else:
-                    if kw not in r.get("sale_no", "") and kw not in remark:
+                    if (
+                        kw not in r.get("sale_no", "")
+                        and kw not in remark
+                        and kw not in str(r.get("order_id", "") or "")
+                    ):
                         continue
                         
             filtered.append(r)
@@ -668,9 +672,13 @@ class HistoryWidget(QWidget):
         call_no = call_match.group(1) if call_match else record.get("sale_no", "")[-3:]
         temp_order_match = re.search(r"单号:(\w+)", remark)
         temp_order_no = temp_order_match.group(1) if temp_order_match else record.get("sale_no", "")
+        # New sales store the receipt-compatible 25-digit identifier in
+        # ``order_id``.  Keep the legacy remark/sale number as a fallback for
+        # historical rows created before that field existed.
+        display_order_no = record.get("order_id") or temp_order_no
 
         self.lbl_header_title.setText(u"取餐号：%s" % call_no)
-        self.lbl_order_no.setText(u"订单编号：%s" % temp_order_no)
+        self.lbl_order_no.setText(u"订单编号：%s" % display_order_no)
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
         
         # 结账方式
@@ -957,11 +965,16 @@ class HistoryWidget(QWidget):
                 "price_unit": r.get("price_unit", "per_jin"),
                 "total_price": r.get("total_price", 0.0),
                 "temp_order_no": temp_order_no,
+                "order_id": r.get("order_id") or temp_order_no,
                 "cart_items": cart_items,
                 "created_at": str(r.get("created_at", ""))
             }
 
-            success = self.printer.print_receipt(sale_data, print_type=ptype)
+            # “重打”是明确的人工操作，允许补打曾被自动打印开关关闭的
+            # 单据；正常结账流程仍由打印设置控制。
+            success = self.printer.print_receipt(
+                sale_data, print_type=ptype, respect_settings=False
+            )
             self.db.mark_print_result(r["id"], success, getattr(self.printer, "last_error", ""))
             if success:
                 from ui.custom_dialog import show_info

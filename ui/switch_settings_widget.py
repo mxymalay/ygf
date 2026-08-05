@@ -211,13 +211,17 @@ class SwitchSettingsWidget(QWidget):
         lbl_w_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_w_tip)
 
-        self.sp_max_daily_limit = TouchDoubleSpinBox(0.0, 0.0, 999999.0, 100.0, " 元")
-        lay1.addRow(QLabel(u"当日累计收款上限:"), self.sp_max_daily_limit)
+        self.sp_weekday_max_daily_limit = TouchDoubleSpinBox(500.0, 0.0, 999999.0, 100.0, " 元")
+        lay1.addRow(QLabel(u"周中累计收款上限:"), self.sp_weekday_max_daily_limit)
 
-        lbl_limit_tip = QLabel(u"场景说明：设置今日私域本POS累计收款金额上限。当今日收款达到/超过此金额时，全自动停止切换为本POS，分配给官方收银。0 元表示不限制。")
+        self.sp_weekend_max_daily_limit = TouchDoubleSpinBox(1000.0, 0.0, 999999.0, 100.0, " 元")
+        lay1.addRow(QLabel(u"周末累计收款上限:"), self.sp_weekend_max_daily_limit)
+
+        lbl_limit_tip = QLabel(u"场景说明：周中为周一至周五，周末为周六、周日。当天私域累计收款达到上限后，全自动停止切换为本POS，分配给官方收银；0 元表示不限制。")
         lbl_limit_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_limit_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_limit_tip)
+        lay1.addRow(QLabel(), self._group_save_button(u"保存总控设置", self._save_control_group))
         form_vlayout.addWidget(grp1)
 
         # --- 场景 2：连续收银防打断 ---
@@ -246,6 +250,7 @@ class SwitchSettingsWidget(QWidget):
         lbl_p_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_p_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_p_tip)
+        lay2.addRow(QLabel(), self._group_save_button(u"保存连续收银设置", self._save_continuity_group))
         form_vlayout.addWidget(grp2)
 
         # --- 场景 3：异常抖动与人工干预 ---
@@ -274,6 +279,7 @@ class SwitchSettingsWidget(QWidget):
         lbl_m_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_m_tip.setWordWrap(True)
         lay3.addRow(QLabel(), lbl_m_tip)
+        lay3.addRow(QLabel(), self._group_save_button(u"保存秤具设置", self._save_scale_group))
         form_vlayout.addWidget(grp3)
 
         # --- 场景 4：订单收尾 ---
@@ -284,12 +290,13 @@ class SwitchSettingsWidget(QWidget):
         
         self.sp_delay = TouchSpinBox(10, 0, 30, 1, " 秒")
         lay4.addRow(QLabel(u"结账出票后隐退延时:"), self.sp_delay)
+        lay4.addRow(QLabel(), self._group_save_button(u"保存收尾设置", self._save_finish_group))
         form_vlayout.addWidget(grp4)
 
         left_layout.addWidget(form_container)
 
         # 底部保存按钮
-        self.btn_save = QPushButton(u"💾 保存算法设置")
+        self.btn_save = QPushButton(u"保存全部分流设置")
         self.btn_save.setFixedHeight(50)
         self.btn_save.setCursor(Qt.PointingHandCursor)
         self.btn_save.setStyleSheet("""
@@ -439,11 +446,31 @@ class SwitchSettingsWidget(QWidget):
             self.log_current_page += 1
             self._render_log_page()
 
+    def _group_save_button(self, text, slot):
+        """创建触屏友好的分组保存按钮，避免用户必须滚到底部才会生效。"""
+        button = QPushButton(text)
+        button.setMinimumHeight(44)
+        button.setMinimumWidth(170)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setStyleSheet("""
+            QPushButton {
+                background-color: #0EA5E9; color: white; font-size: 15px;
+                font-weight: bold; border-radius: 8px; padding: 8px 18px;
+            }
+            QPushButton:hover { background-color: #0284C7; }
+            QPushButton:pressed { background-color: #0369A1; }
+        """)
+        button.clicked.connect(slot)
+        return button
+
     def _load_config(self):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
         self.sp_ratio.setValue(int(self.config.get("private_ratio_percent", 30)))
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
-        self.sp_max_daily_limit.setValue(float(self.config.get("max_daily_revenue_limit", 0.0)))
+        legacy_limit = float(self.config.get("max_daily_revenue_limit", 500.0) or 500.0)
+        self.sp_weekday_max_daily_limit.setValue(float(self.config.get("weekday_max_daily_revenue_limit", legacy_limit)))
+        weekend_default = legacy_limit if "max_daily_revenue_limit" in self.config else 1000.0
+        self.sp_weekend_max_daily_limit.setValue(float(self.config.get("weekend_max_daily_revenue_limit", weekend_default)))
         self.sp_min_valid_weight.setValue(float(self.config.get("min_valid_weight_kg", 0.08)))
         self.sp_stable_threshold.setValue(float(self.config.get("stable_threshold", 0.01)))
         
@@ -453,60 +480,67 @@ class SwitchSettingsWidget(QWidget):
         self.sp_manual_override_lock.setValue(int(self.config.get("manual_override_lock_sec", 30)))
         self.sp_delay.setValue(int(self.config.get("auto_hide_delay_sec", 10)))
 
-    def _on_save(self):
-        # 1. 获取新值
-        new_enabled = self.chk_enabled.isChecked()
-        new_ratio = self.sp_ratio.value()
-        new_weight = self.sp_weight.value()
-        new_max_daily_limit = self.sp_max_daily_limit.value()
-        new_min_valid = self.sp_min_valid_weight.value()
-        new_stable_threshold = self.sp_stable_threshold.value()
-        new_official_lock = self.sp_official_lock.value()
-        new_zeroing_unlock = self.sp_zeroing_unlock.value()
-        new_private_lock = self.sp_private_lock.value()
-        new_manual_override = self.sp_manual_override_lock.value()
-        new_delay = self.sp_delay.value()
-
-        # 2. 更新 config
-        self.config["auto_switch_enabled"] = new_enabled
-        self.config["private_ratio_percent"] = new_ratio
-        self.config["min_private_weight_kg"] = new_weight
-        self.config["max_daily_revenue_limit"] = new_max_daily_limit
-        self.config["min_valid_weight_kg"] = new_min_valid
-        self.config["stable_threshold"] = new_stable_threshold
-        self.config["official_lock_sec"] = new_official_lock
-        self.config["zeroing_unlock_sec"] = new_zeroing_unlock
-        self.config["private_lock_sec"] = new_private_lock
-        self.config["manual_override_lock_sec"] = new_manual_override
-        self.config["auto_hide_delay_sec"] = new_delay
-        
+    def _refresh_runtime(self, title, restart_scale=False):
+        """持久化当前配置，并让运行中的控制器/称重线程及时读取新值。"""
         save_config(self.config)
-
-        # 3. 记录日志
-        detail = (f"开关: {'开' if new_enabled else '关'} | "
-                  f"目标重量比: {new_ratio}% | "
-                  f"门限: {new_weight:.2f}kg | 当日上限: {new_max_daily_limit:.2f}元 | "
-                  f"防抖(起漂{new_min_valid:.2f}, 稳定波动{new_stable_threshold:.2f}) | "
-                  f"锁: 官{new_official_lock}s, 离{new_zeroing_unlock}s, 私{new_private_lock}s, 手{new_manual_override}s | "
-                  f"隐退: {new_delay}s")
-        log_event(CAT_SYSTEM, "全自动分流算法所有参数被修改", detail)
-
-        # 4. 同步至实时生效的控制器
         parent_mw = self.window()
-        if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
+        if hasattr(parent_mw, "switch_controller") and parent_mw.switch_controller:
             parent_mw.switch_controller.update_config(self.config)
             parent_mw.switch_controller._update_floating_ball_status(
-                is_private=getattr(parent_mw.switch_controller, '_current_is_private', False), 
-                reason="算法配置已更新"
+                is_private=getattr(parent_mw.switch_controller, "_current_is_private", False),
+                reason=title,
             )
-        if hasattr(parent_mw, 'sale_page') and parent_mw.sale_page:
+        if restart_scale and hasattr(parent_mw, "sale_page") and parent_mw.sale_page:
             if not parent_mw.sale_page.restart_scale():
                 QMessageBox.warning(
-                    self,
-                    u"称重读取器尚未重启",
-                    u"算法参数已保存，但旧称重线程未能安全退出。请退出并重新打开本 POS 后生效。",
+                    self, u"称重读取器尚未重启",
+                    u"设置已保存，但旧称重线程未能安全退出。请退出并重新打开本 POS 后生效。",
                 )
-                return
+                return False
+        log_event(CAT_SYSTEM, title, "分组设置已保存")
+        QMessageBox.information(self, u"保存成功", title + u"，已立即生效。")
+        self._refresh_logs()
+        return True
 
-        QMessageBox.information(self, u"保存成功", u"分流算法参数已保存并立即生效！")
-        self._refresh_logs() # 手动触发一次
+    def _save_control_group(self):
+        self.config["auto_switch_enabled"] = self.chk_enabled.isChecked()
+        self.config["private_ratio_percent"] = self.sp_ratio.value()
+        self.config["min_private_weight_kg"] = self.sp_weight.value()
+        self.config["weekday_max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
+        self.config["weekend_max_daily_revenue_limit"] = self.sp_weekend_max_daily_limit.value()
+        # 供旧版组件读取的兼容值，以周中上限为准。
+        self.config["max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
+        self._refresh_runtime(u"总控与智能过滤设置")
+
+    def _save_continuity_group(self):
+        self.config["official_lock_sec"] = self.sp_official_lock.value()
+        self.config["zeroing_unlock_sec"] = self.sp_zeroing_unlock.value()
+        self.config["private_lock_sec"] = self.sp_private_lock.value()
+        self._refresh_runtime(u"连续收银防打断设置")
+
+    def _save_scale_group(self):
+        self.config["min_valid_weight_kg"] = self.sp_min_valid_weight.value()
+        self.config["stable_threshold"] = self.sp_stable_threshold.value()
+        self.config["manual_override_lock_sec"] = self.sp_manual_override_lock.value()
+        self._refresh_runtime(u"秤具防抖与人工干预设置", restart_scale=True)
+
+    def _save_finish_group(self):
+        self.config["auto_hide_delay_sec"] = self.sp_delay.value()
+        self._refresh_runtime(u"结账收尾动作设置")
+
+    def _on_save(self):
+        """保留页面底部的“保存全部”入口，兼容旧操作习惯。"""
+        self.config["auto_switch_enabled"] = self.chk_enabled.isChecked()
+        self.config["private_ratio_percent"] = self.sp_ratio.value()
+        self.config["min_private_weight_kg"] = self.sp_weight.value()
+        self.config["weekday_max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
+        self.config["weekend_max_daily_revenue_limit"] = self.sp_weekend_max_daily_limit.value()
+        self.config["max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
+        self.config["min_valid_weight_kg"] = self.sp_min_valid_weight.value()
+        self.config["stable_threshold"] = self.sp_stable_threshold.value()
+        self.config["official_lock_sec"] = self.sp_official_lock.value()
+        self.config["zeroing_unlock_sec"] = self.sp_zeroing_unlock.value()
+        self.config["private_lock_sec"] = self.sp_private_lock.value()
+        self.config["manual_override_lock_sec"] = self.sp_manual_override_lock.value()
+        self.config["auto_hide_delay_sec"] = self.sp_delay.value()
+        self._refresh_runtime(u"全部分流算法设置", restart_scale=True)
