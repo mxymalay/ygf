@@ -493,6 +493,20 @@ class HistoryWidget(QWidget):
 
         right_action_row.addStretch()
 
+        self.btn_refund = QPushButton(u"退单")
+        self.btn_refund.setMinimumHeight(48)
+        self.btn_refund.setMinimumWidth(96)
+        self.btn_refund.setStyleSheet(
+            "QPushButton { background: #B91C1C; color: #FFFFFF; font-weight: 900; "
+            "font-size: 15px; padding: 10px 20px; border-radius: 6px; border: 1px solid #EF4444; }"
+            "QPushButton:hover { background: #DC2626; }"
+            "QPushButton:disabled { background: #374151; color: #9CA3AF; border: 1px solid #4B5563; }"
+        )
+        self.btn_refund.setToolTip(u"先在实际支付渠道完成退款，再在此登记退单")
+        self.btn_refund.setEnabled(False)
+        self.btn_refund.clicked.connect(self._on_refund_click)
+        right_action_row.addWidget(self.btn_refund)
+
         btn_reprint_customer = QPushButton(u"重打顾客单")
         btn_reprint_customer.setStyleSheet("background: #374151; color: white; font-weight: bold; font-size: 14px; padding: 10px 20px; border-radius: 6px; border: none;")
         btn_reprint_customer.clicked.connect(lambda checked=False: self._on_reprint_click("customer"))
@@ -663,6 +677,12 @@ class HistoryWidget(QWidget):
 
     def _select_order(self, record):
         self.selected_record = record
+
+        # 退单只允许对已支付订单执行一次；空列表或已退订单保持禁用。
+        if hasattr(self, "btn_refund"):
+            self.btn_refund.setEnabled(
+                bool(record) and record.get("payment_status", "PAID") != REFUNDED
+            )
 
         # 高亮选中的卡片
         for i in range(self.order_list_layout.count()):
