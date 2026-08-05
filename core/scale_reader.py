@@ -12,9 +12,10 @@ from ctypes import wintypes
 from PyQt5.QtCore import QObject, pyqtSignal
 from config import save_config
 from core.official_pos import find_active_official_log
+from core.app_logger import log_event, CAT_SCALE
 
 
-def read_file_shared(filepath: str) -> str:
+def read_file_shared(filepath: str, max_bytes: int = None) -> str:
     """
     以 Windows 原生 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE 共享模式无锁读取文件。
     彻底避免官方收银软件 (yangguofu-pos) 写入日志时出现 EBUSY: resource busy or locked 错误！
@@ -45,9 +46,16 @@ def read_file_shared(filepath: str) -> str:
                 try:
                     size = kernel32.GetFileSize(handle, None)
                     if size > 0 and size != 0xFFFFFFFF:
-                        buf = ctypes.create_string_buffer(size)
+                        read_size = size
+                        if max_bytes and size > max_bytes:
+                            # Serial logs can grow for the whole business day.
+                            # Only the tail contains useful live readings.
+                            offset = size - int(max_bytes)
+                            kernel32.SetFilePointer(handle, offset, None, 0)
+                            read_size = int(max_bytes)
+                        buf = ctypes.create_string_buffer(read_size)
                         bytes_read = wintypes.DWORD()
-                        if kernel32.ReadFile(handle, buf, size, ctypes.byref(bytes_read), None):
+                        if kernel32.ReadFile(handle, buf, read_size, ctypes.byref(bytes_read), None):
                             return buf.raw[:bytes_read.value].decode("utf-8", errors="ignore")
                 finally:
                     kernel32.CloseHandle(handle)
@@ -56,8 +64,12 @@ def read_file_shared(filepath: str) -> str:
 
     # 回退到短连接读取 (打开即读，读完立刻关闭)
     try:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
+        with open(filepath, "rb") as f:
+            if max_bytes:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - int(max_bytes)), os.SEEK_SET)
+            return f.read().decode("utf-8", errors="ignore")
     except Exception:
         return ""
 
@@ -71,6 +83,8 @@ class ScaleReader(QObject):
     weight_updated = pyqtSignal(float)
     status_changed = pyqtSignal(bool, str)
     weight_stable = pyqtSignal(float)
+    weighing_cycle_started = pyqtSignal(float)
+    zero_stable = pyqtSignal()
     error_occurred = pyqtSignal(str)
 
     def __init__(self, config):
@@ -79,20 +93,74 @@ class ScaleReader(QObject):
         self._running = False
         self._thread = None
         self._serial = None
+        self._ever_started = False
 
         self._last_weights = []
-        self._stable_threshold = config.get("stable_threshold", 0.01)
-        self._stable_count = config.get("stable_count", 5)
+        self._reload_config_values()
+        self._cycle_armed = True
+        self._zero_reported = False
+        self._last_stable_emitted = None
 
         self._locked_weight = -1.0
+        # Diagnostic logging is change-based (plus a 5-second heartbeat), not
+        # every 200 ms poll, so long-running POS sessions remain lightweight.
+        self._last_logged_weight = None
+        self._last_weight_log_monotonic = 0.0
+        self._last_logged_source = ""
+
+    def _reload_config_values(self):
+        def safe_float(name, default):
+            try:
+                return float(self.config.get(name, default))
+            except (TypeError, ValueError):
+                return float(default)
+
+        def safe_int(name, default):
+            try:
+                return int(self.config.get(name, default))
+            except (TypeError, ValueError):
+                return int(default)
+
+        self._stable_threshold = max(0.001, safe_float("stable_threshold", 0.01))
+        self._stable_count = max(2, safe_int("stable_count", 5))
+        self._zero_threshold = max(0.0, safe_float("scale_zero_threshold_kg", 0.005))
+        self._cycle_start_threshold = max(
+            self._zero_threshold,
+            safe_float("min_valid_weight_kg", 0.08),
+        )
+        self._maximum_weight = max(1.0, safe_float("scale_max_weight_kg", 15.0))
+        self._stale_timeout = max(1.0, safe_float("scale_stale_timeout_sec", 3.0))
+
+    def _log_weight_sample(self, weight_kg, source, raw=""):
+        """Persist useful scale samples without flooding app_events.jsonl."""
+        now = time.monotonic()
+        weight = round(float(weight_kg or 0.0), 3)
+        changed = (
+            self._last_logged_weight is None
+            or abs(weight - self._last_logged_weight) >= 0.001
+            or source != self._last_logged_source
+        )
+        heartbeat = now - self._last_weight_log_monotonic >= 5.0
+        if not changed and not heartbeat:
+            return
+        detail = "来源=%s | 重量=%.3f kg" % (source, weight)
+        if raw:
+            detail += " | 原始=%s" % str(raw).replace("\r", "").replace("\n", "")[:160]
+        log_event(CAT_SCALE, "称重读数", detail)
+        self._last_logged_weight = weight
+        self._last_weight_log_monotonic = now
+        self._last_logged_source = source
 
     def start(self):
         """启动称重读取"""
-        if self._running:
-            return
+        if self._thread and self._thread.is_alive():
+            return False
         self._running = True
+        self._reset_runtime_state(preserve_cycle=self._ever_started)
+        self._ever_started = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+        return True
 
     def stop(self):
         """停止称重读取"""
@@ -108,26 +176,38 @@ class ScaleReader(QObject):
         """重新连接称重服务"""
         self.stop()
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1.0)
+            # The official-log loop may be in a 1.5 second wait and a failed
+            # COM open waits 2 seconds.  Never turn _running back on while the
+            # old worker is still alive, otherwise two readers share one
+            # serial handle and duplicate every signal.
+            self._thread.join(timeout=3.0)
+        if self._thread and self._thread.is_alive():
+            message = "旧称重读取线程未能安全退出，本次没有启动第二个读取线程"
+            self.status_changed.emit(False, message)
+            self.error_occurred.emit(message)
+            log_event(CAT_SCALE, "称重读取重启被阻止", message)
+            return False
         self._thread = None
-        self.start()
+        return self.start()
+
+    def _reset_runtime_state(self, preserve_cycle=False):
+        self._reload_config_values()
+        self._last_weights = []
+        self._locked_weight = -1.0
+        if not preserve_cycle:
+            self._cycle_armed = True
+            self._zero_reported = False
+        self._last_stable_emitted = None
 
     def _apply_fluctuation_filter(self, w: float) -> float:
         """
-        消除 0.01kg 范围内的读数跳动：
-        1. 初次或跳动超过 0.01kg，说明是真实重量改变（放上/拿走），重新锁定。
-        2. 如果在 0.01kg 范围内跳动，取较大的值并锁定，不再向下跳动。
+        保留秤的真实三位小数读数。稳定性由后续对称窗口判断，不能采用
+        “只升不降”的最大值锁定，否则会长期向上偏置最多约 10g。
         """
-        # 强制归零信任：如果电子秤读数归零，立刻解除防抖，避免卡在 0.008 等微小数值
-        if w <= 0.001:
+        if w <= self._zero_threshold:
             self._locked_weight = 0.0
             return 0.0
-            
-        if self._locked_weight < 0 or abs(w - self._locked_weight) > 0.01:
-            self._locked_weight = w
-        else:
-            if w > self._locked_weight:
-                self._locked_weight = w
+        self._locked_weight = round(float(w), 3)
         return self._locked_weight
 
     def _run_loop(self):
@@ -180,10 +260,13 @@ class ScaleReader(QObject):
                 self._serial.rts = False
 
                 self.status_changed.emit(True, "● 已连接串口秤 %s (波特率 %d)" % (port, baudrate))
+                log_event(CAT_SCALE, "称重串口已连接", "端口=%s | 波特率=%d" % (port, baudrate))
+                self._last_weights = []
                 
                 buffer = bytearray()
                 poll_interval = 0.2  # 官方 POS 的实际轮询频率：5 次/秒
                 next_poll_time = time.monotonic()
+                last_valid_reply = time.monotonic()
 
                 while self._running:
                     try:
@@ -199,6 +282,9 @@ class ScaleReader(QObject):
                         data = self._serial.read(waiting or 1)
                         if data:
                             buffer.extend(data)
+                            if len(buffer) > 512 and not any(b in (0x0D, 0x0A) for b in buffer):
+                                log_event(CAT_SCALE, "称重串口丢弃异常长数据", "端口=%s | 长度=%d" % (port, len(buffer)))
+                                buffer.clear()
                             while True:
                                 frame_end = next(
                                     (i for i, b in enumerate(buffer) if b in (0x0D, 0x0A)),
@@ -217,18 +303,29 @@ class ScaleReader(QObject):
                                 w = self._parse_com_weight(line)
                                 if w is not None:
                                     w = self._apply_fluctuation_filter(w)
+                                    last_valid_reply = time.monotonic()
+                                    self._log_weight_sample(w, "COM:%s" % port, line)
                                     self.weight_updated.emit(w)
                                     self._check_stability(w)
                                     self.status_changed.emit(
                                         True, "● 串口秤 %s | 读数: %.3f kg" % (port, w)
                                     )
-                    except serial.SerialException:
+                        if time.monotonic() - last_valid_reply > self._stale_timeout:
+                            raise serial.SerialException(
+                                "连续 %.1f 秒没有收到有效称重回包" % self._stale_timeout
+                            )
+                    except serial.SerialException as exc:
+                        log_event(CAT_SCALE, "称重串口断开", "端口=%s | %s" % (port, str(exc)[:160]))
+                        self.status_changed.emit(False, "● 串口秤 %s 已断开: %s" % (port, exc))
                         break
-                    except Exception:
-                        time.sleep(0.1)
+                    except Exception as exc:
+                        log_event(CAT_SCALE, "称重读取循环异常", "端口=%s | %s" % (port, str(exc)[:160]))
+                        self.status_changed.emit(False, "● 串口秤 %s 读取异常: %s" % (port, exc))
+                        break
                         
             except Exception as e:
                 self.status_changed.emit(False, "● 串口 %s 连接失败: %s" % (port, str(e)))
+                log_event(CAT_SCALE, "称重串口连接失败", "端口=%s | %s" % (port, str(e)[:160]))
                 time.sleep(2.0)
             finally:
                 if self._serial:
@@ -260,7 +357,7 @@ class ScaleReader(QObject):
                 val = float(m.group(1).replace(" ", ""))
                 if val > 50:
                     val = val / 1000.0
-                return round(abs(val), 3)
+                return self._sanitize_weight(val)
             except Exception:
                 pass
 
@@ -269,11 +366,25 @@ class ScaleReader(QObject):
         if m2:
             try:
                 val = float(m2.group(1).replace(" ", "")) / 1000.0
-                return round(abs(val), 3)
+                return self._sanitize_weight(val)
             except Exception:
                 pass
 
         return None
+
+    def _sanitize_weight(self, value):
+        """Clamp negative/tare readings to zero and reject impossible loads."""
+        value = float(value)
+        if value < 0:
+            return 0.0
+        if value > self._maximum_weight:
+            log_event(
+                CAT_SCALE,
+                "称重读数超出量程",
+                "读数=%.3fkg | 最大允许=%.3fkg" % (value, self._maximum_weight),
+            )
+            return None
+        return round(value, 3)
 
     def _find_active_ygf_log(self) -> str:
         """Find the configured or compatible official POS log location."""
@@ -287,26 +398,20 @@ class ScaleReader(QObject):
         # 匹配 JSON 数组格式: ["00.000","00.350","00.350",...]
         matches = re.findall(r'"([+-]?\d{1,5}\.\d{1,4})"', line)
         if matches:
-            # 如果有多个数值，优先选取非零有效重量；若全为零则取第一个
-            valid_vals = []
-            for item in matches:
-                try:
-                    v = float(item)
-                    if v > 50:
-                        v = v / 1000.0
-                    v = round(abs(v), 3)
-                    valid_vals.append(v)
-                except Exception:
-                    pass
-            if valid_vals:
-                non_zeros = [v for v in valid_vals if v > 0.001]
-                return non_zeros[0] if non_zeros else valid_vals[0]
+            # The array is a rolling sample batch; only the last item is the
+            # freshest.  Falling back to an earlier valid/non-zero item would
+            # replay the old bowl when the newest sample is zero or invalid.
+            try:
+                value = float(matches[-1])
+                if value > 50:
+                    value = value / 1000.0
+                return self._sanitize_weight(value)
+            except Exception:
+                return None
 
         # 单值正则匹配
         m = re.search(r'read\s*-\s*([+-]?\d{1,5}\.\d{1,4})', line, re.IGNORECASE)
-        if not m:
-            m = re.search(r'-\s*([+-]?\d{1,5}\.\d{1,4})', line)
-        if not m:
+        if not m and re.search(r'(?:DI_BAO|weight|kg|\bW[WN]\b|ST,GS)', line, re.IGNORECASE):
             m = re.search(r'([+-]?\d{1,5}\.\d{1,4})', line)
 
         if m:
@@ -314,7 +419,7 @@ class ScaleReader(QObject):
                 val = float(m.group(1))
                 if val > 50:
                     val = val / 1000.0
-                return round(abs(val), 3)
+                return self._sanitize_weight(val)
             except Exception:
                 pass
         return None
@@ -322,7 +427,9 @@ class ScaleReader(QObject):
     def _read_from_ygf_log(self, target_file: str):
         """从官方系统实时日志中拉取重量 (Windows 共享无锁模式)"""
         self.status_changed.emit(True, "● 已连接官方称重服务 (%s)" % os.path.basename(target_file))
+        log_event(CAT_SCALE, "官方称重日志已连接", "文件=%s" % target_file)
         last_signature = None
+        self._last_weights = []
 
         while self._running:
             current_log = self._find_active_ygf_log()
@@ -343,13 +450,14 @@ class ScaleReader(QObject):
                 continue
             last_signature = signature
 
-            content = read_file_shared(current_log)
+            content = read_file_shared(current_log, max_bytes=64 * 1024)
             if content:
                 lines = content.strip().splitlines()
                 for line in reversed(lines[-50:]):
                     raw_w = self._parse_ygf_log_line(line)
                     if raw_w is not None:
                         w = self._apply_fluctuation_filter(raw_w)
+                        self._log_weight_sample(w, "官方日志", line)
                         self.weight_updated.emit(w)
                         self._check_stability(w)
                         self.status_changed.emit(
@@ -360,14 +468,35 @@ class ScaleReader(QObject):
             time.sleep(0.2)
 
     def _check_stability(self, weight):
-        """检测重量是否稳定"""
+        """Emit stable values and exactly one start/zero event per bowl."""
         self._last_weights.append(weight)
         if len(self._last_weights) > self._stable_count:
             self._last_weights.pop(0)
 
-        if len(self._last_weights) == self._stable_count and weight > 0.01:
-            max_w = max(self._last_weights)
-            min_w = min(self._last_weights)
-            if (max_w - min_w) < self._stable_threshold:
-                avg_weight = sum(self._last_weights) / len(self._last_weights)
-                self.weight_stable.emit(round(avg_weight, 3))
+        if len(self._last_weights) != self._stable_count:
+            return
+        max_w = max(self._last_weights)
+        min_w = min(self._last_weights)
+        if (max_w - min_w) > self._stable_threshold:
+            return
+
+        avg_weight = round(sum(self._last_weights) / len(self._last_weights), 3)
+        if avg_weight <= self._zero_threshold:
+            avg_weight = 0.0
+        if self._last_stable_emitted is None or abs(avg_weight - self._last_stable_emitted) >= 0.001:
+            self._last_stable_emitted = avg_weight
+            self.weight_stable.emit(avg_weight)
+
+        if avg_weight <= self._zero_threshold:
+            self._cycle_armed = True
+            if not self._zero_reported:
+                self._zero_reported = True
+                self.zero_stable.emit()
+            return
+
+        self._zero_reported = False
+        if avg_weight <= self._cycle_start_threshold:
+            return
+        if self._cycle_armed:
+            self._cycle_armed = False
+            self.weighing_cycle_started.emit(avg_weight)

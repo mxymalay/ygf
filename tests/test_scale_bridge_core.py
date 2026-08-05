@@ -144,6 +144,27 @@ class ArbiterTests(unittest.TestCase):
         self.assertEqual(arbiter.route_private(b"$"), b"$")
         self.assertEqual(arbiter.mode, BridgeMode.PRIVATE_ACTIVE)
 
+    def test_only_recent_polling_endpoints_receive_scale_replies(self):
+        now = [10.0]
+        arbiter = OfficialPriorityArbiter(clock=lambda: now[0])
+        self.assertEqual(arbiter.active_outputs(), (False, False))
+        arbiter.route_official(b"$")
+        self.assertEqual(arbiter.active_outputs(), (True, False))
+        arbiter.route_private(b"$")
+        self.assertEqual(arbiter.active_outputs(), (True, True))
+        now[0] += 1.1
+        self.assertEqual(arbiter.active_outputs(), (False, False))
+
+    def test_new_serial_session_drops_old_endpoint_activity(self):
+        arbiter = OfficialPriorityArbiter()
+        arbiter.route_official(b"$")
+        arbiter.route_private(b"$")
+        arbiter.accept_scale_bytes(b"000.402\r")
+        arbiter.reset_session()
+        self.assertEqual(arbiter.active_outputs(), (False, False))
+        self.assertIsNone(arbiter.last_weight_kg)
+        self.assertEqual(arbiter.mode, BridgeMode.UNKNOWN)
+
     def test_official_write_queue_precedes_private_queue(self):
         queue = BoundedPriorityQueue(4)
         self.assertTrue(queue.put(b"private"))
@@ -836,6 +857,28 @@ class RuntimeTests(unittest.TestCase):
         serial = SimulatedScaleSerial(0.5)
         serial.write(b"$")
         self.assertEqual(serial.read(64), b"0.500\r")
+
+    def test_runtime_does_not_queue_replies_for_closed_pos_peer(self):
+        runtime = ScaleBridgeRuntime(
+            ScaleBridgeConfig(
+                physical_scale=ScaleDeviceIdentity(port="COM5"),
+                official_bridge_port="CNCB0",
+                private_bridge_port="CNCB1",
+            )
+        )
+        with runtime._arbiter_lock:
+            runtime._arbiter.route_official(b"$")
+        self.assertEqual(runtime._broadcast_scale_reply(b"000.402\r"), (True, False))
+        self.assertEqual(len(runtime._official_output_queue), 1)
+        self.assertEqual(len(runtime._private_output_queue), 0)
+
+        runtime._official_output_queue.clear()
+        with runtime._arbiter_lock:
+            runtime._arbiter.reset_session()
+            runtime._arbiter.route_private(b"$")
+        self.assertEqual(runtime._broadcast_scale_reply(b"000.500\r"), (False, True))
+        self.assertEqual(len(runtime._official_output_queue), 0)
+        self.assertEqual(len(runtime._private_output_queue), 1)
 
     def test_partial_port_open_is_closed_and_queues_are_not_replayed(self):
         opened = []

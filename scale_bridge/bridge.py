@@ -358,6 +358,8 @@ class ScaleBridgeRuntime:
         self._physical_queue.clear()
         self._official_output_queue.clear()
         self._private_output_queue.clear()
+        with self._arbiter_lock:
+            self._arbiter.reset_session()
         opened = []
         try:
             physical = self._new_serial(
@@ -410,17 +412,24 @@ class ScaleBridgeRuntime:
                 if not data:
                     continue
                 if self.config.enable_debug_hex_log:
-                    logger.debug("Scale -> Both: %s", data.hex(" "))
-                # Broadcast exact bytes first. Local frame parsing never alters POS output.
-                if not self._official_output_queue.put(data):
-                    logger.warning("official output queue overflow")
-                if not self._private_output_queue.put(data):
-                    logger.warning("private output queue overflow")
-                with self._arbiter_lock:
-                    self._arbiter.accept_scale_bytes(data)
+                    logger.debug("Scale -> Active POS endpoints: %s", data.hex(" "))
+                self._broadcast_scale_reply(data)
                 self._publish_status()
         except Exception as exc:
             self._fail_session("physical read failed: " + str(exc))
+
+    def _broadcast_scale_reply(self, data: bytes):
+        """Queue exact scale bytes only for POS endpoints polling recently."""
+        with self._arbiter_lock:
+            self._arbiter.accept_scale_bytes(data)
+            official_active, private_active = self._arbiter.active_outputs()
+        # Both active POS clients still receive identical bytes, while a
+        # closed peer cannot accumulate an unbounded com0com backlog.
+        if official_active and not self._official_output_queue.put(data):
+            logger.warning("official output queue overflow")
+        if private_active and not self._private_output_queue.put(data):
+            logger.warning("private output queue overflow")
+        return official_active, private_active
 
     def _bridge_reader(self, source: str) -> None:
         ser = self._official if source == "official" else self._private

@@ -3376,7 +3376,13 @@ class SettingsWidget(QWidget):
 
         parent_mw = self.window()
         if hasattr(parent_mw, 'sale_page') and hasattr(parent_mw.sale_page, 'restart_scale'):
-            parent_mw.sale_page.restart_scale()
+            if not parent_mw.sale_page.restart_scale():
+                show_warning(
+                    self,
+                    u"称重读取器尚未重启",
+                    u"旧的称重读取线程没有在安全时限内退出，因此系统没有启动第二个线程。配置已经保存，请退出并重新打开本 POS 后生效。",
+                )
+                return
 
         show_info(self, u"电子秤设置已生效", success_message)
 

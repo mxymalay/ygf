@@ -4,6 +4,7 @@
 特性：
 - 分类标签：称重(SCALE)、打印(PRINT)、决策(DECISION)、切换(SWITCH)、避险(PANIC)、系统(SYSTEM)
 - 自动 3 天过期清理
+- 活跃日志文件超过 10 MB 时自动裁剪最旧记录
 - 线程安全
 """
 import os
@@ -33,8 +34,12 @@ else:
     _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LOG_DIR = os.path.join(_BASE_DIR, "data")
 _LOG_FILE = os.path.join(_LOG_DIR, "app_events.jsonl")
+_SCALE_LOG_FILE = os.path.join(_LOG_DIR, "scale_events.jsonl")
 _LOCK = threading.Lock()
 _RETENTION_DAYS = 3
+_MAX_LOG_BYTES = 10 * 1024 * 1024
+_TRIM_CHECK_EVERY = 64
+_events_since_trim = 0
 
 
 def _ensure_dir():
@@ -43,6 +48,7 @@ def _ensure_dir():
 
 def log_event(category: str, message: str, detail: str = ""):
     """写入一条日志事件 (线程安全)"""
+    global _events_since_trim
     _ensure_dir()
     entry = {
         "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -52,10 +58,50 @@ def log_event(category: str, message: str, detail: str = ""):
     }
     with _LOCK:
         try:
+            encoded = json.dumps(entry, ensure_ascii=False) + "\n"
             with open(_LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.write(encoded)
+            # Keep a dedicated scale trace while retaining the unified app
+            # log for the existing log viewer and cross-event correlation.
+            if category == CAT_SCALE:
+                with open(_SCALE_LOG_FILE, "a", encoding="utf-8") as f:
+                    f.write(encoded)
+            _events_since_trim += 1
+            if _events_since_trim >= _TRIM_CHECK_EVERY:
+                _events_since_trim = 0
+                _trim_log_size_locked()
+                _trim_log_size_locked(_SCALE_LOG_FILE)
         except Exception:
             pass
+
+
+def _trim_log_size_locked(path=None):
+    """Keep the newest log lines when the active file exceeds the cap.
+
+    Caller must hold ``_LOCK``.  The retained target is 75% of the cap so the
+    file does not trigger a rewrite on every subsequent event.
+    """
+    try:
+        path = path or _LOG_FILE
+        if not os.path.exists(path) or os.path.getsize(path) <= _MAX_LOG_BYTES:
+            return 0
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+        target_bytes = int(_MAX_LOG_BYTES * 0.75)
+        kept = []
+        size = 0
+        for line in reversed(lines):
+            encoded_size = len(line.encode("utf-8"))
+            if kept and size + encoded_size > target_bytes:
+                break
+            kept.append(line)
+            size += encoded_size
+        kept.reverse()
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+        return max(0, len(lines) - len(kept))
+    except Exception:
+        return 0
 
 
 def read_logs(category_filter: str = "", keyword: str = "", limit: int = 500) -> list:
@@ -99,44 +145,45 @@ def read_logs(category_filter: str = "", keyword: str = "", limit: int = 500) ->
 def cleanup_old_logs():
     """清理超过 _RETENTION_DAYS 天的旧日志条目"""
     _ensure_dir()
-    if not os.path.exists(_LOG_FILE):
-        return 0
-
     cutoff = datetime.now() - timedelta(days=_RETENTION_DAYS)
     cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
-
-    kept_lines = []
     removed_count = 0
-    try:
-        with open(_LOG_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                    if entry.get("ts", "") >= cutoff_str:
-                        kept_lines.append(line)
-                    else:
-                        removed_count += 1
-                except Exception:
-                    removed_count += 1
+    with _LOCK:
+        for path in (_LOG_FILE, _SCALE_LOG_FILE):
+            if not os.path.exists(path):
+                continue
+            kept_lines = []
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                            if entry.get("ts", "") >= cutoff_str:
+                                kept_lines.append(line)
+                            else:
+                                removed_count += 1
+                        except Exception:
+                            removed_count += 1
 
-        with open(_LOG_FILE, "w", encoding="utf-8") as f:
-            for line in kept_lines:
-                f.write(line + "\n")
-    except Exception:
-        pass
+                with open(path, "w", encoding="utf-8") as f:
+                    for line in kept_lines:
+                        f.write(line + "\n")
+            except Exception:
+                pass
     return removed_count
 
 
 def clear_all_logs():
-    """彻底清空/删除所有本地日志文件 (app_events.jsonl)"""
+    """彻底清空/删除所有本地日志文件 (app_events.jsonl 与 scale_events.jsonl)"""
     _ensure_dir()
     with _LOCK:
         try:
-            if os.path.exists(_LOG_FILE):
-                os.remove(_LOG_FILE)
+            for path in (_LOG_FILE, _SCALE_LOG_FILE):
+                if os.path.exists(path):
+                    os.remove(path)
             return True
         except Exception as e:
             print(f"Failed to remove log file {_LOG_FILE}: {e}")

@@ -167,7 +167,9 @@ class ManualWeightDialog(QDialog):
             value = int(self._digits or "0") / 1000.0
         except (TypeError, ValueError):
             value = 0.0
-        if value <= 0 or value > 9.999:
+        # 0.000 is a valid input: in simulation it explicitly means the
+        # previous bowl has been removed and the scale returned to zero.
+        if value < 0 or value > 9.999:
             return
         self.weight_kg = round(value, 3)
         self.accept()
@@ -693,6 +695,9 @@ class MenuGridButton(QPushButton):
 class SaleWidget(QWidget):
     """主销售界面 (双主题无缝适配)"""
 
+    weighing_cycle_started = pyqtSignal(float)
+    weighing_cycle_zeroed = pyqtSignal()
+
     def __init__(self, config, db, call_mgr: CallNumberManager, parent=None):
         super().__init__(parent)
         self.config = config
@@ -707,6 +712,10 @@ class SaleWidget(QWidget):
         self._low_price_warning_shown = False
         self._scale_connected = False
         self._last_weight_monotonic = 0.0
+        # A new soup may only capture a reading after the previous bowl has
+        # been removed and the scale has crossed back through zero.
+        self._weight_cycle_ready = True
+        self._cycle_present = False
         self._checkout_active = False
         # Simulation starts in the safer/manual mode.  It is intentionally a
         # session setting: real hardware configuration is never changed by
@@ -732,6 +741,8 @@ class SaleWidget(QWidget):
 
         self._build_ui()
         self._restore_draft()
+        self._last_order_change = 0.0
+        self._refresh_previous_order_card()
         self._setup_scale()
         self.refresh_call_number_display()
 
@@ -744,6 +755,9 @@ class SaleWidget(QWidget):
         self.temp_order_no = draft.get("temp_order_no") or self._gen_temp_order_no()
         self.current_order_id = draft.get("order_id") or uuid.uuid4().hex
         self.selected_item_index = len(self.cart_items) - 1
+        self._weight_cycle_ready = not any(
+            item.get("type") == "soup" for item in self.cart_items
+        )
         for item in self.cart_items:
             btn = self.menu_buttons.get(item.get("key_id"))
             if btn:
@@ -784,7 +798,115 @@ class SaleWidget(QWidget):
             else:
                 self.btn_toggle_detail.setStyleSheet("background: #E0F2FE; color: #0284C7; font-size: 13px; font-weight: bold; border-radius: 6px; padding: 4px 10px;")
 
+        self._style_previous_order_card()
         self._update_price_display()
+
+    def _style_previous_order_card(self):
+        """Apply the touch-friendly previous-order card theme."""
+        card = getattr(self, "previous_order_card", None)
+        if card is None:
+            return
+        if self.is_dark_mode:
+            card_bg, card_border = "#172235", "#26364B"
+            label_color, value_color = "#9AA9BB", "#CBD5E1"
+            title_color = "#CBD5E1"
+        else:
+            card_bg, card_border = "#F8FAFC", "#D7DEE8"
+            label_color, value_color = "#718096", "#475569"
+            title_color = "#475569"
+        card.setStyleSheet(
+            "QFrame#PreviousOrderCard { background: %s; border: 1px solid %s; "
+            "border-radius: 12px; }" % (card_bg, card_border)
+        )
+        self.lbl_previous_title.setStyleSheet(
+            "font-size: 15px; font-weight: 700; color: %s; border: none; background: transparent;" % title_color
+        )
+        self.lbl_previous_status.setStyleSheet(
+            "font-size: 24px; font-weight: 800; color: #10B981; border: none; background: transparent;"
+        )
+        for label in (
+            self.lbl_previous_change_label,
+            self.lbl_previous_paid_label,
+            self.lbl_previous_due_label,
+        ):
+            label.setStyleSheet(
+                "font-size: 14px; color: %s; border: none; background: transparent;" % label_color
+            )
+        for value in (
+            self.lbl_previous_change,
+            self.lbl_previous_paid,
+            self.lbl_previous_due,
+        ):
+            value.setStyleSheet(
+                "font-size: 16px; font-weight: 700; color: %s; border: none; background: transparent;" % value_color
+            )
+
+    def _refresh_previous_order_card(self, record=None, change=None):
+        """Refresh the previous-order summary from the local sales ledger."""
+        # Some unit tests deliberately replace _build_ui with a no-op.  The
+        # data refresh must remain safe even when visual widgets do not exist.
+        if not hasattr(self, "lbl_previous_status"):
+            return
+        if record is None:
+            try:
+                record = self.db.get_latest_sale()
+            except Exception as exc:
+                log_event(CAT_SYSTEM, "读取上一单摘要失败", str(exc))
+                record = None
+
+        if not record:
+            self.lbl_previous_status.setText(u"—")
+            # Use half-width parentheses here.  On the Win7 fallback fonts the
+            # full-width ``（`` glyph has a large left side bearing, making the
+            # second line look indented even though both lines share the same
+            # QLabel origin.
+            self.lbl_previous_title.setText(u"上一单\n(暂无记录)")
+            for value in (
+                self.lbl_previous_change,
+                self.lbl_previous_paid,
+                self.lbl_previous_due,
+            ):
+                value.setText(u"￥0.00")
+            self.previous_order_card.setVisible(not bool(self.cart_items))
+            return
+
+        import json
+        try:
+            items = json.loads(record.get("cart_items_json") or "[]")
+            if not isinstance(items, list):
+                items = []
+        except (TypeError, ValueError):
+            items = []
+        item_count = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                item_count += max(1, int(item.get("qty", 1) or 1))
+            except (TypeError, ValueError):
+                item_count += 1
+        weight_kg = float(record.get("weight_kg", 0.0) or 0.0)
+        total = float(record.get("total_price", 0.0) or 0.0)
+        # Legacy rows may predate cart_items_json; still present a useful
+        # one-item summary instead of showing an impossible zero-item sale.
+        if item_count == 0 and (weight_kg > 0.0 or total > 0.0):
+            item_count = 1
+        is_paid = str(record.get("payment_status", "PAID") or "PAID").upper() == "PAID"
+        self.lbl_previous_status.setText(u"✓" if is_paid else u"!")
+        self.lbl_previous_status.setStyleSheet(
+            "font-size: 24px; font-weight: 800; color: %s; border: none; background: transparent;"
+            % ("#10B981" if is_paid else "#F59E0B")
+        )
+        self.lbl_previous_title.setText(
+            u"上一单\n(共%d项，%.3f kg)" % (item_count, weight_kg)
+        )
+        if change is not None:
+            self._last_order_change = float(change or 0.0)
+        change_value = self._last_order_change
+        self.lbl_previous_change.setText(u"￥%.2f" % change_value)
+        self.lbl_previous_paid.setText(u"￥%.2f" % total)
+        self.lbl_previous_due.setText(u"￥%.2f" % total)
+        self.previous_order_card.setVisible(not bool(self.cart_items))
 
     def _gen_temp_order_no(self):
         return "%05d" % random.randint(10000, 99999)
@@ -919,6 +1041,42 @@ class SaleWidget(QWidget):
         led_layout.addWidget(self.lbl_weight, stretch=1, alignment=Qt.AlignRight)
 
         left_layout.addWidget(led_banner)
+
+        # 上一单摘要：当前购物车为空时显示，便于收银员快速核对上一笔金额。
+        # 有新订单时隐藏，不占用点菜/购物车区域。
+        self.previous_order_card = QFrame()
+        self.previous_order_card.setObjectName("PreviousOrderCard")
+        self.previous_order_card.setMinimumHeight(158)
+        previous_layout = QVBoxLayout(self.previous_order_card)
+        previous_layout.setContentsMargins(16, 12, 16, 12)
+        previous_layout.setSpacing(6)
+
+        previous_header = QHBoxLayout()
+        self.lbl_previous_status = QLabel(u"✓")
+        self.lbl_previous_status.setFixedWidth(34)
+        self.lbl_previous_status.setAlignment(Qt.AlignCenter)
+        previous_header.addWidget(self.lbl_previous_status)
+        self.lbl_previous_title = QLabel(u"上一单\n(暂无记录)")
+        self.lbl_previous_title.setWordWrap(True)
+        self.lbl_previous_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        previous_header.addWidget(self.lbl_previous_title, stretch=1)
+        previous_layout.addLayout(previous_header)
+
+        def _summary_row(label_text):
+            row = QHBoxLayout()
+            label = QLabel(label_text)
+            value = QLabel(u"￥0.00")
+            value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            row.addWidget(label)
+            row.addStretch()
+            row.addWidget(value)
+            previous_layout.addLayout(row)
+            return label, value
+
+        self.lbl_previous_change_label, self.lbl_previous_change = _summary_row(u"找零")
+        self.lbl_previous_paid_label, self.lbl_previous_paid = _summary_row(u"实付")
+        self.lbl_previous_due_label, self.lbl_previous_due = _summary_row(u"应收")
+        self._style_previous_order_card()
 
         # 2. 订单消费卡片列表 (ScrollArea 禁用下滑条，采用精准分页)
         self.cart_scroll = QScrollArea()
@@ -1283,6 +1441,20 @@ class SaleWidget(QWidget):
             # Snapshot the launch mode.  A settings save must not be able to
             # turn a running simulation into a real-scale checkout.
             is_mock = self._is_mock_mode
+            if not self._weight_cycle_ready:
+                if is_mock:
+                    show_warning(
+                        self,
+                        u"请先模拟回零",
+                        u"上一碗的重量还在使用中。请点击重量数字输入 0.000 kg（随机模式点击重量数字模拟取走上一碗），再选择下一碗。",
+                    )
+                else:
+                    show_warning(
+                        self,
+                        u"请等待称回零",
+                        u"请先取走上一碗，等待电子秤回到 0.000 kg 后再选择下一碗。",
+                    )
+                return
             if is_mock and self.mock_weight_mode == "manual":
                 # Manual mode deliberately asks for the weight on every soup
                 # selection, so a previous bowl's value cannot be reused by
@@ -1294,6 +1466,15 @@ class SaleWidget(QWidget):
                     show_warning(self, u"请先生成模拟重量", u"当前为随机重量模式，请先点击上方“随机重量”，再选择麻辣烫。")
                 else:
                     show_warning(self, u"请先称重", u"当前电子秤读数为 0.000 kg，请先将麻辣烫放置在电子秤上！")
+                return
+            min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08) or 0.08)
+            if self.current_weight <= min_valid_weight:
+                show_warning(
+                    self,
+                    u"重量过轻",
+                    u"当前读数 %.3f kg 未超过有效称重门限 %.3f kg，请确认碗已完整放稳。"
+                    % (self.current_weight, min_valid_weight),
+                )
                 return
             if not is_mock:
                 if not self._scale_connected or time.monotonic() - self._last_weight_monotonic > 2.0:
@@ -1328,6 +1509,9 @@ class SaleWidget(QWidget):
                 "discount_rate": 1.0
             }
             self.cart_items.append(item_entry)
+            # Lock this weighing cycle immediately; the same stable reading
+            # must never be used for a second soup.
+            self._weight_cycle_ready = False
             self.selected_item_index = len(self.cart_items) - 1
             pages = self._compute_cart_pages()
             self.cart_page = len(pages) - 1
@@ -1645,6 +1829,8 @@ class SaleWidget(QWidget):
 
     def _update_price_display(self):
         """刷新购物明细卡片列表与金额 (根据口味动态切页与无混淆序号徽章)"""
+        if hasattr(self, "previous_order_card"):
+            self.previous_order_card.setVisible(not bool(self.cart_items))
         total_price = 0.0
         total_items = 0
 
@@ -1705,10 +1891,26 @@ class SaleWidget(QWidget):
             child = self.cart_layout.takeAt(0)
             w = child.widget()
             if w:
+                if w is getattr(self, "previous_order_card", None):
+                    w.hide()
+                    continue
                 w.hide()
                 w.setParent(None)
                 w.deleteLater()
 
+        # 购物车为空时，把上一单放到重量条下方的空白操作区。卡片在
+        # 空白区上下居中、水平居中，并占购物车区域约 60% 宽度。
+        if not self.cart_items:
+            self.cart_layout.setAlignment(Qt.AlignCenter)
+            if getattr(self, "previous_order_card", None) is not None:
+                viewport_width = self.cart_scroll.viewport().width()
+                card_width = max(220, int(viewport_width * 0.60)) if viewport_width > 0 else 260
+                self.previous_order_card.setFixedWidth(card_width)
+                self.cart_layout.addWidget(self.previous_order_card, 0, Qt.AlignHCenter)
+                self.previous_order_card.show()
+            return
+
+        self.cart_layout.setAlignment(Qt.AlignTop)
         # 渲染当前页的商品卡片
         for idx in range(start_idx, end_idx):
             item = self.cart_items[idx]
@@ -1782,7 +1984,8 @@ class SaleWidget(QWidget):
     def restart_scale(self):
         self.refresh_unit_price_info()
         if getattr(self, 'scale', None) is not None:
-            self.scale.restart()
+            return bool(self.scale.restart())
+        return True
 
     def _setup_scale(self):
         # Simulation is a complete session mode.  Do not start the real
@@ -1796,6 +1999,8 @@ class SaleWidget(QWidget):
         self.scale.weight_updated.connect(self._on_weight_update)
         self.scale.status_changed.connect(self._on_status_change)
         self.scale.weight_stable.connect(self._on_weight_stable)
+        self.scale.weighing_cycle_started.connect(self._on_scale_cycle_started)
+        self.scale.zero_stable.connect(self._on_scale_zero_stable)
         self.scale.error_occurred.connect(self._on_error)
         self.scale.start()
 
@@ -1804,19 +2009,10 @@ class SaleWidget(QWidget):
         self.current_weight = weight_kg
         self._last_weight_monotonic = time.monotonic()
         self.lbl_weight.setText("%06.3f kg" % weight_kg)
-        # A new bowl is allowed to receive the low-price hint only after the
-        # previous weighing has returned to zero.
-        if weight_kg <= 0.005:
-            self._low_price_warning_shown = False
-
-        if abs(weight_kg - self._stable_weight) <= 0.005:
-            self._is_stable = True
-            self.lbl_scale_status_icon.setText(u"✔")
-            self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
-            self.lbl_scale_status_icon.setToolTip(u"读数稳定，可随时打印！")
-        else:
+        # Only ScaleReader's configured N-sample stability window may mark a
+        # reading stable.  Two matching UI frames are not sufficient.
+        if abs(weight_kg - self._stable_weight) > 0.005:
             self._is_stable = False
-            self._stable_weight = weight_kg
             self.lbl_scale_status_icon.setText(u"⏳")
             self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
             self.lbl_scale_status_icon.setToolTip(u"读数计算/变动中...")
@@ -1833,9 +2029,11 @@ class SaleWidget(QWidget):
 
         if connected:
             if not hasattr(self, '_is_stable') or not self._is_stable:
-                self.lbl_scale_status_icon.setText(u"✔")
-                self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
-            self.lbl_scale_status_icon.setToolTip(u"电子秤串口正常连通: %s" % msg)
+                self.lbl_scale_status_icon.setText(u"⏳")
+                self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
+                self.lbl_scale_status_icon.setToolTip(u"电子秤已连接，正在等待稳定读数: %s" % msg)
+            else:
+                self.lbl_scale_status_icon.setToolTip(u"电子秤串口正常连通: %s" % msg)
         else:
             self._is_stable = False
             self.lbl_scale_status_icon.setText(u"✕")
@@ -1844,14 +2042,18 @@ class SaleWidget(QWidget):
 
     @pyqtSlot(float)
     def _on_weight_stable(self, weight_kg):
+        self.current_weight = float(weight_kg)
+        self._last_weight_monotonic = time.monotonic()
         self._is_stable = True
-        self._stable_weight = weight_kg
+        self._stable_weight = float(weight_kg)
+        self.lbl_weight.setText("%06.3f kg" % self.current_weight)
         self.lbl_scale_status_icon.setText(u"✔")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
         self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
         
         # 称重稳定且预计价格低于配置阈值时，弹出一次黄色提醒
-        if weight_kg > 0.005:
+        min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08) or 0.08)
+        if weight_kg > min_valid_weight:
             if not self.config.get("low_price_warning_enabled", True):
                 self._low_price_warning_shown = False
                 return
@@ -1863,8 +2065,33 @@ class SaleWidget(QWidget):
             if expected_price < threshold and not self._low_price_warning_shown:
                 self._show_toast(u"温馨提示：此麻辣烫预计称重低于 %.2f 元。" % threshold)
                 self._low_price_warning_shown = True
-            elif expected_price >= 15.0:
+            elif expected_price >= threshold:
                 self._low_price_warning_shown = False
+
+    @pyqtSlot(float)
+    def _on_scale_cycle_started(self, weight_kg):
+        """Forward one stable non-zero event for each physical bowl."""
+        min_valid = float(self.config.get("min_valid_weight_kg", 0.08) or 0.08)
+        if float(weight_kg or 0.0) <= min_valid:
+            return
+        if not self._weight_cycle_ready:
+            # A restored/paid order remains locked across process or reader
+            # restart.  Seeing the old bowl again must not re-enter routing.
+            self._cycle_present = True
+            log_event(CAT_SYSTEM, "忽略未归零的旧称重周期", "重量 %.3fkg" % float(weight_kg))
+            return
+        if self._cycle_present:
+            return
+        self._cycle_present = True
+        self.weighing_cycle_started.emit(float(weight_kg))
+
+    @pyqtSlot()
+    def _on_scale_zero_stable(self):
+        """Unlock the next bowl only after a stable multi-sample zero."""
+        self._cycle_present = False
+        self._weight_cycle_ready = True
+        self._low_price_warning_shown = False
+        self.weighing_cycle_zeroed.emit()
 
     @pyqtSlot(str)
     def _on_error(self, msg):
@@ -1876,6 +2103,14 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
 
     def _on_random_weight_click(self):
+        if not self._weight_cycle_ready:
+            # In random simulation mode, the first click after a bowl is
+            # removed represents returning the simulated scale to zero.  A
+            # following click will generate the next bowl's reading.
+            if self._is_mock_mode and self.mock_weight_mode == "random":
+                self._apply_mock_weight(0.0)
+                self._show_toast(u"模拟称已回零，可以生成下一碗重量")
+            return
         if self._is_mock_mode and self.mock_weight_mode == "manual":
             self._prompt_manual_weight()
             return
@@ -1888,6 +2123,11 @@ class SaleWidget(QWidget):
     def _on_weight_display_click(self):
         """Use the large weight number as the only mock-weight action target."""
         if self._is_mock_mode:
+            if self.mock_weight_mode == "manual" and not self._weight_cycle_ready:
+                # While locked, only 0.000 is a valid manual action.  Do not
+                # let a positive value overwrite the previous bowl's weight.
+                self._prompt_manual_weight(allow_zero=True, zero_only=True)
+                return
             self._on_random_weight_click()
 
     def _on_mock_weight_mode_changed(self, index):
@@ -1895,6 +2135,16 @@ class SaleWidget(QWidget):
         index = int(index)
         if self.cmb_mock_weight_mode.itemData(index) == "normal":
             previous_index = getattr(self, "_mock_mode_index", 0)
+            if self.cart_items:
+                self.cmb_mock_weight_mode.blockSignals(True)
+                self.cmb_mock_weight_mode.setCurrentIndex(previous_index)
+                self.cmb_mock_weight_mode.blockSignals(False)
+                show_warning(
+                    self,
+                    u"当前订单尚未结束",
+                    u"购物车中还有商品，不能在本单中途切换称重来源。请先完成结账或清空订单并让称回零。",
+                )
+                return
             self.cmb_mock_weight_mode.setEnabled(False)
             try:
                 ready, reason = self._check_normal_scale_ready()
@@ -1965,6 +2215,10 @@ class SaleWidget(QWidget):
         self.current_weight = 0.0
         self._stable_weight = 0.0
         self._is_stable = False
+        self._weight_cycle_ready = not any(
+            item.get("type") == "soup" for item in self.cart_items
+        )
+        self._cycle_present = False
         self._low_price_warning_shown = False
         self._scale_connected = False
         self._last_weight_monotonic = 0.0
@@ -1976,15 +2230,26 @@ class SaleWidget(QWidget):
 
     def _apply_mock_weight(self, weight_kg):
         """Apply a mock reading through the same UI path as a real scale."""
-        self._on_weight_update(round(float(weight_kg), 3))
-        self._on_weight_stable(round(float(weight_kg), 3))
+        value = round(float(weight_kg), 3)
+        self._on_weight_update(value)
+        self._on_weight_stable(value)
+        if value <= 0.005:
+            self._on_scale_zero_stable()
+        else:
+            self._on_scale_cycle_started(value)
 
-    def _prompt_manual_weight(self):
+    def _prompt_manual_weight(self, allow_zero=False, zero_only=False):
         """Open the large touch keypad and apply the entered kg value."""
         dlg = ManualWeightDialog(parent=self)
-        if dlg.exec_() != QDialog.Accepted or dlg.weight_kg <= 0:
+        if dlg.exec_() != QDialog.Accepted:
             return False
-        self._apply_mock_weight(dlg.weight_kg)
+        value = float(dlg.weight_kg)
+        if zero_only and value > 0.0005:
+            show_warning(self, u"请先回零", u"当前称重周期尚未结束，此处只能输入 0.000 kg。")
+            return False
+        if value <= 0 and not allow_zero:
+            return False
+        self._apply_mock_weight(value)
         return True
 
     def _on_other_checkout(self):
@@ -2100,11 +2365,13 @@ class SaleWidget(QWidget):
                 self.printer.last_error = str(e)
 
             self.db.mark_print_result(record["id"], success, getattr(self.printer, "last_error", ""))
+            self._refresh_previous_order_card(full_sale)
             self._on_clear()
             self.refresh_call_number_display()
 
             if success:
-                log_event(CAT_PRINT, f"小票驱动出票成功: 叫号#{sale_data['call_no']}", f"出票完成，启动 3 秒全自动退场倒计时")
+                delay = int(self.config.get("auto_hide_delay_sec", 10) or 10)
+                log_event(CAT_PRINT, f"小票驱动出票成功: 叫号#{sale_data['call_no']}", f"出票完成，启动 {delay} 秒全自动退场倒计时")
                 parent_mw = self.window()
                 if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
                     parent_mw.switch_controller.on_receipt_printed()
@@ -2157,13 +2424,9 @@ class SaleWidget(QWidget):
         self._draft_signature = ""
         clear_draft()
         self._update_price_display()
-        
-        # 清空购物车时，重置所有自动切换锁，允许即刻重新评估下一碗
-        parent_mw = self.window()
-        if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
-            parent_mw.switch_controller._last_official_time = 0.0
-            parent_mw.switch_controller._has_auto_popped = False
-            parent_mw.switch_controller._current_is_private = False
+        # Do not unlock the weighing cycle here.  A paid/cancelled basket can
+        # be cleared while the old bowl is still physically on the scale.
+        # Only _on_scale_zero_stable may arm the next bowl.
 
     def cleanup(self):
         if getattr(self, 'scale', None) is not None:

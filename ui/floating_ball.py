@@ -8,6 +8,7 @@
 - 连触 3 下 / 长按 1.2 秒: 0.01秒防督导紧急销毁
 """
 import time
+import math
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
 from PyQt5.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QPainterPath
@@ -37,8 +38,9 @@ class FloatingBall(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # 88x68 黄金比例胶囊尺寸 (底部预留18px显示状态图标)
-        self.setFixedSize(88, 68)
+        # 88x84 黄金比例胶囊尺寸：顶部预留16px显示出票倒计时，底部
+        # 仍保留原有暂停/锁定/对勾状态栏。
+        self.setFixedSize(88, 84)
 
         # 移动到屏幕右上角默认位置
         from PyQt5.QtWidgets import QApplication
@@ -65,8 +67,9 @@ class FloatingBall(QWidget):
         self._countdown_timer = QTimer(self)
         self._countdown_timer.setInterval(40)  # 25 fps 顺滑刷新
         self._countdown_timer.timeout.connect(self._on_countdown_tick)
-        self._countdown_total_ms = 3000.0
+        self._countdown_total_ms = 10000.0
         self._countdown_start_time = 0.0
+        self._countdown_remaining_sec = 0
 
         # 定时刷新界面以确保暂停图标能按时消失 (1Hz)
         self._state_refresh_timer = QTimer(self)
@@ -94,6 +97,7 @@ class FloatingBall(QWidget):
         self._countdown_active = True
         self._countdown_total_ms = seconds * 1000.0
         self._countdown_start_time = time.time()
+        self._countdown_remaining_sec = max(0, int(math.ceil(float(seconds))))
         self._countdown_ratio = 1.0
         self._countdown_timer.start()
         self.update()
@@ -101,6 +105,7 @@ class FloatingBall(QWidget):
     def stop_countdown(self):
         """停止倒计时动效"""
         self._countdown_active = False
+        self._countdown_remaining_sec = 0
         self._countdown_timer.stop()
         self.update()
 
@@ -108,6 +113,8 @@ class FloatingBall(QWidget):
         elapsed_ms = (time.time() - self._countdown_start_time) * 1000.0
         remaining_ratio = max(0.0, 1.0 - (elapsed_ms / self._countdown_total_ms))
         self._countdown_ratio = remaining_ratio
+        remaining_ms = max(0.0, self._countdown_total_ms - elapsed_ms)
+        self._countdown_remaining_sec = int(math.ceil(remaining_ms / 1000.0))
         if remaining_ratio <= 0.0:
             self.stop_countdown()
         else:
@@ -131,47 +138,46 @@ class FloatingBall(QWidget):
             led_color = QColor(96, 165, 250)
 
         # 渐变底色
-        grad = QLinearGradient(0, 0, 0, 50)
+        grad = QLinearGradient(0, 16, 0, 66)
         grad.setColorAt(0.0, bg_color1)
         grad.setColorAt(1.0, bg_color2)
 
-        # 2. 绘制主胶囊背景与外边框 (r=24)
+        # 2. 绘制主胶囊背景与外边框 (顶部预留倒计时区域)
         painter.setBrush(QBrush(grad))
         painter.setPen(QPen(border_outer, 2.0))
-        painter.drawRoundedRect(1, 1, 86, 48, 24, 24)
+        painter.drawRoundedRect(1, 17, 86, 48, 24, 24)
 
         # 3. 绘制内侧微高光倒角线 (3D 玻璃质感)
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(QColor(255, 255, 255, 70), 1.0))
-        painter.drawRoundedRect(3, 3, 82, 44, 22, 22)
+        painter.drawRoundedRect(3, 19, 82, 44, 22, 22)
 
-        # 4. 如果处在【出票倒计时隐退】状态，在边框上绘制动态倒计时进度弧/线条
-        if self._countdown_active and self._countdown_ratio > 0:
-            progress_pen = QPen(QColor(254, 240, 138), 3.0)  # 亮黄色倒计时进度线
-            progress_pen.setCapStyle(Qt.RoundCap)
-            painter.setPen(progress_pen)
-            
-            # 在顶部边框沿线绘制进度条 (从左到右缩短)
-            bar_width = int(80 * self._countdown_ratio)
-            if bar_width > 4:
-                painter.drawLine(4, 2, 4 + bar_width, 2)
-
-        # 5. 边框嵌入式 LED 呼吸指示灯 (位于文字前方垂直居中)
+        # 4. 边框嵌入式 LED 呼吸指示灯 (位于文字前方垂直居中)
         painter.setBrush(QBrush(led_color))
         painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
-        # 文字居中，胶囊高 50。圆点大小 6x6，所以 y=22 刚好垂直居中 (22+3=25)
+        # 文字居中，胶囊高 50。圆点大小 6x6，所以 y=38 刚好垂直居中。
         led_x = 22 if self.is_our_pos_active else 12
-        painter.drawEllipse(led_x, 22, 6, 6)
+        painter.drawEllipse(led_x, 38, 6, 6)
 
-        # 6. 两行居中文字排版
+        # 5. 两行居中文字排版
         title_text = u"私域" if self.is_our_pos_active else u"官方系统"
         font_title = QFont("Microsoft YaHei", 9, QFont.Bold)
         painter.setFont(font_title)
         painter.setPen(QColor(255, 255, 255))
-        rect_title = QRect(6, 5, 82, 40) # 扩大标题矩形，使其完全居中
+        rect_title = QRect(6, 21, 82, 40) # 扩大标题矩形，使其完全居中
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        # 7. 悬浮球下方独立状态指示栏 (小灵动岛，不与主胶囊重叠)
+        # 出票后倒计时数字放在悬浮球正上方，不占用底部暂停/锁定状态栏。
+        # 顶部不再绘制进度条，只保留清晰的小数字。
+        if self._countdown_active and self._countdown_remaining_sec > 0:
+            painter.setBrush(QColor(15, 23, 42, 220))
+            painter.setPen(QPen(QColor(254, 240, 138, 220), 1.0))
+            painter.drawRoundedRect(31, 1, 26, 14, 7, 7)
+            painter.setPen(QColor(254, 240, 138))
+            painter.setFont(QFont("Microsoft YaHei", 8, QFont.Bold))
+            painter.drawText(QRect(31, 1, 26, 14), Qt.AlignCenter, str(self._countdown_remaining_sec))
+
+        # 6. 悬浮球下方独立状态指示栏 (小灵动岛，不与主胶囊重叠)
         is_paused = False
         is_locked = False
         now_ts = time.time()
@@ -203,27 +209,27 @@ class FloatingBall(QWidget):
             bg_x = 44 - bg_width // 2
             painter.setBrush(QColor(0, 0, 0, 140))
             painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(bg_x, 51, bg_width, 16, 8, 8)
+            painter.drawRoundedRect(bg_x, 67, bg_width, 16, 8, 8)
             
             # 逐个绘制图标
             icon_x = bg_x + 4 + 10  # 10 is the center offset of the first icon
             for icon in active_icons:
                 if icon == "PAUSE":
                     painter.setPen(QPen(QColor(255, 255, 255), 2.0, Qt.SolidLine, Qt.RoundCap))
-                    painter.drawLine(icon_x - 2, 55, icon_x - 2, 63)
-                    painter.drawLine(icon_x + 2, 55, icon_x + 2, 63)
+                    painter.drawLine(icon_x - 2, 71, icon_x - 2, 79)
+                    painter.drawLine(icon_x + 2, 71, icon_x + 2, 79)
                 elif icon == "LOCK":
                     painter.setPen(QPen(QColor(255, 255, 255), 1.5, Qt.SolidLine, Qt.RoundCap))
                     painter.setBrush(QColor(255, 255, 255))
-                    painter.drawRect(icon_x - 3, 59, 6, 4)
+                    painter.drawRect(icon_x - 3, 75, 6, 4)
                     painter.setBrush(Qt.NoBrush)
-                    painter.drawArc(icon_x - 2, 55, 4, 6, 0, 180 * 16)
+                    painter.drawArc(icon_x - 2, 71, 4, 6, 0, 180 * 16)
                 elif icon == "CHECK":
                     painter.setPen(QPen(QColor(253, 224, 71), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                     path = QPainterPath()
-                    path.moveTo(icon_x - 4, 59)
-                    path.lineTo(icon_x - 1, 62)
-                    path.lineTo(icon_x + 4, 55)
+                    path.moveTo(icon_x - 4, 75)
+                    path.lineTo(icon_x - 1, 78)
+                    path.lineTo(icon_x + 4, 71)
                     painter.drawPath(path)
                 
                 icon_x += 20

@@ -138,8 +138,15 @@ class MainWindow(QMainWindow):
 
             # A. 自动流转控制器
             self.switch_controller = AutoSwitchController(self, self.config)
-            if hasattr(self.sale_page, 'scale') and self.sale_page.scale:
-                self.sale_page.scale.weight_updated.connect(self.switch_controller.on_weight_changed)
+            # SaleWidget exposes one stable event per bowl in both real and
+            # simulation modes.  Connecting to the page instead of the
+            # current ScaleReader also survives mock -> normal switching.
+            self.sale_page.weighing_cycle_started.connect(
+                self.switch_controller.on_weighing_cycle_started
+            )
+            self.sale_page.weighing_cycle_zeroed.connect(
+                self.switch_controller.on_weighing_cycle_zeroed
+            )
 
             # B. 常驻触屏悬浮球
             if self.config.get("floating_ball_enabled", True):

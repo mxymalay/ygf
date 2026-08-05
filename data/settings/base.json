@@ -13,23 +13,43 @@
   "auto_print": false,
   "stable_threshold": 0.01,
   "stable_count": 5,
+  "scale_zero_threshold_kg": 0.005,
+  "scale_max_weight_kg": 15.0,
+  "scale_stale_timeout_sec": 3.0,
   "auto_start_enabled": true,
   "auto_start_delay": 8,
   "auto_switch_enabled": true,
   "floating_ball_enabled": true,
   "panic_hotkey": "F10",
-  "auto_hide_delay_sec": 3,
+  "auto_hide_delay_sec": 10,
   "scale_source": "official",
+  "scale_connection_mode": "direct",
   "scale_port": "COM2",
   "scale_baudrate": 9600,
-  "is_mock_mode": true,
-  "call_used_numbers": [
-    273,
-    203,
-    212,
-    221
+  "low_price_warning_enabled": true,
+  "low_price_warning_threshold": 15.0,
+  "packing_reminder_enabled": true,
+  "skewer_reminder_enabled": true,
+  "official_pos_log_dir": "",
+  "official_pos_window_configured": true,
+  "official_pos_window_title": "Google - Google Chrome",
+  "official_pos_window_class": "Chrome_WidgetWin_1",
+  "official_pos_process_name": "chrome.exe",
+  "official_pos_process_keywords": [
+    "chrome.exe"
   ],
-  "call_last_slot": "evening",
+  "official_pos_window_keywords": [
+    "Google"
+  ],
+  "config_schema_version": 3,
+  "call_used_numbers": [
+    193,
+    165,
+    171,
+    141,
+    158
+  ],
+  "call_last_slot": "afternoon",
   "call_manual_no": 1,
   "call_seq_no": null
 }

@@ -13,6 +13,28 @@ from utils.window_utils import (
 from core.app_logger import log_event, CAT_SCALE, CAT_DECISION, CAT_SWITCH, CAT_PRINT
 
 
+def _safe_console(message):
+    """Best-effort diagnostics that can never abort a Win7 weighing slot."""
+    try:
+        print(str(message))
+    except Exception:
+        return
+
+
+def _config_float(config, key, default):
+    try:
+        return float(config.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _config_int(config, key, default):
+    try:
+        return int(config.get(key, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
 class AutoSwitchController(QObject):
     """双系统智能决策控制器"""
 
@@ -22,16 +44,15 @@ class AutoSwitchController(QObject):
         self.config = config
 
         self._auto_switch_enabled = self.config.get("auto_switch_enabled", True)
-        self._auto_hide_delay_sec = self.config.get("auto_hide_delay_sec", 3)
-        self._target_private_ratio = float(self.config.get("private_ratio_percent", 30))  # 默认 30%
-        self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))  # 默认 0.25kg
-        self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
-        self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
-        self._private_lock_sec = float(self.config.get("private_lock_sec", 300.0))  # 默认私域购物车5分钟超时
-        self._min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08))
-        self._surge_correction_weight = float(self.config.get("surge_correction_weight_kg", 0.15))
-        self._manual_override_lock_sec = float(self.config.get("manual_override_lock_sec", 30.0))
-        self._max_daily_revenue_limit = float(self.config.get("max_daily_revenue_limit", 0.0))
+        self._auto_hide_delay_sec = max(0, _config_int(self.config, "auto_hide_delay_sec", 10))
+        self._target_private_ratio = min(100.0, max(0.0, _config_float(self.config, "private_ratio_percent", 30)))
+        self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
+        self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
+        self._zeroing_unlock_sec = max(0.1, _config_float(self.config, "zeroing_unlock_sec", 5.0))
+        self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
+        self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
+        self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
+        self._max_daily_revenue_limit = max(0.0, _config_float(self.config, "max_daily_revenue_limit", 0.0))
 
         # Quota counters are persisted per local day.  The official POS does
         # not expose its payment amount, so the routing target uses observable
@@ -51,7 +72,7 @@ class AutoSwitchController(QObject):
         self._last_official_time = 0.0  # 记录上一次判定为官方 POS 的时间戳 (用于官方连单保护)
         self._manual_override_until = 0.0  # 店员手动干预锁定期 (防止称重自动抢抓焦点)
         self._zero_start_time = 0.0  # 记录归零起始时间戳
-        self._last_popped_weight = 0.0  # 记录上次触发决策时的重量 (用于重量剧增二次更正)
+        self._last_popped_weight = 0.0  # 记录本称重周期最终用于分流的稳定重量
         self._last_private_time = 0.0  # 记录上一次私域动作的时间戳 (用于私域购物车死锁超时)
         self._current_is_private = False
         self._last_decision_kind = ""
@@ -60,11 +81,20 @@ class AutoSwitchController(QObject):
         # non-zero reading. It must never trigger focus/minimise automation
         # while an operator is creating, testing or deleting COM resources.
         self._maintenance_pause_count = 0
+        # After printing, do not cancel the return-to-official timer merely
+        # because the old bowl keeps emitting the same non-zero reading.  A
+        # real next bowl cancels it only after a zero crossing is observed.
+        self._receipt_hide_pending = False
+        self._receipt_zero_seen = False
+        self._last_weight_kg = 0.0
 
         # 退场延时定时器
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self._on_auto_hide_timeout)
+        self._zero_unlock_timer = QTimer(self)
+        self._zero_unlock_timer.setSingleShot(True)
+        self._zero_unlock_timer.timeout.connect(self._on_zero_unlock_timeout)
 
     def notify_manual_switch(self, duration_sec: float = -1.0):
         """店员手动点击悬浮球/快捷键触发：锁定指定秒数内不被称重自动抢抓覆盖"""
@@ -102,7 +132,7 @@ class AutoSwitchController(QObject):
             self._inherited_official_orders = int(state.get("inherited_official", 0) or 0)
         except Exception as exc:
             # A corrupt/legacy runtime statistic must never prevent POS start.
-            print(f"[AutoDecisionEngine] 恢复分流统计失败，使用本次运行统计: {exc}")
+            _safe_console(f"[AutoDecisionEngine] 恢复分流统计失败，使用本次运行统计: {exc}")
 
     def _ensure_quota_date(self):
         """Switch the in-memory counters when a long-running POS crosses midnight."""
@@ -141,7 +171,7 @@ class AutoSwitchController(QObject):
             except Exception as exc:
                 # Keep the live decision working even if a removable/locked
                 # database cannot be updated on an older Windows installation.
-                print(f"[AutoDecisionEngine] 保存分流统计失败: {exc}")
+                _safe_console(f"[AutoDecisionEngine] 保存分流统计失败: {exc}")
 
     def _record_inherited_decision(self, weight_kg, is_private):
         """Track continuation weight without consuming a new quota decision."""
@@ -159,14 +189,14 @@ class AutoSwitchController(QObject):
             try:
                 db.record_switch_inherited(weight, is_private)
             except Exception as exc:
-                print(f"[AutoDecisionEngine] 保存联单统计失败: {exc}")
+                _safe_console(f"[AutoDecisionEngine] 保存联单统计失败: {exc}")
 
     def _official_available(self):
         """Check the configured official window before hiding this POS."""
         try:
             return bool(is_official_pos_available(self.config))
         except Exception as exc:
-            print(f"[AutoDecisionEngine] 官方 POS 状态检测失败，按不可用处理: {exc}")
+            _safe_console(f"[AutoDecisionEngine] 官方 POS 状态检测失败，按不可用处理: {exc}")
             return False
 
     def _fallback_to_private_after_official_failure(self, weight_kg):
@@ -184,7 +214,7 @@ class AutoSwitchController(QObject):
                 try:
                     db.convert_switch_decision_to_private(weight, kind == "forced_official")
                 except Exception as exc:
-                    print(f"[AutoDecisionEngine] 修正官方配额统计失败: {exc}")
+                    _safe_console(f"[AutoDecisionEngine] 修正官方配额统计失败: {exc}")
         elif kind == "inherited_official":
             self._inherited_official_orders = max(0, self._inherited_official_orders - 1)
             self._inherited_private_orders += 1
@@ -194,7 +224,7 @@ class AutoSwitchController(QObject):
                 try:
                     db.convert_switch_inherited_to_private(weight)
                 except Exception as exc:
-                    print(f"[AutoDecisionEngine] 修正官方联单统计失败: {exc}")
+                    _safe_console(f"[AutoDecisionEngine] 修正官方联单统计失败: {exc}")
 
         self._last_official_time = 0.0
         self._last_decision_kind = "fallback_private"
@@ -206,76 +236,94 @@ class AutoSwitchController(QObject):
         )
 
     def on_weight_changed(self, weight_kg: float):
-        """当称重数据变动时被触发，全自动运行决策引擎"""
+        """Compatibility hook: raw frames never make routing decisions."""
+        self._last_weight_kg = float(weight_kg or 0.0)
+
+    def on_weighing_cycle_zeroed(self):
+        """Arm exactly one next bowl after a stable multi-sample zero."""
+        self._last_weight_kg = 0.0
+        self._has_auto_popped = False
+        self._last_popped_weight = 0.0
+        self._zero_start_time = time.time()
+        if self._receipt_hide_pending:
+            self._receipt_zero_seen = True
+        self._zero_unlock_timer.start(max(1, int(self._zeroing_unlock_sec * 1000)))
+        log_event(CAT_SCALE, "称重周期稳定归零", "已允许下一碗进入分流判断")
+
+    def _on_zero_unlock_timeout(self):
+        """Release the official continuation lock after a real zero dwell."""
+        if self._last_official_time > 0:
+            self._last_official_time = 0.0
+            log_event(
+                CAT_DECISION,
+                "顾客离场解锁",
+                f"称重稳定归零超过 {self._zeroing_unlock_sec} 秒，恢复新单智能决策",
+            )
+
+    def on_weighing_cycle_started(self, weight_kg: float):
+        """Route one stable non-zero weighing cycle exactly once."""
+        weight_kg = float(weight_kg or 0.0)
+        self._last_weight_kg = weight_kg
+        self._zero_unlock_timer.stop()
+
+        if weight_kg <= self._min_valid_weight:
+            return
+        if self._has_auto_popped:
+            return
+
+        if self._receipt_hide_pending:
+            if not self._receipt_zero_seen:
+                # A second event without a stable zero is stale/duplicate and
+                # must not cancel checkout retirement or consume quota.
+                log_event(CAT_SCALE, "忽略未归零的重复称重周期", f"重量 {weight_kg:.3f}kg")
+                return
+            self._hide_timer.stop()
+            self._receipt_hide_pending = False
+            log_event(
+                CAT_SWITCH,
+                "出票后切回等待被新称重周期取消",
+                f"检测到稳定归零后的新重量 {weight_kg:.3f}kg，继续留在私有 POS",
+            )
+            if hasattr(self.main_window, "floating_ball") and self.main_window.floating_ball:
+                self.main_window.floating_ball.stop_countdown()
+
+        self._has_auto_popped = True
+        self._last_popped_weight = weight_kg
+        self._zero_start_time = 0.0
         if self._maintenance_pause_count or not self._auto_switch_enabled:
             return
 
         now_ts = time.time()
-        # 1. 如果在店员手动干预锁定期内，尊重店员手动控制，不自动抢抓界面
         if now_ts < self._manual_override_until:
             return
 
-        # 重量门限判断 (例如大于 0.08kg 视为有放碗动作)
-        if weight_kg > self._min_valid_weight:
-            self._zero_start_time = 0.0  # 重置归零时间戳
+        if not self._receipt_hide_pending:
+            self._hide_timer.stop()
+        log_event(CAT_SCALE, "称重检测到稳定放碗动作", f"重量: {weight_kg:.3f}kg")
 
-            # 2. 动态重量递增修正 (比如手刚放碗读数 0.12kg，1秒内手放开稳在 0.55kg)
-            weight_diff = weight_kg - self._last_popped_weight
-            is_surge = self._has_auto_popped and weight_diff > self._surge_correction_weight and not self._current_is_private
+        is_private_turn = self._evaluate_decision(
+            weight_kg, official_available=self._official_available()
+        )
+        if not is_private_turn:
+            ok = bring_official_to_front(self.config)
+            if not ok:
+                self._fallback_to_private_after_official_failure(weight_kg)
+                is_private_turn = True
+        self._current_is_private = is_private_turn
 
-            if not self._has_auto_popped or is_surge:
-                self._has_auto_popped = True
-                self._last_popped_weight = weight_kg
-                self._hide_timer.stop()
-                log_event(CAT_SCALE, f"称重检测到放碗动作" if not is_surge else "称重稳定修正 (重量增加)", f"重量: {weight_kg:.3f}kg")
-
-                # 🤖 执行全自动智能决策算法。先确认官方窗口存在，避免
-                # “只有私有 POS”时把本 POS 隐藏到空桌面。
-                is_private_turn = self._evaluate_decision(
-                    weight_kg, official_available=self._official_available()
-                )
-                if not is_private_turn:
-                    ok = bring_official_to_front(self.config)
-                    if not ok:
-                        self._fallback_to_private_after_official_failure(weight_kg)
-                        is_private_turn = True
-                self._current_is_private = is_private_turn
-
-                if is_private_turn:
-                    self._last_private_time = time.time()  # 刷新私域活动时间
-                    # 决策分配给【私域 POS】 -> 自动将本系统弹出最前
-                    bring_our_pos_to_front(self.main_window)
-                    private_reason = self._last_decision_reason or "智能算法选择: 本单走私域"
-                    self._update_floating_ball_status(is_private=True, reason=private_reason, show_checkmark=True)
-                    msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 ({private_reason}) ({self._quota_status_text()})"
-                    print(f"[AutoDecisionEngine] {msg}")
-                    log_event(CAT_DECISION, f"决策: 走私域 POS", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
-                    if hasattr(self.main_window, 'status'):
-                        self.main_window.status.showMessage(msg, 5000)
-                else:
-                    # 决策分配给【官方系统】 -> 本系统隐藏在后台，保持/拉出官方界面
-                    self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方", show_checkmark=True)
-                    msg = f"🤖 智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 ({self._quota_status_text()})"
-                    print(f"[AutoDecisionEngine] {msg}")
-                    log_event(CAT_DECISION, f"决策: 走官方系统", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
-                    if hasattr(self.main_window, 'status'):
-                        self.main_window.status.showMessage(msg, 5000)
+        if is_private_turn:
+            self._last_private_time = time.time()
+            bring_our_pos_to_front(self.main_window)
+            private_reason = self._last_decision_reason or "智能算法选择: 本单走私域"
+            self._update_floating_ball_status(is_private=True, reason=private_reason, show_checkmark=True)
+            msg = f"智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 ({private_reason}) ({self._quota_status_text()})"
+            log_event(CAT_DECISION, "决策: 走私域 POS", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
         else:
-            # 3. 称重归零超时智能判定：若空重量保持指定时间以上，说明上一位顾客已拿碗离开，自动提前解脱官方连单锁
-            if self._zero_start_time == 0.0:
-                self._zero_start_time = now_ts
-            elif now_ts - self._zero_start_time > self._zeroing_unlock_sec:
-                # 只有真正归零超过一定时间（例如 5 秒），才算作真正的离场，此时才重置弹出标记
-                if self._has_auto_popped:
-                    self._has_auto_popped = False
-                    self._last_popped_weight = 0.0
-                    self._current_is_private = False
-                    print(f"[AutoDecisionEngine] 称重归零已达 {self._zeroing_unlock_sec}s，重置决策状态，迎接下一位顾客")
-                    
-                if self._last_official_time > 0:
-                    self._last_official_time = 0.0
-                    print(f"[AutoDecisionEngine] 称重归零超时 {self._zeroing_unlock_sec}s (顾客已离场)，自动解除官方连单锁定")
-                    log_event(CAT_DECISION, "顾客离场解锁", f"称重归零超过 {self._zeroing_unlock_sec} 秒，恢复新单智能决策")
+            self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方", show_checkmark=True)
+            msg = f"智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 ({self._quota_status_text()})"
+            log_event(CAT_DECISION, "决策: 走官方系统", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
+        if hasattr(self.main_window, 'status'):
+            self.main_window.status.showMessage(msg, 5000)
 
     def _evaluate_decision(self, weight_kg: float, official_available=None) -> bool:
         """
@@ -300,7 +348,7 @@ class AutoSwitchController(QObject):
                     self._record_inherited_decision(weight_kg, True)
                     self._last_decision_kind = "inherited_private"
                     self._last_decision_reason = "私有 POS 连单继承"
-                    print(f"[AutoDecisionEngine] 检测到私域 POS 购物车已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
+                    _safe_console(f"[AutoDecisionEngine] 检测到私域 POS 购物车已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
                     log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
                     return True
                 else:
@@ -331,7 +379,7 @@ class AutoSwitchController(QObject):
             self._record_inherited_decision(weight_kg, False)
             self._last_decision_kind = "inherited_official"
             self._last_decision_reason = "官方 POS 连单继承"
-            print(f"[AutoDecisionEngine] 检测到 {self._official_lock_sec} 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
+            _safe_console(f"[AutoDecisionEngine] 检测到 {self._official_lock_sec} 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
             log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < {self._official_lock_sec}s | 本次称重 {weight_kg:.3f}kg")
             return False
 
@@ -353,12 +401,12 @@ class AutoSwitchController(QObject):
                         self._last_decision_kind = "forced_official"
                         self._last_decision_reason = "私有 POS 达到当日金额上限"
                         self._last_official_time = now_ts
-                        msg = f"🛑 今日本POS已收款 ¥{today_amount:.2f} 达到/超过设定上限 ¥{self._max_daily_revenue_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
-                        print(f"[AutoDecisionEngine] {msg}")
+                        msg = f"今日本POS已收款 ¥{today_amount:.2f} 达到/超过设定上限 ¥{self._max_daily_revenue_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
+                        _safe_console(f"[AutoDecisionEngine] {msg}")
                         log_event(CAT_DECISION, "当日收款封顶 -> 走官方", f"今日已收 ¥{today_amount:.2f} >= 门限 ¥{self._max_daily_revenue_limit:.2f}")
                         return False
             except Exception as e:
-                print(f"[AutoDecisionEngine] 查询今日收款汇总异常: {e}")
+                _safe_console(f"[AutoDecisionEngine] 查询今日收款汇总异常: {e}")
 
         # 规则 1：小单过滤，低于设定重量一律分配给官方
         if weight_kg < self._min_private_weight:
@@ -372,7 +420,7 @@ class AutoSwitchController(QObject):
             self._last_decision_kind = "forced_official"
             self._last_decision_reason = "低于私有 POS 最小重量门限"
             self._last_official_time = now_ts
-            print(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg < {self._min_private_weight:.3f}kg 属于轻量单 -> 全自动分配给【官方】")
+            _safe_console(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg < {self._min_private_weight:.3f}kg 属于轻量单 -> 全自动分配给【官方】")
             log_event(CAT_DECISION, f"轻量单过滤 -> 走官方", f"重量 {weight_kg:.3f}kg < 门限 {self._min_private_weight:.3f}kg")
             return False
 
@@ -427,7 +475,9 @@ class AutoSwitchController(QObject):
             return
 
         delay_ms = self._auto_hide_delay_sec * 1000
-        print(f"[AutoSwitch] 小票已打印，启动 {self._auto_hide_delay_sec} 秒延时自动隐退程序...")
+        self._receipt_hide_pending = True
+        self._receipt_zero_seen = self._last_weight_kg <= self._min_valid_weight
+        _safe_console(f"[AutoSwitch] 小票已打印，启动 {self._auto_hide_delay_sec} 秒延时自动隐退程序...")
         log_event(CAT_PRINT, f"小票打印完成", f"启动 {self._auto_hide_delay_sec} 秒延时自动隐退")
         if hasattr(self.main_window, 'floating_ball') and self.main_window.floating_ball:
             self.main_window.floating_ball.start_countdown(self._auto_hide_delay_sec)
@@ -435,17 +485,22 @@ class AutoSwitchController(QObject):
 
     def _on_auto_hide_timeout(self):
         """延时结束，隐退切回官方系统"""
+        self._receipt_hide_pending = False
         if self._maintenance_pause_count:
             return
         if not self._official_available():
-            # Standalone/private-only mode is valid.  Never minimize the only
-            # usable POS merely because the optional official POS is closed.
+            # The post-receipt grace period has ended.  If the official POS is
+            # not running, minimize this helper as requested instead of
+            # leaving a private POS window visible with nowhere to switch.
             self._current_is_private = True
-            bring_our_pos_to_front(self.main_window)
-            log_event(CAT_SWITCH, "官方 POS 不可用，保持私有 POS", "出票后未执行自动隐退")
-            self._update_floating_ball_status(is_private=True, reason="官方 POS 未运行，保持私有 POS")
+            try:
+                self.main_window.showMinimized()
+            except Exception:
+                pass
+            log_event(CAT_SWITCH, "官方 POS 不可用，最小化私有 POS", "出票倒计时结束后未找到官方窗口")
+            self._update_floating_ball_status(is_private=True, reason="官方 POS 未运行，私有 POS 已最小化")
             return
-        print("[AutoSwitch] 延时结束，自动隐退切回官方收银界面")
+        _safe_console("[AutoSwitch] 延时结束，自动隐退切回官方收银界面")
         log_event(CAT_SWITCH, f"自动隐退切回官方系统", f"延时 {self._auto_hide_delay_sec} 秒结束")
         ok = bring_official_to_front(self.config)
         if ok:
@@ -477,13 +532,12 @@ class AutoSwitchController(QObject):
         """更新配置参数"""
         self.config = config
         self._auto_switch_enabled = self.config.get("auto_switch_enabled", True)
-        self._auto_hide_delay_sec = self.config.get("auto_hide_delay_sec", 3)
-        self._target_private_ratio = float(self.config.get("private_ratio_percent", 30))
-        self._min_private_weight = float(self.config.get("min_private_weight_kg", 0.25))
-        self._official_lock_sec = float(self.config.get("official_lock_sec", 60.0))
-        self._zeroing_unlock_sec = float(self.config.get("zeroing_unlock_sec", 5.0))
-        self._private_lock_sec = float(self.config.get("private_lock_sec", 300.0))
-        self._min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08))
-        self._surge_correction_weight = float(self.config.get("surge_correction_weight_kg", 0.15))
-        self._manual_override_lock_sec = float(self.config.get("manual_override_lock_sec", 30.0))
-        self._max_daily_revenue_limit = float(self.config.get("max_daily_revenue_limit", 0.0))
+        self._auto_hide_delay_sec = max(0, _config_int(self.config, "auto_hide_delay_sec", 10))
+        self._target_private_ratio = min(100.0, max(0.0, _config_float(self.config, "private_ratio_percent", 30)))
+        self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
+        self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
+        self._zeroing_unlock_sec = max(0.1, _config_float(self.config, "zeroing_unlock_sec", 5.0))
+        self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
+        self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
+        self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
+        self._max_daily_revenue_limit = max(0.0, _config_float(self.config, "max_daily_revenue_limit", 0.0))

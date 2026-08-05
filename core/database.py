@@ -214,6 +214,17 @@ class Database:
         finally:
             conn.close()
 
+    def get_latest_sale(self):
+        """Return the most recent local sale for the empty-cart summary card."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM sales ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
     def insert_sale(
         self,
         weight_kg,

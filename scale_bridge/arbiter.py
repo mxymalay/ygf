@@ -31,6 +31,7 @@ class OfficialPriorityArbiter:
         self._suppress_private_query = suppress_private_query
         self._forward_private_non_query = forward_private_non_query
         self._clock = clock
+        self._maximum_frame_length = maximum_frame_length
         self._frames = DibalFrameAssembler(maximum_frame_length)
         self.last_official_poll: Optional[float] = None
         self.last_private_poll: Optional[float] = None
@@ -47,16 +48,36 @@ class OfficialPriorityArbiter:
         now = self._clock() if now is None else now
         return now - self.last_official_poll < self._timeout_seconds
 
+    def private_is_active(self, now: Optional[float] = None) -> bool:
+        if self.last_private_poll is None:
+            return False
+        now = self._clock() if now is None else now
+        return now - self.last_private_poll < self._timeout_seconds
+
     def refresh_mode(self, now: Optional[float] = None) -> BridgeMode:
         if self.mode in (BridgeMode.RECONNECTING, BridgeMode.FAULTED):
             return self.mode
         if self.official_is_active(now):
             self.mode = BridgeMode.OFFICIAL_ACTIVE
-        elif self.last_official_poll is not None or self.last_private_poll is not None:
+        elif self.private_is_active(now):
             self.mode = BridgeMode.PRIVATE_ACTIVE
         else:
             self.mode = BridgeMode.UNKNOWN
         return self.mode
+
+    def reset_session(self) -> None:
+        """Drop activity/framing state when serial handles are reopened."""
+        self._frames = DibalFrameAssembler(self._maximum_frame_length)
+        self.last_official_poll = None
+        self.last_private_poll = None
+        self.last_scale_reply = None
+        self.last_weight_kg = None
+        self.mode = BridgeMode.UNKNOWN
+
+    def active_outputs(self, now: Optional[float] = None):
+        """Return POS endpoints that have polled recently in this session."""
+        now = self._clock() if now is None else now
+        return self.official_is_active(now), self.private_is_active(now)
 
     def set_transport_state(self, mode: BridgeMode) -> None:
         if mode not in (BridgeMode.RECONNECTING, BridgeMode.FAULTED):

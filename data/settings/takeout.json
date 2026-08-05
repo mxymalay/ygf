@@ -1,5 +1,9 @@
 {
   "takeout_interceptor_enabled": true,
+  "takeout_proxy_port": 9101,
+  "takeout_proxy_queue_name": "",
+  "takeout_proxy_mode_version": 1,
+  "takeout_auto_print": true,
   "takeout_categories": [
     {
       "id": "cat_1",
@@ -108,6 +112,5 @@
   "takeout_show_address": true,
   "takeout_show_time": true,
   "takeout_show_full_id": false,
-  "takeout_show_preorder": true,
-  "takeout_dense_pack": true
+  "takeout_show_preorder": true
 }

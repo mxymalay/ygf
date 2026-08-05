@@ -1,7 +1,10 @@
 {
   "shouqianba_enabled": true,
-  "shouqianba_port": "COM1",
+  "shouqianba_pair_mode": "managed",
+  "shouqianba_port": "COM13",
+  "shouqianba_plugin_port": "COM12",
   "shouqianba_baudrate": 9600,
   "shouqianba_format": "QA",
-  "shouqianba_hotkey": "Shift+Q"
+  "shouqianba_hotkey": "Shift+Q",
+  "shouqianba_install_dir": ""
 }
