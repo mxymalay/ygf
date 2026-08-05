@@ -12,7 +12,11 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
 from PyQt5.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QPainterPath
 
-from utils.window_utils import bring_official_to_front, bring_our_pos_to_front
+from utils.window_utils import (
+    bring_official_to_front,
+    bring_our_pos_to_front,
+    is_official_pos_available,
+)
 from utils.panic_handler import execute_panic_exit
 
 
@@ -278,12 +282,32 @@ class FloatingBall(QWidget):
             self.main_window.switch_controller.notify_manual_switch()
             
         if self.is_our_pos_active:
+            config = getattr(self.main_window, "config", None)
+            if not is_official_pos_available(config):
+                self._show_official_unavailable(
+                    "官方 POS 未运行，当前保持私有 POS，不隐藏窗口。"
+                )
+                return
             success = bring_official_to_front(getattr(self.main_window, "config", None))
-            if not success and self.main_window:
-                self.main_window.showMinimized()
+            if not success:
+                self._show_official_unavailable(
+                    "官方 POS 已关闭或窗口识别失效，当前保持私有 POS。"
+                )
+                return
             self.is_our_pos_active = False
             self.update()
         else:
             bring_our_pos_to_front(self.main_window)
             self.is_our_pos_active = True
             self.update()
+
+    def _show_official_unavailable(self, message):
+        """Show a visible touch-friendly warning instead of a hidden status hint."""
+        try:
+            from ui.custom_dialog import show_warning
+            show_warning(self.main_window, "无法切换到官方 POS", message)
+        except Exception:
+            # The fallback keeps the guard effective even if a packaged UI
+            # component is unavailable during early startup.
+            if hasattr(self.main_window, "status"):
+                self.main_window.status.showMessage(message, 5000)

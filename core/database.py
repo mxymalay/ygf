@@ -64,10 +64,10 @@ class Database:
         return conn
 
     @staticmethod
-    def _ensure_column(conn, name, definition):
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(sales)")}
+    def _ensure_column(conn, name, definition, table="sales"):
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(%s)" % table)}
         if name not in columns:
-            conn.execute("ALTER TABLE sales ADD COLUMN %s %s" % (name, definition))
+            conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, name, definition))
 
     def _init_db(self):
         """Create and transactionally migrate the append-only order schema."""
@@ -98,6 +98,26 @@ class Database:
                     refund_reason   TEXT DEFAULT '',
                     refund_operator TEXT DEFAULT ''
                 );
+
+                -- Routing statistics are deliberately separate from sales:
+                -- official POS payments are not written to this database,
+                -- while the scale routing decision is still observable.
+                -- One row per local day keeps the quota stable across a POS
+                -- restart without pretending to know the official amount.
+                CREATE TABLE IF NOT EXISTS switch_quota_daily (
+                    stat_date TEXT PRIMARY KEY,
+                    total_weight_kg REAL NOT NULL DEFAULT 0,
+                    private_weight_kg REAL NOT NULL DEFAULT 0,
+                    total_decisions INTEGER NOT NULL DEFAULT 0,
+                    private_decisions INTEGER NOT NULL DEFAULT 0,
+                    official_decisions INTEGER NOT NULL DEFAULT 0,
+                    forced_official_decisions INTEGER NOT NULL DEFAULT 0,
+                    inherited_private INTEGER NOT NULL DEFAULT 0,
+                    inherited_official INTEGER NOT NULL DEFAULT 0,
+                    inherited_total_weight_kg REAL NOT NULL DEFAULT 0,
+                    inherited_private_weight_kg REAL NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT ''
+                );
                 """
             )
 
@@ -119,6 +139,15 @@ class Database:
             }
             for name, definition in upgrades.items():
                 self._ensure_column(conn, name, definition)
+
+            # A previous version may already have created the routing table;
+            # add its continuation-weight columns without touching sales data.
+            switch_upgrades = {
+                "inherited_total_weight_kg": "REAL NOT NULL DEFAULT 0",
+                "inherited_private_weight_kg": "REAL NOT NULL DEFAULT 0",
+            }
+            for name, definition in switch_upgrades.items():
+                self._ensure_column(conn, name, definition, table="switch_quota_daily")
 
             # Do not create indexes until after the column migration.  An old
             # store can have a valid ``sales`` table without ``order_id``;
@@ -357,5 +386,149 @@ class Database:
         try:
             rows = conn.execute("SELECT * FROM sales ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
             return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _switch_stat_date(stat_date=None):
+        value = stat_date or date.today()
+        return value.strftime("%Y-%m-%d") if hasattr(value, "strftime") else str(value)
+
+    def get_switch_quota_state(self, stat_date=None):
+        """Return today's persisted routing counters.
+
+        These counters describe scale routing decisions only.  They are not
+        sales and therefore must not be interpreted as official POS revenue.
+        """
+        key = self._switch_stat_date(stat_date)
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM switch_quota_daily WHERE stat_date = ?", (key,)
+            ).fetchone()
+            if row:
+                return dict(row)
+            return {
+                "stat_date": key,
+                "total_weight_kg": 0.0,
+                "private_weight_kg": 0.0,
+                "total_decisions": 0,
+                "private_decisions": 0,
+                "official_decisions": 0,
+                "forced_official_decisions": 0,
+                "inherited_private": 0,
+                "inherited_official": 0,
+                "inherited_total_weight_kg": 0.0,
+                "inherited_private_weight_kg": 0.0,
+                "updated_at": "",
+            }
+        finally:
+            conn.close()
+
+    def record_switch_quota_decision(self, weight_kg, is_private, forced_official=False, stat_date=None):
+        """Persist one new (non-inherited) scale routing decision."""
+        key = self._switch_stat_date(stat_date)
+        weight = max(0.0, float(weight_kg or 0.0))
+        now = _now_text()
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO switch_quota_daily (stat_date, updated_at) VALUES (?, ?)",
+                (key, now),
+            )
+            conn.execute(
+                """UPDATE switch_quota_daily
+                   SET total_weight_kg = total_weight_kg + ?,
+                       private_weight_kg = private_weight_kg + ?,
+                       total_decisions = total_decisions + 1,
+                       private_decisions = private_decisions + ?,
+                       official_decisions = official_decisions + ?,
+                       forced_official_decisions = forced_official_decisions + ?,
+                       updated_at = ?
+                   WHERE stat_date = ?""",
+                (
+                    weight,
+                    weight if is_private else 0.0,
+                    1 if is_private else 0,
+                    0 if is_private else 1,
+                    1 if forced_official else 0,
+                    now,
+                    key,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def record_switch_inherited(self, weight_kg, is_private, stat_date=None):
+        """Persist a continuation's weight without consuming a new quota decision."""
+        key = self._switch_stat_date(stat_date)
+        weight = max(0.0, float(weight_kg or 0.0))
+        now = _now_text()
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO switch_quota_daily (stat_date, updated_at) VALUES (?, ?)",
+                (key, now),
+            )
+            conn.execute(
+                """UPDATE switch_quota_daily
+                   SET inherited_private = inherited_private + ?,
+                       inherited_official = inherited_official + ?,
+                       inherited_total_weight_kg = inherited_total_weight_kg + ?,
+                       inherited_private_weight_kg = inherited_private_weight_kg + ?,
+                       updated_at = ?
+                   WHERE stat_date = ?""",
+                (
+                    1 if is_private else 0,
+                    0 if is_private else 1,
+                    weight,
+                    weight if is_private else 0.0,
+                    now,
+                    key,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def convert_switch_decision_to_private(self, weight_kg, forced_official=False, stat_date=None):
+        """Correct a just-recorded official route when its window vanished."""
+        key = self._switch_stat_date(stat_date)
+        weight = max(0.0, float(weight_kg or 0.0))
+        now = _now_text()
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """UPDATE switch_quota_daily
+                   SET private_weight_kg = private_weight_kg + ?,
+                       private_decisions = private_decisions + 1,
+                       official_decisions = MAX(0, official_decisions - 1),
+                       forced_official_decisions = MAX(0, forced_official_decisions - ?),
+                       updated_at = ?
+                   WHERE stat_date = ?""",
+                (weight, 1 if forced_official else 0, now, key),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def convert_switch_inherited_to_private(self, weight_kg, stat_date=None):
+        """Correct a just-recorded official continuation when its window vanished."""
+        key = self._switch_stat_date(stat_date)
+        weight = max(0.0, float(weight_kg or 0.0))
+        now = _now_text()
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """UPDATE switch_quota_daily
+                   SET inherited_private = inherited_private + 1,
+                       inherited_official = MAX(0, inherited_official - 1),
+                       inherited_private_weight_kg = inherited_private_weight_kg + ?,
+                       updated_at = ?
+                   WHERE stat_date = ?""",
+                (weight, now, key),
+            )
+            conn.commit()
         finally:
             conn.close()

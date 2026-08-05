@@ -207,6 +207,16 @@ def find_official_window_handle(config=None):
     return info.get("hwnd") if info else None
 
 
+def is_official_pos_available(config=None):
+    """Return whether the configured official POS is currently visible.
+
+    Auto-switching must use this explicit probe before hiding the private POS;
+    a missing official window is a valid development/standalone scenario, not
+    a reason to send the operator to an empty desktop.
+    """
+    return find_official_window_info(config) is not None
+
+
 def apply_official_window_selection(config, info):
     """Persist the operator-selected window identity into the shared config."""
     if not config or not info:

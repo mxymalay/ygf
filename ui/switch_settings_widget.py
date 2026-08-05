@@ -196,7 +196,12 @@ class SwitchSettingsWidget(QWidget):
         lay1.addRow(QLabel(u"系统总控开关:"), self.chk_enabled)
         
         self.sp_ratio = TouchSpinBox(30, 0, 100, 5, " %")
-        lay1.addRow(QLabel(u"目标私域截留比例:"), self.sp_ratio)
+        lay1.addRow(QLabel(u"目标私域重量占比:"), self.sp_ratio)
+
+        lbl_ratio_tip = QLabel(u"算法按称重重量控制目标比例，不是按订单次数，也不是官方实际营业额。官方金额无法读取时，重量是最可靠的可观测代理。")
+        lbl_ratio_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_ratio_tip.setWordWrap(True)
+        lay1.addRow(QLabel(), lbl_ratio_tip)
         
         self.sp_weight = TouchDoubleSpinBox(0.25, 0.00, 5.00, 0.05, " kg")
         lay1.addRow(QLabel(u"轻量小单切回门限:"), self.sp_weight)
@@ -471,7 +476,7 @@ class SwitchSettingsWidget(QWidget):
 
         # 3. 记录日志
         detail = (f"开关: {'开' if new_enabled else '关'} | "
-                  f"截留比: {new_ratio}% | "
+                  f"目标重量比: {new_ratio}% | "
                   f"门限: {new_weight:.2f}kg | 当日上限: {new_max_daily_limit:.2f}元 | "
                   f"防抖(起漂{new_min_valid:.2f}, 剧增{new_surge:.2f}) | "
                   f"锁: 官{new_official_lock}s, 离{new_zeroing_unlock}s, 私{new_private_lock}s, 手{new_manual_override}s | "
