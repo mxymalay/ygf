@@ -6,15 +6,10 @@ import subprocess
 # 屏蔽 Qt 框架在控制台输出的 png 色彩警告与窗口尺寸适应性提示
 os.environ["QT_LOGGING_RULES"] = "qt.png=false;qt.qpa.window=false;*.warning=false"
 
-from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog
+from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
-from config import detect_legacy_config, load_config
-from ui.main_window import MainWindow
-from ui.login_window import LoginWindow
-from ui.startup_loading_dialog import StartupLoadingDialog
-from utils.system_utils import apply_auto_start_settings
 from core.app_logger import log_event, cleanup_old_logs, CAT_SYSTEM
 from core.safe_console import install_safe_console_streams
 
@@ -31,11 +26,6 @@ def main():
         from core.takeout_proxy_host import run_takeout_proxy_host
         sys.exit(run_takeout_proxy_host())
 
-    # Detect before loading so the legacy monolithic file is still available
-    # for the touch migration dialog.  Detached takeout-host mode returns
-    # above and keeps the historical automatic migration behaviour.
-    legacy_info = detect_legacy_config()
-
     # 启用高分辨率屏幕(High DPI)自适应缩放支持 (必须在创建 QApplication 之前设置)
     if hasattr(Qt, 'AA_EnableHighDpiScaling'):
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
@@ -50,9 +40,37 @@ def main():
     font = QFont("Microsoft YaHei", 10)
     app.setFont(font)
 
+    # Win7 收银机启动较慢，登录窗口涉及串口/打印机扫描和多个 UI 模块，
+    # 不能让用户在双击后长时间只看到桌面。这里故意只加载一个轻量提示框，
+    # 再延迟导入 LoginWindow/MainWindow 等重模块，确保启动反馈尽快出现。
+    from ui.startup_loading_dialog import StartupLoadingDialog
+
+    boot_loading = StartupLoadingDialog()
+    boot_loading.set_message(
+        u"正在启动 POS",
+        u"程序已启动，正在准备配置和登录界面……",
+    )
+    boot_loading.show()
+    boot_loading.raise_()
+    app.processEvents()
+
+    # Detect after QApplication/splash is visible so even legacy-config
+    # checks have visible feedback on slow Win7 hardware.
+    from config import detect_legacy_config, load_config
+    legacy_info = detect_legacy_config()
+
     if legacy_info:
+        boot_loading.set_message(
+            u"正在检查旧配置",
+            u"发现历史配置，准备打开迁移选项……",
+        )
+        app.processEvents()
         from ui.config_migration_dialog import ConfigMigrationDialog
 
+        boot_loading.close()
+        boot_loading.deleteLater()
+        boot_loading = None
+        app.processEvents()
         migration_dialog = ConfigMigrationDialog(legacy_info)
         if migration_dialog.exec_() != QDialog.Accepted:
             sys.exit(0)
@@ -61,6 +79,11 @@ def main():
             selected_keys=migration_dialog.selected_keys,
         )
     else:
+        boot_loading.set_message(
+            u"正在准备登录界面",
+            u"配置已读取，正在加载账户、密码和硬件检测……",
+        )
+        app.processEvents()
         config = load_config()
 
     # 启动时自动清理超过 3 天的旧日志
@@ -74,6 +97,8 @@ def main():
     log_event(CAT_SYSTEM, "系统启动", f"POS 辅助系统开始初始化")
 
     # 0. 尝试同步开机自启动设置
+    from utils.system_utils import apply_auto_start_settings
+
     apply_auto_start_settings(
         config.get("auto_start_enabled", True),
         config.get("auto_start_delay", 8)
@@ -89,8 +114,16 @@ def main():
         if delay_sec > 0:
             time.sleep(delay_sec)
 
-    # 1. 弹出登录与检测界面
+    # 1. 弹出登录与检测界面。构造登录窗口可能触发打印机/串口扫描，
+    #    所以要等对象创建完毕后再关闭启动提示。
+    from ui.login_window import LoginWindow
+
     login_dlg = LoginWindow(config)
+    if boot_loading is not None:
+        boot_loading.close()
+        boot_loading.deleteLater()
+        boot_loading = None
+        app.processEvents()
     if login_dlg.exec_() != QDialog.Accepted:
         # 用户点击退出或直接关闭窗口
         sys.exit(0)
@@ -105,6 +138,10 @@ def main():
     startup_loading.show()
     app.processEvents()
     try:
+        # Keep the loading dialog visible while importing/constructing the
+        # heavy main window modules on slower Win7 cashiers.
+        from ui.main_window import MainWindow
+
         startup_loading.set_message(
             u"检测完成，正在加载收银系统",
             u"正在初始化数据库、称重、打印和自动切换服务，请稍候。",
