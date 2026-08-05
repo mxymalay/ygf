@@ -569,6 +569,8 @@ class AutoSwitchController(QObject):
                 progress,
                 bool(self._switch_cycle_is_private),
                 next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
+                remaining_kg=remaining,
+                next_channel=next_channel,
             )
 
     def reset_switch_cycle_for_manual(self, is_private):
@@ -591,6 +593,8 @@ class AutoSwitchController(QObject):
                 0.0,
                 bool(is_private),
                 next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
+                remaining_kg=remaining,
+                next_channel=next_channel,
             )
         log_event(
             CAT_SWITCH,
@@ -662,6 +666,8 @@ class AutoSwitchController(QObject):
                     progress,
                     is_private,
                     next_is_private=(next_channel == "私有 POS") if remaining_kg is not None else None,
+                    remaining_kg=remaining_kg,
+                    next_channel=next_channel,
                 )
             if remaining_kg is None:
                 switch_text = "按配置不会自动切换"
@@ -688,6 +694,8 @@ class AutoSwitchController(QObject):
             progress,
             bool(is_private),
             next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
+            remaining_kg=remaining,
+            next_channel=next_channel,
         )
 
     def update_config(self, config: dict):

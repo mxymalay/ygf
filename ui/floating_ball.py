@@ -38,15 +38,14 @@ class FloatingBall(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # 88x84 黄金比例胶囊尺寸：顶部预留16px显示出票倒计时，底部
-        # 仍保留原有暂停/锁定/对勾状态栏。
-        # 右侧额外预留方向箭头区域，胶囊本体尺寸保持不变。
-        self.setFixedSize(104, 84)
+        # 胶囊本体仍为 88x48；窗口右侧预留出票倒计时，顶部预留
+        # “还需约 xxx kg”提示，底部继续保留暂停/锁定/对勾状态栏。
+        self.setFixedSize(160, 84)
 
         # 移动到屏幕右上角默认位置
         from PyQt5.QtWidgets import QApplication
         screen = QApplication.primaryScreen().geometry()
-        self.move(screen.width() - 126, 110)
+        self.move(screen.width() - 182, 110)
 
         self._drag_pos = QPoint()
         self._is_dragging = False
@@ -90,6 +89,8 @@ class FloatingBall(QWidget):
         self._quota_is_private = True
         self._quota_previous_is_private = True
         self._next_switch_is_private = None
+        self._switch_remaining_kg = None
+        self._switch_next_channel = ""
 
     def set_quota_progress(self, private_ratio, target_private_ratio, is_private):
         """更新悬浮球内的配额水位，并保留上一份水位作浅色背景。"""
@@ -112,18 +113,27 @@ class FloatingBall(QWidget):
         self._quota_is_private = mode
         self.update()
 
-    def set_switch_progress(self, progress, is_private, next_is_private=None):
-        """设置“距离下一次自动切换”的本轮进度（0.0 至 1.0）。"""
+    def set_switch_progress(self, progress, is_private, next_is_private=None,
+                            remaining_kg=None, next_channel=None):
+        """设置“距离下一次自动切换”的本轮进度和剩余重量。"""
         try:
             progress = max(0.0, min(1.0, float(progress or 0.0)))
         except (TypeError, ValueError):
             progress = 0.0
         mode = bool(is_private)
         next_mode = None if next_is_private is None else bool(next_is_private)
+        try:
+            normalized_remaining = (
+                None if remaining_kg is None else max(0.0, float(remaining_kg))
+            )
+        except (TypeError, ValueError):
+            normalized_remaining = None
         if (
             abs(progress - self._quota_progress) < 0.0001
             and mode == self._quota_is_private
             and next_mode == self._next_switch_is_private
+            and normalized_remaining == getattr(self, "_switch_remaining_kg", None)
+            and str(next_channel or "") == getattr(self, "_switch_next_channel", "")
         ):
             return
         self._quota_previous_progress = self._quota_progress
@@ -131,6 +141,8 @@ class FloatingBall(QWidget):
         self._quota_progress = progress
         self._quota_is_private = mode
         self._next_switch_is_private = next_mode
+        self._switch_remaining_kg = normalized_remaining
+        self._switch_next_channel = str(next_channel or "")
         self.update()
 
     def show_decision_checkmark(self):
@@ -248,20 +260,6 @@ class FloatingBall(QWidget):
             painter.drawLine(track_x + current_w, track_y + 5, track_x + current_w, track_y + track_h - 5)
         painter.restore()
 
-        # 右侧小方向箭头：只在确实存在下一自动切换目标时显示。
-        if self._next_switch_is_private is not None:
-            arrow_color = QColor(52, 211, 153) if self._next_switch_is_private else QColor(96, 165, 250)
-            painter.setPen(QPen(arrow_color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            arrow_y = 42
-            if self._next_switch_is_private:
-                # 下一次切到私有 POS：左箭头
-                painter.drawLine(98, arrow_y - 6, 91, arrow_y)
-                painter.drawLine(91, arrow_y, 98, arrow_y + 6)
-            else:
-                # 下一次切到官方 POS：右箭头
-                painter.drawLine(92, arrow_y - 6, 99, arrow_y)
-                painter.drawLine(99, arrow_y, 92, arrow_y + 6)
-
         # 3. 绘制内侧微高光倒角线 (3D 玻璃质感)
         painter.setBrush(Qt.NoBrush)
         # 内侧线也使用未填充背景色，避免白色高光把边框误显示成进度色。
@@ -283,15 +281,27 @@ class FloatingBall(QWidget):
         rect_title = QRect(6, 21, 82, 40) # 扩大标题矩形，使其完全居中
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        # 出票后倒计时数字放在悬浮球正上方，不占用底部暂停/锁定状态栏。
-        # 顶部不再绘制进度条，只保留清晰的小数字。
+        # 下一次切换剩余重量：放在胶囊上方的黑底白字小标签中。
+        # 这是“本轮还差多少重量”的提示，不与结账倒计时混在一起。
+        if self._switch_remaining_kg is not None:
+            painter.setBrush(QColor(0, 0, 0, 175))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(2, 1, 88, 14, 7, 7)
+            painter.setPen(QColor(255, 255, 255))
+            painter.setFont(QFont("Microsoft YaHei", 7, QFont.Bold))
+            painter.drawText(
+                QRect(3, 1, 86, 14), Qt.AlignCenter,
+                u"还需 %.3f kg" % self._switch_remaining_kg,
+            )
+
+        # 出票后倒计时数字放在胶囊右侧，不占用顶部剩余重量和底部状态栏。
         if self._countdown_active and self._countdown_remaining_sec > 0:
             painter.setBrush(QColor(15, 23, 42, 220))
             painter.setPen(QPen(QColor(254, 240, 138, 220), 1.0))
-            painter.drawRoundedRect(31, 1, 26, 14, 7, 7)
+            painter.drawRoundedRect(93, 33, 30, 18, 9, 9)
             painter.setPen(QColor(254, 240, 138))
-            painter.setFont(QFont("Microsoft YaHei", 8, QFont.Bold))
-            painter.drawText(QRect(31, 1, 26, 14), Qt.AlignCenter, str(self._countdown_remaining_sec))
+            painter.setFont(QFont("Microsoft YaHei", 9, QFont.Bold))
+            painter.drawText(QRect(93, 33, 30, 18), Qt.AlignCenter, str(self._countdown_remaining_sec))
 
         # 6. 悬浮球下方独立状态指示栏 (小灵动岛，不与主胶囊重叠)
         is_paused = False
