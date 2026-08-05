@@ -807,11 +807,21 @@ class AutoSwitchController(QObject):
             return
         if is_private is None:
             is_private = bool(getattr(fb, "is_our_pos_active", True))
-        # On startup there is no first weighing event to establish a cycle,
-        # but the operator still needs to see the next-switch forecast.  Use
-        # today's persisted counters as the baseline; this does not change
-        # quota statistics or create a decision record.
+        # On startup there is no first weighing event to establish a cycle.
+        # If today's ledger is empty, do not manufacture a 0kg distance: the
+        # first real stable weighing will establish the baseline.  This also
+        # covers a bowl that was already on the scale before POS startup.
         if not self._switch_cycle_initialized:
+            if self._total_weight_kg <= 0.000001:
+                self._current_is_private = bool(is_private)
+                fb.set_switch_progress(
+                    0.0,
+                    bool(is_private),
+                    next_is_private=None,
+                    remaining_kg=None,
+                    next_channel=None,
+                )
+                return
             self._switch_cycle_initialized = True
             self._switch_cycle_is_private = bool(is_private)
             self._switch_cycle_start_total_weight = self._total_weight_kg

@@ -789,6 +789,11 @@ class SaleWidget(QWidget):
         # been removed and the scale has crossed back through zero.
         self._weight_cycle_ready = True
         self._cycle_present = False
+        # SaleWidget is built before MainWindow connects the automatic
+        # routing controller.  If a bowl is already on the scale during
+        # startup, retain that one cycle so it can be delivered after the
+        # controller is connected instead of disappearing silently.
+        self._pending_weighing_cycle_weight = None
         self._checkout_active = False
         # Simulation starts in the safer/manual mode.  It is intentionally a
         # session setting: real hardware configuration is never changed by
@@ -2262,11 +2267,29 @@ class SaleWidget(QWidget):
         if self._cycle_present:
             return
         self._cycle_present = True
+        receiver_probe = getattr(self, "receivers", None)
+        receiver_count = receiver_probe(self.weighing_cycle_started) if callable(receiver_probe) else 1
+        if receiver_count <= 0:
+            self._pending_weighing_cycle_weight = float(weight_kg)
+        else:
+            self._pending_weighing_cycle_weight = None
         self.weighing_cycle_started.emit(float(weight_kg))
+
+    def replay_pending_weighing_cycle(self):
+        """Deliver a startup bowl once the auto-routing listener is ready."""
+        weight = self._pending_weighing_cycle_weight
+        self._pending_weighing_cycle_weight = None
+        if weight is None:
+            return False
+        if float(weight) <= 0.0:
+            return False
+        self.weighing_cycle_started.emit(float(weight))
+        return True
 
     @pyqtSlot()
     def _on_scale_zero_stable(self):
         """Unlock the next bowl only after a stable multi-sample zero."""
+        self._pending_weighing_cycle_weight = None
         self._cycle_present = False
         self._weight_cycle_ready = True
         self._low_price_warning_shown = False

@@ -384,8 +384,15 @@ class SwitchSettingsWidget(QWidget):
         lay1.setContentsMargins(20, 30, 20, 20)
         lay1.setSpacing(16)
         
-        self.chk_enabled = QCheckBox(u"开启智能自动分流 (若关闭，则需要手动控制悬浮球)")
+        # QCheckBox 在 Win7 Qt 样式下不会自动换行。原来的长文本会把
+        # 第一组字段列横向撑出屏幕，进而裁掉这一组所有说明文字。
+        self.chk_enabled = QCheckBox(u"开启智能自动分流")
         lay1.addRow(QLabel(u"系统总控开关:"), self.chk_enabled)
+
+        lbl_enabled_tip = QLabel(u"关闭后需要手动控制悬浮球。")
+        lbl_enabled_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_enabled_tip.setWordWrap(True)
+        lay1.addRow(QLabel(), lbl_enabled_tip)
         
         self.sp_ratio = TouchSpinBox(30, 0, 100, 5, " %")
         lay1.addRow(QLabel(u"目标私域重量占比:"), self.sp_ratio)
@@ -474,6 +481,16 @@ class SwitchSettingsWidget(QWidget):
         lay3.addRow(QLabel(), self._group_save_button(u"保存秤具设置", self._save_scale_group))
         form_vlayout.addWidget(grp3)
 
+        # Win7 触屏窗口通常比开发机窄。说明文字必须在字段列内收缩
+        # 换行，不能用长文本的 sizeHint 把整个页面横向撑出可视区域。
+        for tip in (lbl_enabled_tip, lbl_ratio_tip, lbl_w_tip, lbl_limit_tip,
+                    lbl_o_tip, lbl_z_tip, lbl_p_tip,
+                    lbl_stable_tip, lbl_m_tip):
+            tip.setMinimumWidth(0)
+            tip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        for form in (lay1, lay2, lay3):
+            form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+
         # --- 场景 4：订单收尾 ---
         grp4 = QGroupBox(u"结账收尾动作设置")
         lay4 = QFormLayout(grp4)
@@ -484,6 +501,7 @@ class SwitchSettingsWidget(QWidget):
         lay4.addRow(QLabel(u"结账出票后隐退延时:"), self.sp_delay)
         lay4.addRow(QLabel(), self._group_save_button(u"保存收尾设置", self._save_finish_group))
         form_vlayout.addWidget(grp4)
+        lay4.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
         left_layout.addWidget(form_container)
 

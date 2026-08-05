@@ -179,6 +179,11 @@ class MainWindow(QMainWindow):
             self.sale_page.weighing_cycle_zeroed.connect(
                 self.switch_controller.on_weighing_cycle_zeroed
             )
+            # SaleWidget starts the reader before the controller exists.  A
+            # bowl already sitting on the scale can therefore emit once too
+            # early; replay that retained cycle after the listener is wired.
+            if hasattr(self.sale_page, "replay_pending_weighing_cycle"):
+                self.sale_page.replay_pending_weighing_cycle()
 
             # B. 常驻触屏悬浮球
             if self.config.get("floating_ball_enabled", True):
