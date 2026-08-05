@@ -95,7 +95,9 @@ class PrinterSettingsTests(unittest.TestCase):
         self.assertIn("操作人：操作员甲".encode("gbk"), kitchen)
         self.assertIn("经典骨汤（KG）".encode("gbk"), kitchen)
         self.assertIn("0.200".encode("gbk"), kitchen)
-        self.assertIn("0.200 kg".encode("gbk"), kitchen)
+        self.assertNotIn("0.200 kg".encode("gbk"), kitchen)
+        self.assertIn(b"\x1d\x21\x11", customer)
+        self.assertIn(b"\x1d\x21\x11", kitchen)
         self.assertNotIn("重量：".encode("gbk"), kitchen)
 
     def test_bundled_logo_is_emitted_only_for_new_template(self):

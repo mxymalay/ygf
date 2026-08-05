@@ -1122,7 +1122,7 @@ class SettingsWidget(QWidget):
     def _official_customer_template_text():
         return (
             "[C][B]{shop_subtitle}\n[L]{separator}\n"
-            "[L][B][D]{pickup_line}\n[L]{separator}\n"
+            "[L][B][X]{pickup_line}\n[L]{separator}\n"
             "[L]{table_header}\n[L]{separator}\n[L]{items}\n"
             "[L]{separator}\n[L][B]{total_line}\n[L][B]{due_line}\n"
             "[L][B][D]{paid_line}\n[L]{separator}\n"
@@ -1134,8 +1134,8 @@ class SettingsWidget(QWidget):
     def _official_kitchen_template_text():
         return (
             "[L][B][Y]取餐号：{kitchen_call_no}\n[L]{separator}\n"
-            "[L][B][D]{kitchen_title_line}\n[L]{separator}\n"
-            "[L][B][X]{item_name}\n[R][B][X]{weight} kg\n"
+            "[L][B][X]{kitchen_title_line}\n[L]{separator}\n"
+            "[L][B][X]{item_name}\n[R][B][X]{weight}\n"
             "[L][B][X]  {flavor}\n[L]{separator}\n"
             "[L]操作人：{operator}\n[L]下单时间：{created_at}"
         )

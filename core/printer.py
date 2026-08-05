@@ -31,7 +31,7 @@ def fmt_lr_48(left: str, right: str, width: int = 48) -> str:
 # [B] 加粗， [D] 双倍高度， [X] 双倍宽高， [Y] 三倍宽高；其余内容使用 {变量} 替换。
 OFFICIAL_CUSTOMER_TEMPLATE = """[C][B]{shop_subtitle}
 [L]{separator}
-[L][B][D]{pickup_line}
+[L][B][X]{pickup_line}
 [L]{separator}
 [L]{table_header}
 [L]{separator}
@@ -47,10 +47,10 @@ OFFICIAL_CUSTOMER_TEMPLATE = """[C][B]{shop_subtitle}
 [L][B]加盟电话：{service_phone}"""
 OFFICIAL_KITCHEN_TEMPLATE = """[L][B][Y]取餐号：{kitchen_call_no}
 [L]{separator}
-[L][B][D]{kitchen_title_line}
+[L][B][X]{kitchen_title_line}
 [L]{separator}
 [L][B][X]{item_name}
-[R][B][X]{weight} kg
+[R][B][X]{weight}
 [L][B][X]  {flavor}
 [L]{separator}
 [L]操作人：{operator}
@@ -237,9 +237,17 @@ class ReceiptPrinter:
             "call_no": call_no,
             "kitchen_call_no": kitchen_call_no,
             "pos_order_no": "POS#" + kitchen_call_no,
-            "pickup_line": fmt_lr_48("取餐号：" + str(call_no), "[POS点餐]", self._line_width()).rstrip("\n"),
+            # 取餐号行使用双倍宽高；按一半的逻辑列宽排版，避免 ESC/POS
+            # 放大后把右侧的 [POS点餐] 挤出纸面。
+            "pickup_line": fmt_lr_48(
+                "取餐号：" + str(call_no), "[POS点餐]",
+                max(8, self._line_width() // 2),
+            ).rstrip("\n"),
             "table_header": self._customer_table_header(),
-            "kitchen_title_line": fmt_lr_48("制作单", "POS#" + kitchen_call_no, self._line_width()).rstrip("\n"),
+            "kitchen_title_line": fmt_lr_48(
+                "制作单", "POS#" + kitchen_call_no,
+                max(8, self._line_width() // 2),
+            ).rstrip("\n"),
             "index": index,
             "item_name": item_name,
             "weight": weight,
@@ -270,12 +278,15 @@ class ReceiptPrinter:
         if not bool(self.config.get("printer_logo_enabled", True)):
             return b""
         path = str(self.config.get("printer_logo_path", "") or "").strip()
+        png_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo_source.png")
+        svg_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo.svg")
         if not path:
             # SVG 是官方提供的透明矢量 Logo，优先使用；没有 QtSvg 或 SVG
             # 文件时再回退到旧 PNG，避免把透明背景当成黑色整块打印。
-            svg_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo.svg")
-            png_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo_source.png")
-            path = svg_path if os.path.isfile(svg_path) else png_path
+            # PNG 是与官方新版小票一致的黑底预览稿，包含完整的圆形图标
+            # 和白色“杨”字；优先使用它并在栅格化时反相，避免某些 QtSvg
+            # 版本对 SVG mask 的处理把白字也填成黑色。
+            path = png_path if os.path.isfile(png_path) else svg_path
         if not os.path.isfile(path):
             return b""
         try:
@@ -293,6 +304,9 @@ class ReceiptPrinter:
             except (TypeError, ValueError):
                 target_width = 512 if self._template_profile() == "official_v2" else 384
             is_svg = path.lower().endswith(".svg")
+            bundled_svg = is_svg and os.path.abspath(path) == os.path.abspath(svg_path)
+            bundled_png = (not is_svg) and os.path.abspath(path) == os.path.abspath(png_path)
+            bundled_logo = bundled_svg or bundled_png
             if is_svg:
                 from PyQt5.QtSvg import QSvgRenderer
 
@@ -309,11 +323,10 @@ class ReceiptPrinter:
                 renderer.render(painter)
                 painter.end()
                 width, height = image.width(), image.height()
-                bundled_svg = os.path.abspath(path) == os.path.abspath(svg_path)
                 # 圆形图标是 Logo 的组成部分，不能裁掉。热敏纸没有白墨，
                 # 因此圆形区域内的橙色底转成黑点，白色“杨”字保持空白，
                 # 才能得到黑圆白字；右侧白色字标则正常转成黑字。
-                icon_width = int(round(width * 0.32)) if bundled_svg else 0
+                icon_width = int(round(width * 0.32)) if bundled_logo else 0
             else:
                 image = QImage(path).convertToFormat(QImage.Format_ARGB32)
                 if image.isNull():
@@ -321,6 +334,8 @@ class ReceiptPrinter:
                 if image.width() > target_width:
                     image = image.scaledToWidth(target_width, Qt.SmoothTransformation)
             width, height = image.width(), image.height()
+            if not is_svg:
+                icon_width = int(round(width * 0.32)) if bundled_logo else 0
             corner_points = [(0, 0), (max(0, width - 1), 0), (0, max(0, height - 1)), (max(0, width - 1), max(0, height - 1))]
             corner_luma = sum(
                 sum(image.pixelColor(x, y).getRgb()[:3]) / 3.0
@@ -340,9 +355,15 @@ class ReceiptPrinter:
                     luma = (color.red() + color.green() + color.blue()) / 3.0
                     if is_svg:
                         if bundled_svg and x < icon_width:
-                            logo_pixel = color.alpha() >= 32 and luma < 200
+                            # SVG 圆形区域：保留橙色/深色底，白色“杨”字留
+                            # 空（热敏纸本身就是白色），从而打印黑圆白字。
+                            logo_pixel = color.alpha() >= 32 and 45 <= luma < 200
                         else:
                             logo_pixel = color.alpha() >= 32
+                    elif x < icon_width and bundled_logo:
+                        # PNG 预览稿的深色背景与白色字都不能打印；只把
+                        # 橙色圆底（中间亮度）转为黑点。
+                        logo_pixel = 45 <= luma < 200
                     else:
                         logo_pixel = luma >= 80 if dark_background else luma <= 180
                     if logo_pixel:
