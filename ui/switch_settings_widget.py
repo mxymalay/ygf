@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import save_config
 from core.app_logger import log_event, CAT_SYSTEM, read_logs, CAT_DECISION, CAT_SWITCH, CAT_PANIC
 
@@ -91,30 +91,37 @@ class TouchDoubleSpinBox(TouchSpinBox):
 
 
 class DecisionWeightChart(QWidget):
-    """轻量级 Qt 绘图控件，显示今日每次称重的分流方向。
+    """轻量级 Qt 绘图控件，显示称重分流、手动切换和时段汇总。
 
     不依赖 matplotlib 等额外库，避免 Win7 打包后缺少绘图库。每个
-    通道分别绘制折线，节点标注本次稳定重量；横轴标签按可用宽度采样
-    并旋转 45 度，避免触屏窄窗口下相互遮挡。
+    官方/私有通道分别绘制折线，红色虚线标出店员手动切换；下方使用
+    2 小时堆叠柱图汇总重量。横轴标签按可用宽度采样并旋转 45 度，
+    避免触屏窄窗口下相互遮挡。
     """
 
     OFFICIAL_COLOR = QColor("#38BDF8")
     PRIVATE_COLOR = QColor("#22C55E")
+    MANUAL_COLOR = QColor("#EF4444")
     GRID_COLOR = QColor("#26364D")
     TEXT_COLOR = QColor("#CBD5E1")
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.events = []
-        self.setMinimumHeight(330)
+        # The widget contains a decision line chart and a compact stacked
+        # histogram. Keep both touch-readable; the outer page can still
+        # scroll horizontally when there are many events.
+        self.setMinimumHeight(590)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("background: transparent;")
 
     def set_events(self, events):
         self.events = list(events or [])
-        # 每个时间节点预留固定触屏可读宽度。事件很多时由外层
-        # QScrollArea 提供横向滚动，避免把时间标签压缩到不可读。
-        self.setMinimumWidth(max(720, 110 + len(self.events) * 72))
+        # 每个时间节点（包括红色手动切换）预留固定触屏可读宽度。
+        # 之前只按称重点计算宽度，手动切换很多时所有红线会挤在左侧。
+        # 事件很多时由外层 QScrollArea 提供横向滚动。
+        event_count = max(1, len(self.events))
+        self.setMinimumWidth(max(720, min(12000, 110 + event_count * 72)))
         self.update()
 
     @staticmethod
@@ -146,8 +153,11 @@ class DecisionWeightChart(QWidget):
             when = self._event_time(event)
             if when is None:
                 continue
+            event_type = str(event.get("event_type") or "").lower()
             channel = str(event.get("channel") or "official").lower()
-            if channel not in ("private", "official"):
+            if event_type == "manual_switch" or channel == "manual":
+                channel = "manual"
+            elif channel not in ("private", "official"):
                 channel = "official"
             result.append((when, self._weight(event), channel, event))
         return sorted(result, key=lambda item: item[0])
@@ -169,6 +179,7 @@ class DecisionWeightChart(QWidget):
         painter.drawRoundedRect(outer, 10, 10)
 
         points = self._normalised_events()
+        route_points = [item for item in points if item[2] in ("official", "private")]
         if not points:
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(QFont("Microsoft YaHei", 13))
@@ -178,24 +189,34 @@ class DecisionWeightChart(QWidget):
 
         width = float(self.width())
         height = float(self.height())
-        plot = QRectF(68, 48, max(120.0, width - 92), max(120.0, height - 112))
-        max_weight = max(item[1] for item in points)
+        plot_top = 48.0
+        plot_height = max(170.0, min(300.0, height * 0.46))
+        plot = QRectF(68, plot_top, max(120.0, width - 92), plot_height)
+        max_weight = max([item[1] for item in route_points] or [0.1])
         y_max = max(1.0, max_weight)
         # Leave a little headroom above the largest point while keeping a
         # stable 0.1kg scale for small orders.
         y_max = max(0.1, ((y_max * 1.12) * 10.0 + 0.9999) // 1 / 10.0)
-        start_day = points[0][0].replace(hour=0, minute=0, second=0, microsecond=0)
-        end_day = start_day.replace(hour=23, minute=59, second=59, microsecond=999999)
-        total_seconds = max(1.0, (end_day - start_day).total_seconds())
+        # 以当天实际有数据的时间范围绘图，而不是固定 00:00-24:00。
+        # 例如所有操作都发生在 00:00-01:00 时，固定全天坐标会把点
+        # 和手动切换线全部压在左边；保留少量两侧留白即可看清趋势。
+        data_start = min(item[0] for item in points)
+        data_end = max(item[0] for item in points)
+        span_seconds = max(1.0, (data_end - data_start).total_seconds())
+        padding_seconds = max(60.0, span_seconds * 0.03)
+        start_time = data_start - timedelta(seconds=padding_seconds)
+        end_time = data_end + timedelta(seconds=padding_seconds)
+        total_seconds = max(1.0, (end_time - start_time).total_seconds())
 
         title_font = QFont("Microsoft YaHei", 12)
         title_font.setBold(True)
         self._draw_text(painter, 16, 28, u"今日称重决策（重量 kg）", self.TEXT_COLOR, title_font)
 
         legend_font = QFont("Microsoft YaHei", 10)
-        legend_x = max(210.0, width - 245.0)
+        legend_x = max(210.0, width - 360.0)
         for color, label, offset in ((self.OFFICIAL_COLOR, u"官方", 0),
-                                     (self.PRIVATE_COLOR, u"私有", 80)):
+                                     (self.PRIVATE_COLOR, u"私有", 80),
+                                     (self.MANUAL_COLOR, u"手动切换", 160)):
             painter.setPen(QPen(color, 3))
             painter.drawLine(QPointF(legend_x + offset, 22), QPointF(legend_x + offset + 22, 22))
             self._draw_text(painter, legend_x + offset + 28, 26, label, self.TEXT_COLOR, legend_font)
@@ -217,14 +238,14 @@ class DecisionWeightChart(QWidget):
         painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
 
         def point_for(when, weight):
-            x = plot.left() + ((when - start_day).total_seconds() / total_seconds) * plot.width()
+            x = plot.left() + ((when - start_time).total_seconds() / total_seconds) * plot.width()
             y = plot.bottom() - (weight / y_max) * plot.height()
             return QPointF(x, y)
 
         # Draw one line per channel, so a channel's trend remains readable
         # even when the other channel is used for several consecutive orders.
         for channel, color in (("official", self.OFFICIAL_COLOR), ("private", self.PRIVATE_COLOR)):
-            channel_points = [point_for(item[0], item[1]) for item in points if item[2] == channel]
+            channel_points = [point_for(item[0], item[1]) for item in route_points if item[2] == channel]
             if len(channel_points) > 1:
                 painter.setPen(QPen(color, 2.5))
                 painter.drawPolyline(channel_points)
@@ -232,7 +253,7 @@ class DecisionWeightChart(QWidget):
         # Also colour the chronological transitions.  This keeps a visible
         # line when today's data contains only one event per channel and makes
         # the actual decision sequence (official/private/official...) clear.
-        for previous, current in zip(points, points[1:]):
+        for previous, current in zip(route_points, route_points[1:]):
             painter.setPen(QPen(
                 self.PRIVATE_COLOR if current[2] == "private" else self.OFFICIAL_COLOR,
                 2.5,
@@ -240,7 +261,7 @@ class DecisionWeightChart(QWidget):
             painter.drawLine(point_for(previous[0], previous[1]), point_for(current[0], current[1]))
 
         value_font = QFont("Microsoft YaHei", 8)
-        for index, (when, weight, channel, _event) in enumerate(points):
+        for index, (when, weight, channel, _event) in enumerate(route_points):
             color = self.PRIVATE_COLOR if channel == "private" else self.OFFICIAL_COLOR
             point = point_for(when, weight)
             painter.setPen(QPen(QColor("#0F172A"), 1))
@@ -270,6 +291,69 @@ class DecisionWeightChart(QWidget):
             painter.setPen(self.TEXT_COLOR)
             painter.drawText(QPointF(0, 0), label)
             painter.restore()
+
+        # Manual channel switches have no weighing amount, so they are shown
+        # as red dashed time markers rather than being forced onto the weight
+        # scale. This makes operator intervention visible without distorting
+        # either route line.
+        for when, _weight, channel, marker_event in points:
+            if channel != "manual":
+                continue
+            x = point_for(when, 0.0).x()
+            painter.save()
+            painter.setPen(QPen(self.MANUAL_COLOR, 2, Qt.DashLine))
+            painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
+            painter.setBrush(self.MANUAL_COLOR)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(QPointF(x, plot.top() + 8), 5, 5)
+            target = marker_event.get("manual_target")
+            if target:
+                painter.setPen(self.MANUAL_COLOR)
+                painter.setFont(axis_font)
+                painter.drawText(QPointF(x + 6, plot.top() + 12),
+                                 u"手动→%s" % (u"私有" if target == "private" else u"官方"))
+            painter.restore()
+
+        # Bottom stacked histogram: each two-hour slot shows the cumulative
+        # official/private weight. It answers a different question from the
+        # line chart ("which channel got this bowl?") while staying compact
+        # enough for a touch screen.
+        histogram_top = plot.bottom() + 58.0
+        histogram = QRectF(68, histogram_top, max(120.0, width - 92), max(150.0, height - histogram_top - 38.0))
+        self._draw_text(painter, 16, histogram_top - 30, u"按时段重量分布（每 2 小时）", self.TEXT_COLOR, title_font)
+        bins = [(0.0, 0.0) for _ in range(12)]
+        for when, weight, channel, _event in route_points:
+            slot = min(11, max(0, int((when.hour * 60 + when.minute) / 120)))
+            official, private = bins[slot]
+            if channel == "private":
+                private += weight
+            else:
+                official += weight
+            bins[slot] = (official, private)
+        hist_max = max([official + private for official, private in bins] or [0.1])
+        hist_max = max(0.1, hist_max * 1.15)
+        painter.setPen(QPen(self.GRID_COLOR, 1))
+        for index in range(3):
+            ratio = float(index) / 2.0
+            y = histogram.bottom() - ratio * histogram.height()
+            painter.drawLine(QPointF(histogram.left(), y), QPointF(histogram.right(), y))
+            painter.setPen(self.TEXT_COLOR)
+            painter.drawText(QRectF(5, y - 8, 57, 16), Qt.AlignRight | Qt.AlignVCenter, "%.2f" % (hist_max * ratio))
+            painter.setPen(QPen(self.GRID_COLOR, 1))
+        bar_width = histogram.width() / 12.0
+        for index, (official, private) in enumerate(bins):
+            x = histogram.left() + index * bar_width + bar_width * 0.16
+            width_bar = bar_width * 0.68
+            official_h = (official / hist_max) * histogram.height()
+            private_h = (private / hist_max) * histogram.height()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self.OFFICIAL_COLOR)
+            painter.drawRect(QRectF(x, histogram.bottom() - official_h, width_bar, official_h))
+            painter.setBrush(self.PRIVATE_COLOR)
+            painter.drawRect(QRectF(x, histogram.bottom() - official_h - private_h, width_bar, private_h))
+            painter.setPen(self.TEXT_COLOR)
+            painter.setFont(axis_font)
+            painter.drawText(QRectF(x - 8, histogram.bottom() + 6, width_bar + 16, 18), Qt.AlignCenter, "%02d" % (index * 2))
 
         painter.end()
 
@@ -594,7 +678,7 @@ class SwitchSettingsWidget(QWidget):
         chart_title = QLabel(u"今日称重决策折线图")
         chart_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
         right_layout.addWidget(chart_title)
-        chart_tip = QLabel(u"蓝线：官方通道　绿线：私有通道；每个圆点旁标注本次稳定称重重量。")
+        chart_tip = QLabel(u"蓝线：官方　绿线：私有　红色虚线：店员手动切换；下方柱图按 2 小时汇总两边重量。")
         chart_tip.setWordWrap(True)
         chart_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
         right_layout.addWidget(chart_tip)
@@ -878,18 +962,53 @@ class SwitchSettingsWidget(QWidget):
         self._refresh_weight_chart()
 
     def _refresh_weight_chart(self):
-        """刷新今日称重图；数据库不可用时保留空态，不阻断设置页。"""
+        """刷新称重图，并叠加店员手动切换标记。"""
         parent_mw = self.window()
         db = getattr(parent_mw, "db", None)
-        if db is None or not hasattr(db, "get_weighing_route_events"):
-            self.weight_chart.set_events([])
-            return
         selected_date = self._selected_filter_date("chart")
+        events = []
+        if db is not None and hasattr(db, "get_weighing_route_events"):
+            try:
+                events = db.get_weighing_route_events(selected_date)
+            except Exception as exc:
+                log_event(CAT_SYSTEM, "称重决策图表读取失败", str(exc))
+
+        # 手动切换没有重量，不能写入称重 route-event 表；从统一应用
+        # 日志读取并作为红色时间标记叠加到图表。只识别“重置本轮”这条
+        # 事件，避免同一次操作的“手动干预锁定”重复画两条红线。
         try:
-            events = db.get_weighing_route_events(selected_date)
+            manual_logs = read_logs(limit=2000)
+            seen_manual = set()
+            for entry in manual_logs:
+                if entry.get("cat") != CAT_SWITCH:
+                    continue
+                if not str(entry.get("ts", "")).startswith(selected_date):
+                    continue
+                if "手动切换后重置本轮切换进度" not in str(entry.get("msg", "")):
+                    continue
+                detail = str(entry.get("detail", ""))
+                if "私有 POS" in detail:
+                    target = "private"
+                elif "官方 POS" in detail:
+                    target = "official"
+                else:
+                    target = ""
+                # A double write in the logger can produce the same manual
+                # switch twice in one second.  It is one operator action, so
+                # draw one marker instead of a visually thick red bar.
+                marker_key = (str(entry.get("ts", "")), target)
+                if marker_key in seen_manual:
+                    continue
+                seen_manual.add(marker_key)
+                events.append({
+                    "event_type": "manual_switch",
+                    "channel": "manual",
+                    "manual_target": target,
+                    "weight_kg": 0.0,
+                    "created_at": entry.get("ts", ""),
+                })
         except Exception as exc:
-            log_event(CAT_SYSTEM, "称重决策图表读取失败", str(exc))
-            events = []
+            log_event(CAT_SYSTEM, "手动切换图表标记读取失败", str(exc))
         self.weight_chart.set_events(events)
 
     def focus_weight_chart(self):

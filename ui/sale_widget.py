@@ -785,10 +785,15 @@ class SaleWidget(QWidget):
         # 首次收到硬件数据前，不把“没有读数”伪装成正常的 0.000 kg。
         self._has_scale_reading = False
         self._last_weight_monotonic = 0.0
-        # A new soup may only capture a reading after the previous bowl has
-        # been removed and the scale has crossed back through zero.
+        # Normally a new soup captures a reading only after the previous bowl
+        # has crossed back through zero. An explicit soup deletion opens a
+        # separate, in-place replacement exception without reopening routing.
         self._weight_cycle_ready = True
         self._cycle_present = False
+        # 删除当前汤底后，允许收银员在同一只碗仍在称上的情况下重新
+        # 选择汤底并按最新稳定读数计价。这个标记只影响订单编辑，
+        # 不会重新发出 weighing_cycle_started，因此不会重复计入分流。
+        self._soup_replacement_allowed = False
         # SaleWidget is built before MainWindow connects the automatic
         # routing controller.  If a bowl is already on the scale during
         # startup, retain that one cycle so it can be delivered after the
@@ -852,6 +857,7 @@ class SaleWidget(QWidget):
         self._weight_cycle_ready = not any(
             item.get("type") == "soup" for item in self.cart_items
         )
+        self._soup_replacement_allowed = False
         for item in self.cart_items:
             btn = self.menu_buttons.get(item.get("key_id"))
             if btn:
@@ -1606,7 +1612,19 @@ class SaleWidget(QWidget):
             # Snapshot the launch mode.  A settings save must not be able to
             # turn a running simulation into a real-scale checkout.
             is_mock = self._is_mock_mode
-            if not self._weight_cycle_ready:
+            has_soup = any(item.get("type") == "soup" for item in self.cart_items)
+
+            replacement_allowed = self._can_replace_soup_without_zero(has_soup)
+            # A menu click is an explicit order action.  Once a soup line
+            # already exists, another soup click means "add another bowl";
+            # it must never silently rewrite the first bowl.  The physical
+            # scale cycle remains locked so routing is still emitted once,
+            # but the order can contain multiple soup lines (e.g. two bowls
+            # placed in quick succession without a stable zero sample).
+            #
+            # If there is no soup line, the only non-zero-cycle exception is
+            # an explicitly deleted soup being replaced in-place.
+            if not has_soup and not self._weight_cycle_ready and not replacement_allowed:
                 if is_mock:
                     show_warning(
                         self,
@@ -1674,9 +1692,14 @@ class SaleWidget(QWidget):
                 "discount_rate": 1.0
             }
             self.cart_items.append(item_entry)
-            # Lock this weighing cycle immediately; the same stable reading
-            # must never be used for a second soup.
+            # Lock the physical weighing cycle immediately.  Additional soup
+            # lines are still allowed as explicit operator actions, but they
+            # do not emit another routing event for this unresolved cycle.
             self._weight_cycle_ready = False
+            # A replacement consumes the edit exception. The physical cycle
+            # remains locked and will still be counted only once by the
+            # routing controller.
+            self._soup_replacement_allowed = False
             self.selected_item_index = len(self.cart_items) - 1
             pages = self._compute_cart_pages()
             self.cart_page = len(pages) - 1
@@ -1722,6 +1745,22 @@ class SaleWidget(QWidget):
             btn.set_count(btn.count + 1)
             self._update_price_display()
             log_event(CAT_USER, f"点选附加项: {btn.title_str.replace(chr(10), ' ')}", f"单价 ¥{btn.price_val:.2f}")
+
+    def _can_replace_soup_without_zero(self, has_soup=None):
+        """Allow an explicitly deleted soup to be re-priced in-place.
+
+        This edit exception is intentionally separate from
+        ``_weight_cycle_ready``: the latter protects the routing ledger from
+        counting one physical bowl twice, while this method only permits
+        replacing the soup line in the still-open basket.
+        """
+        if getattr(self, "_weight_cycle_ready", True):
+            return False
+        if not getattr(self, "_soup_replacement_allowed", False):
+            return False
+        if has_soup is None:
+            has_soup = any(item.get("type") == "soup" for item in (self.cart_items or []))
+        return not has_soup
 
     def _select_cart_item(self, index):
         """选择指定的订单卡片"""
@@ -1907,6 +1946,14 @@ class SaleWidget(QWidget):
         """删除选中的订单项 (支持删除任意选中项，包括汤底)"""
         if 0 <= self.selected_item_index < len(self.cart_items):
             removed = self.cart_items.pop(self.selected_item_index)
+
+            # Removing the soup is an intentional edit of the current
+            # basket, not a new weighing cycle. Let the operator choose a
+            # different soup immediately (including after the customer adds
+            # more ingredients), while preserving the cycle-level duplicate
+            # protection in _on_scale_cycle_started.
+            if removed.get("type") == "soup":
+                self._soup_replacement_allowed = True
             
             # 更新右侧菜单按钮角标计数
             key_id = removed.get("key_id")
@@ -1920,7 +1967,10 @@ class SaleWidget(QWidget):
                 self.selected_item_index = -1
 
             self._update_price_display()
-            log_event(CAT_USER, f"删除订单项: {removed.get('name','')}", f"单价 ¥{removed.get('base_price', 0):.2f}")
+            delete_detail = f"单价 ¥{removed.get('base_price', 0):.2f}"
+            if removed.get("type") == "soup":
+                delete_detail += " | 当前称重周期允许重新选择汤底，分流只计一次"
+            log_event(CAT_USER, f"删除订单项: {removed.get('name','')}", delete_detail)
 
     def _toggle_call_detail(self):
         self._detail_expanded = not self._detail_expanded
@@ -2292,6 +2342,7 @@ class SaleWidget(QWidget):
         self._pending_weighing_cycle_weight = None
         self._cycle_present = False
         self._weight_cycle_ready = True
+        self._soup_replacement_allowed = False
         self._low_price_warning_shown = False
         # Resolve only what can be known from this UI: an empty private cart
         # means the stable bowl was removed without a local order.  Official
@@ -2351,6 +2402,7 @@ class SaleWidget(QWidget):
         self._is_stable = False
         self._weight_cycle_ready = True
         self._cycle_present = False
+        self._soup_replacement_allowed = False
         self._scale_connected = False
         self._update_weight_banner_style()
         self.lbl_scale_status_icon.hide()
@@ -2369,8 +2421,18 @@ class SaleWidget(QWidget):
             # removed represents returning the simulated scale to zero.  A
             # following click will generate the next bowl's reading.
             if self._is_mock_mode and self.mock_weight_mode == "random":
-                self._apply_mock_weight(0.0)
-                self._show_toast(u"模拟称已回零，可以生成下一碗重量")
+                # An explicitly deleted soup is an in-place replacement, so
+                # generate the new quote directly instead of forcing a fake
+                # zero between the two menu selections.
+                if self._can_replace_soup_without_zero():
+                    pass
+                else:
+                    self._apply_mock_weight(0.0)
+                    self._show_toast(u"模拟称已回零，可以生成下一碗重量")
+                    return
+            elif not self._can_replace_soup_without_zero():
+                return
+        if not self._is_mock_mode:
             return
         if self._is_mock_mode and self.mock_weight_mode == "manual":
             self._prompt_manual_weight()
@@ -2384,7 +2446,8 @@ class SaleWidget(QWidget):
     def _on_weight_display_click(self):
         """Use the large weight number as the only mock-weight action target."""
         if self._is_mock_mode:
-            if self.mock_weight_mode == "manual" and not self._weight_cycle_ready:
+            replacement_allowed = self._can_replace_soup_without_zero()
+            if self.mock_weight_mode == "manual" and not self._weight_cycle_ready and not replacement_allowed:
                 # While locked, only 0.000 is a valid manual action.  Do not
                 # let a positive value overwrite the previous bowl's weight.
                 self._prompt_manual_weight(allow_zero=True, zero_only=True)
@@ -2737,6 +2800,7 @@ class SaleWidget(QWidget):
         self.temp_order_no = self._gen_temp_order_no()
         self.current_order_id = generate_order_id()
         self._draft_signature = ""
+        self._soup_replacement_allowed = False
         clear_draft()
         self._update_price_display()
         # Do not unlock the weighing cycle here.  A paid/cancelled basket can

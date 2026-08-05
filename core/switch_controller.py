@@ -717,7 +717,8 @@ class AutoSwitchController(QObject):
         log_event(
             CAT_SWITCH,
             "手动切换后重置本轮切换进度",
-            "累计分流统计保留，下一次自动切换从当前重量起算",
+            "目标通道: %s | 累计分流统计保留，下一次自动切换从当前重量起算"
+            % ("私有 POS" if is_private else "官方 POS"),
         )
 
     def _quota_status_text(self) -> str:

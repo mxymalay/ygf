@@ -134,6 +134,39 @@ class WeighingCycleTests(unittest.TestCase):
             SaleWidget._on_clear(dummy)
         self.assertFalse(dummy._weight_cycle_ready)
 
+    def test_deleted_soup_allows_in_place_reselection_without_zeroing(self):
+        """Replacing an item is allowed, but only while the basket has no soup."""
+        dummy = SimpleNamespace(
+            cart_items=[{"type": "soup", "name": "旧汤底"}],
+            selected_item_index=0,
+            menu_buttons={},
+            _weight_cycle_ready=False,
+            _soup_replacement_allowed=False,
+            _update_price_display=lambda: None,
+        )
+        with patch("ui.sale_widget.log_event"):
+            SaleWidget._delete_selected_item(dummy)
+
+        self.assertEqual(dummy.cart_items, [])
+        self.assertTrue(dummy._soup_replacement_allowed)
+        self.assertTrue(SaleWidget._can_replace_soup_without_zero(dummy))
+
+        # Once a replacement is present, another soup cannot be appended to
+        # the same bowl; the operator must delete it again or finish the order.
+        dummy.cart_items = [{"type": "soup", "name": "新汤底"}]
+        self.assertFalse(SaleWidget._can_replace_soup_without_zero(dummy))
+
+    def test_replacement_does_not_unlock_routing_cycle(self):
+        dummy = SimpleNamespace(
+            _weight_cycle_ready=False,
+            _soup_replacement_allowed=True,
+            cart_items=[],
+        )
+        self.assertTrue(SaleWidget._can_replace_soup_without_zero(dummy))
+        # The physical weighing cycle remains locked; only the basket edit
+        # exception is open.
+        self.assertFalse(dummy._weight_cycle_ready)
+
     def test_two_equal_ui_frames_do_not_bypass_reader_stability(self):
         dummy = SimpleNamespace(
             current_weight=0.0,
