@@ -81,7 +81,7 @@ DEFAULT_CONFIG = {
     "printer_operator": "",
     "printer_logo_path": "",
     "printer_logo_enabled": True,
-    "printer_logo_width_px": 384,
+    "printer_logo_width_px": 512,
     "printer_customer_template_custom": "",
     "printer_kitchen_template_custom": "",
     "unit_price": 47.60,

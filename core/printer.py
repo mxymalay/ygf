@@ -28,9 +28,32 @@ def fmt_lr_48(left: str, right: str, width: int = 48) -> str:
 
 
 # 可编辑模板的最小语法：每行可用 [C]/[L]/[R] 指定对齐，
-# [B] 加粗， [D] 双倍高度；其余内容使用 {变量} 替换。
-OFFICIAL_CUSTOMER_TEMPLATE = """[C]{shop_subtitle}\n[L]{separator}\n[L][B][D]取餐号：{call_no}    [POS点餐]\n[L]名称                 规格  单价  数量  小计\n[L]{items}\n[L]{separator}\n[L]{total_line}\n[L]{due_line}\n[L]{paid_line}\n[L]订单号：{order_id}\n[L]订单时间：{time}\n[L]服务热线：{service_phone}"""
-OFFICIAL_KITCHEN_TEMPLATE = """[L][B][D]取餐号：{kitchen_call_no}    {pos_order_no}\n[C][B][D]制作单\n[C][B][D]{item_line}\n[C]{flavor}\n[L]{separator}\n[L]操作人：{operator}\n[L]下单时间：{created_at}"""
+# [B] 加粗， [D] 双倍高度， [X] 双倍宽高；其余内容使用 {变量} 替换。
+OFFICIAL_CUSTOMER_TEMPLATE = """[C][B]{shop_subtitle}
+[L]{separator}
+[L][B][X]取餐号：{call_no}
+[L]{separator}
+[L]名称                 规格  单价  数量  小计
+[L]{items}
+[L]{separator}
+[L][B]{total_line}
+[L][B]{due_line}
+[L][B][D]{paid_line}
+[L]{separator}
+[L]订单号：{order_id}
+[L]订单时间：{time}
+[L]{separator}
+[L][B]加盟电话：{service_phone}"""
+OFFICIAL_KITCHEN_TEMPLATE = """[L][B][X]取餐号：{kitchen_call_no}
+[L][B][X]{pos_order_no}
+[C][B][D]制作单
+[L]{separator}
+[L][B][X]{item_name}
+[L][B][X]重量：{weight} kg
+[L][B][X]口味：{flavor}
+[L]{separator}
+[L]操作人：{operator}
+[L]下单时间：{created_at}"""
 
 
 class ReceiptPrinter:
@@ -215,9 +238,15 @@ class ReceiptPrinter:
             from PyQt5.QtGui import QImage, QPainter
 
             try:
-                target_width = min(512, max(160, int(self.config.get("printer_logo_width_px", 384))))
+                configured_width = int(self.config.get("printer_logo_width_px", 512))
+                # 新版官方顾客单的 Logo 需要占据纸面头部的主要宽度。
+                # 384px 是旧版默认值；切到 official_v2 时自动提升到 512px，
+                # 旧版和自定义模板仍沿用原有宽度设置。
+                if self._template_profile() == "official_v2":
+                    configured_width = max(configured_width, 512)
+                target_width = min(512, max(160, configured_width))
             except (TypeError, ValueError):
-                target_width = 384
+                target_width = 512 if self._template_profile() == "official_v2" else 384
             is_svg = path.lower().endswith(".svg")
             if is_svg:
                 from PyQt5.QtSvg import QSvgRenderer
@@ -280,6 +309,7 @@ class ReceiptPrinter:
             alignment = self.ALIGN_LEFT
             bold = False
             double_height = False
+            double_size = False
             while True:
                 if line.startswith("[C]"):
                     alignment, line = self.ALIGN_CENTER, line[3:]
@@ -291,15 +321,20 @@ class ReceiptPrinter:
                     bold, line = True, line[3:]
                 elif line.startswith("[D]"):
                     double_height, line = True, line[3:]
+                elif line.startswith("[X]"):
+                    # 官方新版模板的大字：同时放大宽度和高度。
+                    double_size, line = True, line[3:]
                 else:
                     break
             data += alignment
             if bold:
                 data += self.BOLD_ON
-            if double_height:
+            if double_size:
+                data += self.DOUBLE_SIZE
+            elif double_height:
                 data += self.DOUBLE_HEIGHT
             data += (line + "\n").encode("gbk", errors="ignore")
-            if double_height:
+            if double_size or double_height:
                 data += self.NORMAL_SIZE
             if bold:
                 data += self.BOLD_OFF

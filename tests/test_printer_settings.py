@@ -90,11 +90,12 @@ class PrinterSettingsTests(unittest.TestCase):
         customer = printer._build_customer_receipt(sale)
         kitchen = printer._build_kitchen_slip(sale, sale["cart_items"][0], 1)
         self.assertIn("订单号：ORDER-123".encode("gbk"), customer)
-        self.assertIn("服务热线：400-6058-777".encode("gbk"), customer)
+        self.assertIn("加盟电话：400-6058-777".encode("gbk"), customer)
         self.assertIn("实付".encode("gbk"), customer)
         self.assertIn("操作人：操作员甲".encode("gbk"), kitchen)
         self.assertIn("经典骨汤（KG）".encode("gbk"), kitchen)
         self.assertIn("0.200".encode("gbk"), kitchen)
+        self.assertIn("重量：0.200 kg".encode("gbk"), kitchen)
 
     def test_bundled_logo_is_emitted_only_for_new_template(self):
         printer = ReceiptPrinter(
