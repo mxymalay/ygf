@@ -3,7 +3,7 @@
 PyQt5 + Python 3.8 兼容
 """
 from PyQt5.QtWidgets import (
-    QMainWindow, QStackedWidget, QStatusBar, QLabel, QWidget, QHBoxLayout
+    QApplication, QMainWindow, QStackedWidget, QStatusBar, QLabel, QWidget, QHBoxLayout
 )
 from PyQt5.QtCore import QTimer, Qt
 from datetime import datetime
@@ -40,7 +40,16 @@ class MainWindow(QMainWindow):
     def _init_window(self):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setMinimumSize(960, 640)
-        self.resize(1180, 760)
+        # Start below the screen's available geometry so the taskbar remains
+        # visible on Win7 cashier displays (including 1366x768 panels).
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen else None
+        if available:
+            width = min(1180, max(960, available.width() - 40))
+            height = min(700, max(640, available.height() - 40))
+            self.resize(width, height)
+        else:
+            self.resize(1180, 700)
         self.setStyleSheet(DARK_STYLE)
 
 

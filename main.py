@@ -99,7 +99,13 @@ def main():
 
     # 2. 验证通过 (或选择跳过进入模拟调试)，打开主系统
     window = MainWindow(config, hardware_warnings=hw_warnings)
-    window.showFullScreen()
+    # Use a maximized *normal* window: it fills the available work area while
+    # keeping the Windows taskbar visible.  Full-screen mode hid the taskbar
+    # and made every automatic channel switch look like a restore/maximize
+    # flicker.
+    window.showMaximized()
+    window.raise_()
+    window.activateWindow()
     log_event(CAT_SYSTEM, "主界面就绪", f"开始运营服务，模拟模式: {config.get('is_mock_mode', False)}")
 
     sys.exit(app.exec_())

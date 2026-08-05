@@ -242,7 +242,7 @@ def apply_official_window_selection(config, info):
 
 
 def bring_official_to_front(config=None):
-    """强行将官方收银系统拉至最前"""
+    """将官方收银系统切到前台，但不强制最大化。"""
     if not user32:
         return False
 
@@ -259,8 +259,12 @@ def bring_official_to_front(config=None):
     hwnd = find_official_window_handle(config)
     if hwnd:
         try:
+            # When the official POS is already active, avoid sending another
+            # foreground/maximize request.  On Win7 that request causes a
+            # visible flash even though no real channel switch occurred.
+            if user32.GetForegroundWindow() == hwnd and not user32.IsIconic(hwnd):
+                return True
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE = 9 还原窗口
-            user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE = 3 保持全屏
             user32.SetForegroundWindow(hwnd)
             return True
         except Exception as e:
@@ -270,16 +274,19 @@ def bring_official_to_front(config=None):
 
 
 def bring_our_pos_to_front(main_window):
-    """将本 POS 系统窗口拉至最前并全屏最大化"""
+    """将本 POS 切到前台并保持最大化普通窗口（保留任务栏）。"""
     if not main_window:
         return
     try:
+        hwnd = int(main_window.winId())
+        if user32 and user32.GetForegroundWindow() == hwnd and not user32.IsIconic(hwnd):
+            # The POS is already active; do not touch its window state.  This
+            # is the important anti-flicker path for repeated scale samples.
+            return
         main_window.showMaximized()
         main_window.activateWindow()
         main_window.raise_()
         if user32:
-            hwnd = int(main_window.winId())
-            user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE = 3 (保持 100% 最大化全屏，严禁变成窗口化)
             user32.SetForegroundWindow(hwnd)
     except Exception as e:
         print("[WindowUtils] 切换至本系统失败:", e)
