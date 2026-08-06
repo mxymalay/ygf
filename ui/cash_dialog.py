@@ -21,6 +21,7 @@ class CashCalculatorDialog(QDialog):
         self.on_amount_confirm = on_amount_confirm
         self.on_partial_confirm = on_partial_confirm
         self.received_amount_str = ""
+        self.btn_confirm = None
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -141,12 +142,14 @@ class CashCalculatorDialog(QDialog):
             btn.setCursor(Qt.PointingHandCursor)
             
             if text == '确认\n收款':
+                self.btn_confirm = btn
                 btn.setStyleSheet("""
                     QPushButton {
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2563EB, stop:1 #1D4ED8);
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                            stop:0 #10B981, stop:0.5 #34D399, stop:1 #059669);
                         color: white; font-size: 22px; font-weight: 900; border-radius: 12px; border: none;
                     }
-                    QPushButton:hover { background: #3B82F6; }
+                    QPushButton:hover { background: #6EE7B7; color: #064E3B; }
                 """)
                 btn.clicked.connect(self._on_confirm)
             elif text in ('退格', '清空'):
@@ -171,6 +174,8 @@ class CashCalculatorDialog(QDialog):
             btn.setSizePolicy(btn.sizePolicy().Expanding, btn.sizePolicy().Expanding)
 
         layout.addLayout(grid, stretch=1)
+        # 初始金额为空时也要立即显示“扫码补差”，无需先按退格触发刷新。
+        self._update_display()
 
     def _on_key(self, key):
         if key == '清空':
@@ -185,6 +190,33 @@ class CashCalculatorDialog(QDialog):
                 self.received_amount_str += key
                 
         self._update_display()
+
+    def _set_confirm_button_state(self, partial):
+        """Show the action that matches the amount currently entered."""
+        if not self.btn_confirm:
+            return
+        if partial:
+            self.btn_confirm.setText(u"扫码补差")
+            self.btn_confirm.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                        stop:0 #F59E0B, stop:1 #D97706);
+                    color: #FFFBEB; font-size: 22px; font-weight: 900;
+                    border-radius: 12px; border: 1px solid #FBBF24;
+                }
+                QPushButton:hover { background: #FBBF24; color: #451A03; }
+            """)
+        else:
+            self.btn_confirm.setText(u"确认\n收款")
+            self.btn_confirm.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                        stop:0 #10B981, stop:0.5 #34D399, stop:1 #059669);
+                    color: white; font-size: 22px; font-weight: 900;
+                    border-radius: 12px; border: none;
+                }
+                QPushButton:hover { background: #6EE7B7; color: #064E3B; }
+            """)
         
     def _update_display(self):
         val = 0.0
@@ -193,6 +225,10 @@ class CashCalculatorDialog(QDialog):
                 val = float(self.received_amount_str)
         except ValueError:
             pass
+
+        self._set_confirm_button_state(
+            val + 0.005 < float(self.total_amount or 0.0)
+        )
             
         int_ss, dec_ss = f"{val:.2f}".split('.')
         self.lbl_ss.setText(f"￥<b>{int_ss}</b>.<span style='font-size:24px;'>{dec_ss}</span>")

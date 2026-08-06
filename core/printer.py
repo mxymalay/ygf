@@ -120,6 +120,10 @@ class ReceiptPrinter:
         if not text:
             text = fallback
 
+        # 口味是可选项；没有选择时，模板中的口味整行不打印。
+        if not str(context.get("flavor", "") or "").strip():
+            text = "\n".join(line for line in text.splitlines() if "{flavor}" not in line)
+
         class _SafeContext(dict):
             def __missing__(self, key):
                 return "{" + key + "}"
@@ -219,14 +223,14 @@ class ReceiptPrinter:
         if item is None:
             item_name = ""
             weight = ""
-            flavor = "原味"
+            flavor = ""
             created_at = sale.get("created_at", now_str)
             kitchen_index = 0
             kitchen_count = 0
         else:
             item_name = str(item.get("name", "经典草本骨汤") or "经典草本骨汤")
             weight = "%.3f" % float(item.get("weight", sale.get("weight_kg", 0.0)) or 0.0)
-            flavor = str(item.get("tag", "") or "").split("/")[0].strip() or "原味"
+            flavor = str(item.get("tag", "") or "").split("/")[0].strip()
             created_at = sale.get("created_at", now_str)
             kitchen_index = index
             kitchen_count = sum(

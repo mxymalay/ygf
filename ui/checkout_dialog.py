@@ -452,6 +452,17 @@ class CheckoutDialog(QDialog):
             right_layout.addWidget(self.btn_mixed_retry)
             self.btn_mixed_retry.hide()
 
+            self.btn_mixed_back = QPushButton(u"返回选择")
+            self.btn_mixed_back.setCursor(Qt.PointingHandCursor)
+            self.btn_mixed_back.setStyleSheet(
+                "QPushButton { background: #334155; color: #CBD5E1; border: 1px solid #64748B; "
+                "border-radius: 8px; padding: 7px 12px; font-weight: bold; }"
+                "QPushButton:hover { background: #475569; color: #FFFFFF; }"
+            )
+            self.btn_mixed_back.clicked.connect(self._return_to_mixed_choice)
+            right_layout.addWidget(self.btn_mixed_back)
+            self.btn_mixed_back.hide()
+
             self.btn_mixed_cancel = QPushButton(u"退还现金并取消")
             self.btn_mixed_cancel.setCursor(Qt.PointingHandCursor)
             self.btn_mixed_cancel.setStyleSheet(
@@ -723,14 +734,22 @@ class CheckoutDialog(QDialog):
             print("[CheckoutDialog] 调起收钱吧金额异常: %s" % exc)
         self._start_sqb_smart_monitoring(amount, method)
 
-    def _show_mixed_payment_choice(self, cash_amount):
-        """Ask how to collect the remainder after a partial cash input."""
+    def _show_mixed_payment_choice(self, cash_amount, auto_scan=True):
+        """Collect the remainder after a partial cash input.
+
+        The first entry goes straight to scan补差; the choice card remains
+        available from the scan panel's return button.
+        """
         total = round(float(self.sale_data.get("total_price", 0.0) or 0.0), 2)
         cash = min(total, max(0.0, round(float(cash_amount or 0.0), 2)))
         remaining = round(max(0.0, total - cash), 2)
         self._mixed_cash_amount = cash
         self._mixed_scan_amount = remaining
         self.selected_payment_method = PAYMENT_MIXED
+
+        if auto_scan:
+            QTimer.singleShot(0, self._start_remaining_scan)
+            return
 
         choice_dialog = MixedPaymentChoiceDialog(cash, remaining, self)
         choice_dialog.exec_()
@@ -741,9 +760,7 @@ class CheckoutDialog(QDialog):
         elif choice_dialog.choice == "other":
             self._start_remaining_other()
         else:
-            # Cash has already been accepted; do not leave the outer dialog
-            # in an unusable state if the choice dialog is dismissed.
-            QTimer.singleShot(0, lambda: self._show_mixed_payment_choice(cash))
+            self._show_mixed_scan_panel(u"扫码补差 ¥%.2f" % remaining)
 
     def _start_remaining_scan(self):
         """Send only the unpaid remainder to the existing scan flow."""
@@ -793,8 +810,22 @@ class CheckoutDialog(QDialog):
             self.status_widget.show()
         if hasattr(self, "btn_mixed_retry"):
             self.btn_mixed_retry.show()
+        if hasattr(self, "btn_mixed_back"):
+            self.btn_mixed_back.show()
         if hasattr(self, "btn_mixed_cancel"):
             self.btn_mixed_cancel.show()
+
+    def _return_to_mixed_choice(self):
+        """Stop the current scan leg and reopen the remainder choices."""
+        if self._checkout_completed:
+            return
+        self._stop_payment_monitors()
+        try:
+            from core.shouqianba_sender import clear_shouqianba_amount
+            clear_shouqianba_amount(self.config)
+        except Exception:
+            pass
+        self._show_mixed_payment_choice(self._mixed_cash_amount, auto_scan=False)
 
     def _retry_mixed_scan(self):
         if self._mixed_scan_amount <= 0.0 or self._checkout_completed:

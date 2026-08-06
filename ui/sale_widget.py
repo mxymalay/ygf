@@ -273,9 +273,9 @@ class TasteSelectionDialog(QDialog):
 
         # 草本骨汤不提供“不辣”
         if "草本骨汤" in soup_name:
-            self.spicy_options = [u"微辣", u"原汤", u"中辣", u"重辣"]
+            self.spicy_options = [u"原汤", u"微辣", u"中辣", u"重辣"]
         else:
-            self.spicy_options = [u"不辣", u"微辣", u"原汤", u"中辣", u"重辣"]
+            self.spicy_options = [u"不辣", u"原汤", u"微辣", u"中辣", u"重辣"]
 
         self.selected_spice = ""
         self.selected_prefs = set()
