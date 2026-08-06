@@ -140,6 +140,35 @@ def _native_askyesno(title, message):
     return True
 
 
+def _configure_native_dialog_api(user32, kernel32):
+    """Keep Win32 handles 64-bit wide in the no-Tk Win7 fallback.
+
+    ``ctypes.windll`` defaults pointer-returning functions to a 32-bit
+    ``c_int``.  That truncates HWND/HINSTANCE values on 64-bit Windows and
+    the next callback can terminate the installer instead of returning a
+    Python exception.  The packaged installer can enter this path when Tk
+    cannot initialise, so configure the small set of APIs used by both
+    native dialogs explicitly.
+    """
+    handle = ctypes.c_void_p
+    kernel32.GetModuleHandleW.restype = handle
+    kernel32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
+    user32.CreateWindowExW.restype = handle
+    user32.RegisterClassW.restype = ctypes.c_ushort
+    user32.UnregisterClassW.restype = ctypes.c_int
+    user32.DestroyWindow.argtypes = [handle]
+    user32.DestroyWindow.restype = ctypes.c_int
+    user32.SetFocus.argtypes = [handle]
+    user32.SetFocus.restype = handle
+    user32.UpdateWindow.argtypes = [handle]
+    user32.UpdateWindow.restype = ctypes.c_int
+    user32.GetMessageW.restype = ctypes.c_int
+    user32.TranslateMessage.restype = ctypes.c_int
+    user32.DispatchMessageW.restype = ctypes.c_ssize_t
+    user32.PostQuitMessage.argtypes = [ctypes.c_int]
+    user32.SendMessageW.restype = ctypes.c_ssize_t
+
+
 def _native_select_folder(initial_dir):
     """Win32 folder picker used when the packaged Tk runtime is unavailable."""
     if os.name != "nt":
@@ -147,6 +176,7 @@ def _native_select_folder(initial_dir):
     shell32 = ctypes.windll.shell32
     user32 = ctypes.windll.user32
     ole32 = ctypes.windll.ole32
+    _configure_native_dialog_api(user32, ctypes.windll.kernel32)
 
     class BROWSEINFO(ctypes.Structure):
         _fields_ = [
@@ -203,6 +233,7 @@ def _native_prompt_string(title, prompt, initial_value=""):
         return None
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
+    _configure_native_dialog_api(user32, kernel32)
     user32.DefWindowProcW.argtypes = [
         ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
     ]
@@ -322,6 +353,7 @@ def _native_prompt_choice(title, prompt, options, initial_id=""):
         return None
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
+    _configure_native_dialog_api(user32, kernel32)
     user32.DefWindowProcW.argtypes = [
         ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
     ]
@@ -864,12 +896,18 @@ def main():
             _native_showerror("名称过长", "应用显示名称最多 48 个字符。")
             return
         saved_icon_preset = _registry_icon_preset() or "yangguofu"
-        icon_preset = _native_prompt_choice(
-            "桌面快捷方式图标",
-            "请选择安装后桌面快捷方式使用的图标：",
-            APP_ICON_OPTIONS,
-            saved_icon_preset,
-        )
+        try:
+            icon_preset = _native_prompt_choice(
+                "桌面快捷方式图标",
+                "请选择安装后桌面快捷方式使用的图标：",
+                APP_ICON_OPTIONS,
+                saved_icon_preset,
+            )
+        except Exception as exc:
+            # A broken native control must report a normal installer error;
+            # never let a Win7 fallback exception look like a silent crash.
+            _native_showerror("图标选择失败", "无法打开快捷方式图标选择窗口：%s" % exc)
+            return
         if icon_preset is None:
             _native_showinfo("安装已取消", "未选择桌面快捷方式图标，安装没有执行。")
             return
