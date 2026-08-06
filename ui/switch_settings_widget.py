@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy
 )
 from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate
-from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont
+from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
 from datetime import datetime, timedelta
 from config import save_config
 from core.app_logger import log_event, CAT_SYSTEM, read_logs, CAT_DECISION, CAT_SWITCH, CAT_PANIC
@@ -111,7 +111,9 @@ class DecisionWeightChart(QWidget):
         # The widget contains a decision line chart and a compact stacked
         # histogram. Keep both touch-readable; the outer page can still
         # scroll horizontally when there are many events.
-        self.setMinimumHeight(590)
+        # 纵向给两张图各留出完整的触屏阅读区域；外层设置页面负责
+        # 纵向滚动，图表内部只负责横向浏览长时间轴。
+        self.setMinimumHeight(1180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("background: transparent;")
 
@@ -169,6 +171,75 @@ class DecisionWeightChart(QWidget):
             painter.setFont(font)
         painter.drawText(QPointF(float(x), float(y)), str(text))
 
+    def _scroll_viewport_anchor(self):
+        """Return the horizontal scroll offset and visible viewport width."""
+        parent = self.parentWidget()
+        while parent is not None:
+            if hasattr(parent, "horizontalScrollBar") and hasattr(parent, "viewport"):
+                try:
+                    return (
+                        float(parent.horizontalScrollBar().value()),
+                        float(parent.viewport().width()),
+                    )
+                except Exception:
+                    break
+            parent = parent.parentWidget()
+        return 0.0, float(self.width())
+
+    def _draw_fixed_center_title(self, painter, y, text, font):
+        """Draw a title centered in the visible area, not in the scrolled data."""
+        scroll_x, viewport_width = self._scroll_viewport_anchor()
+        visible_width = max(120.0, min(float(self.width()), viewport_width))
+        painter.save()
+        painter.setPen(self.TEXT_COLOR)
+        painter.setFont(font)
+        painter.drawText(
+            QRectF(scroll_x, float(y) - 24.0, visible_width, 34.0),
+            Qt.AlignCenter | Qt.AlignVCenter,
+            text,
+        )
+        painter.restore()
+
+    def _draw_fixed_header(self, painter, y, title, title_font):
+        """Draw a fixed title followed immediately by its color legend."""
+        scroll_x, viewport_width = self._scroll_viewport_anchor()
+        visible_width = max(120.0, min(float(self.width()), viewport_width))
+        left = scroll_x + 42.0
+        right = scroll_x + visible_width - 18.0
+        legend_font = QFont("Microsoft YaHei", 11)
+        legend_font.setBold(False)
+        title_width = float(QFontMetrics(title_font).horizontalAdvance(title))
+        legend_items = (
+            (self.OFFICIAL_COLOR, u"官方"),
+            (self.PRIVATE_COLOR, u"私有"),
+            (self.MANUAL_COLOR, u"手动切换"),
+        )
+        item_widths = [
+            48.0 + float(QFontMetrics(legend_font).horizontalAdvance(label)) + 24.0
+            for _color, label in legend_items
+        ]
+        legend_width = sum(item_widths) + 12.0 * (len(item_widths) - 1)
+        legend_x = left + title_width + 34.0
+        # 窄屏时仍保持标题优先，图例从标题后开始并在可视区域内裁切，
+        # 不让图例跑到横向滚动内容中。
+        if legend_x + legend_width > right:
+            legend_x = min(legend_x, right - legend_width)
+            legend_x = max(left + title_width + 12.0, legend_x)
+
+        painter.save()
+        painter.setPen(self.TEXT_COLOR)
+        painter.setFont(title_font)
+        painter.drawText(QPointF(left, float(y)), title)
+        cursor_x = legend_x
+        for item_index, (color, label) in enumerate(legend_items):
+            painter.setPen(QPen(color, 4))
+            painter.drawLine(QPointF(cursor_x, float(y) - 7), QPointF(cursor_x + 40.0, float(y) - 7))
+            painter.setPen(self.TEXT_COLOR)
+            painter.setFont(legend_font)
+            painter.drawText(QPointF(cursor_x + 50.0, float(y)), label)
+            cursor_x += item_widths[item_index] + 12.0
+        painter.restore()
+
     def paintEvent(self, event):  # noqa: N802 - Qt API name
         del event
         painter = QPainter(self)
@@ -190,7 +261,7 @@ class DecisionWeightChart(QWidget):
         width = float(self.width())
         height = float(self.height())
         plot_top = 48.0
-        plot_height = max(170.0, min(300.0, height * 0.46))
+        plot_height = max(320.0, min(480.0, height * 0.40))
         plot = QRectF(68, plot_top, max(120.0, width - 92), plot_height)
         max_weight = max([item[1] for item in route_points] or [0.1])
         y_max = max(1.0, max_weight)
@@ -210,16 +281,8 @@ class DecisionWeightChart(QWidget):
 
         title_font = QFont("Microsoft YaHei", 12)
         title_font.setBold(True)
-        self._draw_text(painter, 16, 28, u"今日称重决策（重量 kg）", self.TEXT_COLOR, title_font)
-
-        legend_font = QFont("Microsoft YaHei", 10)
-        legend_x = max(210.0, width - 360.0)
-        for color, label, offset in ((self.OFFICIAL_COLOR, u"官方", 0),
-                                     (self.PRIVATE_COLOR, u"私有", 80),
-                                     (self.MANUAL_COLOR, u"手动切换", 160)):
-            painter.setPen(QPen(color, 3))
-            painter.drawLine(QPointF(legend_x + offset, 22), QPointF(legend_x + offset + 22, 22))
-            self._draw_text(painter, legend_x + offset + 28, 26, label, self.TEXT_COLOR, legend_font)
+        title_font.setPointSize(16)
+        self._draw_fixed_header(painter, 28, u"今日称重决策（重量 kg）", title_font)
 
         painter.setFont(QFont("Microsoft YaHei", 9))
         painter.setPen(QPen(self.GRID_COLOR, 1))
@@ -275,10 +338,29 @@ class DecisionWeightChart(QWidget):
 
         # Use actual event times, sampled to the available width.  Labels are
         # rotated after translation so they remain fully visible below the axis.
-        max_labels = max(2, int(plot.width() / 74.0))
-        label_count = min(len(points), max_labels)
-        indexes = sorted(set(int(round(i * (len(points) - 1) / max(1, label_count - 1)))
-                             for i in range(label_count)))
+        # 标签不能只按事件数量等距抽样：多次手动切换可能集中在几秒
+        # 内，等距抽样仍会把文字画在同一小段区域。改为按实际像素
+        # 间距贪心选择，所有红线保留，但时间文字不互相覆盖。
+        min_label_spacing = 100.0
+        indexes = []
+        last_label_x = None
+        for idx, (when, _weight, _channel, _event) in enumerate(points):
+            x = point_for(when, 0.0).x()
+            if last_label_x is None or x - last_label_x >= min_label_spacing:
+                indexes.append(idx)
+                last_label_x = x
+        if not indexes:
+            indexes = [0]
+        if indexes[-1] != len(points) - 1:
+            # 最后一个时间点始终保留；若它与上一个候选点过近，
+            # 用最后一个替换上一个，避免为了“显示最后时间”再次重叠。
+            last_index = len(points) - 1
+            last_x = point_for(points[last_index][0], 0.0).x()
+            previous_x = point_for(points[indexes[-1]][0], 0.0).x()
+            if len(indexes) > 1 and last_x - previous_x < min_label_spacing:
+                indexes[-1] = last_index
+            else:
+                indexes.append(last_index)
         axis_font = QFont("Microsoft YaHei", 8)
         painter.setFont(axis_font)
         for idx in indexes:
@@ -287,40 +369,57 @@ class DecisionWeightChart(QWidget):
             label = when.strftime("%H:%M:%S")
             painter.save()
             painter.translate(point.x(), plot.bottom() + 13)
-            painter.rotate(-45)
+            painter.rotate(45)
             painter.setPen(self.TEXT_COLOR)
             painter.drawText(QPointF(0, 0), label)
             painter.restore()
 
-        # Manual channel switches have no weighing amount, so they are shown
-        # as red dashed time markers rather than being forced onto the weight
-        # scale. This makes operator intervention visible without distorting
-        # either route line.
+        # 将每个点投影到横坐标。辅助线统一使用低透明度细虚线，避免
+        # 官方、私有或手动点较多时遮住折线、数值和时间标签。
+        last_manual_label_x = None
+        manual_label_spacing = 130.0
         for when, _weight, channel, marker_event in points:
-            if channel != "manual":
-                continue
             x = point_for(when, 0.0).x()
             painter.save()
-            painter.setPen(QPen(self.MANUAL_COLOR, 2, Qt.DashLine))
+            if channel == "private":
+                marker_color = QColor(self.PRIVATE_COLOR)
+            elif channel == "official":
+                marker_color = QColor(self.OFFICIAL_COLOR)
+            else:
+                marker_color = QColor(self.MANUAL_COLOR)
+            marker_color.setAlpha(48)
+            painter.setPen(QPen(marker_color, 1, Qt.DashLine))
             painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
-            painter.setBrush(self.MANUAL_COLOR)
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(QPointF(x, plot.top() + 8), 5, 5)
-            target = marker_event.get("manual_target")
-            if target:
-                painter.setPen(self.MANUAL_COLOR)
-                painter.setFont(axis_font)
-                painter.drawText(QPointF(x + 6, plot.top() + 12),
-                                 u"手动→%s" % (u"私有" if target == "private" else u"官方"))
+            if channel == "manual":
+                painter.setBrush(self.MANUAL_COLOR)
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(QPointF(x, plot.top() + 8), 5, 5)
+                target = marker_event.get("manual_target")
+                if target and (
+                    last_manual_label_x is None
+                    or x - last_manual_label_x >= manual_label_spacing
+                ):
+                    painter.setPen(self.MANUAL_COLOR)
+                    painter.setFont(axis_font)
+                    painter.drawText(QPointF(x + 6, plot.top() + 12),
+                                     u"手动→%s" % (u"私有" if target == "private" else u"官方"))
+                    last_manual_label_x = x
             painter.restore()
 
         # Bottom stacked histogram: each two-hour slot shows the cumulative
         # official/private weight. It answers a different question from the
         # line chart ("which channel got this bowl?") while staying compact
         # enough for a touch screen.
-        histogram_top = plot.bottom() + 58.0
+        # 折线图和柱状图之间留出明显的视觉分组间距，避免标题和
+        # 上方坐标轴贴在一起，触屏查看时也更容易区分两个图表。
+        histogram_top = plot.bottom() + 220.0
         histogram = QRectF(68, histogram_top, max(120.0, width - 92), max(150.0, height - histogram_top - 38.0))
-        self._draw_text(painter, 16, histogram_top - 30, u"按时段重量分布（每 2 小时）", self.TEXT_COLOR, title_font)
+        self._draw_fixed_header(
+            painter,
+            histogram_top - 30,
+            u"按时段重量分布（每 2 小时）",
+            title_font,
+        )
         bins = [(0.0, 0.0) for _ in range(12)]
         for when, weight, channel, _event in route_points:
             slot = min(11, max(0, int((when.hour * 60 + when.minute) / 120)))
@@ -685,7 +784,7 @@ class SwitchSettingsWidget(QWidget):
         self.weight_chart = DecisionWeightChart()
         self.chart_scroll = QScrollArea()
         self.chart_scroll.setWidgetResizable(True)
-        self.chart_scroll.setMinimumHeight(350)
+        self.chart_scroll.setMinimumHeight(1180)
         self.chart_scroll.setFrameShape(QFrame.NoFrame)
         self.chart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.chart_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -772,7 +871,7 @@ class SwitchSettingsWidget(QWidget):
 
         logs_panel = QWidget()
         # 日志必须是单屏分页，不随设置页的超高 sizeHint 一起被撑开。
-        logs_panel.setMinimumHeight(560)
+        logs_panel.setFixedHeight(650)
         logs_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         logs_layout = QVBoxLayout(logs_panel)
         logs_layout.setContentsMargins(10, 0, 10, 20)
@@ -782,8 +881,11 @@ class SwitchSettingsWidget(QWidget):
         logs_title = QLabel(u"▣ 算法实时追踪（自动刷新）")
         logs_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
         logs_layout.addWidget(logs_title)
-        logs_layout.addWidget(self.txt_logs, stretch=1)
+        # 分页日志只展示当前页，不需要把文本框拉伸到整张屏幕。
+        self.txt_logs.setFixedHeight(430)
+        logs_layout.addWidget(self.txt_logs)
         logs_layout.addLayout(log_paging_bar)
+        self._logs_panel = logs_panel
 
         # 上面控件先在临时布局中创建，这里移出后分别挂到两个独立页面。
         for widget in (chart_title, chart_tip, self.chart_scroll, lbl_log_title, self.txt_logs):
@@ -802,7 +904,7 @@ class SwitchSettingsWidget(QWidget):
         self._section_page_heights = {
             "settings": max(1, left_panel.sizeHint().height()),
             "chart": max(1, chart_panel.sizeHint().height()),
-            "logs": 560,
+            "logs": 650,
         }
 
         # 右侧内容区默认支持设置页纵向滚动；日志页会在切换时关闭
@@ -1031,10 +1133,10 @@ class SwitchSettingsWidget(QWidget):
         # one screen with its pagination bar visible.
         if section_id == "logs":
             # The log page has pagination, so it must never require a second
-            # vertical scroll.  Fill the viewport when it is taller than the
-            # minimum content height, while keeping the controls visible.
-            viewport_height = self.page_scroll.viewport().height()
-            page_height = max(560, int(viewport_height or 0))
+            # vertical scroll.  Keep a fixed height so the text area and
+            # pagination bar stay together on one touch screen.
+            # 固定为单屏分页高度，避免日志框随图表页面尺寸被拉长。
+            page_height = 650
             self.page_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         else:
             self.page_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
