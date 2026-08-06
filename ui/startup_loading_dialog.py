@@ -35,7 +35,11 @@ class StartupLoadingDialog(QDialog):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(12)
 
-        self.lbl_title = QLabel(u"POS辅助系统")
+        # The actual title is filled from the persisted app category as soon
+        # as configuration loading completes.  Keep the pre-config fallback
+        # neutral so a Music/Security/etc. installation never flashes a POS
+        # label and looks as if its category was ignored.
+        self.lbl_title = QLabel(u"应用启动器")
         self.lbl_title.setAlignment(Qt.AlignCenter)
         self.lbl_title.setStyleSheet("color: #F8FAFC; font-size: 23px; font-weight: 900;")
         layout.addWidget(self.lbl_title)
@@ -119,3 +123,18 @@ class StartupLoadingDialog(QDialog):
         self.lbl_message.setText(self._message)
         if detail is not None:
             self.lbl_detail.setText(str(detail))
+
+    def set_title(self, title):
+        """Update the splash branding once persisted app settings are loaded."""
+        text = str(title or u"应用启动器").strip()
+        self.lbl_title.setText(text or u"应用启动器")
+
+    def set_branding(self, branding):
+        """Apply one complete category branding payload to the splash."""
+        branding = branding or {}
+        self.set_title(branding.get("login_title"))
+        category = str(branding.get("category_label") or u"应用").strip()
+        self.set_message(
+            u"正在准备%s" % category,
+            u"配置已读取，正在加载账户、密码和硬件检测……",
+        )

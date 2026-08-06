@@ -11,7 +11,8 @@ from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
-    QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit
+    QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit,
+    QSizePolicy
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence, QDesktopServices, QIcon, QPixmap, QImage, QPainter
@@ -1400,9 +1401,29 @@ class SettingsWidget(QWidget):
         self._style_touch_action_btn(self.btn_test_official_window, "blue")
         self.btn_test_official_window.clicked.connect(self._test_official_window)
         official_buttons.addWidget(self.btn_test_official_window)
+        self.btn_save_official_window = QPushButton(u"保存窗口识别")
+        self._style_touch_action_btn(self.btn_save_official_window, "secondary")
+        self.btn_save_official_window.clicked.connect(self._save_official_window)
+        official_buttons.addWidget(self.btn_save_official_window)
         official_layout.addLayout(official_buttons)
         layout.addWidget(official_panel)
         self._refresh_official_window_status()
+
+        runtime_panel = QFrame()
+        runtime_panel.setStyleSheet(
+            "QFrame { background: #0F172A; border: 2px solid #0EA5E9; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        runtime_layout = QVBoxLayout(runtime_panel)
+        runtime_layout.setContentsMargins(18, 16, 18, 16)
+        runtime_layout.setSpacing(10)
+        runtime_title = QLabel(u"⏱ 系统运行参数")
+        runtime_title.setStyleSheet("color: #BAE6FD; font-size: 18px; font-weight: 900;")
+        runtime_layout.addWidget(runtime_title)
+        runtime_hint = QLabel(u"开机启动和触屏悬浮球分别保存，修改一项不会覆盖另一项。")
+        runtime_hint.setStyleSheet("color: #CBD5E1; font-size: 14px;")
+        runtime_hint.setWordWrap(True)
+        runtime_layout.addWidget(runtime_hint)
 
         grid = QGridLayout()
         grid.setSpacing(18)
@@ -1431,7 +1452,19 @@ class SettingsWidget(QWidget):
             self.cmb_floating_ball.setCurrentIndex(1)
         grid.addWidget(self.cmb_floating_ball, 2, 1, 1, 2)
 
-        layout.addLayout(grid)
+        runtime_layout.addLayout(grid)
+        runtime_buttons = QHBoxLayout()
+        runtime_buttons.setSpacing(12)
+        self.btn_save_auto_start = QPushButton(u"保存开机启动")
+        self._style_touch_action_btn(self.btn_save_auto_start, "blue")
+        self.btn_save_auto_start.clicked.connect(self._save_auto_start_settings)
+        runtime_buttons.addWidget(self.btn_save_auto_start)
+        self.btn_save_floating_ball = QPushButton(u"保存悬浮球")
+        self._style_touch_action_btn(self.btn_save_floating_ball, "purple")
+        self.btn_save_floating_ball.clicked.connect(self._save_floating_ball_settings)
+        runtime_buttons.addWidget(self.btn_save_floating_ball)
+        runtime_layout.addLayout(runtime_buttons)
+        layout.addWidget(runtime_panel)
 
         # 应用 Logo 选择。这里单独保存，避免必须先完成官方 POS 识别词
         # 才能更换 Logo；选择后会同步更新左侧品牌徽标和窗口图标。
@@ -1539,6 +1572,10 @@ class SettingsWidget(QWidget):
         category_index = self.cmb_shortcut_category.findData(current_category)
         self.cmb_shortcut_category.setCurrentIndex(category_index if category_index >= 0 else 0)
         category_row.addWidget(self.cmb_shortcut_category, stretch=1)
+        self.btn_save_shortcut_category = QPushButton(u"保存登录分类")
+        self._style_touch_action_btn(self.btn_save_shortcut_category, "blue")
+        self.btn_save_shortcut_category.clicked.connect(self._save_shortcut_category)
+        category_row.addWidget(self.btn_save_shortcut_category)
         logo_layout.addLayout(category_row)
         self.cmb_desktop_icon.currentIndexChanged.connect(self._sync_shortcut_category_from_icon)
         layout.addWidget(logo_panel)
@@ -1549,6 +1586,10 @@ class SettingsWidget(QWidget):
             "QFrame { background: #0F172A; border: 2px solid #F59E0B; border-radius: 12px; }"
             "QLabel { border: none; background: transparent; }"
         )
+        # Keep the reminder card and its form anchored to the content area's
+        # left edge.  Without an explicit expanding policy, Qt may size the
+        # grid to its hint width and center it on wide screens.
+        reminder_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         reminder_layout = QVBoxLayout(reminder_panel)
         reminder_layout.setContentsMargins(18, 16, 18, 16)
         reminder_layout.setSpacing(10)
@@ -1563,6 +1604,8 @@ class SettingsWidget(QWidget):
         reminder_grid = QGridLayout()
         reminder_grid.setHorizontalSpacing(12)
         reminder_grid.setVerticalSpacing(10)
+        reminder_grid.setColumnStretch(0, 0)
+        reminder_grid.setColumnStretch(1, 1)
         reminder_grid.addWidget(self._make_label(u"低价提醒："), 0, 0)
         self.cmb_low_price_warning = QComboBox()
         self.cmb_low_price_warning.addItems([u"开启", u"关闭"])
@@ -1593,13 +1636,12 @@ class SettingsWidget(QWidget):
         if not self.config.get("skewer_reminder_enabled", True):
             self.cmb_skewer_reminder.setCurrentIndex(1)
         reminder_grid.addWidget(self.cmb_skewer_reminder, 3, 1)
-        reminder_layout.addLayout(reminder_grid)
+        reminder_layout.addLayout(reminder_grid, 1)
+        self.btn_save_reminders = QPushButton(u"保存提醒设置")
+        self._style_touch_action_btn(self.btn_save_reminders, "secondary")
+        self.btn_save_reminders.clicked.connect(self._save_reminder_settings)
+        reminder_layout.addWidget(self.btn_save_reminders, alignment=Qt.AlignRight)
         layout.addWidget(reminder_panel)
-
-        btn_save_sys = QPushButton(u"💾 保存系统设置")
-        self._style_save_btn(btn_save_sys)
-        btn_save_sys.clicked.connect(self._on_save_sys)
-        layout.addWidget(btn_save_sys, alignment=Qt.AlignRight)
 
         return self._wrap_in_scroll(card)
 
@@ -2561,6 +2603,85 @@ class SettingsWidget(QWidget):
             from ui.custom_dialog import show_warning
             show_warning(self, u"桌面图标更新失败", detail)
 
+    def _save_shortcut_category(self):
+        """Persist the login-screen category independently from icon files."""
+        from ui.custom_dialog import show_info
+        category_id = str(self.cmb_shortcut_category.currentData() or "pos")
+        self.config["app_category"] = category_id
+        # Keep the selected shortcut preset in sync when this is an existing
+        # bundled icon; custom uploads are already persisted by their own save.
+        preset_id = self.cmb_desktop_icon.currentData() or "yangguofu"
+        if preset_id != "custom":
+            self.config["shortcut_icon_preset"] = str(preset_id)
+        save_config(self.config)
+        category_label = APP_CATEGORY_OPTIONS.get(category_id, (u"POS", "", ""))[0]
+        show_info(self, u"登录分类已保存", u"下次打开登录页将使用“%s”分类文案。" % category_label)
+
+    def _save_official_window(self):
+        """Save only the official POS window identity fields."""
+        from ui.custom_dialog import show_warning, show_info
+        keywords = [
+            value.strip()
+            for value in self.txt_official_window_keywords.text().split(",")
+            if value.strip()
+        ]
+        if not keywords:
+            show_warning(self, u"缺少窗口识别词", u"请先填写官方 POS 窗口标题关键词。")
+            return
+        self.config["official_pos_window_configured"] = True
+        self.config["official_pos_window_keywords"] = keywords
+        process_name = self.txt_official_process_name.text().strip()
+        self.config["official_pos_process_name"] = process_name
+        self.config["official_pos_process_keywords"] = [process_name] if process_name else []
+        save_config(self.config)
+        parent_mw = self.window()
+        if hasattr(parent_mw, "switch_controller") and parent_mw.switch_controller:
+            parent_mw.switch_controller.update_config(self.config)
+        self._refresh_official_window_status()
+        show_info(self, u"窗口识别已保存", u"官方 POS 窗口识别词和辅助进程名已单独保存。")
+
+    def _save_auto_start_settings(self):
+        """Save only Windows auto-start settings and apply them immediately."""
+        from ui.custom_dialog import show_info
+        self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
+        self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
+        save_config(self.config)
+        from utils.system_utils import apply_auto_start_settings
+        apply_auto_start_settings(
+            self.config["auto_start_enabled"], self.config["auto_start_delay"]
+        )
+        show_info(self, u"开机启动已保存", u"Windows 开机启动和缓冲延迟已单独保存并立即应用。")
+
+    def _save_floating_ball_settings(self):
+        """Save only the floating-ball visibility setting."""
+        from ui.custom_dialog import show_info
+        self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
+        save_config(self.config)
+        parent_mw = self.window()
+        ball = getattr(parent_mw, "floating_ball", None)
+        if ball:
+            if self.config["floating_ball_enabled"]:
+                ball.show()
+            else:
+                ball.hide()
+        show_info(self, u"悬浮球设置已保存", u"桌面常驻触屏悬浮球设置已单独保存并立即生效。")
+
+    def _save_reminder_settings(self):
+        """Save only cashier reminder switches and threshold."""
+        from ui.custom_dialog import show_info
+        self.config["low_price_warning_enabled"] = (self.cmb_low_price_warning.currentIndex() == 0)
+        self.config["low_price_warning_threshold"] = self.spin_low_price_threshold.value()
+        self.config["packing_reminder_enabled"] = (self.cmb_packing_reminder.currentIndex() == 0)
+        self.config["skewer_reminder_enabled"] = (self.cmb_skewer_reminder.currentIndex() == 0)
+        save_config(self.config)
+        parent_mw = self.window()
+        sale_page = getattr(parent_mw, "sale_page", None)
+        if sale_page is not None and hasattr(sale_page, "config"):
+            sale_page.config.update(self.config)
+            if hasattr(sale_page, "_low_price_warning_shown"):
+                sale_page._low_price_warning_shown = False
+        show_info(self, u"提醒设置已保存", u"低价、打包和精品串提醒设置已单独保存。")
+
     def _on_save_sys(self):
         from ui.custom_dialog import show_warning
         window_keywords = [
@@ -2584,6 +2705,8 @@ class SettingsWidget(QWidget):
         self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
         self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
         self.config["app_logo_preset"] = self.cmb_app_logo.currentData() or "yangguofu"
+        self.config["shortcut_icon_preset"] = self.cmb_desktop_icon.currentData() or "yangguofu"
+        self.config["app_category"] = self.cmb_shortcut_category.currentData() or "pos"
         self.config["low_price_warning_enabled"] = (self.cmb_low_price_warning.currentIndex() == 0)
         self.config["low_price_warning_threshold"] = self.spin_low_price_threshold.value()
         self.config["packing_reminder_enabled"] = (self.cmb_packing_reminder.currentIndex() == 0)

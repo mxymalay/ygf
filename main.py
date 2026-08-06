@@ -91,7 +91,7 @@ def main():
 
     boot_loading = StartupLoadingDialog()
     boot_loading.set_message(
-        u"正在启动 POS",
+        u"正在启动应用",
         u"程序已启动，正在准备配置和登录界面……",
     )
     boot_loading.show()
@@ -129,6 +129,15 @@ def main():
         )
         app.processEvents()
         config = load_config()
+
+    # The password page is preceded by this splash.  Once the saved shortcut
+    # icon/category is known, update the splash title too; otherwise a Music,
+    # Browser, or Finance installation briefly exposes the generic POS name.
+    try:
+        from config import app_branding
+        boot_loading.set_branding(app_branding(config))
+    except Exception:
+        pass
 
     # Apply the saved Logo before the login dialog is created so every window
     # in the session, including the Win7 taskbar entry, uses the same icon.
@@ -220,6 +229,11 @@ def main():
     # 主窗口创建会初始化数据库、收银台、打印和自动切换组件，Win7 上
     # 可能出现短暂空档；在这段时间保留明确的加载提示，不让用户看到空白桌面。
     startup_loading = StartupLoadingDialog()
+    try:
+        from config import app_branding
+        startup_loading.set_branding(app_branding(config))
+    except Exception:
+        pass
     startup_loading.show()
     app.processEvents()
     window = None
