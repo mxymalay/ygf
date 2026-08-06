@@ -43,6 +43,72 @@ APP_LOGO_PRESETS = {
     "coca_cola": (u"可口可乐", "app_logo_coca_cola.png"),
 }
 
+# The shortcut icon also identifies the kind of tool being installed.  Keep
+# the wording in one place so the installer, settings page and password/login
+# screen always agree.  The list is intentionally longer than the bundled
+# icon list: custom uploaded icons can use any of these categories.
+APP_CATEGORY_OPTIONS = {
+    "pos": (u"POS / 收银", u"POS 辅助系统", u"POS Auxiliary System Environment Check"),
+    "music": (u"音乐", u"音乐管理助手", u"Music Management Assistant"),
+    "driver": (u"驱动", u"硬件驱动配置向导", u"Hardware Driver Setup Wizard"),
+    "browser": (u"浏览器", u"浏览器应用中心", u"Browser Application Center"),
+    "google": (u"Google", u"Google 服务助手", u"Google Services Assistant"),
+    "social": (u"社交", u"社交应用助手", u"Social Application Assistant"),
+    "finance": (u"财务", u"财务管理助手", u"Finance Management Assistant"),
+    "shopping": (u"购物", u"购物订单助手", u"Shopping Order Assistant"),
+    "video": (u"视频", u"视频媒体中心", u"Video Media Center"),
+    "game": (u"游戏", u"游戏平台启动器", u"Game Platform Launcher"),
+    "cloud": (u"云端", u"云端同步助手", u"Cloud Sync Assistant"),
+    "communication": (u"通讯", u"通讯消息助手", u"Communication Assistant"),
+    "security": (u"安全", u"安全登录中心", u"Security Login Center"),
+    "settings": (u"设置", u"系统设置中心", u"System Settings Center"),
+    "food": (u"餐饮", u"餐饮运营助手", u"Food Service Operations Assistant"),
+    "tools": (u"工具", u"实用工具箱", u"Utility Toolbox"),
+    "education": (u"教育", u"学习资料助手", u"Learning Materials Assistant"),
+    "custom": (u"自定义", u"自定义应用助手", u"Custom Application Assistant"),
+}
+
+APP_ICON_CATEGORY = {
+    "yangguofu": "pos",
+    "netease_music": "music",
+    "windows": "driver",
+    "qq_penguin": "social",
+    "dollar": "finance",
+    "settings_gears": "settings",
+    "red_music_note": "music",
+    "gold_blue_mark": "pos",
+    "green_dollar": "finance",
+    "instagram": "social",
+    "google": "google",
+    "alert": "security",
+    "coca_cola": "food",
+    "custom": "custom",
+}
+
+
+def app_category_for_icon(icon_id):
+    """Return the default category associated with a shortcut icon id."""
+    return APP_ICON_CATEGORY.get(str(icon_id or ""), "pos")
+
+
+def app_branding(config=None):
+    """Return login-screen wording for the configured shortcut category."""
+    config = config or {}
+    category_id = str(config.get("app_category") or "").strip()
+    if category_id not in APP_CATEGORY_OPTIONS:
+        category_id = app_category_for_icon(
+            config.get("shortcut_icon_preset") or config.get("app_logo_preset")
+        )
+    short_label, title, subtitle = APP_CATEGORY_OPTIONS.get(
+        category_id, APP_CATEGORY_OPTIONS["pos"]
+    )
+    return {
+        "category_id": category_id,
+        "category_label": short_label,
+        "login_title": title,
+        "login_subtitle": subtitle,
+    }
+
 
 def app_logo_path(preset_id):
     """Resolve a bundled application Logo preset to an absolute asset path."""
@@ -109,6 +175,10 @@ DEFAULT_CONFIG = {
     "printer_logo_enabled": True,
     "printer_logo_width_px": 512,
     "app_logo_preset": "yangguofu",
+    "shortcut_icon_preset": "yangguofu",
+    "app_category": "pos",
+    "custom_shortcut_icon_path": "",
+    "custom_shortcut_icon_label": "",
     "printer_customer_template_custom": "",
     "printer_kitchen_template_custom": "",
     "unit_price": 47.60,

@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 
 from utils.port_scanner import scan_printers
-from config import save_config
+from config import save_config, app_branding
 from utils.window_utils import find_official_window_handle, is_official_window_configured
 
 def check_ygf_official_running(config=None) -> bool:
@@ -193,6 +193,7 @@ class LoginWindow(QDialog):
         self.setFixedSize(580, 680)
         self.is_mock_mode = False
         self.active_input = None
+        self.branding = app_branding(self.config)
         self._build_ui()
 
     def _on_debug_click(self):
@@ -226,12 +227,12 @@ class LoginWindow(QDialog):
         card_layout.setSpacing(16)
         
         # 标题区
-        self.title_lbl = QLabel(u"Realtek 外设驱动配置向导")
+        self.title_lbl = QLabel(self.branding["login_title"])
         self.title_lbl.setAlignment(Qt.AlignCenter)
         self.title_lbl.setStyleSheet("color: #F8FAFC; font-size: 24px; font-weight: 900; letter-spacing: 1px;")
         card_layout.addWidget(self.title_lbl)
         
-        self.sub_lbl = QLabel(u"Hardware Device Driver Setup Wizard")
+        self.sub_lbl = QLabel(self.branding["login_subtitle"])
         self.sub_lbl.setAlignment(Qt.AlignCenter)
         self.sub_lbl.setStyleSheet("color: #64748B; font-size: 13px; margin-bottom: 10px;")
         card_layout.addWidget(self.sub_lbl)
@@ -423,8 +424,8 @@ class LoginWindow(QDialog):
             # window before any detection or switching is allowed.
             if not self._ensure_official_window_selection():
                 self.form_widget.hide()
-                self.title_lbl.setText(u"POS辅助系统")
-                self.sub_lbl.setText(u"请先完成官方 POS 窗口选择")
+                self.title_lbl.setText(self.branding["login_title"])
+                self.sub_lbl.setText(u"请先完成官方 POS 窗口选择 · %s" % self.branding["category_label"])
                 self.btn_close.setText(u"退出系统")
                 self.check_widget.show()
                 self.lbl_err.setText(u"未完成官方 POS 窗口配置；检测结束后可进入模拟模式或退出。")
@@ -432,9 +433,9 @@ class LoginWindow(QDialog):
                 return
             self.form_widget.hide()
             
-            # 取消伪装，显示真实标题
-            self.title_lbl.setText(u"POS辅助系统")
-            self.sub_lbl.setText(u"POS Auxiliary System Environment Check")
+            # 登录文案跟随快捷图标对应的应用分类，不再固定写成驱动向导。
+            self.title_lbl.setText(self.branding["login_title"])
+            self.sub_lbl.setText(self.branding["login_subtitle"])
             self.btn_close.setText(u"退出系统")
             
             self.check_widget.show()

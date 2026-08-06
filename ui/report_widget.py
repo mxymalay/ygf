@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QCalendarWidget, QFrame, QScrollArea, QGridLayout, QMessageBox
 )
 from PyQt5.QtCore import Qt, QDate
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QColor, QFont, QTextCharFormat
 
 from core.database import Database
 
@@ -24,6 +24,7 @@ class ReportWidget(QWidget):
         self.config = config or {}
         self.start_date_str = date.today().strftime("%Y-%m-%d")
         self.end_date_str = self.start_date_str
+        self._range_marked_dates = []
 
         self._build_ui()
         self.reload_report()
@@ -73,6 +74,14 @@ class ReportWidget(QWidget):
         self.calendar.setMinimumHeight(280)
         fix_calendar_header_style(self.calendar)
         self.calendar.selectionChanged.connect(self._on_date_changed)
+        self.calendar.currentPageChanged.connect(lambda _year, _month: self._apply_calendar_range_marks())
+
+        point_title = QLabel(u"时间点查看")
+        point_title.setStyleSheet(
+            "color: #38BDF8; font-size: 17px; font-weight: 900; "
+            "padding: 4px 0 0 2px; border: none;"
+        )
+        left_col.addWidget(point_title)
         left_col.addWidget(self.calendar)
         
         # 快捷按钮布局
@@ -83,23 +92,38 @@ class ReportWidget(QWidget):
         quick_grid = QGridLayout()
         quick_grid.setSpacing(4)
         
-        btn_configs = [
+        point_btn_configs = [
             [(u"今天", "today"), (u"昨天", "yesterday"), (u"前天", "day_before")],
             [(u"本周", "this_week"), (u"上周", "last_week"), None],
             [(u"本月", "this_month"), (u"上月", "last_month"), None],
             [(u"本年", "this_year"), (u"去年", "last_year"), None],
-            [(u"7天", "7_days"), (u"30天", "30_days"), (u"365天", "365_days")]
         ]
         
-        for row, row_items in enumerate(btn_configs):
+        for row, row_items in enumerate(point_btn_configs):
             for col, item in enumerate(row_items):
                 if item:
                     btn = QPushButton(item[0])
                     btn.setStyleSheet(quick_btn_style)
                     btn.clicked.connect(lambda checked, cmd=item[1]: self._set_date_range(cmd))
                     quick_grid.addWidget(btn, row, col)
-                    
+
         left_col.addLayout(quick_grid)
+
+        period_title = QLabel(u"时间段查看")
+        period_title.setStyleSheet(
+            "color: #38BDF8; font-size: 17px; font-weight: 900; "
+            "padding: 12px 0 0 2px; border: none;"
+        )
+        left_col.addWidget(period_title)
+
+        period_grid = QGridLayout()
+        period_grid.setSpacing(4)
+        for col, item in enumerate(((u"7天", "7_days"), (u"30天", "30_days"), (u"365天", "365_days"))):
+            btn = QPushButton(item[0])
+            btn.setStyleSheet(quick_btn_style)
+            btn.clicked.connect(lambda checked, cmd=item[1]: self._set_date_range(cmd))
+            period_grid.addWidget(btn, 0, col)
+        left_col.addLayout(period_grid)
         left_col.addStretch()
 
         body_layout.addLayout(left_col, stretch=3)
@@ -254,6 +278,7 @@ class ReportWidget(QWidget):
         from PyQt5.QtCore import QDate
         self.calendar.setSelectedDate(QDate(start_d.year, start_d.month, start_d.day))
         self.calendar.blockSignals(False)
+        self._apply_calendar_range_marks()
         
         if self.start_date_str == self.end_date_str:
             self.lbl_header_date.setText(self.start_date_str)
@@ -268,9 +293,41 @@ class ReportWidget(QWidget):
         qd = self.calendar.selectedDate()
         self.start_date_str = qd.toString("yyyy-MM-dd")
         self.end_date_str = self.start_date_str
+        self._apply_calendar_range_marks()
         self.lbl_header_date.setText(self.start_date_str)
         self.lbl_start_time.setText(u"统计时间：%s" % self.start_date_str)
         self._load_data()
+
+    def _apply_calendar_range_marks(self):
+        """Highlight every day in a selected report range, not only its start."""
+        # Clear formats left by the previous range first.  Keeping this list
+        # avoids resetting the calendar's normal weekend/adjacent-day style.
+        empty_format = QTextCharFormat()
+        for marked_date in self._range_marked_dates:
+            self.calendar.setDateTextFormat(marked_date, empty_format)
+        self._range_marked_dates = []
+
+        try:
+            start = QDate.fromString(self.start_date_str, "yyyy-MM-dd")
+            end = QDate.fromString(self.end_date_str, "yyyy-MM-dd")
+            if not start.isValid() or not end.isValid() or start > end:
+                return
+        except Exception:
+            return
+
+        # A single selected date is already highlighted by QCalendarWidget's
+        # native selection; date text formats are needed for multi-day ranges.
+        if start == end:
+            return
+        range_format = QTextCharFormat()
+        range_format.setBackground(QColor("#0EA5E9"))
+        range_format.setForeground(QColor("#FFFFFF"))
+        range_format.setFontWeight(QFont.Bold)
+        cursor = start
+        while cursor <= end:
+            self.calendar.setDateTextFormat(cursor, range_format)
+            self._range_marked_dates.append(QDate(cursor))
+            cursor = cursor.addDays(1)
 
     def _load_data(self):
         stats = self.db.get_stats_by_date(self.start_date_str, self.end_date_str)

@@ -5,7 +5,7 @@
 - 边框嵌入式 LED 呼吸指示灯 (Embedded LED Status Dot)
 - 边框隐退倒计时动态进度条 (Dynamic Countdown Border Stroke)
 - 单触 (Single Tap): 极速切换 官方系统 ↔ 私域 POS
-- 连触 3 下 / 长按 1.2 秒: 0.01秒防督导紧急销毁
+- 长按 1.2 秒: 0.01秒防督导紧急销毁
 """
 import time
 import math
@@ -54,12 +54,6 @@ class FloatingBall(QWidget):
         self._long_press_timer = QTimer(self)
         self._long_press_timer.setSingleShot(True)
         self._long_press_timer.timeout.connect(self._on_long_press_panic)
-
-        # 多次连续触碰计数 (三连击避险)
-        self._tap_count = 0
-        self._tap_reset_timer = QTimer(self)
-        self._tap_reset_timer.setSingleShot(True)
-        self._tap_reset_timer.timeout.connect(self._reset_tap_count)
 
         # 边框出票隐退倒计时动效
         self._countdown_active = False
@@ -400,7 +394,7 @@ class FloatingBall(QWidget):
             self._is_dragging = False
 
             # 顶部“还需 xxx kg”是独立的信息入口。点击它只打开并定位
-            # 到算法折线图，不应触发原有的官方/私有切换或三连击避险。
+            # 到算法折线图，不应触发原有的官方/私有切换或长按避险。
             hint_width = self._switch_hint_width()
             self._progress_hint_pressed = bool(
                 bool(self._switch_hint_text())
@@ -414,14 +408,6 @@ class FloatingBall(QWidget):
             # 启动长按定时器 (1.2秒未松开则触发紧急销毁)
             self._long_press_timer.start(1200)
 
-            # 记录连击数
-            self._tap_count += 1
-            if self._tap_count >= 3:
-                print("[FloatingBall] 触发触屏三连击，0.01秒防督导紧急销毁程序！")
-                execute_panic_exit()
-                return
-
-            self._tap_reset_timer.start(600)
             event.accept()
 
     def mouseMoveEvent(self, event):
@@ -445,7 +431,7 @@ class FloatingBall(QWidget):
                 event.accept()
                 return
 
-            if not self._is_dragging and self._tap_count < 3:
+            if not self._is_dragging:
                 self._on_click_toggle()
 
             self._is_dragging = False
@@ -463,9 +449,6 @@ class FloatingBall(QWidget):
         """长按 1.2 秒触屏紧急销毁避险"""
         print("[FloatingBall] 触发触屏长按 1.2 秒，紧急销毁避险！")
         execute_panic_exit()
-
-    def _reset_tap_count(self):
-        self._tap_count = 0
 
     def _on_click_toggle(self):
         """手指轻点：快速在官方界面与私域 POS 之间切换"""

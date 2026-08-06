@@ -9,12 +9,13 @@ from PyQt5.QtWidgets import (
     QStackedWidget,
     QSizePolicy
 )
-from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate
+from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
 from datetime import datetime, timedelta
 from html import escape
 from config import save_config
 from core.app_logger import log_event, CAT_SYSTEM, read_logs, CAT_DECISION, CAT_SWITCH, CAT_PANIC
+from ui.custom_dialog import show_info, show_warning, show_question
 
 
 class TouchSpinBox(QWidget):
@@ -95,21 +96,35 @@ class DecisionWeightChart(QWidget):
     """轻量级 Qt 绘图控件，显示累计称重、分流和时段汇总。
 
     不依赖 matplotlib 等额外库，避免 Win7 打包后缺少绘图库。上方是
-    一条连续上升的累计总重量线，每段按当次分流通道着色，红色虚线
-    标出店员手动切换；下方使用 2 小时堆叠柱图汇总重量。横轴标签按
+    一条连续上升的累计总重量线，每段按当次分流通道着色，紫色点
+    标出店员手动切换，红色虚线标出软件关闭期间；下方使用 2 小时堆叠柱图汇总重量。横轴标签按
     可用宽度采样并旋转 45 度，避免触屏窄窗口下相互遮挡。
     """
 
     OFFICIAL_COLOR = QColor("#38BDF8")
     PRIVATE_COLOR = QColor("#22C55E")
-    MANUAL_COLOR = QColor("#EF4444")
+    MANUAL_COLOR = QColor("#A855F7")
     GRID_COLOR = QColor("#26364D")
     TEXT_COLOR = QColor("#CBD5E1")
+    point_clicked = pyqtSignal(object)
 
     def __init__(self, parent=None, chart_mode="combined"):
         super().__init__(parent)
         self.chart_mode = str(chart_mode or "combined")
         self.events = []
+        self.downtime_gaps = []
+        self.timeline_start = None
+        self.timeline_end = None
+        self.app_sessions = []
+        self.session_state_known = False
+        self.pre_start_state_unknown = False
+        self._hit_targets = []
+        self.histogram_metadata = {}
+        self._scroll_dragging = False
+        # Horizontal zoom only changes the time-axis canvas width.  The
+        # viewport remains fixed, so zooming in naturally exposes the scroll
+        # bar and lets the operator inspect crowded timestamps.
+        self.horizontal_scale = 1.0
         # The widget contains a decision line chart and a compact stacked
         # histogram. Keep both touch-readable; the outer page can still
         # scroll horizontally when there are many events.
@@ -121,17 +136,315 @@ class DecisionWeightChart(QWidget):
         self.setStyleSheet("background: transparent;")
 
     def set_events(self, events):
-        self.events = list(events or [])
-        # 每个时间节点（包括红色手动切换）预留固定触屏可读宽度。
-        # 之前只按称重点计算宽度，手动切换很多时所有红线会挤在左侧。
+        incoming_events = list(events or [])
+        if incoming_events == self.events:
+            return
+        self.events = incoming_events
+        # 每个时间节点（包括紫色手动切换点）预留固定触屏可读宽度。
+        # 之前只按称重点计算宽度，手动切换很多时所有标记会挤在左侧。
         # 事件很多时由外层 QScrollArea 提供横向滚动。
         event_count = max(1, len(self.events))
         if self.chart_mode == "histogram":
             # The summary always has twelve fixed bins; it should fit its own
             # card and never inherit the long time-axis width of the line chart.
-            self.setMinimumWidth(720)
+            # Keep enough width for twelve readable bars so narrow POS windows
+            # expose a horizontal scrollbar instead of clipping the last bins.
+            self.setMinimumWidth(960)
         else:
-            self.setMinimumWidth(max(720, min(12000, 110 + event_count * 72)))
+            self._update_content_width(event_count)
+        self.update()
+
+    def set_downtime_gaps(self, gaps):
+        """Set intervals where the POS was closed between two weighings."""
+        normalised = []
+        for gap in gaps or []:
+            try:
+                start, end = gap
+                if start is not None and end is not None and end > start:
+                    normalised.append((start, end))
+            except (TypeError, ValueError):
+                continue
+        normalised = sorted(normalised, key=lambda item: item[0])
+        if normalised == self.downtime_gaps:
+            return
+        self.downtime_gaps = normalised
+        self.update()
+
+    def set_timeline_context(self, day_value, startup_times=None, shutdown_times=None):
+        """Set the full-day axis and the app's known open sessions."""
+        try:
+            day_start = datetime.strptime(str(day_value)[:10], "%Y-%m-%d")
+        except (TypeError, ValueError):
+            self.timeline_start = None
+            self.timeline_end = None
+            self.app_sessions = []
+            self.session_state_known = False
+            self.update()
+            return
+        day_end = day_start + timedelta(days=1)
+
+        def parse_times(values, include_before_day=False):
+            parsed = []
+            for value in values or []:
+                when = self._event_time({"created_at": value})
+                if when is not None and (
+                    (day_start <= when <= day_end)
+                    or (include_before_day and when < day_start)
+                ):
+                    parsed.append(when)
+            return sorted(set(parsed))
+
+        starts = parse_times(startup_times)
+        stops = parse_times(shutdown_times, include_before_day=True)
+        prior_shutdowns = [value for value in stops if value < day_start]
+        sessions = []
+        for started_at in starts:
+            following_stops = [value for value in stops if value > started_at]
+            ended_at = following_stops[0] if following_stops else day_end
+            if ended_at > started_at:
+                sessions.append((started_at, min(ended_at, day_end)))
+        route_times = [item[0] for item in self._normalise_event_values(self.events)]
+        pre_start_state_unknown = bool(
+            starts and route_times and min(route_times) < starts[0]
+        )
+        state_changed = (
+            self.timeline_start != day_start
+            or self.timeline_end != day_end
+            or self.app_sessions != sessions
+            or self.session_state_known != bool(starts or prior_shutdowns)
+            or self.pre_start_state_unknown != pre_start_state_unknown
+        )
+        self.timeline_start = day_start
+        self.timeline_end = day_end
+        self.app_sessions = sessions
+        # Without a startup record for this date, the pre-existing process
+        # state is unknown; use a neutral gray line instead of inventing a
+        # red closed interval.
+        self.session_state_known = bool(starts or prior_shutdowns)
+        self.pre_start_state_unknown = pre_start_state_unknown
+        if state_changed:
+            self.update()
+
+    def set_histogram_metadata(self, metadata):
+        incoming_metadata = dict(metadata or {})
+        if incoming_metadata == self.histogram_metadata:
+            return
+        self.histogram_metadata = incoming_metadata
+        self.update()
+
+    def _app_state_at(self, when):
+        if not self.session_state_known:
+            return "unknown"
+        if self.pre_start_state_unknown:
+            first_start = min(start for start, _end in self.app_sessions) if self.app_sessions else None
+            if first_start is not None and when < first_start:
+                return "unknown"
+        for started_at, ended_at in self.app_sessions:
+            if started_at <= when < ended_at:
+                return "open"
+        return "closed"
+
+    def _interval_has_closed_state(self, start, end):
+        if not self.session_state_known or end <= start:
+            return False
+        boundaries = [start, end]
+        for session_start, session_end in self.app_sessions:
+            if start < session_start < end:
+                boundaries.append(session_start)
+            if start < session_end < end:
+                boundaries.append(session_end)
+        boundaries = sorted(set(boundaries))
+        return any(
+            self._app_state_at(boundaries[index] + (boundaries[index + 1] - boundaries[index]) / 2.0) == "closed"
+            for index in range(len(boundaries) - 1)
+        )
+
+    def _draw_state_segments(self, painter, start, end, cumulative_weight, point_for):
+        """Draw neutral/open or red/closed baseline segments."""
+        if end <= start:
+            return
+        boundaries = [start, end]
+        if self.session_state_known:
+            for session_start, session_end in self.app_sessions:
+                if start < session_start < end:
+                    boundaries.append(session_start)
+                if start < session_end < end:
+                    boundaries.append(session_end)
+        boundaries = sorted(set(boundaries))
+        for index in range(len(boundaries) - 1):
+            left, right = boundaries[index], boundaries[index + 1]
+            midpoint = left + (right - left) / 2.0
+            state = self._app_state_at(midpoint)
+            if state == "closed":
+                pen = QPen(QColor("#EF4444"), 2.4, Qt.DashLine)
+            else:
+                pen = QPen(QColor("#64748B"), 1.8, Qt.SolidLine)
+            painter.setPen(pen)
+            painter.drawLine(point_for(left, cumulative_weight), point_for(right, cumulative_weight))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._hit_targets:
+            click_point = event.pos()
+            nearest = None
+            nearest_distance = 16.0
+            for target in self._hit_targets:
+                target_rect = target.get("rect")
+                if target_rect is not None and target_rect.contains(click_point):
+                    nearest = target
+                    nearest_distance = 0.0
+                    break
+                point = target.get("point")
+                if point is None:
+                    continue
+                distance = ((point.x() - click_point.x()) ** 2 + (point.y() - click_point.y()) ** 2) ** 0.5
+                if distance <= nearest_distance:
+                    nearest = target
+                    nearest_distance = distance
+            if nearest is not None:
+                self.point_clicked.emit(dict(nearest))
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    @classmethod
+    def infer_downtime_gaps(cls, events, startup_times, shutdown_times=None):
+        """Infer restart gaps only when a close/start pair is recorded.
+
+        A startup entry by itself is not proof that the POS was closed during
+        the preceding route interval: the database may contain imported or
+        stale rows from another process.  Require a preceding explicit
+        ``系统关闭`` entry before marking a red dashed interval.
+        """
+        route_times = sorted(
+            item[0] for item in cls._normalise_event_values(events)
+        )
+        starts = sorted(
+            value for value in (
+                cls._event_time({"created_at": timestamp})
+                for timestamp in (startup_times or [])
+            ) if value is not None
+        )
+        shutdowns = sorted(
+            value for value in (
+                cls._event_time({"created_at": timestamp})
+                for timestamp in (shutdown_times or [])
+            ) if value is not None
+        )
+        if not shutdowns:
+            return []
+        gaps = []
+        for started_at in starts:
+            if not any(value < started_at for value in shutdowns):
+                continue
+            previous = [value for value in route_times if value < started_at]
+            following = [value for value in route_times if value >= started_at]
+            if not previous:
+                continue
+            latest_shutdown = max(value for value in shutdowns if value < started_at)
+            if latest_shutdown < previous[-1]:
+                continue
+            if following:
+                gap = (previous[-1], following[0])
+            else:
+                # The selected day may end with a restart and no weighing
+                # afterwards. Keep that visible as a trailing closed period.
+                gap = (previous[-1], started_at)
+            if not any(existing[0] == gap[0] for existing in gaps):
+                gaps.append(gap)
+        return gaps
+
+    @classmethod
+    def _normalise_event_values(cls, events):
+        values = []
+        for event in events or []:
+            when = cls._event_time(event)
+            if when is None:
+                continue
+            event_type = str(event.get("event_type") or "").lower()
+            channel = str(event.get("channel") or "official").lower()
+            if event_type != "manual_switch" and channel in ("official", "private"):
+                values.append((when, event))
+        return values
+
+    def _update_content_width(self, event_count=None):
+        """Apply the current horizontal zoom to the line-chart canvas."""
+        if self.chart_mode == "histogram":
+            self.setMinimumWidth(960)
+            return
+        if event_count is None:
+            event_count = max(1, len(self.events))
+        base_width = max(720, min(12000, 110 + int(event_count) * 72))
+        scaled_width = int(round(base_width * self.horizontal_scale))
+        self.setMinimumWidth(max(720, min(30000, scaled_width)))
+
+    def _horizontal_scroll_container(self):
+        """Find the scroll area that owns this chart, if it has one."""
+        parent = self.parentWidget()
+        while parent is not None:
+            if hasattr(parent, "horizontalScrollBar") and hasattr(parent, "viewport"):
+                return parent
+            parent = parent.parentWidget()
+        return None
+
+    def _restore_horizontal_anchor(self, scroll_area, anchor_ratio):
+        """Keep the same chart x-coordinate at the viewport centre after resize."""
+        if scroll_area is None:
+            return
+        try:
+            viewport_width = float(scroll_area.viewport().width())
+            content_width = max(float(self.width()), float(self.minimumWidth()), 1.0)
+            target = int(round(content_width * anchor_ratio - viewport_width / 2.0))
+            bar = scroll_area.horizontalScrollBar()
+            bar.setValue(max(bar.minimum(), min(bar.maximum(), target)))
+        except RuntimeError:
+            # The chart can be destroyed while a deferred resize is pending
+            # during page changes; no scroll restoration is then needed.
+            pass
+
+    def set_horizontal_scale(self, scale):
+        """Set horizontal zoom while preserving the visible centre timestamp."""
+        try:
+            value = float(scale)
+        except (TypeError, ValueError):
+            value = 1.0
+        value = max(0.75, min(4.0, value))
+        if abs(value - self.horizontal_scale) < 0.0001:
+            return
+
+        scroll_area = self._horizontal_scroll_container()
+        anchor_ratio = 0.5
+        if scroll_area is not None:
+            try:
+                viewport_width = float(scroll_area.viewport().width())
+                content_width = max(float(self.width()), float(self.minimumWidth()), 1.0)
+                anchor_ratio = (float(scroll_area.horizontalScrollBar().value()) + viewport_width / 2.0) / content_width
+                anchor_ratio = max(0.0, min(1.0, anchor_ratio))
+            except RuntimeError:
+                scroll_area = None
+
+        self.horizontal_scale = value
+        self._update_content_width()
+        self.update()
+        # Minimum-width changes are applied by QScrollArea on its next layout
+        # pass.  Restore the anchor afterwards, otherwise Qt resets the
+        # scrollbar to the left edge on zoom.
+        QTimer.singleShot(0, lambda: self._restore_horizontal_anchor(scroll_area, anchor_ratio))
+
+    def zoom_in_horizontal(self):
+        self.set_horizontal_scale(self.horizontal_scale * 1.25)
+
+    def zoom_out_horizontal(self):
+        self.set_horizontal_scale(self.horizontal_scale / 1.25)
+
+    def reset_horizontal_zoom(self):
+        self.set_horizontal_scale(1.0)
+
+    def set_scroll_dragging(self, dragging):
+        """Use a cheaper paint path while a native scrollbar is being dragged."""
+        dragging = bool(dragging)
+        if dragging == self._scroll_dragging:
+            return
+        self._scroll_dragging = dragging
         self.update()
 
     @staticmethod
@@ -333,11 +646,25 @@ class DecisionWeightChart(QWidget):
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(axis_font)
             painter.drawText(QRectF(x - 8, histogram.bottom() + 6, width_bar + 16, 18), Qt.AlignCenter, "%02d" % (index * 2))
+            bar_top = histogram.bottom() - official_h - private_h
+            bar_rect = QRectF(x, bar_top, width_bar, max(12.0, official_h + private_h))
+            self._hit_targets.append({
+                "kind": "histogram_slot",
+                "point": QPointF(x + width_bar / 2.0, bar_top),
+                "rect": bar_rect,
+                "slot": index,
+                "official_weight": official,
+                "private_weight": private,
+                "metadata": dict(self.histogram_metadata.get(index, {})),
+            })
 
     def paintEvent(self, event):  # noqa: N802 - Qt API name
         del event
+        self._hit_targets = []
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        # Mouse dragging can generate dozens of repaints per second on Win7.
+        # Keep the live curve responsive and restore typography on release.
+        painter.setRenderHint(QPainter.Antialiasing, not self._scroll_dragging)
         outer = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         painter.setPen(QPen(QColor("#334155"), 1))
         painter.setBrush(QBrush(QColor("#0F172A")))
@@ -361,7 +688,10 @@ class DecisionWeightChart(QWidget):
         width = float(self.width())
         height = float(self.height())
         plot_top = 48.0
-        plot_height = max(320.0, min(480.0, height * 0.40))
+        # Scaling to ``height * 0.40`` left the lower half of the fixed scroll
+        # viewport as an unused blank block. Reserve only the title/axis-label
+        # area and use the remaining height for the plot itself.
+        plot_height = max(320.0, min(480.0, height - 105.0))
         plot = QRectF(68, plot_top, max(120.0, width - 92), plot_height)
         max_cumulative_weight = max([item[1] for item in cumulative_points] or [0.1])
         y_max = max(1.0, max_cumulative_weight)
@@ -372,11 +702,19 @@ class DecisionWeightChart(QWidget):
         # 例如所有操作都发生在 00:00-01:00 时，固定全天坐标会把点
         # 和手动切换线全部压在左边；保留少量两侧留白即可看清趋势。
         data_start = min(item[0] for item in points)
-        data_end = max(item[0] for item in points)
-        span_seconds = max(1.0, (data_end - data_start).total_seconds())
-        padding_seconds = max(60.0, span_seconds * 0.03)
-        start_time = data_start - timedelta(seconds=padding_seconds)
-        end_time = data_end + timedelta(seconds=padding_seconds)
+        timeline_ends = [item[0] for item in points]
+        timeline_ends.extend(end for _start, end in self.downtime_gaps)
+        data_end = max(timeline_ends)
+        if self.timeline_start is not None and self.timeline_end is not None:
+            # A day chart must show the closed/open periods even before the
+            # first weighing, so keep a true 00:00–24:00 axis.
+            start_time = self.timeline_start
+            end_time = self.timeline_end
+        else:
+            span_seconds = max(1.0, (data_end - data_start).total_seconds())
+            padding_seconds = max(60.0, span_seconds * 0.03)
+            start_time = data_start - timedelta(seconds=padding_seconds)
+            end_time = data_end + timedelta(seconds=padding_seconds)
         total_seconds = max(1.0, (end_time - start_time).total_seconds())
 
         title_font = QFont("Microsoft YaHei", 12)
@@ -410,12 +748,30 @@ class DecisionWeightChart(QWidget):
         # the bowl that made that increment, so blue/green changes explain the
         # routing sequence without splitting the line into separate series.
         previous_point = point_for(start_time, 0.0)
+        previous_route_when = None
+        previous_cumulative = 0.0
         for when, cumulative_weight, channel, _event, _bowl_weight in cumulative_points:
             current_point = point_for(when, cumulative_weight)
             color = self.PRIVATE_COLOR if channel == "private" else self.OFFICIAL_COLOR
-            painter.setPen(QPen(color, 2.8))
-            painter.drawLine(previous_point, current_point)
+            if previous_route_when is None:
+                # Before the first bowl, the line stays at zero: red means
+                # confirmed closed, gray means running/unknown with no data.
+                self._draw_state_segments(painter, start_time, when, 0.0, point_for)
+                painter.setPen(QPen(color, 2.8))
+                painter.drawLine(point_for(when, 0.0), current_point)
+            elif self._interval_has_closed_state(previous_route_when, when):
+                # A close/restart happened between two bowls. Keep the
+                # cumulative value flat through that interval, then draw the
+                # next bowl's colored increment at its timestamp.
+                self._draw_state_segments(painter, previous_route_when, when, previous_cumulative, point_for)
+                painter.setPen(QPen(color, 2.8))
+                painter.drawLine(point_for(when, previous_cumulative), current_point)
+            else:
+                painter.setPen(QPen(color, 2.8))
+                painter.drawLine(previous_point, current_point)
             previous_point = current_point
+            previous_route_when = when
+            previous_cumulative = cumulative_weight
 
         value_font = QFont("Microsoft YaHei", 8)
         for index, (when, cumulative_weight, channel, _event, bowl_weight) in enumerate(cumulative_points):
@@ -424,28 +780,41 @@ class DecisionWeightChart(QWidget):
             painter.setPen(QPen(QColor("#0F172A"), 1))
             painter.setBrush(QBrush(color))
             painter.drawEllipse(point, 4.5, 4.5)
-            painter.setPen(color)
-            value_y = point.y() - 8 if index % 2 == 0 else point.y() + 16
-            painter.setFont(value_font)
-            painter.drawText(QPointF(point.x() + 5, max(plot.top() + 10, min(plot.bottom() - 2, value_y))),
-                             "+%.3f" % bowl_weight)
+            if not self._scroll_dragging:
+                painter.setPen(color)
+                value_y = point.y() - 8 if index % 2 == 0 else point.y() + 16
+                painter.setFont(value_font)
+                painter.drawText(QPointF(point.x() + 5, max(plot.top() + 10, min(plot.bottom() - 2, value_y))),
+                                 "+%.3f" % bowl_weight)
+            self._hit_targets.append({
+                "kind": "weighing",
+                "point": point,
+                "when": when,
+                "event": dict(_event or {}),
+                "weight_kg": bowl_weight,
+                "channel": channel,
+            })
 
         # Use actual event times, sampled to the available width.  Labels are
         # rotated after translation so they remain fully visible below the axis.
         # 标签不能只按事件数量等距抽样：多次手动切换可能集中在几秒
         # 内，等距抽样仍会把文字画在同一小段区域。改为按实际像素
         # 间距贪心选择，所有红线保留，但时间文字不互相覆盖。
+        if self._scroll_dragging:
+            indexes = []
+        else:
+            indexes = []
         min_label_spacing = 100.0
-        indexes = []
         last_label_x = None
-        for idx, (when, _weight, _channel, _event) in enumerate(points):
-            x = point_for(when, 0.0).x()
-            if last_label_x is None or x - last_label_x >= min_label_spacing:
-                indexes.append(idx)
-                last_label_x = x
-        if not indexes:
+        if not self._scroll_dragging:
+            for idx, (when, _weight, _channel, _event) in enumerate(points):
+                x = point_for(when, 0.0).x()
+                if last_label_x is None or x - last_label_x >= min_label_spacing:
+                    indexes.append(idx)
+                    last_label_x = x
+        if not self._scroll_dragging and not indexes and self.timeline_start is None:
             indexes = [0]
-        if indexes[-1] != len(points) - 1:
+        if not self._scroll_dragging and indexes and indexes[-1] != len(points) - 1:
             # 最后一个时间点始终保留；若它与上一个候选点过近，
             # 用最后一个替换上一个，避免为了“显示最后时间”再次重叠。
             last_index = len(points) - 1
@@ -455,23 +824,41 @@ class DecisionWeightChart(QWidget):
                 indexes[-1] = last_index
             else:
                 indexes.append(last_index)
-        axis_font = QFont("Microsoft YaHei", 8)
-        painter.setFont(axis_font)
-        for idx in indexes:
-            when = points[idx][0]
-            point = point_for(when, 0.0)
-            label = when.strftime("%H:%M:%S")
-            painter.save()
-            painter.translate(point.x(), plot.bottom() + 13)
-            painter.rotate(45)
-            painter.setPen(self.TEXT_COLOR)
-            painter.drawText(QPointF(0, 0), label)
-            painter.restore()
+        if not self._scroll_dragging:
+            axis_font = QFont("Microsoft YaHei", 8)
+            painter.setFont(axis_font)
+            for idx in indexes:
+                when = points[idx][0]
+                point = point_for(when, 0.0)
+                label = when.strftime("%H:%M:%S")
+                painter.save()
+                painter.translate(point.x(), plot.bottom() + 13)
+                painter.rotate(45)
+                painter.setPen(self.TEXT_COLOR)
+                painter.drawText(QPointF(0, 0), label)
+                painter.restore()
+
+        if not self._scroll_dragging and self.timeline_start is not None and self.timeline_end is not None:
+            # A full-day axis makes the midnight-to-first-start state visible
+            # even when there are only a few weighings.
+            axis_ticks = [
+                self.timeline_start + timedelta(hours=hour)
+                for hour in (0, 6, 12, 18, 24)
+            ]
+            for tick in axis_ticks:
+                point = point_for(tick, 0.0)
+                painter.save()
+                painter.translate(point.x(), plot.bottom() + 13)
+                painter.rotate(45)
+                painter.setPen(self.TEXT_COLOR)
+                painter.drawText(QPointF(0, 0), tick.strftime("%H:%M"))
+                painter.restore()
 
         # 将每个点投影到横坐标。辅助线统一使用低透明度细虚线，避免
-        # 官方、私有或手动点较多时遮住折线、数值和时间标签。
-        last_manual_label_x = None
-        manual_label_spacing = 130.0
+        # 官方、私有点较多时遮住折线、数值和时间标签。手动切换没有
+        # 重量增量，因此红点落在该时刻的累计曲线上，不再贴在图顶。
+        route_index = 0
+        running_total = 0.0
         for when, _weight, channel, marker_event in points:
             x = point_for(when, 0.0).x()
             painter.save()
@@ -482,23 +869,56 @@ class DecisionWeightChart(QWidget):
             else:
                 marker_color = QColor(self.MANUAL_COLOR)
             marker_color.setAlpha(48)
-            painter.setPen(QPen(marker_color, 1, Qt.DashLine))
-            painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
+            while route_index < len(cumulative_points) and cumulative_points[route_index][0] <= when:
+                running_total = cumulative_points[route_index][1]
+                route_index += 1
             if channel == "manual":
                 painter.setBrush(self.MANUAL_COLOR)
-                painter.setPen(Qt.NoPen)
-                painter.drawEllipse(QPointF(x, plot.top() + 8), 5, 5)
-                target = marker_event.get("manual_target")
-                if target and (
-                    last_manual_label_x is None
-                    or x - last_manual_label_x >= manual_label_spacing
-                ):
-                    painter.setPen(self.MANUAL_COLOR)
-                    painter.setFont(axis_font)
-                    painter.drawText(QPointF(x + 6, plot.top() + 12),
-                                     u"手动→%s" % (u"私有" if target == "private" else u"官方"))
-                    last_manual_label_x = x
+                painter.setPen(QPen(QColor("#0F172A"), 1))
+                marker_point = point_for(when, running_total)
+                painter.drawEllipse(marker_point, 5.5, 5.5)
+                self._hit_targets.append({
+                    "kind": "manual_switch",
+                    "point": marker_point,
+                    "when": when,
+                    "event": dict(marker_event or {}),
+                    "channel": "manual",
+                })
+            else:
+                painter.setPen(QPen(marker_color, 1, Qt.DashLine))
+                painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
             painter.restore()
+
+        # Startup/shutdown markers sit on the cumulative line and are also
+        # clickable, so the operator can inspect exactly why a segment is red.
+        def cumulative_at(when):
+            total = 0.0
+            for item in cumulative_points:
+                if item[0] > when:
+                    break
+                total = item[1]
+            return total
+
+        if self.timeline_start is not None:
+            marker_specs = []
+            marker_specs.extend((started_at, "app_start") for started_at, _ended_at in self.app_sessions)
+            marker_specs.extend((ended_at, "app_shutdown") for _started_at, ended_at in self.app_sessions if ended_at < self.timeline_end)
+            for when, marker_kind in marker_specs:
+                marker_point = point_for(when, cumulative_at(when))
+                marker_color = QColor("#F59E0B" if marker_kind == "app_start" else "#EF4444")
+                painter.save()
+                painter.setPen(QPen(QColor("#0F172A"), 1))
+                painter.setBrush(marker_color)
+                if marker_kind == "app_start":
+                    painter.drawEllipse(marker_point, 6.0, 6.0)
+                else:
+                    painter.drawRect(QRectF(marker_point.x() - 5.0, marker_point.y() - 5.0, 10.0, 10.0))
+                painter.restore()
+                self._hit_targets.append({
+                    "kind": marker_kind,
+                    "point": marker_point,
+                    "when": when,
+                })
 
         if self.chart_mode == "line":
             painter.end()
@@ -562,6 +982,16 @@ class DecisionWeightChart(QWidget):
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(axis_font)
             painter.drawText(QRectF(x - 8, histogram.bottom() + 6, width_bar + 16, 18), Qt.AlignCenter, "%02d" % (index * 2))
+            bar_top = histogram.bottom() - official_h - private_h
+            self._hit_targets.append({
+                "kind": "histogram_slot",
+                "point": QPointF(x + width_bar / 2.0, bar_top),
+                "rect": QRectF(x, bar_top, width_bar, max(12.0, official_h + private_h)),
+                "slot": index,
+                "official_weight": official,
+                "private_weight": private,
+                "metadata": dict(self.histogram_metadata.get(index, {})),
+            })
 
         painter.end()
 
@@ -573,6 +1003,36 @@ class SwitchSettingsWidget(QWidget):
     # below for older/newer entries instead of an internal scrolling log.
     LOG_PAGE_SIZE = 8
     LOG_GAP_SECONDS = 5 * 60
+    # Ledger values must remain stable machine-readable identifiers, but the
+    # chart is operated by cashiers and must never expose those identifiers.
+    _DECISION_KIND_TEXT = {
+        "quota": (
+            u"自动重量配额分流",
+            u"按今天已累计的私域重量占比，与设置的目标占比比较后自动选择本次渠道。",
+        ),
+        "forced_official": (
+            u"规则限制，强制走官方",
+            u"本次触发了必须走官方的规则，例如低于私域最小重量，或私域当天收款已到上限。",
+        ),
+        "inherited": (
+            u"连单继承",
+            u"上一笔尚在连续处理期，本次沿用原收银渠道；这次不会额外消耗新的自动配额决策。",
+        ),
+        "fallback_private": (
+            u"官方不可用，回退私域",
+            u"原计划的官方界面无法使用，系统为避免卡单而自动保留在私域。",
+        ),
+        "quota_private": (
+            u"自动重量配额分流至私域",
+            u"今天的私域重量占比尚未达到目标，因此自动选择私域。",
+        ),
+        "quota_official": (
+            u"自动重量配额分流至官方",
+            u"今天的私域重量占比已达到目标，因此自动选择官方。",
+        ),
+        "inherited_private": (u"私域连单继承", u"沿用上一笔私域收银渠道。"),
+        "inherited_official": (u"官方连单继承", u"沿用上一笔官方收银渠道。"),
+    }
 
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
@@ -587,17 +1047,30 @@ class SwitchSettingsWidget(QWidget):
         
         # 定时刷新日志 (仅当页面可见时)
         self.log_timer = QTimer(self)
-        self.log_timer.setInterval(2000)
-        self.log_timer.timeout.connect(self._refresh_logs)
+        # Reading the full JSONL ledger and repainting a 24-hour chart every
+        # two seconds blocks the cashier UI on Win7. Refresh only the visible
+        # secondary page at a calmer cadence.
+        self.log_timer.setInterval(5000)
+        self.log_timer.timeout.connect(self._refresh_active_section)
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._refresh_logs()
+        self._refresh_active_section()
         self.log_timer.start()
 
     def hideEvent(self, event):
         super().hideEvent(event)
         self.log_timer.stop()
+
+    def _refresh_active_section(self):
+        """Refresh only the currently visible, data-heavy subpage."""
+        if not self.isVisible():
+            return
+        current_index = self.section_stack.currentIndex() if getattr(self, "section_stack", None) else -1
+        if current_index == getattr(self, "_section_targets", {}).get("chart"):
+            self._refresh_weight_chart()
+        elif current_index == getattr(self, "_section_targets", {}).get("logs"):
+            self._refresh_logs()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -893,23 +1366,73 @@ class SwitchSettingsWidget(QWidget):
         # 的 route-event 明细，而不是日志文本，避免日志截断后丢失节点。
         chart_title = QLabel(u"今日累计称重折线图")
         chart_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
-        right_layout.addWidget(chart_title)
-        chart_tip = QLabel(u"一条连续累计总重量线；蓝/绿线段分别表示该次称重走官方/私有，节点“+重量”是本次称重；红色虚线为手动切换。")
+        chart_tip = QLabel(u"一条连续累计总重量线；蓝/绿线段分别表示该次称重走官方/私有，节点“+重量”是本次称重；紫色圆点表示手动切换，红色虚线表示软件关闭期间，灰线表示已运行但暂无称重。")
         chart_tip.setWordWrap(True)
         chart_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
-        right_layout.addWidget(chart_tip)
+        chart_zoom_bar = QWidget()
+        chart_zoom_layout = QHBoxLayout(chart_zoom_bar)
+        chart_zoom_layout.setContentsMargins(0, 0, 0, 0)
+        chart_zoom_layout.setSpacing(6)
+        chart_zoom_label = QLabel(u"折线横轴")
+        chart_zoom_label.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: bold;")
+        chart_zoom_layout.addWidget(chart_zoom_label)
+        btn_zoom_out = QPushButton(u"缩小")
+        btn_zoom_out.setToolTip(u"缩小横轴")
+        btn_zoom_out.setFixedSize(56, 32)
+        btn_zoom_reset = QPushButton(u"恢复")
+        btn_zoom_reset.setToolTip(u"恢复默认横轴宽度")
+        btn_zoom_reset.setFixedHeight(32)
+        btn_zoom_in = QPushButton(u"放大")
+        btn_zoom_in.setToolTip(u"放大横轴")
+        btn_zoom_in.setFixedSize(56, 32)
+        for zoom_button in (btn_zoom_out, btn_zoom_reset, btn_zoom_in):
+            zoom_button.setCursor(Qt.PointingHandCursor)
+            zoom_button.setStyleSheet(
+                "QPushButton { background: #1E293B; color: #E2E8F0; "
+                "border: 1px solid #334155; border-radius: 5px; "
+                "font-size: 13px; font-weight: bold; padding: 2px 8px; }"
+                "QPushButton:hover { background: #334155; color: #38BDF8; "
+                "border-color: #38BDF8; }"
+            )
+        chart_zoom_layout.addWidget(btn_zoom_out)
+        chart_zoom_layout.addWidget(btn_zoom_reset)
+        chart_zoom_layout.addWidget(btn_zoom_in)
+        chart_zoom_layout.addStretch()
         self.weight_line_chart = DecisionWeightChart(chart_mode="line")
         self.weight_histogram_chart = DecisionWeightChart(chart_mode="histogram")
+        # A point is found while the chart is handling mousePressEvent.  Queue
+        # the detail dialog until that event (and its matching mouse release)
+        # has finished; otherwise a private point's order dialog can receive
+        # the same click and re-enter page navigation on some older Qt builds.
+        self.weight_line_chart.point_clicked.connect(
+            self._on_weight_chart_point_clicked, Qt.QueuedConnection
+        )
+        self.weight_histogram_chart.point_clicked.connect(
+            self._on_weight_chart_point_clicked, Qt.QueuedConnection
+        )
+        btn_zoom_out.clicked.connect(self.weight_line_chart.zoom_out_horizontal)
+        btn_zoom_reset.clicked.connect(self.weight_line_chart.reset_horizontal_zoom)
+        btn_zoom_in.clicked.connect(self.weight_line_chart.zoom_in_horizontal)
         # Keep the old attribute as a compatibility alias for callers that
         # only need to refresh or focus the main line chart.
         self.weight_chart = self.weight_line_chart
         chart_scroll_style = """
             QScrollArea { border: none; background: transparent; }
             QScrollBar:horizontal {
-                height: 14px; background: #0F172A; border-radius: 7px;
+                height: 20px; background: #0F172A; border-radius: 10px;
             }
             QScrollBar::handle:horizontal {
-                background: #475569; border-radius: 7px; min-width: 60px;
+                background: #64748B; border-radius: 9px; min-width: 90px;
+                border: 2px solid #334155;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #94A3B8;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: #0F172A;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px; background: transparent;
             }
         """
         self.chart_line_scroll = QScrollArea()
@@ -921,6 +1444,9 @@ class SwitchSettingsWidget(QWidget):
         self.chart_line_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.chart_line_scroll.setStyleSheet(chart_scroll_style)
         self.chart_line_scroll.setWidget(self.weight_line_chart)
+        line_bar = self.chart_line_scroll.horizontalScrollBar()
+        line_bar.sliderPressed.connect(lambda: self.weight_line_chart.set_scroll_dragging(True))
+        line_bar.sliderReleased.connect(lambda: self.weight_line_chart.set_scroll_dragging(False))
         # The line chart owns its own horizontal scrollbar directly below it.
         self.chart_scroll = self.chart_line_scroll
 
@@ -934,33 +1460,13 @@ class SwitchSettingsWidget(QWidget):
         self.chart_hist_scroll.setFixedHeight(390)
         self.chart_hist_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.chart_hist_scroll.setFrameShape(QFrame.NoFrame)
-        self.chart_hist_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chart_hist_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.chart_hist_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.chart_hist_scroll.setStyleSheet(chart_scroll_style)
         self.chart_hist_scroll.setWidget(self.weight_histogram_chart)
-        right_layout.addWidget(self.chart_line_scroll)
-        right_layout.addWidget(chart_hist_title)
-        right_layout.addWidget(chart_hist_tip)
-        right_layout.addWidget(self.chart_hist_scroll)
-
-        # 图表放在算法日志之前：操作员先看今日分流走势，再向下查看
-        # 对应的逐条实时日志。此前图表追加在日志末尾，阅读顺序相反。
-        for chart_widget in (
-            chart_title,
-            chart_tip,
-            self.chart_line_scroll,
-            chart_hist_title,
-            chart_hist_tip,
-            self.chart_hist_scroll,
-        ):
-            right_layout.removeWidget(chart_widget)
-        right_layout.insertWidget(0, chart_title)
-        right_layout.insertWidget(1, chart_tip)
-        right_layout.insertWidget(2, self.chart_line_scroll)
-        right_layout.insertWidget(3, chart_hist_title)
-        right_layout.insertWidget(4, chart_hist_tip)
-        right_layout.insertWidget(5, self.chart_hist_scroll)
-
+        hist_bar = self.chart_hist_scroll.horizontalScrollBar()
+        hist_bar.sliderPressed.connect(lambda: self.weight_histogram_chart.set_scroll_dragging(True))
+        hist_bar.sliderReleased.connect(lambda: self.weight_histogram_chart.set_scroll_dragging(False))
         # 切换算法页的二级目录，布局与系统设置保持一致：左侧固定
         # 导航栏，右侧为可纵向滚动的内容区。
         section_sidebar = QFrame()
@@ -1020,7 +1526,12 @@ class SwitchSettingsWidget(QWidget):
         chart_layout.addWidget(self.chart_date_bar)
         chart_layout.addWidget(chart_title)
         chart_layout.addWidget(chart_tip)
+        chart_layout.addWidget(chart_zoom_bar)
         chart_layout.addWidget(self.chart_line_scroll)
+        # Separate the two chart cards clearly.  The line chart's scrollbar
+        # otherwise sits immediately against the histogram title on compact
+        # Win7 displays, making them look like one crowded panel.
+        chart_layout.addSpacing(30)
         chart_layout.addWidget(chart_hist_title)
         chart_layout.addWidget(chart_hist_tip)
         chart_layout.addWidget(self.chart_hist_scroll)
@@ -1047,7 +1558,7 @@ class SwitchSettingsWidget(QWidget):
         self._logs_panel = logs_panel
 
         # 上面控件先在临时布局中创建，这里移出后分别挂到两个独立页面。
-        for widget in (chart_title, chart_tip, self.chart_scroll, lbl_log_title, self.txt_logs):
+        for widget in (lbl_log_title, self.txt_logs):
             right_layout.removeWidget(widget)
         # 不要延迟销毁这个临时容器。Win7 的旧版 PyQt5 在布局重挂载后
         # 仍可能持有其 C++ 子对象引用，deleteLater() 会在首次切页时
@@ -1194,6 +1705,7 @@ class SwitchSettingsWidget(QWidget):
             self._refresh_logs()
         elif key == "chart":
             self._refresh_weight_chart()
+            QTimer.singleShot(0, self._scroll_charts_to_latest)
 
     def _set_filter_date(self, key, days_offset):
         fields = self._date_filters.get(key)
@@ -1220,7 +1732,132 @@ class SwitchSettingsWidget(QWidget):
             and str(entry.get("ts", "")).startswith(selected_date)
         ]
         self._render_log_page()
-        self._refresh_weight_chart()
+
+    def _on_weight_chart_point_clicked(self, target):
+        """Safely open the detail view for a chart point.
+
+        A chart is only an aid for reviewing the ledger: malformed historical
+        data must never be able to terminate the POS UI when a point is
+        clicked.  The actual dialog work is kept in a separate method so this
+        signal boundary can contain every display/conversion failure.
+        """
+        try:
+            self._show_weight_chart_point_detail(target)
+        except Exception as exc:
+            kind = target.get("kind") if isinstance(target, dict) else "unknown"
+            log_event(CAT_SYSTEM, u"图表点详情打开失败", u"类型=%s | %s" % (kind, exc))
+            try:
+                show_warning(
+                    self, u"图表详情无法打开",
+                    u"该条记录的数据格式异常，已保留原始账本，不会影响收银。\n%s" % exc,
+                )
+            except Exception:
+                # Never let an error-reporting dialog turn a recoverable chart
+                # issue into an application exit.
+                pass
+
+    @staticmethod
+    def _chart_number(value, default=0.0):
+        """Convert old ledger values without letting an invalid value escape."""
+        try:
+            return float(value if value not in (None, "") else default)
+        except (TypeError, ValueError, OverflowError):
+            return float(default)
+
+    @classmethod
+    def _decision_kind_display(cls, decision_kind):
+        """Translate internal routing identifiers for the cashier-facing UI."""
+        key = str(decision_kind or "").strip().lower()
+        if not key:
+            return u"未记录", u"旧记录没有保存本次分流依据。"
+        return cls._DECISION_KIND_TEXT.get(
+            key, (u"其他自动分流", u"系统已完成自动分流；内部记录：%s。" % key)
+        )
+
+    def _show_weight_chart_point_detail(self, target):
+        """Show a clicked chart point and optionally open its order."""
+        if not isinstance(target, dict):
+            return
+        kind = str(target.get("kind") or "")
+        when = target.get("when")
+        when_text = when.strftime("%Y-%m-%d %H:%M:%S") if hasattr(when, "strftime") else str(when or "")
+        if kind == "app_start":
+            title = u"本程序启动节点"
+            detail = u"%s\n本程序从此时间开始运行；此前的红色虚线表示本程序未运行期间。" % when_text
+        elif kind == "app_shutdown":
+            title = u"本程序关闭节点"
+            detail = u"%s\n本程序从此时间结束运行，直到下一次启动。" % when_text
+        elif kind == "manual_switch":
+            event = target.get("event") or {}
+            target_channel = event.get("manual_target") or ""
+            target_name = u"私域" if target_channel == "private" else (u"官方" if target_channel == "official" else u"未记录")
+            title = u"手动切换"
+            detail = u"时间：%s\n切换目标：%s\n这是店员手动操作，不产生称重重量。" % (when_text, target_name)
+        elif kind == "weighing":
+            event = target.get("event") or {}
+            channel = target.get("channel") or event.get("channel") or ""
+            channel_name = u"私域" if channel == "private" else u"官方"
+            weight = target.get("weight_kg", event.get("weight_kg", 0.0))
+            order_id = str(event.get("order_id") or "").strip()
+            decision_kind = str(event.get("decision_kind") or "").strip()
+            status = str(event.get("status") or "").strip()
+            lines = [
+                u"时间：%s" % when_text,
+                u"稳定重量：%.3f kg" % self._chart_number(weight),
+                u"分流结果：%s" % channel_name,
+            ]
+            if decision_kind:
+                decision_name, decision_explanation = self._decision_kind_display(decision_kind)
+                lines.append(u"分流依据：%s" % decision_name)
+                lines.append(u"说明：%s" % decision_explanation)
+            if status:
+                lines.append(u"记录状态：%s" % status)
+            if order_id:
+                lines.append(u"订单号：%s" % order_id)
+                lines.append(u"点击“打开订单”可跳转到订单详情。")
+            else:
+                lines.append(u"订单号：尚未绑定")
+            title = u"称重决策详情"
+            detail = "\n".join(lines)
+            if order_id:
+                # Reuse the project card instead of QMessageBox: older Win7
+                # PyQt builds do not implement QMessageBox.setButtonText.
+                if show_question(
+                    self, title, detail,
+                    confirm_text=u"打开订单", cancel_text=u"关闭",
+                ):
+                    parent = self.window()
+                    if hasattr(parent, "open_history_order"):
+                        parent.open_history_order(order_id=order_id)
+                return
+            show_info(self, title, detail)
+            return
+        elif kind == "histogram_slot":
+            slot = int(self._chart_number(target.get("slot", 0)))
+            official_weight = self._chart_number(target.get("official_weight", 0.0))
+            private_weight = self._chart_number(target.get("private_weight", 0.0))
+            total_weight = official_weight + private_weight
+            private_ratio = (private_weight / total_weight * 100.0) if total_weight > 0 else 0.0
+            metadata = target.get("metadata") or {}
+            start_hour = slot * 2
+            end_hour = start_hour + 2
+            title = u"时段重量详情"
+            detail = "\n".join([
+                u"时段：%02d:00–%02d:00" % (start_hour, end_hour),
+                u"官方重量：%.3f kg" % official_weight,
+                u"私域重量：%.3f kg" % private_weight,
+                u"合计重量：%.3f kg" % total_weight,
+                u"私域占比：%.1f%%" % private_ratio,
+                u"称重决策数：%d" % int(self._chart_number(metadata.get("decision_count", 0))),
+                u"已入账订单数：%d" % int(self._chart_number(metadata.get("order_count", 0))),
+                u"本地已记录营业额：¥%.2f" % self._chart_number(metadata.get("revenue", 0.0)),
+                u"（官方 POS 金额无官方回调时不会被本地账本猜测。）",
+            ])
+            show_info(self, title, detail)
+            return
+        else:
+            return
+        show_info(self, title, detail)
 
     def _refresh_weight_chart(self):
         """刷新称重图，并叠加店员手动切换标记。"""
@@ -1235,12 +1872,18 @@ class SwitchSettingsWidget(QWidget):
                 log_event(CAT_SYSTEM, "称重决策图表读取失败", str(exc))
 
         # 手动切换没有重量，不能写入称重 route-event 表；从统一应用
-        # 日志读取并作为红色时间标记叠加到图表。只识别“重置本轮”这条
-        # 事件，避免同一次操作的“手动干预锁定”重复画两条红线。
+        # 日志读取并作为紫色时间标记叠加到图表。只识别“重置本轮”这条
+        # 事件，避免同一次操作的“手动干预锁定”重复画两个点。
+        startup_times = []
+        shutdown_times = []
         try:
             manual_logs = read_logs(limit=2000)
             seen_manual = set()
             for entry in manual_logs:
+                if entry.get("cat") == CAT_SYSTEM and entry.get("msg") == "系统启动":
+                    startup_times.append(entry.get("ts", ""))
+                elif entry.get("cat") == CAT_SYSTEM and entry.get("msg") == "系统关闭":
+                    shutdown_times.append(entry.get("ts", ""))
                 if entry.get("cat") != CAT_SWITCH:
                     continue
                 if not str(entry.get("ts", "")).startswith(selected_date):
@@ -1270,12 +1913,55 @@ class SwitchSettingsWidget(QWidget):
                 })
         except Exception as exc:
             log_event(CAT_SYSTEM, "手动切换图表标记读取失败", str(exc))
+        histogram_metadata = {}
+        for route_event in events:
+            route_time = DecisionWeightChart._event_time(route_event)
+            route_channel = str(route_event.get("channel") or "").lower()
+            if route_time is None or route_channel not in ("official", "private"):
+                continue
+            slot = min(11, max(0, int((route_time.hour * 60 + route_time.minute) / 120)))
+            bucket = histogram_metadata.setdefault(slot, {"decision_count": 0, "order_count": 0, "revenue": 0.0})
+            bucket["decision_count"] += 1
+        if db is not None and hasattr(db, "get_sales_by_date"):
+            try:
+                for sale in db.get_sales_by_date(selected_date):
+                    sale_time = DecisionWeightChart._event_time(sale)
+                    if sale_time is None:
+                        continue
+                    slot = min(11, max(0, int((sale_time.hour * 60 + sale_time.minute) / 120)))
+                    bucket = histogram_metadata.setdefault(slot, {"decision_count": 0, "order_count": 0, "revenue": 0.0})
+                    if str(sale.get("payment_status") or "PAID").upper() == "PAID":
+                        bucket["order_count"] += 1
+                        try:
+                            bucket["revenue"] += float(sale.get("total_price") or 0.0)
+                        except (TypeError, ValueError):
+                            pass
+            except Exception as exc:
+                log_event(CAT_SYSTEM, "图表时段营业额读取失败", str(exc))
         self.weight_line_chart.set_events(events)
         self.weight_histogram_chart.set_events(events)
+        self.weight_histogram_chart.set_histogram_metadata(histogram_metadata)
+        downtime_gaps = DecisionWeightChart.infer_downtime_gaps(
+            events, startup_times, shutdown_times
+        )
+        self.weight_line_chart.set_timeline_context(
+            selected_date, startup_times, shutdown_times
+        )
+        self.weight_line_chart.set_downtime_gaps(downtime_gaps)
+        self.weight_histogram_chart.set_downtime_gaps([])
+
+    def _scroll_charts_to_latest(self):
+        for scroll_area in (
+            getattr(self, "chart_line_scroll", None),
+            getattr(self, "chart_hist_scroll", None),
+        ):
+            if scroll_area is not None:
+                bar = scroll_area.horizontalScrollBar()
+                bar.setValue(bar.maximum())
 
     def focus_weight_chart(self):
         """将页面滚动到折线图，供悬浮球顶部剩余重量入口调用。"""
-        self._refresh_logs()
+        self._refresh_weight_chart()
         self._select_switch_section("chart")
         # 页面布局可能在本轮刷新后才完成尺寸计算，再确保一次位置。
         QTimer.singleShot(0, lambda: self._select_switch_section("chart"))
@@ -1287,6 +1973,14 @@ class SwitchSettingsWidget(QWidget):
         for current_id, button in getattr(self, "section_buttons", []):
             button.setChecked(current_id == section_id)
         self.section_stack.setCurrentIndex(self._section_targets[section_id])
+        if section_id == "chart":
+            self._refresh_weight_chart()
+        elif section_id == "logs":
+            self._refresh_logs()
+        if section_id == "chart":
+            # The chart page may have just been laid out; defer until the
+            # viewport has its final width so maximum() is accurate.
+            QTimer.singleShot(0, self._scroll_charts_to_latest)
         # QStackedWidget normally keeps the largest page's height (the
         # settings form), which would leave a huge blank area below the log
         # page.  Resize it to the selected page so the log page is genuinely

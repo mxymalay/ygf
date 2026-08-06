@@ -117,8 +117,12 @@ class SettingsWorkflowTests(unittest.TestCase):
     def test_login_official_mode_does_not_probe_an_unrelated_com(self):
         config = dict(DEFAULT_CONFIG)
         config["scale_source"] = "official"
+        config["app_category"] = "music"
         dialog = LoginWindow(config)
         self.addCleanup(dialog.deleteLater)
+
+        self.assertIn("音乐", dialog.title_lbl.text())
+        self.assertIn("Music", dialog.sub_lbl.text())
 
         with patch("ui.login_window.check_ygf_official_running", return_value=True), patch(
             "ui.login_window.probe_dibal_scale_connection"

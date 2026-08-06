@@ -5,6 +5,7 @@ module intentionally uses only the Python standard library so the setup EXE
 does not depend on the POS application's virtual environment.
 """
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -29,9 +30,18 @@ except ImportError:  # pragma: no cover - only used on Windows
     winreg = None
 
 
+def _native_message_box(title, message, flags):
+    """Call the stock Win32 MessageBox with an explicit stable signature."""
+    if os.name != "nt":
+        return 6
+    message_box = ctypes.windll.user32.MessageBoxW
+    message_box.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.UINT]
+    message_box.restype = ctypes.c_int
+    return message_box(0, str(message), str(title), int(flags))
+
+
 def _native_showinfo(title, message):
-    if os.name == "nt":
-        ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x40)
+    _native_message_box(title, message, 0x40)
 
 
 def _install_complete_message(display_name, target_dir):
@@ -62,10 +72,9 @@ def _native_install_complete(display_name, target_dir):
     """Win32 fallback with explicit Open/Finish choices for Win7."""
     message = _install_complete_message(display_name, target_dir)
     if os.name == "nt":
-        result = ctypes.windll.user32.MessageBoxW(
-            0,
-            message,
+        result = _native_message_box(
             "安装/更新完成",
+            message,
             0x00000004 | 0x00000040 | 0x00010000,  # MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND
         )
         if result == 6:  # IDYES = 现在打开
@@ -130,71 +139,20 @@ def _show_install_complete(root, display_name, target_dir):
 
 
 def _native_showerror(title, message):
-    if os.name == "nt":
-        ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x10)
+    _native_message_box(title, message, 0x10)
 
 
 def _native_askyesno(title, message):
-    if os.name == "nt":
-        return ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x24) == 6
-    return True
-
-
-def _configure_native_dialog_api(user32, kernel32):
-    """Keep Win32 handles 64-bit wide in the no-Tk Win7 fallback.
-
-    ``ctypes.windll`` defaults both pointer-returning values *and untyped
-    arguments* to 32-bit ``c_int``.  That truncates HWND/HINSTANCE values on
-    64-bit Windows; supplying an HINSTANCE to ``CreateWindowExW`` then raises
-    ``OverflowError: int too long to convert`` before the dialog appears.
-    The packaged installer can enter this path when Tk cannot initialise, so
-    configure every handle-bearing API used by both native dialogs.
-    """
-    handle = ctypes.c_void_p
-    unsigned_ptr = ctypes.c_size_t
-    kernel32.GetModuleHandleW.restype = handle
-    kernel32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
-    user32.CreateWindowExW.argtypes = [
-        wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
-        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-        wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID,
-    ]
-    user32.CreateWindowExW.restype = handle
-    # WNDCLASSW is declared inside each dialog function.  A void pointer is
-    # the compatible common signature for a pointer to either structure.
-    user32.RegisterClassW.argtypes = [ctypes.c_void_p]
-    user32.RegisterClassW.restype = ctypes.c_ushort
-    user32.UnregisterClassW.argtypes = [wintypes.LPCWSTR, wintypes.HINSTANCE]
-    user32.UnregisterClassW.restype = ctypes.c_int
-    user32.DestroyWindow.argtypes = [handle]
-    user32.DestroyWindow.restype = ctypes.c_int
-    user32.SetFocus.argtypes = [handle]
-    user32.SetFocus.restype = handle
-    user32.UpdateWindow.argtypes = [handle]
-    user32.UpdateWindow.restype = ctypes.c_int
-    user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
-    user32.GetMessageW.restype = ctypes.c_int
-    user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
-    user32.TranslateMessage.restype = ctypes.c_int
-    user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
-    user32.DispatchMessageW.restype = ctypes.c_ssize_t
-    user32.PostQuitMessage.argtypes = [ctypes.c_int]
-    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, unsigned_ptr, ctypes.c_void_p]
-    user32.SendMessageW.restype = ctypes.c_ssize_t
-    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-    user32.GetWindowTextLengthW.restype = ctypes.c_int
-    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-    user32.GetWindowTextW.restype = ctypes.c_int
+    return _native_message_box(title, message, 0x24) == 6
 
 
 def _native_select_folder(initial_dir):
-    """Win32 folder picker used when the packaged Tk runtime is unavailable."""
+    """Use the stock Win7 folder picker when the packaged Tk runtime is unavailable."""
     if os.name != "nt":
         return None
     shell32 = ctypes.windll.shell32
     user32 = ctypes.windll.user32
     ole32 = ctypes.windll.ole32
-    _configure_native_dialog_api(user32, ctypes.windll.kernel32)
 
     class BROWSEINFO(ctypes.Structure):
         _fields_ = [
@@ -214,6 +172,8 @@ def _native_select_folder(initial_dir):
     BIF_NEWDIALOGSTYLE = 0x0040
     initial = os.path.abspath(initial_dir or os.getcwd())
     initial_buffer = ctypes.create_unicode_buffer(initial)
+    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, ctypes.c_size_t, ctypes.c_void_p]
+    user32.SendMessageW.restype = ctypes.c_ssize_t
 
     @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
     def callback(hwnd, message, _lparam, data):
@@ -252,263 +212,54 @@ def _native_select_folder(initial_dir):
 
 
 def _native_prompt_string(title, prompt, initial_value=""):
-    """Small native Win32 text dialog for the no-Tk fallback path."""
-    if os.name != "nt":
-        return None
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
-    _configure_native_dialog_api(user32, kernel32)
-    user32.DefWindowProcW.argtypes = [
-        ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
-    ]
-    user32.DefWindowProcW.restype = ctypes.c_ssize_t
-    WM_COMMAND = 0x0111
-    WM_CLOSE = 0x0010
-    WM_DESTROY = 0x0002
-    ID_OK = 1
-    ID_CANCEL = 2
-    WS_OVERLAPPED = 0x00000000
-    WS_CAPTION = 0x00C00000
-    WS_SYSMENU = 0x00080000
-    WS_VISIBLE = 0x10000000
-    WS_CHILD = 0x40000000
-    WS_TABSTOP = 0x00010000
-    ES_AUTOHSCROLL = 0x0080
-    BS_DEFPUSHBUTTON = 0x00000001
-    COLOR_WINDOW = 5
-    WNDPROC = ctypes.WINFUNCTYPE(
-        ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+    """Confirm the existing name without using a custom Win32 callback window.
+
+    If Tk cannot start, a hand-built edit control is significantly less
+    reliable than a stock MessageBox on Win7.  The normal Tk installer still
+    supports entering a custom name; this emergency path retains the existing
+    name (or the supplied default) and lets the operator continue safely.
+    """
+    default_name = str(initial_value or "私有 POS 系统").strip()
+    result = _native_message_box(
+        title,
+        "%s\n\n当前名称：%s\n\n"
+        "是：使用此名称继续\n否：取消安装" % (prompt, default_name),
+        0x00000004 | 0x00000020 | 0x00010000,  # MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND
     )
-
-    class WNDCLASSW(ctypes.Structure):
-        _fields_ = [
-            ("style", ctypes.c_uint),
-            ("lpfnWndProc", WNDPROC),
-            ("cbClsExtra", ctypes.c_int),
-            ("cbWndExtra", ctypes.c_int),
-            ("hInstance", ctypes.c_void_p),
-            ("hIcon", ctypes.c_void_p),
-            ("hCursor", ctypes.c_void_p),
-            ("hbrBackground", ctypes.c_void_p),
-            ("lpszMenuName", ctypes.c_wchar_p),
-            ("lpszClassName", ctypes.c_wchar_p),
-        ]
-
-    class_name = "YGFInstallerInput_%d" % os.getpid()
-    state = {"done": False, "accepted": False, "edit": None, "value": ""}
-
-    def loword(value):
-        return int(value) & 0xFFFF
-
-    @WNDPROC
-    def wndproc(hwnd, message, wparam, lparam):
-        if message == WM_COMMAND and loword(wparam) in (ID_OK, ID_CANCEL):
-            if loword(wparam) == ID_OK:
-                edit = state["edit"]
-                length = user32.GetWindowTextLengthW(edit)
-                buffer = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(edit, buffer, length + 1)
-                state["value"] = buffer.value
-                state["accepted"] = True
-            state["done"] = True
-            user32.DestroyWindow(hwnd)
-            return 0
-        if message == WM_CLOSE:
-            state["done"] = True
-            user32.DestroyWindow(hwnd)
-            return 0
-        if message == WM_DESTROY:
-            user32.PostQuitMessage(0)
-            return 0
-        return user32.DefWindowProcW(hwnd, message, wparam, lparam)
-
-    instance = kernel32.GetModuleHandleW(None)
-    class_info = WNDCLASSW(0, wndproc, 0, 0, instance, 0, 0, COLOR_WINDOW + 1, None, class_name)
-    if not user32.RegisterClassW(ctypes.byref(class_info)):
-        return None
-    try:
-        hwnd = user32.CreateWindowExW(
-            0,
-            class_name,
-            str(title),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-            0,
-            0,
-            520,
-            190,
-            0,
-            0,
-            instance,
-            0,
-        )
-        if not hwnd:
-            return None
-        static_class = "STATIC"
-        edit_class = "EDIT"
-        button_class = "BUTTON"
-        user32.CreateWindowExW(0, static_class, str(prompt), WS_CHILD | WS_VISIBLE, 18, 18, 480, 34, hwnd, 0, instance, 0)
-        state["edit"] = user32.CreateWindowExW(
-            0, edit_class, str(initial_value or ""),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-            18, 58, 480, 32, hwnd, 100, instance, 0,
-        )
-        user32.CreateWindowExW(
-            0, button_class, "确定", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-            300, 112, 90, 34, hwnd, ID_OK, instance, 0,
-        )
-        user32.CreateWindowExW(
-            0, button_class, "取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            405, 112, 90, 34, hwnd, ID_CANCEL, instance, 0,
-        )
-        user32.SetFocus(state["edit"])
-        user32.UpdateWindow(hwnd)
-        message = wintypes.MSG()
-        while not state["done"] and user32.GetMessageW(ctypes.byref(message), 0, 0, 0) > 0:
-            user32.TranslateMessage(ctypes.byref(message))
-            user32.DispatchMessageW(ctypes.byref(message))
-        return state["value"] if state["accepted"] else None
-    finally:
-        user32.UnregisterClassW(class_name, instance)
+    return default_name if result == 6 else None
 
 
 def _native_prompt_choice(title, prompt, options, initial_id=""):
-    """Win32 combo-box choice dialog used when Tk is unavailable on Win7."""
+    """Choose an icon with stock Win7 MessageBoxes, never a custom WndProc.
+
+    The no-Tk path previously created a COMBOBOX by hand through ctypes.  On
+    some Win7 installs that native callback could close the whole installer
+    during a selection.  MessageBoxW is available on every supported Win7
+    system and has no user-defined window procedure or pointer callbacks.
+    """
     if os.name != "nt":
         return None
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
-    _configure_native_dialog_api(user32, kernel32)
-    user32.DefWindowProcW.argtypes = [
-        ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
-    ]
-    user32.DefWindowProcW.restype = ctypes.c_ssize_t
-    WM_COMMAND = 0x0111
-    WM_CLOSE = 0x0010
-    WM_DESTROY = 0x0002
-    CB_ADDSTRING = 0x0143
-    CB_GETCURSEL = 0x0147
-    CB_SETCURSEL = 0x014E
-    ID_OK = 1
-    ID_CANCEL = 2
-    WS_OVERLAPPED = 0x00000000
-    WS_CAPTION = 0x00C00000
-    WS_SYSMENU = 0x00080000
-    WS_VISIBLE = 0x10000000
-    WS_CHILD = 0x40000000
-    WS_TABSTOP = 0x00010000
-    WS_VSCROLL = 0x00200000
-    CBS_DROPDOWNLIST = 0x0003
-    BS_DEFPUSHBUTTON = 0x00000001
-    WNDPROC = ctypes.WINFUNCTYPE(
-        ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
-    )
-
-    class WNDCLASSW(ctypes.Structure):
-        _fields_ = [
-            ("style", ctypes.c_uint),
-            ("lpfnWndProc", WNDPROC),
-            ("cbClsExtra", ctypes.c_int),
-            ("cbWndExtra", ctypes.c_int),
-            ("hInstance", ctypes.c_void_p),
-            ("hIcon", ctypes.c_void_p),
-            ("hCursor", ctypes.c_void_p),
-            ("hbrBackground", ctypes.c_void_p),
-            ("lpszMenuName", ctypes.c_wchar_p),
-            ("lpszClassName", ctypes.c_wchar_p),
-        ]
-
     choices = list(options or [])
     if not choices:
         return None
-    state = {"done": False, "accepted": False, "combo": None, "value": ""}
-
-    def loword(value):
-        return int(value) & 0xFFFF
-
-    @WNDPROC
-    def wndproc(hwnd, message, wparam, lparam):
-        if message == WM_COMMAND and loword(wparam) in (ID_OK, ID_CANCEL):
-            if loword(wparam) == ID_OK:
-                index = int(user32.SendMessageW(state["combo"], CB_GETCURSEL, 0, 0))
-                if 0 <= index < len(choices):
-                    state["value"] = choices[index][0]
-                    state["accepted"] = True
-            state["done"] = True
-            user32.DestroyWindow(hwnd)
-            return 0
-        if message == WM_CLOSE:
-            state["done"] = True
-            user32.DestroyWindow(hwnd)
-            return 0
-        if message == WM_DESTROY:
-            user32.PostQuitMessage(0)
-            return 0
-        return user32.DefWindowProcW(hwnd, message, wparam, lparam)
-
-    class_name = "YGFInstallerChoice_%d" % os.getpid()
-    instance = kernel32.GetModuleHandleW(None)
-    class_info = WNDCLASSW(0, wndproc, 0, 0, instance, 0, 0, 5 + 1, None, class_name)
-    if not user32.RegisterClassW(ctypes.byref(class_info)):
-        return None
-    try:
-        hwnd = user32.CreateWindowExW(
-            0,
-            class_name,
-            str(title),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-            0,
-            0,
-            560,
-            240,
-            0,
-            0,
-            instance,
-            0,
+    preferred = next(
+        (index for index, (preset_id, _label) in enumerate(choices) if preset_id == initial_id),
+        0,
+    )
+    ordered = choices[preferred:] + choices[:preferred]
+    for index, (preset_id, label) in enumerate(ordered, 1):
+        result = _native_message_box(
+            title,
+            "%s\n\n图标 %d/%d：%s\n\n"
+            "是：使用此图标\n否：查看下一个图标\n取消：取消安装"
+            % (prompt, index, len(ordered), label),
+            0x00000003 | 0x00000020 | 0x00010000,  # MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND
         )
-        if not hwnd:
+        if result == 6:  # IDYES
+            return preset_id
+        if result != 7:  # IDNO
             return None
-        user32.CreateWindowExW(
-            0, "STATIC", str(prompt), WS_CHILD | WS_VISIBLE,
-            18, 18, 510, 30, hwnd, 0, instance, 0,
-        )
-        state["combo"] = user32.CreateWindowExW(
-            0,
-            "COMBOBOX",
-            "",
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
-            18,
-            55,
-            510,
-            240,
-            hwnd,
-            100,
-            instance,
-            0,
-        )
-        selected_index = 0
-        for index, (preset_id, label) in enumerate(choices):
-            label_ptr = ctypes.cast(ctypes.c_wchar_p(str(label)), ctypes.c_void_p)
-            user32.SendMessageW(state["combo"], CB_ADDSTRING, 0, label_ptr)
-            if preset_id == initial_id:
-                selected_index = index
-        user32.SendMessageW(state["combo"], CB_SETCURSEL, selected_index, 0)
-        user32.CreateWindowExW(
-            0, "BUTTON", "确定", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-            320, 155, 90, 34, hwnd, ID_OK, instance, 0,
-        )
-        user32.CreateWindowExW(
-            0, "BUTTON", "取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            425, 155, 90, 34, hwnd, ID_CANCEL, instance, 0,
-        )
-        user32.SetFocus(state["combo"])
-        user32.UpdateWindow(hwnd)
-        message = wintypes.MSG()
-        while not state["done"] and user32.GetMessageW(ctypes.byref(message), 0, 0, 0) > 0:
-            user32.TranslateMessage(ctypes.byref(message))
-            user32.DispatchMessageW(ctypes.byref(message))
-        return state["value"] if state["accepted"] else None
-    finally:
-        user32.UnregisterClassW(class_name, instance)
+    return None
 
 
 APP_DISPLAY_NAME = "YGF POS 称重打印系统"
@@ -532,6 +283,23 @@ APP_ICON_FILES = dict(
     (preset_id, "app_icon_%s.ico" % preset_id)
     for preset_id, _label in APP_ICON_OPTIONS
 )
+APP_ICON_FILES["custom"] = "custom_shortcut_icon.ico"
+APP_ICON_CATEGORIES = {
+    "yangguofu": "pos",
+    "netease_music": "music",
+    "windows": "driver",
+    "qq_penguin": "social",
+    "dollar": "finance",
+    "settings_gears": "settings",
+    "red_music_note": "music",
+    "gold_blue_mark": "pos",
+    "green_dollar": "finance",
+    "instagram": "social",
+    "google": "google",
+    "alert": "security",
+    "coca_cola": "food",
+    "custom": "custom",
+}
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\YGF-POS"
 SERVICE_NAME = "YgfScaleBridge"
 PAYLOAD_NAME = "YGF-POS-Payload.zip"
@@ -592,6 +360,40 @@ def _registry_icon_preset():
             return value if value in APP_ICON_FILES else ""
     except (OSError, TypeError, ValueError):
         return ""
+
+
+def _write_runtime_branding(install_dir, icon_preset):
+    """Seed the first-run config from the installer's icon choice."""
+    settings_path = os.path.join(install_dir, "data", "settings", "base.json")
+    try:
+        os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+        if os.path.isfile(settings_path):
+            with open(settings_path, "r", encoding="utf-8") as handle:
+                settings = json.load(handle)
+        else:
+            settings = {}
+        if not isinstance(settings, dict):
+            settings = {}
+        settings["shortcut_icon_preset"] = icon_preset
+        settings["app_category"] = APP_ICON_CATEGORIES.get(icon_preset, "pos")
+        temporary = settings_path + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(settings, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        try:
+            os.replace(temporary, settings_path)
+        except AttributeError:  # Python 3.8/Win7 fallback
+            if os.path.isfile(settings_path):
+                os.remove(settings_path)
+            os.rename(temporary, settings_path)
+    except (OSError, ValueError, TypeError):
+        # Branding is optional; never make a valid installation fail because
+        # an old/custom settings file is temporarily unreadable.
+        try:
+            if os.path.isfile(settings_path + ".tmp"):
+                os.remove(settings_path + ".tmp")
+        except OSError:
+            pass
 
 
 def current_shortcut_icon_preset():
@@ -721,6 +523,32 @@ def update_current_shortcut_icon(icon_preset):
     return True, "桌面快捷方式图标已更新"
 
 
+def update_current_shortcut_icon_file(icon_path):
+    """Apply a custom ICO already stored inside the installed data folder."""
+    install_dir = _existing_install_dir()
+    if not install_dir:
+        return False, "未找到当前安装目录"
+    icon_path = os.path.abspath(str(icon_path or ""))
+    if not os.path.isfile(icon_path):
+        return False, "自定义图标文件不存在"
+    display_name = _registry_display_name() or APP_DISPLAY_NAME
+    launcher = os.path.join(install_dir, "启动.exe")
+    if not os.path.isfile(launcher):
+        return False, "安装目录中缺少启动.exe"
+    desktop, start_menu, _uninstall_link = _shortcut_paths(display_name)
+    ok_desktop = _create_shortcut(desktop, launcher, install_dir, display_name, icon_path)
+    ok_start_menu = _create_shortcut(start_menu, launcher, install_dir, display_name, icon_path)
+    if not (ok_desktop and ok_start_menu):
+        return False, "更新桌面或开始菜单快捷方式失败，请检查权限"
+    if winreg:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, "IconPreset", 0, winreg.REG_SZ, "custom")
+        except (OSError, TypeError, ValueError):
+            pass
+    return True, "桌面快捷方式图标已更新"
+
+
 def _remove_shortcuts(display_name=APP_DISPLAY_NAME):
     paths = list(_shortcut_paths(display_name))
     # Remove the names used by earlier releases as well as the current
@@ -797,6 +625,7 @@ def _install(target_dir, display_name, icon_preset="yangguofu"):
     else:
         _stop_service(target_dir, remove=False)
     _safe_extract_payload(target_dir)
+    _write_runtime_branding(target_dir, icon_preset)
     # Keep the uninstaller beside the launcher.  It is intentionally copied
     # from the setup executable rather than generated by the POS at runtime.
     shutil.copy2(sys.executable, os.path.join(target_dir, "卸载.exe"))

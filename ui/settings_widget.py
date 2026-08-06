@@ -14,12 +14,12 @@ from PyQt5.QtWidgets import (
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QKeySequence, QDesktopServices, QIcon, QPixmap
+from PyQt5.QtGui import QKeySequence, QDesktopServices, QIcon, QPixmap, QImage, QPainter
 
 from config import (
     BASE_DIR, DATA_DIR, save_config, reset_module_config, reset_all_config,
     export_config_bundle, import_config_bundle, backup_config_bundle,
-    APP_LOGO_PRESETS, app_logo_path,
+    APP_LOGO_PRESETS, APP_CATEGORY_OPTIONS, app_category_for_icon, app_logo_path,
 )
 from utils.port_scanner import scan_printers
 from utils.window_utils import (
@@ -1495,6 +1495,11 @@ class SettingsWidget(QWidget):
         for preset_id, (label, _filename) in APP_LOGO_PRESETS.items():
             icon_path = os.path.join(DATA_DIR, "assets", "app_icon_%s.ico" % preset_id)
             self.cmb_desktop_icon.addItem(QIcon(icon_path), label, preset_id)
+        custom_icon_path = self._custom_shortcut_icon_abs_path()
+        custom_icon_label = str(self.config.get("custom_shortcut_icon_label", "") or "").strip()
+        if os.path.isfile(custom_icon_path):
+            custom_label = u"自定义：%s" % (custom_icon_label or u"上传图标")
+            self.cmb_desktop_icon.addItem(QIcon(custom_icon_path), custom_label, "custom")
         desktop_index = self.cmb_desktop_icon.findData(current_desktop_icon)
         self.cmb_desktop_icon.setCurrentIndex(desktop_index if desktop_index >= 0 else 0)
         desktop_icon_row.addWidget(self.cmb_desktop_icon, stretch=1)
@@ -1503,6 +1508,39 @@ class SettingsWidget(QWidget):
         self.btn_save_desktop_icon.clicked.connect(self._save_desktop_icon)
         desktop_icon_row.addWidget(self.btn_save_desktop_icon)
         logo_layout.addLayout(desktop_icon_row)
+
+        custom_icon_row = QHBoxLayout()
+        custom_icon_row.setSpacing(12)
+        self.lbl_custom_shortcut_icon = QLabel(
+            u"已上传：%s" % (custom_icon_label or u"未上传自定义图标")
+        )
+        self.lbl_custom_shortcut_icon.setStyleSheet("color: #CBD5E1; font-size: 14px;")
+        self.lbl_custom_shortcut_icon.setWordWrap(True)
+        custom_icon_row.addWidget(self.lbl_custom_shortcut_icon, stretch=1)
+        self.btn_upload_shortcut_icon = QPushButton(u"上传快捷图标")
+        self._style_touch_action_btn(self.btn_upload_shortcut_icon, "purple")
+        self.btn_upload_shortcut_icon.clicked.connect(self._upload_shortcut_icon)
+        custom_icon_row.addWidget(self.btn_upload_shortcut_icon)
+        logo_layout.addLayout(custom_icon_row)
+
+        category_row = QHBoxLayout()
+        category_row.setSpacing(12)
+        category_label = QLabel(u"登录界面应用分类：")
+        category_label.setStyleSheet("color: #E2E8F0; font-size: 15px; font-weight: bold;")
+        category_row.addWidget(category_label)
+        self.cmb_shortcut_category = QComboBox()
+        self.cmb_shortcut_category.setMinimumHeight(54)
+        self.cmb_shortcut_category.setMaxVisibleItems(max(15, len(APP_CATEGORY_OPTIONS)))
+        for category_id, (short_label, _title, _subtitle) in APP_CATEGORY_OPTIONS.items():
+            self.cmb_shortcut_category.addItem(short_label, category_id)
+        current_category = str(self.config.get("app_category", "") or "").strip()
+        if current_category not in APP_CATEGORY_OPTIONS:
+            current_category = app_category_for_icon(current_desktop_icon)
+        category_index = self.cmb_shortcut_category.findData(current_category)
+        self.cmb_shortcut_category.setCurrentIndex(category_index if category_index >= 0 else 0)
+        category_row.addWidget(self.cmb_shortcut_category, stretch=1)
+        logo_layout.addLayout(category_row)
+        self.cmb_desktop_icon.currentIndexChanged.connect(self._sync_shortcut_category_from_icon)
         layout.addWidget(logo_panel)
         self._preview_app_logo(self.cmb_app_logo.currentIndex())
 
@@ -2436,17 +2474,89 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info
         show_info(self, u"Logo 已保存", u"应用 Logo 已立即更新。")
 
+    def _custom_shortcut_icon_abs_path(self):
+        configured = str(self.config.get("custom_shortcut_icon_path", "") or "").strip()
+        if not configured:
+            return os.path.join(DATA_DIR, "assets", "custom_shortcut_icon.ico")
+        return configured if os.path.isabs(configured) else os.path.abspath(os.path.join(BASE_DIR, configured))
+
+    def _sync_shortcut_category_from_icon(self, index):
+        """Use the bundled icon's sensible category as the next default."""
+        if not hasattr(self, "cmb_shortcut_category"):
+            return
+        preset_id = self.cmb_desktop_icon.itemData(index) or "yangguofu"
+        if preset_id == "custom":
+            return
+        category_id = app_category_for_icon(preset_id)
+        category_index = self.cmb_shortcut_category.findData(category_id)
+        if category_index >= 0:
+            self.cmb_shortcut_category.setCurrentIndex(category_index)
+
+    def _upload_shortcut_icon(self):
+        from ui.custom_dialog import show_warning, show_info
+
+        source, _filter = QFileDialog.getOpenFileName(
+            self,
+            u"选择快捷方式图标",
+            os.path.expanduser("~"),
+            u"图标或图片 (*.ico *.png *.jpg *.jpeg *.bmp *.webp);;所有文件 (*.*)",
+        )
+        if not source:
+            return
+        image = QImage(source)
+        if image.isNull():
+            show_warning(self, u"图标上传失败", u"无法读取这个图片文件。")
+            return
+        assets_dir = os.path.join(DATA_DIR, "assets")
+        os.makedirs(assets_dir, exist_ok=True)
+        destination = os.path.join(assets_dir, "custom_shortcut_icon.ico")
+        canvas = QImage(256, 256, QImage.Format_ARGB32)
+        canvas.fill(0)
+        scaled = image.convertToFormat(QImage.Format_ARGB32).scaled(
+            240, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        painter = QPainter(canvas)
+        painter.drawImage((256 - scaled.width()) // 2, (256 - scaled.height()) // 2, scaled)
+        painter.end()
+        if not canvas.save(destination, "ICO"):
+            show_warning(self, u"图标上传失败", u"系统无法转换为 Windows 快捷方式图标格式。")
+            return
+
+        label = os.path.splitext(os.path.basename(source))[0]
+        self.config["custom_shortcut_icon_path"] = os.path.relpath(destination, BASE_DIR)
+        self.config["custom_shortcut_icon_label"] = label
+        custom_index = self.cmb_desktop_icon.findData("custom")
+        custom_text = u"自定义：%s" % label
+        if custom_index < 0:
+            self.cmb_desktop_icon.addItem(QIcon(destination), custom_text, "custom")
+            custom_index = self.cmb_desktop_icon.findData("custom")
+        else:
+            self.cmb_desktop_icon.setItemIcon(custom_index, QIcon(destination))
+            self.cmb_desktop_icon.setItemText(custom_index, custom_text)
+        self.cmb_desktop_icon.setCurrentIndex(custom_index)
+        self.lbl_custom_shortcut_icon.setText(u"已上传：%s" % label)
+        show_info(self, u"图标已上传", u"请选择对应的应用分类，然后点击“保存桌面图标”。")
+
     def _save_desktop_icon(self):
-        """Update desktop/start-menu shortcuts without changing the app logo."""
+        """Save a bundled or uploaded shortcut icon and its login category."""
         preset_id = self.cmb_desktop_icon.currentData() or "yangguofu"
+        category_id = self.cmb_shortcut_category.currentData() or "pos"
         try:
-            from installer_stub import update_current_shortcut_icon
-            ok, detail = update_current_shortcut_icon(str(preset_id))
+            if str(preset_id) == "custom":
+                from installer_stub import update_current_shortcut_icon_file
+                ok, detail = update_current_shortcut_icon_file(self._custom_shortcut_icon_abs_path())
+            else:
+                from installer_stub import update_current_shortcut_icon
+                ok, detail = update_current_shortcut_icon(str(preset_id))
         except Exception as exc:
             ok, detail = False, str(exc)
         if ok:
+            self.config["shortcut_icon_preset"] = str(preset_id)
+            self.config["app_category"] = str(category_id)
+            save_config(self.config)
             from ui.custom_dialog import show_info
-            show_info(self, u"桌面图标已保存", detail)
+            category_label = APP_CATEGORY_OPTIONS.get(str(category_id), (u"POS", "", ""))[0]
+            show_info(self, u"桌面图标已保存", u"%s\n登录界面分类：%s" % (detail, category_label))
         else:
             from ui.custom_dialog import show_warning
             show_warning(self, u"桌面图标更新失败", detail)

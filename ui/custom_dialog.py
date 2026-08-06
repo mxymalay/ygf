@@ -16,7 +16,10 @@ class ModernDialog(QDialog):
     TYPE_ERROR = "error"
     TYPE_QUESTION = "question"
 
-    def __init__(self, title, message, dialog_type=TYPE_INFO, parent=None):
+    def __init__(
+        self, title, message, dialog_type=TYPE_INFO, parent=None,
+        confirm_text=None, cancel_text=None, ok_text=None,
+    ):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -80,7 +83,7 @@ class ModernDialog(QDialog):
         btn_box.addStretch()
 
         if dialog_type == self.TYPE_QUESTION:
-            btn_no = QPushButton("取消")
+            btn_no = QPushButton(cancel_text or "取消")
             btn_no.setCursor(Qt.PointingHandCursor)
             btn_no.setStyleSheet(
                 "QPushButton { background: #334155; color: #9CA3AF; font-weight: bold; font-size: 14px; "
@@ -90,7 +93,7 @@ class ModernDialog(QDialog):
             btn_no.clicked.connect(self._on_cancel)
             btn_box.addWidget(btn_no)
 
-            btn_yes = QPushButton("确定")
+            btn_yes = QPushButton(confirm_text or "确定")
             btn_yes.setCursor(Qt.PointingHandCursor)
             btn_yes.setStyleSheet(
                 "QPushButton { background: #EA580C; color: white; font-weight: bold; font-size: 14px; "
@@ -100,7 +103,7 @@ class ModernDialog(QDialog):
             btn_yes.clicked.connect(self._on_confirm)
             btn_box.addWidget(btn_yes)
         else:
-            btn_ok = QPushButton("好的")
+            btn_ok = QPushButton(ok_text or "好的")
             btn_ok.setCursor(Qt.PointingHandCursor)
             btn_ok.setStyleSheet(
                 "QPushButton { background: #EA580C; color: white; font-weight: bold; font-size: 14px; "
@@ -460,8 +463,12 @@ def show_error(parent, title, message):
     dlg = ModernDialog(title, message, ModernDialog.TYPE_ERROR, parent)
     dlg.exec_()
 
-def show_question(parent, title, message) -> bool:
-    dlg = ModernDialog(title, message, ModernDialog.TYPE_QUESTION, parent)
+def show_question(parent, title, message, confirm_text=None, cancel_text=None) -> bool:
+    """Show the standard Win7-safe confirmation card with optional labels."""
+    dlg = ModernDialog(
+        title, message, ModernDialog.TYPE_QUESTION, parent,
+        confirm_text=confirm_text, cancel_text=cancel_text,
+    )
     dlg.exec_()
     return dlg.result_choice
 

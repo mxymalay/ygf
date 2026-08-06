@@ -1,5 +1,5 @@
 {
-  "private_ratio_percent": 30,
+  "private_ratio_percent": 35,
   "min_private_weight_kg": 0.25,
   "weekday_max_daily_revenue_limit": 500.0,
   "weekend_max_daily_revenue_limit": 1000.0,

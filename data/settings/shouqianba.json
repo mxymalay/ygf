@@ -1,8 +1,8 @@
 {
   "shouqianba_enabled": true,
   "shouqianba_pair_mode": "managed",
-  "shouqianba_port": "COM13",
-  "shouqianba_plugin_port": "COM12",
+  "shouqianba_port": "COM7",
+  "shouqianba_plugin_port": "COM8",
   "shouqianba_baudrate": 9600,
   "shouqianba_format": "QA",
   "shouqianba_hotkey": "Shift+Q",

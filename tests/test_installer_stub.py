@@ -1,24 +1,10 @@
 import unittest
 import os
+import json
 import tempfile
 from unittest.mock import patch
-from ctypes import wintypes
 
 import installer_stub
-
-
-class _NativeFunction(object):
-    """Minimal callable which also exposes ctypes prototype attributes."""
-
-    def __call__(self, *_args):
-        return 0
-
-
-class _NativeLibrary(object):
-    def __getattr__(self, _name):
-        function = _NativeFunction()
-        setattr(self, _name, function)
-        return function
 
 
 class InstallerStubTests(unittest.TestCase):
@@ -47,19 +33,23 @@ class InstallerStubTests(unittest.TestCase):
         self.assertIn("IconLocation", command)
         self.assertIn("app_icon_yangguofu.ico,0", command)
 
-    def test_native_dialog_api_keeps_create_window_instance_pointer_wide(self):
-        user32 = _NativeLibrary()
-        kernel32 = _NativeLibrary()
+    def test_no_tk_icon_choice_uses_stock_message_boxes(self):
+        options = (("yangguofu", "内置杨国福"), ("google", "Google"))
+        with patch.object(installer_stub.os, "name", "nt"), patch.object(
+            installer_stub, "_native_message_box", side_effect=[7, 6]
+        ) as show_box:
+            selected = installer_stub._native_prompt_choice("图标", "请选择", options, "yangguofu")
 
-        installer_stub._configure_native_dialog_api(user32, kernel32)
+        self.assertEqual(selected, "google")
+        self.assertEqual(show_box.call_count, 2)
+        self.assertIn("内置杨国福", show_box.call_args_list[0].args[1])
+        self.assertIn("Google", show_box.call_args_list[1].args[1])
 
-        # The 11th CreateWindowExW argument is HINSTANCE.  Without this
-        # prototype ctypes converts it to c_int and Win7 x64 raises
-        # OverflowError before the icon chooser is shown.
-        self.assertEqual(len(user32.CreateWindowExW.argtypes), 12)
-        self.assertIs(user32.CreateWindowExW.argtypes[10], wintypes.HINSTANCE)
-        self.assertEqual(user32.CreateWindowExW.restype, installer_stub.ctypes.c_void_p)
-        self.assertEqual(user32.SendMessageW.argtypes[3], installer_stub.ctypes.c_void_p)
+    def test_no_tk_name_confirmation_keeps_existing_name(self):
+        with patch.object(installer_stub, "_native_message_box", return_value=6):
+            selected = installer_stub._native_prompt_string("名称", "请输入名称", "门店称重助手")
+
+        self.assertEqual(selected, "门店称重助手")
 
     def test_update_current_shortcut_icon_rewrites_both_shortcuts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -79,6 +69,36 @@ class InstallerStubTests(unittest.TestCase):
         self.assertIn("已更新", message)
         self.assertEqual(create.call_count, 2)
         self.assertIn("app_icon_google.ico", create.call_args_list[0].args[-1])
+
+    def test_update_custom_shortcut_icon_rewrites_both_shortcuts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_icon = os.path.join(temp_dir, "custom_shortcut_icon.ico")
+            open(custom_icon, "wb").close()
+            with patch.object(installer_stub, "_existing_install_dir", return_value=temp_dir), patch.object(
+                installer_stub, "_registry_display_name", return_value="门店称重助手"
+            ), patch.object(
+                installer_stub, "_shortcut_paths", return_value=("desktop.lnk", "start.lnk", "uninstall.lnk")
+            ), patch.object(installer_stub, "_create_shortcut", return_value=True) as create, patch.object(
+                installer_stub, "winreg", None
+            ):
+                launcher = os.path.join(temp_dir, "启动.exe")
+                open(launcher, "wb").close()
+                ok, message = installer_stub.update_current_shortcut_icon_file(custom_icon)
+
+        self.assertTrue(ok)
+        self.assertIn("已更新", message)
+        self.assertEqual(create.call_count, 2)
+        self.assertEqual(create.call_args_list[0].args[-1], os.path.abspath(custom_icon))
+
+    def test_install_icon_choice_seeds_runtime_category_even_without_base_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            installer_stub._write_runtime_branding(temp_dir, "netease_music")
+            settings_path = os.path.join(temp_dir, "data", "settings", "base.json")
+            with open(settings_path, "r", encoding="utf-8") as handle:
+                settings = json.load(handle)
+
+        self.assertEqual(settings["shortcut_icon_preset"], "netease_music")
+        self.assertEqual(settings["app_category"], "music")
 
     def test_no_tk_fallback_uses_selected_directory_and_name(self):
         with patch.object(installer_stub, "HAS_TKINTER", False), patch.object(

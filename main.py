@@ -39,6 +39,10 @@ def main():
     # 设置默认字体
     font = QFont("Microsoft YaHei", 10)
     app.setFont(font)
+    # Windows 7 lacks the emoji fonts used by newer Windows releases.  Keep
+    # the UI readable by replacing emoji at the presentation boundary.
+    from ui.win7_text_compat import install_win7_text_compat
+    install_win7_text_compat(app)
 
     # Win7 收银机启动较慢，登录窗口涉及串口/打印机扫描和多个 UI 模块，
     # 不能让用户在双击后长时间只看到桌面。这里故意只加载一个轻量提示框，
@@ -106,6 +110,18 @@ def main():
 
     log_event(CAT_SYSTEM, "系统启动", f"POS 辅助系统开始初始化")
 
+    # Keep an explicit close marker so the chart can distinguish a real
+    # offline interval from stale/imported weighing rows in the database.
+    shutdown_logged = [False]
+
+    def _log_system_shutdown():
+        if shutdown_logged[0]:
+            return
+        shutdown_logged[0] = True
+        log_event(CAT_SYSTEM, "系统关闭", "POS 辅助系统正常退出")
+
+    app.aboutToQuit.connect(_log_system_shutdown)
+
     # 0. 尝试同步开机自启动设置
     from utils.system_utils import apply_auto_start_settings
 
@@ -136,6 +152,7 @@ def main():
         app.processEvents()
     if login_dlg.exec_() != QDialog.Accepted:
         # 用户点击退出或直接关闭窗口
+        _log_system_shutdown()
         sys.exit(0)
 
     config["is_mock_mode"] = getattr(login_dlg, 'is_mock_mode', False)

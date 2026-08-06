@@ -256,8 +256,9 @@ class HistoryWidget(QWidget):
         date_layout.setSpacing(6)
         
         cbo_style = """
-            QComboBox { background: #1F2937; color: #F9FAFB; font-size: 16px; font-weight: bold; 
-                        padding: 8px 12px; border: none; border-radius: 6px; min-width: 80px; }
+            QComboBox { background: #1F2937; color: #F9FAFB; font-size: 15px; font-weight: bold; 
+                        padding: 6px 5px; border: none; border-radius: 6px; min-width: 58px; }
+            QComboBox::drop-down { width: 18px; border: none; }
             QComboBox QAbstractItemView {
                 background-color: #1F2937;
                 color: #F9FAFB;
@@ -274,15 +275,18 @@ class HistoryWidget(QWidget):
         self.cbo_day = QComboBox()
 
         for cbo, combo_width, popup_width in (
-            (self.cbo_year, 112, 128),
-            (self.cbo_month, 96, 108),
-            (self.cbo_day, 96, 108),
+            (self.cbo_year, 106, 122),
+            (self.cbo_month, 84, 100),
+            (self.cbo_day, 84, 100),
         ):
             cbo.setStyleSheet(cbo_style)
             # 为了触屏体验，注入强制高度委托
             from ui.styles import apply_touch_combo_style
             apply_touch_combo_style(cbo, item_height=48)
-            cbo.setMinimumWidth(combo_width)
+            # Fixed widths keep the whole filter row stable on Win7, where
+            # the native arrow can otherwise consume the text area after DPI
+            # scaling and make values look clipped or partially blank.
+            cbo.setFixedWidth(combo_width)
             cbo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             # Win7 原生样式会把过窄的列表项自动省略成“0…”。日期只有
             # 3~5 个字符，不应出现省略号；同时给触屏弹出层留足宽度。
@@ -334,12 +338,12 @@ class HistoryWidget(QWidget):
             cbo.setStyleSheet(cbo_style)
             from ui.styles import apply_touch_combo_style
             apply_touch_combo_style(cbo, item_height=48)
-            cbo.setMinimumWidth(80)
+            cbo.setFixedWidth(64)
             cbo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             popup = cbo.view()
             popup.setTextElideMode(Qt.ElideNone)
             popup.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            popup.setMinimumWidth(88)
+            popup.setMinimumWidth(78)
             maximum = 24 if suffix == u"时" else 60
             for value in range(maximum):
                 cbo.addItem(f"{value:02d}{suffix}", value)
@@ -363,8 +367,6 @@ class HistoryWidget(QWidget):
         
         date_layout.addWidget(self.cbo_end_hour)
         date_layout.addWidget(self.cbo_end_minute)
-
-        header_bar.addLayout(date_layout)
 
         # 快捷操作按钮
         quick_date_layout = QHBoxLayout()
@@ -390,10 +392,14 @@ class HistoryWidget(QWidget):
         quick_date_layout.addWidget(self.btn_yesterday)
         quick_date_layout.addWidget(self.btn_day_before)
 
-        header_bar.addLayout(quick_date_layout)
-
-        header_bar.addSpacing(16)
-
+        # The date/time controls and the quick day buttons no longer compete
+        # for one horizontal line on a 1024px Win7 POS display.
+        header_controls = QVBoxLayout()
+        header_controls.setSpacing(6)
+        header_controls.addLayout(date_layout)
+        header_controls.addLayout(quick_date_layout)
+        header_bar.addLayout(header_controls, stretch=1)
+        header_bar.addSpacing(8)
         header_bar.addStretch()
         
         main_layout.addLayout(header_bar)
