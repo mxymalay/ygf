@@ -264,6 +264,14 @@ class DecisionWeightChart(QWidget):
             cursor_x += item_widths[item_index] + 12.0
         painter.restore()
 
+    @staticmethod
+    def _private_ratio_label(official, private):
+        """Return the private share for one time-slot bar."""
+        total = max(0.0, float(official or 0.0)) + max(0.0, float(private or 0.0))
+        if total <= 0.0:
+            return "--"
+        return "%.0f%%" % (max(0.0, float(private or 0.0)) / total * 100.0)
+
     def _paint_histogram_only(self, painter, route_points):
         """Paint the two-hour summary as its own independently scrollable card."""
         width = float(self.width())
@@ -311,6 +319,17 @@ class DecisionWeightChart(QWidget):
             painter.drawRect(QRectF(x, histogram.bottom() - official_h, width_bar, official_h))
             painter.setBrush(self.PRIVATE_COLOR)
             painter.drawRect(QRectF(x, histogram.bottom() - official_h - private_h, width_bar, private_h))
+            total = official + private
+            ratio_label = self._private_ratio_label(official, private)
+            label_y = histogram.top() + 4.0 if total <= 0.0 else max(
+                histogram.top() + 4.0,
+                histogram.bottom() - official_h - private_h - 22.0,
+            )
+            ratio_font = QFont("Microsoft YaHei", 10)
+            ratio_font.setBold(True)
+            painter.setPen(self.PRIVATE_COLOR if total > 0.0 else QColor("#64748B"))
+            painter.setFont(ratio_font)
+            painter.drawText(QRectF(x - 12, label_y, width_bar + 24, 18), Qt.AlignCenter, ratio_label)
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(axis_font)
             painter.drawText(QRectF(x - 8, histogram.bottom() + 6, width_bar + 16, 18), Qt.AlignCenter, "%02d" % (index * 2))
@@ -529,6 +548,17 @@ class DecisionWeightChart(QWidget):
             painter.drawRect(QRectF(x, histogram.bottom() - official_h, width_bar, official_h))
             painter.setBrush(self.PRIVATE_COLOR)
             painter.drawRect(QRectF(x, histogram.bottom() - official_h - private_h, width_bar, private_h))
+            total = official + private
+            ratio_label = self._private_ratio_label(official, private)
+            label_y = histogram.top() + 4.0 if total <= 0.0 else max(
+                histogram.top() + 4.0,
+                histogram.bottom() - official_h - private_h - 22.0,
+            )
+            ratio_font = QFont("Microsoft YaHei", 10)
+            ratio_font.setBold(True)
+            painter.setPen(self.PRIVATE_COLOR if total > 0.0 else QColor("#64748B"))
+            painter.setFont(ratio_font)
+            painter.drawText(QRectF(x - 12, label_y, width_bar + 24, 18), Qt.AlignCenter, ratio_label)
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(axis_font)
             painter.drawText(QRectF(x - 8, histogram.bottom() + 6, width_bar + 16, 18), Qt.AlignCenter, "%02d" % (index * 2))

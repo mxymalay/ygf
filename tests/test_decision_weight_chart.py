@@ -43,6 +43,11 @@ class DecisionWeightChartTests(unittest.TestCase):
         self.assertGreater(line.minimumWidth(), histogram.minimumWidth())
         self.assertEqual(histogram.minimumWidth(), 720)
 
+    def test_histogram_private_ratio_label(self):
+        self.assertEqual(DecisionWeightChart._private_ratio_label(3.0, 1.0), "25%")
+        self.assertEqual(DecisionWeightChart._private_ratio_label(0.0, 0.5), "100%")
+        self.assertEqual(DecisionWeightChart._private_ratio_label(0.0, 0.0), "--")
+
 
 if __name__ == "__main__":
     unittest.main()
