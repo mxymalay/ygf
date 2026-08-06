@@ -118,6 +118,7 @@ class Database:
                     inherited_official INTEGER NOT NULL DEFAULT 0,
                     inherited_total_weight_kg REAL NOT NULL DEFAULT 0,
                     inherited_private_weight_kg REAL NOT NULL DEFAULT 0,
+                    last_official_route_at REAL NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL DEFAULT ''
                 );
 
@@ -165,6 +166,7 @@ class Database:
             switch_upgrades = {
                 "inherited_total_weight_kg": "REAL NOT NULL DEFAULT 0",
                 "inherited_private_weight_kg": "REAL NOT NULL DEFAULT 0",
+                "last_official_route_at": "REAL NOT NULL DEFAULT 0",
             }
             for name, definition in switch_upgrades.items():
                 self._ensure_column(conn, name, definition, table="switch_quota_daily")
@@ -479,8 +481,49 @@ class Database:
                 "inherited_official": 0,
                 "inherited_total_weight_kg": 0.0,
                 "inherited_private_weight_kg": 0.0,
+                "last_official_route_at": 0.0,
                 "updated_at": "",
             }
+        finally:
+            conn.close()
+
+    def get_last_official_route_at(self):
+        """Return the latest persisted official continuity-lock timestamp."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(last_official_route_at), 0) AS value "
+                "FROM switch_quota_daily"
+            ).fetchone()
+            return float((row["value"] if row else 0.0) or 0.0)
+        finally:
+            conn.close()
+
+    def set_last_official_route_at(self, timestamp, stat_date=None):
+        """Persist the final official routing decision for restart continuity."""
+        key = self._switch_stat_date(stat_date)
+        value = max(0.0, float(timestamp or 0.0))
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO switch_quota_daily (stat_date, updated_at) VALUES (?, ?)",
+                (key, _now_text()),
+            )
+            conn.execute(
+                "UPDATE switch_quota_daily SET last_official_route_at = ?, updated_at = ? "
+                "WHERE stat_date = ?",
+                (value, _now_text(), key),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def clear_last_official_route_at(self):
+        """Clear every persisted lock after a manual/fallback channel change."""
+        conn = self._get_conn()
+        try:
+            conn.execute("UPDATE switch_quota_daily SET last_official_route_at = 0")
+            conn.commit()
         finally:
             conn.close()
 
@@ -595,7 +638,9 @@ class Database:
     # ------------------------------------------------------------------
     # Stable-weighing lifecycle ledger
     # ------------------------------------------------------------------
-    def create_weighing_route_event(self, weight_kg, is_private, decision_kind="", event_key=None):
+    def create_weighing_route_event(
+        self, weight_kg, is_private, decision_kind="", event_key=None, order_id=""
+    ):
         """Create a pending record for one stable weighing decision.
 
         The routing quota remains an immediate, observable-weight counter so
@@ -613,9 +658,9 @@ class Database:
         try:
             conn.execute(
                 """INSERT OR IGNORE INTO weighing_route_events
-                   (event_key, weight_kg, channel, decision_kind, status, created_at)
-                   VALUES (?, ?, ?, ?, 'PENDING', ?)""",
-                (key, weight, channel, str(decision_kind or ""), now),
+                   (event_key, weight_kg, channel, decision_kind, status, order_id, created_at)
+                   VALUES (?, ?, ?, ?, 'PENDING', ?, ?)""",
+                (key, weight, channel, str(decision_kind or ""), str(order_id or ""), now),
             )
             conn.commit()
             row = conn.execute(
@@ -625,8 +670,13 @@ class Database:
         finally:
             conn.close()
 
-    def resolve_weighing_route_event(self, event_key, status, order_id="", note=""):
-        """Resolve one pending event without deleting its audit trail."""
+    def resolve_weighing_route_event(self, event_key, status, order_id=None, note=""):
+        """Resolve one pending event without deleting its audit trail.
+
+        ``order_id=None`` preserves a route's existing order binding.  A
+        lifecycle change such as "not paid" must never erase the identity of
+        the order that originally selected that bowl.
+        """
         if not event_key:
             return False
         allowed = {"PRIVATE_PAID", "NOT_PAID", "OFFICIAL_UNKNOWN", "MANUAL_UNKNOWN"}
@@ -637,16 +687,42 @@ class Database:
         try:
             cursor = conn.execute(
                 """UPDATE weighing_route_events
-                   SET status = ?, order_id = ?, resolved_at = ?, resolution_note = ?
+                   SET status = ?, order_id = COALESCE(?, order_id), resolved_at = ?, resolution_note = ?
                    WHERE event_key = ? AND status = 'PENDING'""",
-                (status, str(order_id or ""), _now_text(), str(note or "")[:500], str(event_key)),
+                (
+                    status,
+                    None if order_id is None else str(order_id),
+                    _now_text(),
+                    str(note or "")[:500],
+                    str(event_key),
+                ),
             )
             conn.commit()
             return cursor.rowcount > 0
         finally:
             conn.close()
 
-    def convert_weighing_route_event_to_private(self, event_key, note="官方窗口在切换竞态中消失"):
+    def assign_weighing_route_event_order(self, event_key, order_id):
+        """Bind one still-pending private route to the soup line just added."""
+        if not event_key or not order_id:
+            return False
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """UPDATE weighing_route_events
+                   SET order_id = ?
+                   WHERE event_key = ? AND channel = 'private' AND status = 'PENDING'
+                     AND (order_id IS NULL OR order_id = '')""",
+                (str(order_id), str(event_key)),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def convert_weighing_route_event_to_private(
+        self, event_key, note="官方窗口在切换竞态中消失", order_id=""
+    ):
         """Correct an event whose initial official route fell back to private."""
         if not event_key:
             return False
@@ -654,9 +730,9 @@ class Database:
         try:
             cursor = conn.execute(
                 """UPDATE weighing_route_events
-                   SET channel = 'private', resolution_note = ?
+                   SET channel = 'private', order_id = ?, resolution_note = ?
                    WHERE event_key = ? AND status = 'PENDING'""",
-                (str(note or "")[:500], str(event_key)),
+                (str(order_id or ""), str(note or "")[:500], str(event_key)),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -692,19 +768,28 @@ class Database:
             conn.close()
 
     def resolve_pending_private_weighing_events(self, status, order_id="", note=""):
-        """Resolve pending private events for the current unfinished basket."""
+        """Resolve only the pending private events owned by one local order.
+
+        A former broad current-day update allowed a later customer to confirm
+        or cancel an orphaned route event from an earlier interrupted order.
+        An empty id intentionally matches nothing; old unbound rows remain
+        auditable instead of being guessed as part of a new checkout.
+        """
         status = str(status or "").upper()
         allowed = {"PRIVATE_PAID", "NOT_PAID", "MANUAL_UNKNOWN"}
         if status not in allowed:
             raise ValueError("invalid private route status: %s" % status)
+        order_id = str(order_id or "")
+        if not order_id:
+            return 0
         conn = self._get_conn()
         try:
             cursor = conn.execute(
                 """UPDATE weighing_route_events
                    SET status = ?, order_id = ?, resolved_at = ?, resolution_note = ?
-                   WHERE channel = 'private' AND status = 'PENDING'
+                   WHERE channel = 'private' AND status = 'PENDING' AND order_id = ?
                      AND DATE(created_at) = DATE('now', 'localtime')""",
-                (status, str(order_id or ""), _now_text(), str(note or "")[:500]),
+                (status, order_id, _now_text(), str(note or "")[:500], order_id),
             )
             conn.commit()
             return int(cursor.rowcount or 0)

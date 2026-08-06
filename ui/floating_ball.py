@@ -470,11 +470,7 @@ class FloatingBall(QWidget):
     def _on_click_toggle(self):
         """手指轻点：快速在官方界面与私域 POS 之间切换"""
         self.stop_countdown()
-        
-        # 记录手动干预，触发 30 秒自动决策锁定 (防止秤抖动立刻抢抓)
-        if hasattr(self.main_window, 'switch_controller') and self.main_window.switch_controller:
-            self.main_window.switch_controller.notify_manual_switch()
-            
+
         if self.is_our_pos_active:
             config = getattr(self.main_window, "config", None)
             if not is_official_pos_available(config):
@@ -490,6 +486,11 @@ class FloatingBall(QWidget):
                 return
             self.is_our_pos_active = False
             controller = getattr(self.main_window, "switch_controller", None)
+            # Only a switch that actually reached the requested window may
+            # invalidate the current route record or take ownership from an
+            # auto-hide timer.
+            if controller and hasattr(controller, "notify_manual_switch"):
+                controller.notify_manual_switch()
             if controller and hasattr(controller, "reset_switch_cycle_for_manual"):
                 controller.reset_switch_cycle_for_manual(False)
             elif controller and hasattr(controller, "refresh_floating_ball_progress"):
@@ -499,6 +500,8 @@ class FloatingBall(QWidget):
             bring_our_pos_to_front(self.main_window)
             self.is_our_pos_active = True
             controller = getattr(self.main_window, "switch_controller", None)
+            if controller and hasattr(controller, "notify_manual_switch"):
+                controller.notify_manual_switch()
             if controller and hasattr(controller, "reset_switch_cycle_for_manual"):
                 controller.reset_switch_cycle_for_manual(True)
             elif controller and hasattr(controller, "refresh_floating_ball_progress"):

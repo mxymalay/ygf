@@ -91,12 +91,12 @@ class TouchDoubleSpinBox(TouchSpinBox):
 
 
 class DecisionWeightChart(QWidget):
-    """轻量级 Qt 绘图控件，显示称重分流、手动切换和时段汇总。
+    """轻量级 Qt 绘图控件，显示累计称重、分流和时段汇总。
 
-    不依赖 matplotlib 等额外库，避免 Win7 打包后缺少绘图库。每个
-    官方/私有通道分别绘制折线，红色虚线标出店员手动切换；下方使用
-    2 小时堆叠柱图汇总重量。横轴标签按可用宽度采样并旋转 45 度，
-    避免触屏窄窗口下相互遮挡。
+    不依赖 matplotlib 等额外库，避免 Win7 打包后缺少绘图库。上方是
+    一条连续上升的累计总重量线，每段按当次分流通道着色，红色虚线
+    标出店员手动切换；下方使用 2 小时堆叠柱图汇总重量。横轴标签按
+    可用宽度采样并旋转 45 度，避免触屏窄窗口下相互遮挡。
     """
 
     OFFICIAL_COLOR = QColor("#38BDF8")
@@ -163,6 +163,22 @@ class DecisionWeightChart(QWidget):
                 channel = "official"
             result.append((when, self._weight(event), channel, event))
         return sorted(result, key=lambda item: item[0])
+
+    @staticmethod
+    def _cumulative_route_points(route_points):
+        """Turn every weighed bowl into one point on a continuous total line.
+
+        ``weight_kg`` remains the per-bowl amount for the node label, while
+        the point's Y value is the running total.  This makes the trend
+        monotonic and preserves the channel colour on the segment that added
+        that bowl.
+        """
+        total = 0.0
+        result = []
+        for when, weight, channel, event in route_points:
+            total += max(0.0, float(weight or 0.0))
+            result.append((when, total, channel, event, weight))
+        return result
 
     def _draw_text(self, painter, x, y, text, color=None, font=None):
         if color is not None:
@@ -251,6 +267,7 @@ class DecisionWeightChart(QWidget):
 
         points = self._normalised_events()
         route_points = [item for item in points if item[2] in ("official", "private")]
+        cumulative_points = self._cumulative_route_points(route_points)
         if not points:
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(QFont("Microsoft YaHei", 13))
@@ -263,8 +280,8 @@ class DecisionWeightChart(QWidget):
         plot_top = 48.0
         plot_height = max(320.0, min(480.0, height * 0.40))
         plot = QRectF(68, plot_top, max(120.0, width - 92), plot_height)
-        max_weight = max([item[1] for item in route_points] or [0.1])
-        y_max = max(1.0, max_weight)
+        max_cumulative_weight = max([item[1] for item in cumulative_points] or [0.1])
+        y_max = max(1.0, max_cumulative_weight)
         # Leave a little headroom above the largest point while keeping a
         # stable 0.1kg scale for small orders.
         y_max = max(0.1, ((y_max * 1.12) * 10.0 + 0.9999) // 1 / 10.0)
@@ -282,7 +299,7 @@ class DecisionWeightChart(QWidget):
         title_font = QFont("Microsoft YaHei", 12)
         title_font.setBold(True)
         title_font.setPointSize(16)
-        self._draw_fixed_header(painter, 28, u"今日称重决策（重量 kg）", title_font)
+        self._draw_fixed_header(painter, 28, u"今日累计称重（kg）", title_font)
 
         painter.setFont(QFont("Microsoft YaHei", 9))
         painter.setPen(QPen(self.GRID_COLOR, 1))
@@ -305,28 +322,22 @@ class DecisionWeightChart(QWidget):
             y = plot.bottom() - (weight / y_max) * plot.height()
             return QPointF(x, y)
 
-        # Draw one line per channel, so a channel's trend remains readable
-        # even when the other channel is used for several consecutive orders.
-        for channel, color in (("official", self.OFFICIAL_COLOR), ("private", self.PRIVATE_COLOR)):
-            channel_points = [point_for(item[0], item[1]) for item in route_points if item[2] == channel]
-            if len(channel_points) > 1:
-                painter.setPen(QPen(color, 2.5))
-                painter.drawPolyline(channel_points)
-
-        # Also colour the chronological transitions.  This keeps a visible
-        # line when today's data contains only one event per channel and makes
-        # the actual decision sequence (official/private/official...) clear.
-        for previous, current in zip(route_points, route_points[1:]):
-            painter.setPen(QPen(
-                self.PRIVATE_COLOR if current[2] == "private" else self.OFFICIAL_COLOR,
-                2.5,
-            ))
-            painter.drawLine(point_for(previous[0], previous[1]), point_for(current[0], current[1]))
+        # One continuous cumulative curve: start at zero, then connect every
+        # chronological bowl to the next total. The segment colour belongs to
+        # the bowl that made that increment, so blue/green changes explain the
+        # routing sequence without splitting the line into separate series.
+        previous_point = point_for(start_time, 0.0)
+        for when, cumulative_weight, channel, _event, _bowl_weight in cumulative_points:
+            current_point = point_for(when, cumulative_weight)
+            color = self.PRIVATE_COLOR if channel == "private" else self.OFFICIAL_COLOR
+            painter.setPen(QPen(color, 2.8))
+            painter.drawLine(previous_point, current_point)
+            previous_point = current_point
 
         value_font = QFont("Microsoft YaHei", 8)
-        for index, (when, weight, channel, _event) in enumerate(route_points):
+        for index, (when, cumulative_weight, channel, _event, bowl_weight) in enumerate(cumulative_points):
             color = self.PRIVATE_COLOR if channel == "private" else self.OFFICIAL_COLOR
-            point = point_for(when, weight)
+            point = point_for(when, cumulative_weight)
             painter.setPen(QPen(QColor("#0F172A"), 1))
             painter.setBrush(QBrush(color))
             painter.drawEllipse(point, 4.5, 4.5)
@@ -334,7 +345,7 @@ class DecisionWeightChart(QWidget):
             value_y = point.y() - 8 if index % 2 == 0 else point.y() + 16
             painter.setFont(value_font)
             painter.drawText(QPointF(point.x() + 5, max(plot.top() + 10, min(plot.bottom() - 2, value_y))),
-                             "%.3f" % weight)
+                             "+%.3f" % bowl_weight)
 
         # Use actual event times, sampled to the available width.  Labels are
         # rotated after translation so they remain fully visible below the axis.
@@ -619,9 +630,7 @@ class SwitchSettingsWidget(QWidget):
         lbl_o_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_o_tip)
 
-        self.sp_zeroing_unlock = TouchSpinBox(5, 1, 60, 1, " 秒")
-        lay2.addRow(QLabel(u"称重归零离场解锁:"), self.sp_zeroing_unlock)
-        lbl_z_tip = QLabel(u"场景说明：顾客端走碗，秤归零保持该时长后，自动解除上述连单保护，重新开始评判。")
+        lbl_z_tip = QLabel(u"归零只用于确认上一碗已取走并允许检测下一碗；不会解除官方 60 秒连单保护。")
         lbl_z_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_z_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_z_tip)
@@ -774,10 +783,10 @@ class SwitchSettingsWidget(QWidget):
 
         # 图表区域显示当天每次稳定称重的决策方向。图表使用数据库
         # 的 route-event 明细，而不是日志文本，避免日志截断后丢失节点。
-        chart_title = QLabel(u"今日称重决策折线图")
+        chart_title = QLabel(u"今日累计称重折线图")
         chart_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
         right_layout.addWidget(chart_title)
-        chart_tip = QLabel(u"蓝线：官方　绿线：私有　红色虚线：店员手动切换；下方柱图按 2 小时汇总两边重量。")
+        chart_tip = QLabel(u"一条连续累计总重量线；蓝/绿线段分别表示该次称重走官方/私有，节点“+重量”是本次称重；红色虚线为手动切换。")
         chart_tip.setWordWrap(True)
         chart_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
         right_layout.addWidget(chart_tip)
@@ -1234,7 +1243,6 @@ class SwitchSettingsWidget(QWidget):
         self.sp_stable_threshold.setValue(float(self.config.get("stable_threshold", 0.01)))
         
         self.sp_official_lock.setValue(int(self.config.get("official_lock_sec", 60)))
-        self.sp_zeroing_unlock.setValue(int(self.config.get("zeroing_unlock_sec", 5)))
         self.sp_private_lock.setValue(int(self.config.get("private_lock_sec", 300)))
         self.sp_manual_override_lock.setValue(int(self.config.get("manual_override_lock_sec", 30)))
         self.sp_delay.setValue(int(self.config.get("auto_hide_delay_sec", 10)))
@@ -1273,7 +1281,6 @@ class SwitchSettingsWidget(QWidget):
 
     def _save_continuity_group(self):
         self.config["official_lock_sec"] = self.sp_official_lock.value()
-        self.config["zeroing_unlock_sec"] = self.sp_zeroing_unlock.value()
         self.config["private_lock_sec"] = self.sp_private_lock.value()
         self._refresh_runtime(u"连续收银防打断设置")
 
@@ -1298,7 +1305,6 @@ class SwitchSettingsWidget(QWidget):
         self.config["min_valid_weight_kg"] = self.sp_min_valid_weight.value()
         self.config["stable_threshold"] = self.sp_stable_threshold.value()
         self.config["official_lock_sec"] = self.sp_official_lock.value()
-        self.config["zeroing_unlock_sec"] = self.sp_zeroing_unlock.value()
         self.config["private_lock_sec"] = self.sp_private_lock.value()
         self.config["manual_override_lock_sec"] = self.sp_manual_override_lock.value()
         self.config["auto_hide_delay_sec"] = self.sp_delay.value()

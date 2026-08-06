@@ -857,6 +857,10 @@ class SaleWidget(QWidget):
         self._stable_weight = 0.0
         self._is_stable = False
         self._low_price_warning_shown = False
+        # Scale-state messages are intentionally non-modal and rate limited.
+        # They are shown only after an explicit soup click, never merely
+        # because a customer placed or removed a bowl.
+        self._last_scale_gate_hint_monotonic = 0.0
         self._scale_connected = False
         self._scale_status_message = ""
         # 首次收到硬件数据前，不把“没有读数”伪装成正常的 0.000 kg。
@@ -1831,6 +1835,14 @@ class SaleWidget(QWidget):
         QTimer.singleShot(800, anim_out.start)
         anim_out.finished.connect(toast.deleteLater)
 
+    def _show_scale_gate_hint(self, message):
+        """Give feedback for an explicit premature soup click without spam."""
+        now = time.monotonic()
+        if now - getattr(self, "_last_scale_gate_hint_monotonic", 0.0) < 1.2:
+            return
+        self._last_scale_gate_hint_monotonic = now
+        self._show_toast(message)
+
     def _on_menu_click(self, btn: MenuGridButton):
         """点击右侧菜单按钮"""
         unit_price = self.config.get("unit_price", 47.60)
@@ -1842,30 +1854,26 @@ class SaleWidget(QWidget):
             is_mock = self._is_mock_mode
             has_soup = any(item.get("type") == "soup" for item in self.cart_items)
 
-            replacement_allowed = self._can_replace_soup_without_zero(has_soup)
-            # A menu click is an explicit order action.  Once a soup line
-            # already exists, another soup click means "add another bowl";
-            # it must never silently rewrite the first bowl.  The physical
-            # scale cycle remains locked so routing is still emitted once,
-            # but the order can contain multiple soup lines (e.g. two bowls
-            # placed in quick succession without a stable zero sample).
-            #
-            # If there is no soup line, the only non-zero-cycle exception is
-            # an explicitly deleted soup being replaced in-place.
-            if not has_soup and not self._weight_cycle_ready and not replacement_allowed:
-                if is_mock:
-                    show_warning(
-                        self,
-                        u"请先模拟回零",
-                        u"上一碗的重量还在使用中。请点击重量数字输入 0.000 kg（随机模式点击重量数字模拟取走上一碗），再选择下一碗。",
-                    )
-                else:
-                    show_warning(
-                        self,
-                        u"请等待称回零",
-                        u"请先取走上一碗，等待电子秤回到 0.000 kg 后再选择下一碗。",
-                    )
+            # One order may contain several soup bowls, but every additional
+            # bowl must cross a real stable zero first.  The only non-zero
+            # exception is an explicitly deleted soup being corrected in
+            # place; a direct second click must never reuse its weight.
+            if not self._can_add_soup_in_current_cycle(has_soup):
+                # This is a normal physical transition, not an error: keep
+                # the click harmless.  Explain it only when the cashier
+                # explicitly tries to add a duplicate, never on bowl motion.
+                self._show_scale_gate_hint(u"上一碗还在称上，请取下回零后再点下一份")
                 return
+            if not is_mock:
+                reader = getattr(self, "scale", None)
+                zero_seen = getattr(reader, "has_observed_stable_zero", None)
+                if callable(zero_seen) and not zero_seen():
+                    # Cold-start zeroing is sampled silently as well.  This
+                    # guard still prevents a bowl that predates the program
+                    # from being priced, but never pops a dialog while the
+                    # cashier is simply placing or removing a bowl.
+                    self._show_scale_gate_hint(u"正在确认电子秤归零，请稍候")
+                    return
             if is_mock and self.mock_weight_mode == "manual":
                 # Manual mode deliberately asks for the weight on every soup
                 # selection, so a previous bowl's value cannot be reused by
@@ -1875,24 +1883,29 @@ class SaleWidget(QWidget):
             elif self.current_weight <= 0.0005:
                 if is_mock and self.mock_weight_mode == "random":
                     show_warning(self, u"请先生成模拟重量", u"当前为随机重量模式，请先点击上方“随机重量”，再选择麻辣烫。")
-                else:
-                    show_warning(self, u"请先称重", u"当前电子秤读数为 0.000 kg，请先将麻辣烫放置在电子秤上！")
+                # Real scale: 0.000 kg is an expected intermediate state
+                # while a bowl is being placed, so do not interrupt the
+                # cashier with a dialog.
+                if not is_mock:
+                    self._show_scale_gate_hint(u"请放上汤底，等绿色勾后点选")
                 return
             min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08) or 0.08)
             if self.current_weight <= min_valid_weight:
-                show_warning(
-                    self,
-                    u"重量过轻",
-                    u"当前读数 %.3f kg 未超过有效称重门限 %.3f kg，请确认碗已完整放稳。"
-                    % (self.current_weight, min_valid_weight),
-                )
+                # A tiny/non-zero reading normally means the bowl is still
+                # settling.  The live scale indicator already shows this;
+                # give a brief hint only after a deliberate menu click.
+                self._show_scale_gate_hint(u"称重识别中，请等绿色勾后点选")
                 return
             if not is_mock:
                 if not self._scale_connected or time.monotonic() - self._last_weight_monotonic > 2.0:
                     show_warning(self, u"称重读数不可用", u"电子秤读数已断开或超过 2 秒未更新。请确认电子秤连接正常后重新称重。")
                     return
                 if not self._is_stable:
-                    show_warning(self, u"请等待稳定", u"电子秤读数正在变化，请等待绿色稳定标记出现后再加入汤底。")
+                    # Stability takes roughly one second (five fresh scale
+                    # frames).  It must not create a popup every time a bowl
+                    # is placed, but an explicit premature click receives a
+                    # short non-blocking explanation.
+                    self._show_scale_gate_hint(u"称重识别中，请等绿色勾后点选")
                     return
 
             soup_clean_name = btn.title_str.replace("\n", " ")
@@ -1920,9 +1933,19 @@ class SaleWidget(QWidget):
                 "discount_rate": 1.0
             }
             self.cart_items.append(item_entry)
-            # Lock the physical weighing cycle immediately.  Additional soup
-            # lines are still allowed as explicit operator actions, but they
-            # do not emit another routing event for this unresolved cycle.
+            # The route is observed when the stable bowl appears, while the
+            # local order becomes real only after this explicit soup click.
+            # Binding them here prevents a later customer's payment from
+            # confirming an unused or abandoned weighing event.
+            try:
+                parent_mw = self.window()
+                controller = getattr(parent_mw, "switch_controller", None)
+                if controller and hasattr(controller, "claim_current_private_route_for_order"):
+                    controller.claim_current_private_route_for_order(self.current_order_id)
+            except Exception as exc:
+                log_event(CAT_SYSTEM, "绑定称重与订单失败", str(exc))
+            # Lock the physical weighing cycle immediately.  The next soup
+            # in this order must wait for a real stable zero and a new bowl.
             self._weight_cycle_ready = False
             # A replacement consumes the edit exception. The physical cycle
             # remains locked and will still be counted only once by the
@@ -1989,6 +2012,12 @@ class SaleWidget(QWidget):
         if has_soup is None:
             has_soup = any(item.get("type") == "soup" for item in (self.cart_items or []))
         return not has_soup
+
+    def _can_add_soup_in_current_cycle(self, has_soup=None):
+        """Allow another soup only after zero, or an explicit replacement."""
+        if getattr(self, "_weight_cycle_ready", True):
+            return True
+        return self._can_replace_soup_without_zero(has_soup)
 
     def _select_cart_item(self, index):
         """选择指定的订单卡片"""
@@ -2631,24 +2660,12 @@ class SaleWidget(QWidget):
             self.lbl_weight.setText("%06.3f kg" % self.current_weight)
         self.lbl_scale_status_icon.setText(u"✔")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 28px; font-weight: 900; color: #10B981; border: none; background: transparent;")
-        self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可随时打印！")
-        
-        # 称重稳定且预计价格低于配置阈值时，弹出一次黄色提醒
-        min_valid_weight = float(self.config.get("min_valid_weight_kg", 0.08) or 0.08)
-        if weight_kg > min_valid_weight:
-            if not self.config.get("low_price_warning_enabled", True):
-                self._low_price_warning_shown = False
-                return
-            unit_price = self.config.get("unit_price", 47.60)
-            price_unit = self.config.get("price_unit", "per_jin")
-            from core.calculator import calculate_price
-            expected_price = calculate_price(weight_kg, unit_price, price_unit)
-            threshold = float(self.config.get("low_price_warning_threshold", 15.00) or 15.00)
-            if expected_price < threshold and not self._low_price_warning_shown:
-                self._show_toast(u"温馨提示：此麻辣烫预计称重低于 %.2f 元。" % threshold)
-                self._low_price_warning_shown = True
-            elif expected_price >= threshold:
-                self._low_price_warning_shown = False
+        self.lbl_scale_status_icon.setToolTip(u"重量已稳定，可点选汤底。")
+
+        # Do not surface low-price notifications when a bowl merely becomes
+        # stable.  Placement is a routine physical operation, and a toast at
+        # this moment repeatedly obscures the cashier's controls.
+        self._low_price_warning_shown = False
 
     @pyqtSlot(float)
     def _on_scale_cycle_started(self, weight_kg):
@@ -3064,8 +3081,9 @@ class SaleWidget(QWidget):
                 self._on_clear(route_resolution="paid")
                 return True
 
-            actual_num = self.call_mgr.get_next_number()
-            sale_data["call_no"] = "%02d" % actual_num
+            # Keep the displayed preview number in the order data while the
+            # database transaction runs. A failed insert or a duplicate order
+            # must not consume/skip a call number.
             cart_items_json = json.dumps(sale_data["cart_items"], ensure_ascii=False)
             try:
                 record, created = self.db.insert_sale(
@@ -3090,6 +3108,19 @@ class SaleWidget(QWidget):
                     controller.confirm_pending_private_routes(self.current_order_id)
                 self._on_clear(route_resolution="paid")
                 return True
+            actual_num = self.call_mgr.get_next_number()
+            if int(actual_num) != int(peek_num):
+                # The manager normally consumes its cached preview. A
+                # mismatch means external state changed during checkout; keep
+                # the paid ledger's previewed number rather than silently
+                # printing a different one, and leave an audit record.
+                log_event(
+                    CAT_SYSTEM,
+                    "叫号预览与提交不一致",
+                    "订单=%s | 预览=%s | 提交=%s" % (
+                        self.current_order_id, peek_num, actual_num
+                    ),
+                )
             log_event(CAT_ORDER, f"订单成交入库: 叫号#{sale_data['call_no']}", f"支付方式: {payment_method} | 实付: ¥{total_price:.2f} | 明细: {items_summary}")
 
             full_sale = dict(record)

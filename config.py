@@ -93,6 +93,9 @@ DEFAULT_CONFIG = {
     "auto_print": False,
     "stable_threshold": 0.01,
     "stable_count": 5,
+    # 放碗仍按 stable_count 做完整稳定采样；取碗只需两个连续零读数
+    # 即可解锁下一碗，避免高峰期快速换客错过归零窗口。
+    "zero_stable_count": 2,
     "scale_zero_threshold_kg": 0.005,
     "scale_max_weight_kg": 15.0,
     "scale_stale_timeout_sec": 3.0,
@@ -198,7 +201,6 @@ OPTIONAL_CONFIG_KEYS = {
     "weekend_max_daily_revenue_limit",
     "min_valid_weight_kg",
     "official_lock_sec",
-    "zeroing_unlock_sec",
     "private_lock_sec",
     "manual_override_lock_sec",
     # Legacy alias used by the first soup-pricing screen.  It is migrated to

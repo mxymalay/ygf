@@ -6,6 +6,7 @@ import re
 import os
 import sys
 import time
+import hashlib
 import ctypes
 import threading
 from ctypes import wintypes
@@ -97,9 +98,15 @@ class ScaleReader(QObject):
 
         self._last_weights = []
         self._reload_config_values()
-        self._cycle_armed = True
+        # A newly launched process has no trustworthy memory of the bowl
+        # currently on the scale.  Require one real stable zero before it may
+        # route a non-zero weight; otherwise a restart can re-route an old
+        # official bowl as a new customer.
+        self._cycle_armed = False
         self._zero_reported = False
+        self._zero_sample_count = 0
         self._last_stable_emitted = None
+        self._startup_zero_seen = False
 
         self._locked_weight = -1.0
         # Diagnostic logging is change-based (plus a 5-second heartbeat), not
@@ -123,6 +130,11 @@ class ScaleReader(QObject):
 
         self._stable_threshold = max(0.001, safe_float("stable_threshold", 0.01))
         self._stable_count = max(2, safe_int("stable_count", 5))
+        # A bowl is physically gone as soon as the scale has produced two
+        # fresh zero frames.  Keep the longer stability window for the next
+        # non-zero weight, but do not make a fast customer transition wait a
+        # full second at zero.
+        self._zero_stable_count = max(2, safe_int("zero_stable_count", 2))
         self._zero_threshold = max(0.0, safe_float("scale_zero_threshold_kg", 0.005))
         self._cycle_start_threshold = max(
             self._zero_threshold,
@@ -194,10 +206,16 @@ class ScaleReader(QObject):
         self._reload_config_values()
         self._last_weights = []
         self._locked_weight = -1.0
+        self._zero_sample_count = 0
         if not preserve_cycle:
-            self._cycle_armed = True
+            self._cycle_armed = False
             self._zero_reported = False
+            self._startup_zero_seen = False
         self._last_stable_emitted = None
+
+    def has_observed_stable_zero(self):
+        """Whether this reader has seen a live stable zero since cold start."""
+        return bool(self._startup_zero_seen)
 
     def _apply_fluctuation_filter(self, w: float) -> float:
         """
@@ -424,11 +442,47 @@ class ScaleReader(QObject):
                 pass
         return None
 
+    @staticmethod
+    def _ygf_log_snapshot_token(path, stat, content):
+        """Identify an official-log snapshot beyond coarse file timestamps.
+
+        Some official POS versions overwrite a fixed-size log record, and
+        NTFS/network shares may expose a coarse or unchanged mtime for that
+        write. Including the tail content hash catches those real writes
+        without treating an idle cached record as a new scale sample.
+        """
+        mtime_ns = getattr(stat, "st_mtime_ns", int(float(stat.st_mtime) * 1000000000))
+        ctime_ns = getattr(stat, "st_ctime_ns", int(float(stat.st_ctime) * 1000000000))
+        digest = hashlib.sha1(str(content or "").encode("utf-8", errors="replace")).hexdigest()
+        return (str(path), int(mtime_ns), int(ctime_ns), int(stat.st_size), digest)
+
+    def _latest_ygf_log_record(self, content, allow_unterminated=False):
+        """Return the newest parseable record only when its line is complete.
+
+        A writer can expose half of a line while it is being overwritten. A
+        newline-terminated record is safe immediately; an unterminated final
+        line is considered safe only after the identical snapshot has been
+        observed on the next poll.
+        """
+        if not content:
+            return None
+        if not allow_unterminated and not str(content).endswith(("\n", "\r")):
+            return None
+        for line in reversed(str(content).splitlines()[-50:]):
+            raw_weight = self._parse_ygf_log_line(line)
+            if raw_weight is not None:
+                return raw_weight, line
+        return None
+
     def _read_from_ygf_log(self, target_file: str):
         """从官方系统实时日志中拉取重量 (Windows 共享无锁模式)"""
         self.status_changed.emit(True, "● 已连接官方称重服务 (%s)" % os.path.basename(target_file))
         log_event(CAT_SCALE, "官方称重日志已连接", "文件=%s" % target_file)
-        last_signature = None
+        last_seen_token = None
+        last_processed_token = None
+        pending_unterminated_token = None
+        last_fresh_record_at = time.monotonic()
+        stale_reported = False
         self._last_weights = []
 
         while self._running:
@@ -436,39 +490,90 @@ class ScaleReader(QObject):
             if not current_log:
                 break  # 官方系统关闭
 
-            # Never replay a cached weight while the official log is idle.
-            # Replaying it made an old reading appear fresh and could let an
-            # operator add a stale weight after the official POS stopped.
             try:
                 stat = os.stat(current_log)
-                signature = (current_log, stat.st_mtime, stat.st_size)
             except OSError:
                 time.sleep(0.2)
                 continue
-            if signature == last_signature:
-                time.sleep(0.2)
-                continue
-            last_signature = signature
 
             content = read_file_shared(current_log, max_bytes=64 * 1024)
-            if content:
-                lines = content.strip().splitlines()
-                for line in reversed(lines[-50:]):
-                    raw_w = self._parse_ygf_log_line(line)
-                    if raw_w is not None:
-                        w = self._apply_fluctuation_filter(raw_w)
-                        self._log_weight_sample(w, "官方日志", line)
-                        self.weight_updated.emit(w)
-                        self._check_stability(w)
-                        self.status_changed.emit(
-                            True, "● 已同步官方收银称重 | 读数: %.3f kg" % w
-                        )
-                        break
+            token = self._ygf_log_snapshot_token(current_log, stat, content)
+            if last_seen_token is None:
+                # The existing tail can describe a bowl from before this POS
+                # was opened.  Do not treat it as a live reading; wait for the
+                # official POS to write a fresh sample after startup.
+                last_seen_token = token
+                last_processed_token = token
+                time.sleep(0.2)
+                continue
+            changed = token != last_seen_token
+            last_seen_token = token
+
+            # If the writer is exposing an incomplete last line, wait for a
+            # completed write or one identical re-read. Never fall back to a
+            # previous complete line, which would replay an old bowl.
+            allow_unterminated = False
+            if content and not content.endswith(("\n", "\r")):
+                if token != pending_unterminated_token:
+                    pending_unterminated_token = token
+                    time.sleep(0.2)
+                    continue
+                allow_unterminated = True
+            else:
+                pending_unterminated_token = None
+
+            if token == last_processed_token:
+                if (
+                    not stale_reported
+                    and time.monotonic() - last_fresh_record_at >= self._stale_timeout
+                ):
+                    stale_reported = True
+                    self.status_changed.emit(
+                        False,
+                        "官方称重日志连续 %.1f 秒没有新读数，已停止使用旧重量"
+                        % self._stale_timeout,
+                    )
+                time.sleep(0.2)
+                continue
+            # A changing mtime/ctime with identical bytes is a fresh POS
+            # poll; conversely the hash catches same-size block overwrites.
+            if not changed and not allow_unterminated:
+                time.sleep(0.2)
+                continue
+            last_processed_token = token
+
+            record = self._latest_ygf_log_record(content, allow_unterminated)
+            if record is not None:
+                raw_w, line = record
+                w = self._apply_fluctuation_filter(raw_w)
+                self._log_weight_sample(w, "官方日志", line)
+                self.weight_updated.emit(w)
+                self._check_stability(w)
+                last_fresh_record_at = time.monotonic()
+                stale_reported = False
+                self.status_changed.emit(
+                    True, "● 已同步官方收银称重 | 读数: %.3f kg" % w
+                )
 
             time.sleep(0.2)
 
     def _check_stability(self, weight):
         """Emit stable values and exactly one start/zero event per bowl."""
+        # Zero is a physical release gate, not a price measurement.  Confirm
+        # it quickly so "customer A lifts, customer B immediately puts down"
+        # does not miss the only zero interval.  The next non-zero bowl still
+        # needs the full stable_count window below before it can route.
+        if float(weight or 0.0) <= self._zero_threshold:
+            self._zero_sample_count += 1
+            if self._zero_sample_count >= self._zero_stable_count:
+                self._startup_zero_seen = True
+                self._cycle_armed = True
+                if not self._zero_reported:
+                    self._zero_reported = True
+                    self.zero_stable.emit()
+        else:
+            self._zero_sample_count = 0
+
         self._last_weights.append(weight)
         if len(self._last_weights) > self._stable_count:
             self._last_weights.pop(0)
@@ -488,6 +593,7 @@ class ScaleReader(QObject):
             self.weight_stable.emit(avg_weight)
 
         if avg_weight <= self._zero_threshold:
+            self._startup_zero_seen = True
             self._cycle_armed = True
             if not self._zero_reported:
                 self._zero_reported = True

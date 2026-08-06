@@ -284,6 +284,11 @@ class CheckoutDialog(QDialog):
         self._checkout_finalizing = False
         self._checkout_completed = False
         self._cancelled = False
+        # Once the payment monitor has confirmed a real success, cancellation
+        # must be disabled until its queued checkout callback writes the sale.
+        # Previously a blank click during the 600ms success animation could
+        # discard an already-paid order.
+        self._payment_success_confirmed = False
         self._payment_monitors = []
         self._mixed_cash_amount = 0.0
         self._mixed_scan_amount = 0.0
@@ -943,6 +948,7 @@ class CheckoutDialog(QDialog):
                     self.status_widget.set_state("SUCCESS")
                 if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
                     self.lbl_sqb_desc.setText(u"🎉 支付成功！已自动完成出票")
+                self._payment_success_confirmed = True
                 QTimer.singleShot(600, lambda: self._finish_payment(method))
                 return
             success_hits[0] = 0
@@ -1068,7 +1074,7 @@ class CheckoutDialog(QDialog):
 
     def reject(self):
         """Cancel never records a sale; a scan payment also clears the plugin amount."""
-        if self._checkout_completed:
+        if self._checkout_completed or self._payment_success_confirmed:
             return
         self._cancelled = True
         self._stop_payment_monitors()

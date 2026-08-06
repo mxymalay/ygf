@@ -1,4 +1,5 @@
 import os
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -59,7 +60,6 @@ class WeighingCycleTests(unittest.TestCase):
             controller.on_weighing_cycle_started(0.6)
             self.assertEqual(controller._total_evaluated_orders, 2)
             self.assertAlmostEqual(controller._total_weight_kg, 1.1)
-        controller._zero_unlock_timer.stop()
 
     def test_receipt_old_weight_cannot_start_a_second_order(self):
         controller = self._controller()
@@ -76,7 +76,6 @@ class WeighingCycleTests(unittest.TestCase):
             self.assertEqual(controller._total_evaluated_orders, 2)
             self.assertFalse(controller._receipt_hide_pending)
         controller._hide_timer.stop()
-        controller._zero_unlock_timer.stop()
 
     def test_raw_frames_never_route(self):
         controller = self._controller()
@@ -156,6 +155,54 @@ class WeighingCycleTests(unittest.TestCase):
         dummy.cart_items = [{"type": "soup", "name": "新汤底"}]
         self.assertFalse(SaleWidget._can_replace_soup_without_zero(dummy))
 
+    def test_second_soup_requires_zero_but_multiple_soups_are_allowed_after_zero(self):
+        dummy = SimpleNamespace(
+            _weight_cycle_ready=False,
+            _soup_replacement_allowed=False,
+            cart_items=[{"type": "soup", "name": "第一份汤底"}],
+        )
+        dummy._can_replace_soup_without_zero = (
+            lambda has_soup=None: SaleWidget._can_replace_soup_without_zero(dummy, has_soup)
+        )
+        self.assertFalse(SaleWidget._can_add_soup_in_current_cycle(dummy))
+
+        # A real stable zero rearms the physical cycle.  The same order may
+        # then add a separately weighed second soup.
+        dummy._weight_cycle_ready = True
+        self.assertTrue(SaleWidget._can_add_soup_in_current_cycle(dummy))
+
+    def test_locked_soup_click_shows_one_non_modal_zero_hint(self):
+        """A duplicate click explains the guard without a modal warning."""
+        dummy = SimpleNamespace(
+            config={},
+            _is_mock_mode=False,
+            cart_items=[{"type": "soup", "name": "第一份汤底"}],
+            _can_add_soup_in_current_cycle=lambda _has_soup: False,
+            _show_scale_gate_hint=Mock(),
+        )
+        button = SimpleNamespace(is_soup=True)
+        with patch("ui.sale_widget.show_warning") as warning:
+            SaleWidget._on_menu_click(dummy, button)
+        warning.assert_not_called()
+        dummy._show_scale_gate_hint.assert_called_once()
+
+    def test_stable_weight_does_not_show_low_price_popup(self):
+        dummy = SimpleNamespace(
+            current_weight=0.0,
+            _has_scale_reading=False,
+            _last_weight_monotonic=0.0,
+            _is_stable=False,
+            _stable_weight=0.0,
+            _low_price_warning_shown=True,
+            config={"low_price_warning_enabled": True, "low_price_warning_threshold": 15.0},
+            lbl_scale_status_icon=_Label(),
+            _set_live_weight_text=lambda _weight: None,
+        )
+        with patch.object(SaleWidget, "_show_toast") as toast:
+            SaleWidget._on_weight_stable(dummy, 0.10)
+        toast.assert_not_called()
+        self.assertFalse(dummy._low_price_warning_shown)
+
     def test_replacement_does_not_unlock_routing_cycle(self):
         dummy = SimpleNamespace(
             _weight_cycle_ready=False,
@@ -166,6 +213,79 @@ class WeighingCycleTests(unittest.TestCase):
         # The physical weighing cycle remains locked; only the basket edit
         # exception is open.
         self.assertFalse(dummy._weight_cycle_ready)
+
+    def test_stable_zero_does_not_release_official_continuation_lock(self):
+        controller = self._controller()
+        controller._last_official_time = time.time()
+        with patch("core.switch_controller.log_event"):
+            controller.on_weighing_cycle_zeroed()
+        self.assertGreater(controller._last_official_time, 0.0)
+        controller._hide_timer.stop()
+
+    def test_receipt_printing_does_not_release_official_continuation_lock(self):
+        controller = self._controller()
+        controller._last_official_time = time.time()
+        with patch("core.switch_controller.log_event"):
+            controller.on_receipt_printed()
+        self.assertGreater(controller._last_official_time, 0.0)
+        controller._hide_timer.stop()
+
+    def test_cold_start_restores_a_still_valid_official_continuation_lock(self):
+        class PersistedStateDb(object):
+            def get_switch_quota_state(self):
+                return {
+                    "total_decisions": 0,
+                    "private_decisions": 0,
+                    "official_decisions": 0,
+                    "total_weight_kg": 0.0,
+                    "private_weight_kg": 0.0,
+                    "inherited_total_weight_kg": 0.0,
+                    "inherited_private_weight_kg": 0.0,
+                    "forced_official_decisions": 0,
+                    "inherited_private": 0,
+                    "inherited_official": 0,
+                }
+
+            def get_last_official_route_at(self):
+                return time.time() - 10.0
+
+        controller = AutoSwitchController(
+            SimpleNamespace(
+                db=PersistedStateDb(),
+                sale_page=SimpleNamespace(cart_items=[]),
+                floating_ball=None,
+            ),
+            {"official_lock_sec": 60},
+        )
+        self.assertGreater(controller._last_official_time, 0.0)
+        self.assertLess(time.time() - controller._last_official_time, 60.0)
+        controller._hide_timer.stop()
+
+    def test_manual_switch_cancels_pending_auto_hide(self):
+        controller = self._controller()
+        controller._receipt_hide_pending = True
+        controller._hide_timer.start(1000)
+        with patch("core.switch_controller.log_event"):
+            controller.notify_manual_switch()
+        self.assertFalse(controller._hide_timer.isActive())
+        self.assertFalse(controller._receipt_hide_pending)
+
+    def test_unselected_second_bowl_is_not_hidden_by_an_existing_cart(self):
+        db = Mock()
+        db.resolve_weighing_route_event.return_value = True
+        window = SimpleNamespace(
+            db=db,
+            sale_page=SimpleNamespace(cart_items=[{"type": "soup"}]),
+            floating_ball=None,
+        )
+        controller = AutoSwitchController(window, {})
+        controller._last_route_event_key = "unselected-second-bowl"
+        controller._last_route_event_channel = "private"
+        controller._last_route_event_order_id = ""
+        with patch("core.switch_controller.log_event"):
+            controller.resolve_pending_route_events_on_zero(has_private_cart=True)
+        db.resolve_weighing_route_event.assert_called_once()
+        self.assertEqual(controller._last_route_event_key, "")
 
     def test_two_equal_ui_frames_do_not_bypass_reader_stability(self):
         dummy = SimpleNamespace(
@@ -196,7 +316,6 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertAlmostEqual(remaining, 1.0 / 6.0, places=3)
         self.assertEqual(next_channel, "私有 POS")
         controller._hide_timer.stop()
-        controller._zero_unlock_timer.stop()
 
     def test_manual_switch_resets_cycle_baseline_but_keeps_daily_counters(self):
         controller = self._controller()
@@ -218,7 +337,6 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertAlmostEqual(remaining, (2.0 - 0.3 * 4.0) / 0.3)
         self.assertEqual(next_channel, "私有 POS")
         controller._hide_timer.stop()
-        controller._zero_unlock_timer.stop()
 
     def test_restored_locked_order_does_not_forward_old_bowl(self):
         emitted = Mock()

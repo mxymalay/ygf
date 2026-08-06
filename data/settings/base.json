@@ -43,6 +43,7 @@
   "auto_print": false,
   "stable_threshold": 0.01,
   "stable_count": 5,
+  "zero_stable_count": 2,
   "scale_zero_threshold_kg": 0.005,
   "scale_max_weight_kg": 15.0,
   "scale_stale_timeout_sec": 3.0,
@@ -81,7 +82,6 @@
   "call_seq_no": null,
   "min_valid_weight_kg": 0.08,
   "official_lock_sec": 60,
-  "zeroing_unlock_sec": 5,
   "private_lock_sec": 300,
   "manual_override_lock_sec": 30
 }

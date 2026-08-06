@@ -48,7 +48,6 @@ class AutoSwitchController(QObject):
         self._target_private_ratio = min(100.0, max(0.0, _config_float(self.config, "private_ratio_percent", 30)))
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
-        self._zeroing_unlock_sec = max(0.1, _config_float(self.config, "zeroing_unlock_sec", 5.0))
         self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
         self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
         self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
@@ -66,10 +65,14 @@ class AutoSwitchController(QObject):
         self._inherited_private_orders = 0
         self._inherited_official_orders = 0
         self._quota_stat_date = date.today().isoformat()
+        # Set before loading persisted state; a restart must not overwrite a
+        # still-valid official continuity lock with a new zero value.
+        self._last_official_time = 0.0
         self._load_persisted_quota_state()
 
         self._has_auto_popped = False  # 防止在同一个重量上重复判断
-        self._last_official_time = 0.0  # 记录上一次判定为官方 POS 的时间戳 (用于官方连单保护)
+        # 记录上一次判定为官方 POS 的时间戳 (用于官方连单保护)。值可由
+        # `_load_persisted_quota_state` 在冷启动时恢复。
         self._manual_override_until = 0.0  # 店员手动干预锁定期 (防止称重自动抢抓焦点)
         self._zero_start_time = 0.0  # 记录归零起始时间戳
         self._last_popped_weight = 0.0  # 记录本称重周期最终用于分流的稳定重量
@@ -81,6 +84,8 @@ class AutoSwitchController(QObject):
         # recorded immediately for routing, while this separate record waits
         # for private payment confirmation (or an explicit non-payment state).
         self._last_route_event_key = ""
+        self._last_route_event_channel = ""
+        self._last_route_event_order_id = ""
         # 当前“通道周期”的切换进度：例如官方连续收单时，累计了多少
         # 官方重量后会越过目标比例并切回私有 POS。它不是全天配额统计。
         self._switch_cycle_initialized = False
@@ -102,9 +107,6 @@ class AutoSwitchController(QObject):
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self._on_auto_hide_timeout)
-        self._zero_unlock_timer = QTimer(self)
-        self._zero_unlock_timer.setSingleShot(True)
-        self._zero_unlock_timer.timeout.connect(self._on_zero_unlock_timeout)
 
     def _load_daily_revenue_limits(self):
         """读取周中/周末累计收款上限，并兼容旧版单一上限配置。"""
@@ -137,8 +139,26 @@ class AutoSwitchController(QObject):
         if duration_sec < 0:
             duration_sec = self._manual_override_lock_sec
         self._manual_override_until = time.time() + duration_sec
+        # A successful manual channel choice must take ownership from every
+        # pending automatic action.  Stopping only the floating-ball animation
+        # left the real auto-hide timer alive and it could switch windows back
+        # under the operator's hand.
+        self._cancel_pending_auto_hide()
+        # A manual choice begins a new routing context.  Do not let an old
+        # official continuation timer reassert itself after the manual grace
+        # period expires.
+        self._clear_official_continuation_lock()
         self.resolve_pending_route_events_manual("店员手动切换，当前称重渠道无法自动归属")
         log_event(CAT_SWITCH, f"店员手动干预锁定", f"优先尊重店员操作，暂停自动调度 {duration_sec} 秒")
+
+    def _cancel_pending_auto_hide(self):
+        """Cancel a post-receipt automatic return in both UI and controller."""
+        self._hide_timer.stop()
+        self._receipt_hide_pending = False
+        self._receipt_zero_seen = False
+        fb = getattr(self.main_window, "floating_ball", None)
+        if fb and hasattr(fb, "stop_countdown"):
+            fb.stop_countdown()
 
     def suspend_for_maintenance(self):
         """Temporarily block automatic window switching during maintenance."""
@@ -167,9 +187,36 @@ class AutoSwitchController(QObject):
             self._forced_official_orders = int(state.get("forced_official_decisions", 0) or 0)
             self._inherited_private_orders = int(state.get("inherited_private", 0) or 0)
             self._inherited_official_orders = int(state.get("inherited_official", 0) or 0)
+            get_last = getattr(db, "get_last_official_route_at", None)
+            persisted_lock_at = float(get_last() or 0.0) if callable(get_last) else 0.0
+            if 0.0 < time.time() - persisted_lock_at < self._official_lock_sec:
+                self._last_official_time = persisted_lock_at
         except Exception as exc:
             # A corrupt/legacy runtime statistic must never prevent POS start.
             _safe_console(f"[AutoDecisionEngine] 恢复分流统计失败，使用本次运行统计: {exc}")
+
+    def _set_official_continuation_lock(self, timestamp=None):
+        """Set and persist the 60-second official continuity lock."""
+        value = float(timestamp if timestamp is not None else time.time())
+        self._last_official_time = max(0.0, value)
+        db = getattr(self.main_window, "db", None)
+        save_lock = getattr(db, "set_last_official_route_at", None)
+        if callable(save_lock):
+            try:
+                save_lock(self._last_official_time)
+            except Exception as exc:
+                _safe_console(f"[AutoDecisionEngine] 保存官方连单锁失败: {exc}")
+
+    def _clear_official_continuation_lock(self):
+        """Clear both in-memory and persisted official continuity state."""
+        self._last_official_time = 0.0
+        db = getattr(self.main_window, "db", None)
+        clear_lock = getattr(db, "clear_last_official_route_at", None)
+        if callable(clear_lock):
+            try:
+                clear_lock()
+            except Exception as exc:
+                _safe_console(f"[AutoDecisionEngine] 清除官方连单锁失败: {exc}")
 
     def _ensure_quota_date(self):
         """Switch the in-memory counters when a long-running POS crosses midnight."""
@@ -190,6 +237,11 @@ class AutoSwitchController(QObject):
         self._switch_cycle_start_total_weight = 0.0
         self._switch_cycle_start_private_weight = 0.0
         self._load_persisted_quota_state()
+
+    def _current_private_order_id(self):
+        """Return the local draft id that owns a private weighing event."""
+        page = getattr(self.main_window, "sale_page", None)
+        return str(getattr(page, "current_order_id", "") or "")
 
     def _record_quota_decision(self, weight_kg, is_private, forced_official=False):
         """Update in-memory and persisted counters for a new decision."""
@@ -214,14 +266,22 @@ class AutoSwitchController(QObject):
                 # database cannot be updated on an older Windows installation.
                 _safe_console(f"[AutoDecisionEngine] 保存分流统计失败: {exc}")
         self._last_route_event_key = ""
+        self._last_route_event_channel = ""
+        self._last_route_event_order_id = ""
         if db and hasattr(db, "create_weighing_route_event"):
             try:
                 event = db.create_weighing_route_event(
                     weight,
                     is_private,
                     "forced_official" if forced_official else "quota",
+                    # A route is observed before the cashier actually adds a
+                    # soup line.  Bind it to an order only after that explicit
+                    # UI action, otherwise an unused second weighing can be
+                    # incorrectly confirmed as paid with the first bowl.
+                    order_id="",
                 )
                 self._last_route_event_key = str((event or {}).get("event_key", "") or "")
+                self._last_route_event_channel = "private" if is_private else "official"
             except Exception as exc:
                 _safe_console(f"[AutoDecisionEngine] 保存待确认称重记录失败: {exc}")
 
@@ -243,10 +303,18 @@ class AutoSwitchController(QObject):
             except Exception as exc:
                 _safe_console(f"[AutoDecisionEngine] 保存联单统计失败: {exc}")
         self._last_route_event_key = ""
+        self._last_route_event_channel = ""
+        self._last_route_event_order_id = ""
         if db and hasattr(db, "create_weighing_route_event"):
             try:
-                event = db.create_weighing_route_event(weight, is_private, "inherited")
+                event = db.create_weighing_route_event(
+                    weight,
+                    is_private,
+                    "inherited",
+                    order_id="",
+                )
                 self._last_route_event_key = str((event or {}).get("event_key", "") or "")
+                self._last_route_event_channel = "private" if is_private else "official"
             except Exception as exc:
                 _safe_console(f"[AutoDecisionEngine] 保存待确认联单记录失败: {exc}")
 
@@ -291,11 +359,14 @@ class AutoSwitchController(QObject):
                 db.convert_weighing_route_event_to_private(
                     self._last_route_event_key,
                     "官方窗口在切换竞态中消失，实际留在私有 POS",
+                    order_id="",
                 )
             except Exception as exc:
                 _safe_console(f"[AutoDecisionEngine] 修正待确认渠道失败: {exc}")
 
-        self._last_official_time = 0.0
+        self._clear_official_continuation_lock()
+        self._last_route_event_channel = "private"
+        self._last_route_event_order_id = ""
         self._last_decision_kind = "fallback_private"
         self._last_decision_reason = "官方 POS 未运行/已关闭，自动留在私有 POS"
         log_event(
@@ -316,8 +387,10 @@ class AutoSwitchController(QObject):
         self._zero_start_time = time.time()
         if self._receipt_hide_pending:
             self._receipt_zero_seen = True
-        self._zero_unlock_timer.start(max(1, int(self._zeroing_unlock_sec * 1000)))
-        log_event(CAT_SCALE, "称重周期稳定归零", "已允许下一碗进入分流判断")
+        # A physical zero only ends this bowl's duplicate-detection cycle. It
+        # is not evidence that the customer has left, so it must never shorten
+        # the 60-second official continuation lock.
+        log_event(CAT_SCALE, "称重周期稳定归零", "已允许下一碗进入分流判断；官方连单锁保持不变")
 
     def resolve_pending_route_events_on_zero(self, has_private_cart=False):
         """Resolve only events whose outcome is knowable at stable zero.
@@ -327,49 +400,93 @@ class AutoSwitchController(QObject):
         explicitly unknown rather than guessed as paid or cancelled.
         """
         db = getattr(self.main_window, "db", None)
-        if not db:
+        event_key = self._last_route_event_key
+        channel = self._last_route_event_channel
+        if not db or not event_key:
             return
         try:
-            if not has_private_cart and hasattr(db, "resolve_pending_private_weighing_events"):
-                count = db.resolve_pending_private_weighing_events(
-                    "NOT_PAID", note="稳定归零时私有购物车为空，未形成本地订单"
+            # A cart may contain an earlier, correctly selected soup while
+            # the most recent private weighing was never selected at all.
+            # Resolve that unbound newest event as not paid instead of
+            # letting the older basket make it look paid later.
+            if channel == "private" and (
+                not has_private_cart or not self._last_route_event_order_id
+            ):
+                changed = db.resolve_weighing_route_event(
+                    event_key,
+                    "NOT_PAID",
+                    note="稳定归零时当前称重未关联汤底，未形成本地订单",
                 )
-                if count:
-                    log_event(CAT_DECISION, "称重未结账", f"已标记 {count} 条私有待确认称重为未成交")
-            if hasattr(db, "resolve_pending_weighing_events"):
-                count = db.resolve_pending_weighing_events(
-                    channel="official",
-                    status="OFFICIAL_UNKNOWN",
+                if changed:
+                    log_event(CAT_DECISION, "称重未结账", "已标记当前私有称重为未成交")
+                    self._last_route_event_key = ""
+                    self._last_route_event_channel = ""
+                    self._last_route_event_order_id = ""
+            elif channel == "official":
+                changed = db.resolve_weighing_route_event(
+                    event_key,
+                    "OFFICIAL_UNKNOWN",
                     note="官方 POS 无支付回调，稳定归零后仅能标记为支付未知",
                 )
-                if count:
-                    log_event(CAT_DECISION, "官方称重支付未知", f"已标记 {count} 条官方称重为支付未知")
+                if changed:
+                    log_event(CAT_DECISION, "官方称重支付未知", "已标记当前官方称重为支付未知")
+                    self._last_route_event_key = ""
+                    self._last_route_event_channel = ""
+                    self._last_route_event_order_id = ""
         except Exception as exc:
             _safe_console(f"[AutoDecisionEngine] 结算称重待确认记录失败: {exc}")
 
     def confirm_pending_private_routes(self, order_id=""):
-        """Mark all pending private weighing events for the paid basket."""
+        """Mark this paid basket's already-bound private routes as paid."""
         db = getattr(self.main_window, "db", None)
-        if not db or not hasattr(db, "resolve_pending_private_weighing_events"):
+        if not db or not hasattr(db, "resolve_pending_private_weighing_events") or not order_id:
             return 0
         try:
             count = db.resolve_pending_private_weighing_events(
                 "PRIVATE_PAID", order_id=order_id, note="私有 POS 本地订单支付成功"
             )
             if count:
-                log_event(CAT_DECISION, "私有称重确认成交", f"订单 {order_id or '-'} 确认 {count} 条称重记录")
+                log_event(CAT_DECISION, "私有称重确认成交", f"订单 {order_id} 确认 {count} 条称重记录")
             return count
         except Exception as exc:
             _safe_console(f"[AutoDecisionEngine] 确认私有称重成交失败: {exc}")
             return 0
 
+    def claim_current_private_route_for_order(self, order_id=""):
+        """Attach the live private weighing event after a soup is selected."""
+        event_key = self._last_route_event_key
+        if not order_id or self._last_route_event_channel != "private" or not event_key:
+            return False
+        db = getattr(self.main_window, "db", None)
+        if not db or not hasattr(db, "assign_weighing_route_event_order"):
+            return False
+        try:
+            claimed = bool(db.assign_weighing_route_event_order(event_key, order_id))
+            if claimed:
+                self._last_route_event_order_id = str(order_id)
+            return claimed
+        except Exception as exc:
+            _safe_console(f"[AutoDecisionEngine] 绑定称重与订单失败: {exc}")
+            return False
+
     def abandon_pending_private_routes(self, reason="用户清空未结订单"):
         """Mark pending private events as not paid without deleting history."""
         db = getattr(self.main_window, "db", None)
-        if not db or not hasattr(db, "resolve_pending_private_weighing_events"):
+        order_id = self._current_private_order_id()
+        if not db or not hasattr(db, "resolve_pending_private_weighing_events") or not order_id:
             return 0
         try:
-            count = db.resolve_pending_private_weighing_events("NOT_PAID", note=reason)
+            count = db.resolve_pending_private_weighing_events(
+                "NOT_PAID", order_id=order_id, note=reason
+            )
+            if self._last_route_event_channel == "private" and self._last_route_event_key:
+                if db.resolve_weighing_route_event(
+                    self._last_route_event_key, "NOT_PAID", note=reason
+                ):
+                    count += 1
+                    self._last_route_event_key = ""
+                    self._last_route_event_channel = ""
+                    self._last_route_event_order_id = ""
             if count:
                 log_event(CAT_DECISION, "私有称重未成交", f"已标记 {count} 条记录: {reason}")
             return count
@@ -380,35 +497,27 @@ class AutoSwitchController(QObject):
     def resolve_pending_route_events_manual(self, reason="店员手动干预"):
         """Never guess a route after manual channel switching."""
         db = getattr(self.main_window, "db", None)
-        if not db or not hasattr(db, "resolve_pending_weighing_events"):
+        event_key = self._last_route_event_key
+        if not db or not hasattr(db, "resolve_weighing_route_event") or not event_key:
             return 0
         try:
-            count = db.resolve_pending_weighing_events(
-                status="MANUAL_UNKNOWN", note=reason
+            changed = db.resolve_weighing_route_event(
+                event_key, "MANUAL_UNKNOWN", note=reason
             )
-            if count:
-                log_event(CAT_DECISION, "手动切换导致称重归属未知", f"已标记 {count} 条记录")
-            return count
+            if changed:
+                self._last_route_event_key = ""
+                self._last_route_event_channel = ""
+                self._last_route_event_order_id = ""
+                log_event(CAT_DECISION, "手动切换导致称重归属未知", "已标记当前称重记录")
+            return 1 if changed else 0
         except Exception as exc:
             _safe_console(f"[AutoDecisionEngine] 标记手动称重归属失败: {exc}")
             return 0
-
-    def _on_zero_unlock_timeout(self):
-        """Release the official continuation lock after a real zero dwell."""
-        if self._last_official_time > 0:
-            self._last_official_time = 0.0
-            log_event(
-                CAT_DECISION,
-                "顾客离场解锁",
-                f"称重稳定归零超过 {self._zeroing_unlock_sec} 秒，恢复新单智能决策",
-            )
 
     def on_weighing_cycle_started(self, weight_kg: float):
         """Route one stable non-zero weighing cycle exactly once."""
         weight_kg = float(weight_kg or 0.0)
         self._last_weight_kg = weight_kg
-        self._zero_unlock_timer.stop()
-
         if weight_kg <= self._min_valid_weight:
             return
         if self._has_auto_popped:
@@ -534,8 +643,12 @@ class AutoSwitchController(QObject):
         # 规则 0B：官方多碗/连续开单保护 (如果上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
         if now_ts - self._last_official_time < self._official_lock_sec:
             elapsed = now_ts - self._last_official_time
-            self._last_official_time = now_ts  # 刷新连单锁定期
+            self._set_official_continuation_lock(now_ts)  # 刷新连单锁定期
             if not official_available:
+                # The continuation channel has disappeared.  Do not leave a
+                # stale official lock that can reclaim focus if the window is
+                # restarted a few seconds later.
+                self._clear_official_continuation_lock()
                 self._record_inherited_decision(weight_kg, True)
                 self._last_decision_kind = "inherited_private"
                 self._last_decision_reason = "官方 POS 未运行，连单回退私有 POS"
@@ -566,7 +679,7 @@ class AutoSwitchController(QObject):
                         self._record_quota_decision(weight_kg, False, forced_official=True)
                         self._last_decision_kind = "forced_official"
                         self._last_decision_reason = "私有 POS 达到当日金额上限"
-                        self._last_official_time = now_ts
+                        self._set_official_continuation_lock(now_ts)
                         period = "周末" if date.today().weekday() >= 5 else "周中"
                         msg = f"今日本POS已收款 ¥{today_amount:.2f} 达到/超过{period}上限 ¥{daily_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
                         _safe_console(f"[AutoDecisionEngine] {msg}")
@@ -586,7 +699,7 @@ class AutoSwitchController(QObject):
             self._record_quota_decision(weight_kg, False, forced_official=True)
             self._last_decision_kind = "forced_official"
             self._last_decision_reason = "低于私有 POS 最小重量门限"
-            self._last_official_time = now_ts
+            self._set_official_continuation_lock(now_ts)
             _safe_console(f"[AutoDecisionEngine] 重量 {weight_kg:.3f}kg < {self._min_private_weight:.3f}kg 属于轻量单 -> 全自动分配给【官方】")
             log_event(CAT_DECISION, f"轻量单过滤 -> 走官方", f"重量 {weight_kg:.3f}kg < 门限 {self._min_private_weight:.3f}kg")
             return False
@@ -612,7 +725,7 @@ class AutoSwitchController(QObject):
         self._record_quota_decision(weight_kg, False)
         self._last_decision_kind = "quota_official"
         self._last_decision_reason = "重量配额选择官方 POS"
-        self._last_official_time = now_ts
+        self._set_official_continuation_lock(now_ts)
         return False
 
     def get_actual_private_ratio(self) -> float:
@@ -729,7 +842,6 @@ class AutoSwitchController(QObject):
 
     def on_receipt_printed(self):
         """当打完制作单/小票后被触发"""
-        self._last_official_time = 0.0  # 结账出票完成，重置官方锁
         if not self._auto_switch_enabled:
             return
 
@@ -745,6 +857,12 @@ class AutoSwitchController(QObject):
     def _on_auto_hide_timeout(self):
         """延时结束，隐退切回官方系统"""
         self._receipt_hide_pending = False
+        if not self._auto_switch_enabled:
+            log_event(CAT_SWITCH, "自动隐退已取消", "自动切换当前关闭")
+            return
+        if time.time() < self._manual_override_until:
+            log_event(CAT_SWITCH, "自动隐退已取消", "店员手动切换锁定中")
+            return
         if self._maintenance_pause_count:
             return
         if not self._official_available():
@@ -839,13 +957,15 @@ class AutoSwitchController(QObject):
 
     def update_config(self, config: dict):
         """更新配置参数"""
+        old_auto_switch_enabled = bool(self._auto_switch_enabled)
         self.config = config
         self._auto_switch_enabled = self.config.get("auto_switch_enabled", True)
+        if old_auto_switch_enabled and not self._auto_switch_enabled:
+            self._cancel_pending_auto_hide()
         self._auto_hide_delay_sec = max(0, _config_int(self.config, "auto_hide_delay_sec", 10))
         self._target_private_ratio = min(100.0, max(0.0, _config_float(self.config, "private_ratio_percent", 30)))
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
-        self._zeroing_unlock_sec = max(0.1, _config_float(self.config, "zeroing_unlock_sec", 5.0))
         self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
         self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
         self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
