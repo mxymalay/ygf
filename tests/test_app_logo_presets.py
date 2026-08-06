@@ -6,7 +6,7 @@ from config import APP_LOGO_PRESETS, app_logo_path
 
 class AppLogoPresetTests(unittest.TestCase):
     def test_every_logo_preset_resolves_to_a_bundled_asset(self):
-        self.assertGreaterEqual(len(APP_LOGO_PRESETS), 9)
+        self.assertGreaterEqual(len(APP_LOGO_PRESETS), 13)
         for preset_id in APP_LOGO_PRESETS:
             self.assertTrue(
                 os.path.isfile(app_logo_path(preset_id)),

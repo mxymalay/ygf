@@ -324,6 +324,10 @@ APP_ICON_OPTIONS = (
     ("red_music_note", "红色音符"),
     ("gold_blue_mark", "蓝金图标"),
     ("green_dollar", "绿色美元"),
+    ("instagram", "Instagram"),
+    ("google", "Google"),
+    ("alert", "警告"),
+    ("coca_cola", "可口可乐"),
 )
 APP_ICON_FILES = dict(
     (preset_id, "app_icon_%s.ico" % preset_id)

@@ -28,15 +28,19 @@ os.makedirs(DB_DIR, exist_ok=True)
 # 可由店员在系统设置中选择的应用 Logo。配置只保存稳定的 preset id，
 # 不保存开发机绝对路径，这样复制到另一台收银机或打包成 exe 后仍能使用。
 APP_LOGO_PRESETS = {
-    "yangguofu": (u"内置杨国福", "yangguofu_logo_source.png"),
-    "netease_music": (u"网易云音乐", "netease_music.png"),
-    "windows": (u"Windows", "windows_logo.jpg"),
-    "qq_penguin": (u"QQ 企鹅", "qq_penguin.png"),
-    "dollar": (u"美元", "dollar_logo.png"),
-    "settings_gears": (u"蓝色齿轮", "settings_gears.png"),
-    "red_music_note": (u"红色音符", "red_music_note.png"),
-    "gold_blue_mark": (u"蓝金图标", "gold_blue_mark.jpg"),
-    "green_dollar": (u"绿色美元", "green_dollar.jpg"),
+    "yangguofu": (u"内置杨国福", "app_logo_yangguofu.png"),
+    "netease_music": (u"网易云音乐", "app_logo_netease_music.png"),
+    "windows": (u"Windows", "app_logo_windows.png"),
+    "qq_penguin": (u"QQ 企鹅", "app_logo_qq_penguin.png"),
+    "dollar": (u"美元", "app_logo_dollar.png"),
+    "settings_gears": (u"蓝色齿轮", "app_logo_settings_gears.png"),
+    "red_music_note": (u"红色音符", "app_logo_red_music_note.png"),
+    "gold_blue_mark": (u"蓝金图标", "app_logo_gold_blue_mark.png"),
+    "green_dollar": (u"绿色美元", "app_logo_green_dollar.png"),
+    "instagram": (u"Instagram", "app_logo_instagram.png"),
+    "google": (u"Google", "app_logo_google.png"),
+    "alert": (u"警告", "app_logo_alert.png"),
+    "coca_cola": (u"可口可乐", "app_logo_coca_cola.png"),
 }
 
 

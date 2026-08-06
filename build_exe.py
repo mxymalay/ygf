@@ -76,6 +76,11 @@ def main():
     # packaged build can appear to succeed while silently omitting assets.
     project_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(project_dir)
+    app_icon_path = os.path.abspath(os.path.join(project_dir, "data", "assets", "app_icon_yangguofu.ico"))
+    if not os.path.isfile(app_icon_path):
+        print("[X] 缺少主程序图标资源: %s" % app_icon_path)
+        print("    请确认已同步 data\\assets\\app_icon_yangguofu.ico 后再打包")
+        return 8
     
     print("=" * 60)
     print("      YGF POS standalone EXE build tool")
@@ -144,7 +149,9 @@ def main():
         "--workpath=%s" % os.path.join("build", "pos"),
         "--specpath=%s" % os.path.join("build", "spec"),
         "--uac-admin",          # 强制请求管理员权限 (解决UIPI隔离导致无法控制收钱吧的问题)
-        "--icon=%s" % os.path.join("data", "assets", "app_icon_yangguofu.ico"),
+        # PyInstaller resolves relative icon paths against the generated spec
+        # directory (build/spec), so this must be absolute for Win7 builds.
+        "--icon=%s" % app_icon_path,
         "--hidden-import=win32print",
         "--hidden-import=sqlite3",
         "--hidden-import=PyQt5.QtCore",

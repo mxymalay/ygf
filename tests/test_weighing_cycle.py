@@ -117,6 +117,47 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertEqual(controller._weekday_max_daily_revenue_limit, 123.0)
         self.assertEqual(controller._weekend_max_daily_revenue_limit, 123.0)
 
+    def test_daily_private_cap_keeps_official_without_a_private_then_official_jump(self):
+        db = Mock()
+        db.get_today_summary.return_value = {"total_amount": 500.0}
+        window = SimpleNamespace(
+            db=db,
+            sale_page=SimpleNamespace(cart_items=[]),
+            floating_ball=None,
+        )
+        controller = AutoSwitchController(
+            window,
+            {
+                "private_ratio_percent": 30,
+                "min_private_weight_kg": 0.25,
+                "min_valid_weight_kg": 0.08,
+                "weekday_max_daily_revenue_limit": 500.0,
+                "weekend_max_daily_revenue_limit": 500.0,
+                "official_lock_sec": 60,
+            },
+        )
+        controller._switch_cycle_initialized = True
+        controller._switch_cycle_is_private = False
+        controller._switch_cycle_start_total_weight = 1.0
+        controller._switch_cycle_start_private_weight = 0.3
+        controller._total_weight_kg = 1.5
+        controller._private_weight_kg = 0.3
+        controller._last_official_time = time.time() - 61.0
+
+        with patch("core.switch_controller.is_official_pos_available", return_value=True), patch(
+            "core.switch_controller.bring_official_to_front", return_value=True
+        ) as bring_official, patch("core.switch_controller.bring_our_pos_to_front") as bring_private:
+            controller.on_weighing_cycle_started(0.5)
+
+        self.assertFalse(controller._current_is_private)
+        self.assertEqual(controller._last_decision_kind, "forced_official")
+        bring_official.assert_called_once()
+        bring_private.assert_not_called()
+        _progress, remaining, next_channel = controller.get_switch_progress_status()
+        self.assertIsNone(remaining)
+        self.assertEqual(next_channel, "官方 POS")
+        controller._hide_timer.stop()
+
     def test_cart_clear_keeps_cycle_locked_until_stable_zero(self):
         dummy = SimpleNamespace(
             cart_items=[{"type": "soup"}],

@@ -134,6 +134,20 @@ class AutoSwitchController(QObject):
         self._max_daily_revenue_limit = max(0.0, float(limit))
         return self._max_daily_revenue_limit
 
+    def _private_daily_limit_reached(self):
+        """Return whether today's private-POS paid amount blocks new private routing."""
+        daily_limit = self._current_daily_revenue_limit()
+        if daily_limit <= 0.0:
+            return False
+        db = getattr(self.main_window, "db", None)
+        if not db or not hasattr(db, "get_today_summary"):
+            return False
+        try:
+            summary = db.get_today_summary() or {}
+            return float(summary.get("total_amount", 0.0) or 0.0) >= daily_limit
+        except Exception:
+            return False
+
     def notify_manual_switch(self, duration_sec: float = -1.0):
         """店员手动点击悬浮球/快捷键触发：锁定指定秒数内不被称重自动抢抓覆盖"""
         if duration_sec < 0:
@@ -756,6 +770,12 @@ class AutoSwitchController(QObject):
             # yet, so keep the switch direction visible and let the caller
             # establish the baseline instead of silently hiding the label.
             return 0.0, None, "官方 POS"
+        # The weight-ratio forecast must not advertise a private switch after
+        # the private POS has hit its paid daily cap.  The actual decision
+        # gate runs before the ratio rule, so this is a display/state guard to
+        # keep the floating ball truthful as well.
+        if not self._switch_cycle_is_private and self._private_daily_limit_reached():
+            return 0.0, None, "官方 POS"
         target = min(1.0, max(0.0, self._target_private_ratio / 100.0))
         base_total = max(0.0, float(self._switch_cycle_start_total_weight or 0.0))
         base_private = max(0.0, float(self._switch_cycle_start_private_weight or 0.0))
@@ -906,7 +926,9 @@ class AutoSwitchController(QObject):
                     remaining_kg=remaining_kg,
                     next_channel=next_channel,
                 )
-            if remaining_kg is None:
+            if not is_private and self._private_daily_limit_reached():
+                switch_text = "当日私域收款已封顶 | 保持官方 POS"
+            elif remaining_kg is None:
                 switch_text = "按配置不会自动切换"
             else:
                 switch_text = f"切换进度: {progress * 100:.0f}% | 当前通道再称约 {remaining_kg:.3f}kg 后切到{next_channel}"
