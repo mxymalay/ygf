@@ -137,7 +137,11 @@ def read_logs(category_filter: str = "", keyword: str = "", limit: int = 500) ->
                 continue
 
         results.append(entry)
-        if len(results) >= limit:
+        # ``None`` or a non-positive limit means read the complete retained
+        # log.  The algorithm log page filters by date after loading; using a
+        # global 2,000-row cap there used to hide all earlier hours of a busy
+        # day once newer records pushed them out of the tail.
+        if limit and limit > 0 and len(results) >= limit:
             break
     return results
 

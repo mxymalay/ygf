@@ -253,7 +253,15 @@ class HistoryWidget(QWidget):
 
         # 日期选择 (触屏优化的独立年月日下拉框)
         date_layout = QHBoxLayout()
-        date_layout.setSpacing(6)
+        date_layout.setSpacing(8)
+        date_layout.setContentsMargins(0, 0, 0, 0)
+
+        lbl_date = QLabel(u"日期")
+        lbl_date.setStyleSheet(
+            "font-size: 15px; font-weight: bold; color: #CBD5E1; "
+            "border: none; background: transparent; padding-right: 2px;"
+        )
+        date_layout.addWidget(lbl_date)
         
         cbo_style = """
             QComboBox { background: #1F2937; color: #F9FAFB; font-size: 15px; font-weight: bold; 
@@ -275,9 +283,9 @@ class HistoryWidget(QWidget):
         self.cbo_day = QComboBox()
 
         for cbo, combo_width, popup_width in (
-            (self.cbo_year, 106, 122),
-            (self.cbo_month, 84, 100),
-            (self.cbo_day, 84, 100),
+            (self.cbo_year, 142, 250),
+            (self.cbo_month, 108, 190),
+            (self.cbo_day, 108, 190),
         ):
             cbo.setStyleSheet(cbo_style)
             # 为了触屏体验，注入强制高度委托
@@ -316,8 +324,9 @@ class HistoryWidget(QWidget):
         date_layout.addWidget(self.cbo_day)
 
         # ── 添加时间筛选 (从时分到时分) ──
-        lbl_time = QLabel(u" 时间 ")
+        lbl_time = QLabel(u"时间")
         lbl_time.setStyleSheet("font-size: 15px; font-weight: bold; color: #9CA3AF; border: none;")
+        date_layout.addSpacing(10)
         date_layout.addWidget(lbl_time)
 
         lbl_from = QLabel(u"从")
@@ -338,12 +347,12 @@ class HistoryWidget(QWidget):
             cbo.setStyleSheet(cbo_style)
             from ui.styles import apply_touch_combo_style
             apply_touch_combo_style(cbo, item_height=48)
-            cbo.setFixedWidth(64)
+            cbo.setFixedWidth(82)
             cbo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             popup = cbo.view()
             popup.setTextElideMode(Qt.ElideNone)
             popup.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            popup.setMinimumWidth(78)
+            popup.setMinimumWidth(112)
             maximum = 24 if suffix == u"时" else 60
             for value in range(maximum):
                 cbo.addItem(f"{value:02d}{suffix}", value)
@@ -371,26 +380,31 @@ class HistoryWidget(QWidget):
         # 快捷操作按钮
         quick_date_layout = QHBoxLayout()
         quick_date_layout.setSpacing(8)
+        quick_date_layout.setContentsMargins(0, 0, 0, 0)
         
         quick_btn_style = """
             QPushButton { background: #374151; color: white; font-weight: bold; font-size: 14px; padding: 8px 12px; border-radius: 6px; border: none; }
         """
         
         self.btn_today = QPushButton(u"今天")
+        self.btn_today.setFixedSize(118, 42)
         self.btn_today.setStyleSheet(quick_btn_style)
         self.btn_today.clicked.connect(lambda: self._set_quick_date(0))
         
         self.btn_yesterday = QPushButton(u"昨天")
+        self.btn_yesterday.setFixedSize(118, 42)
         self.btn_yesterday.setStyleSheet(quick_btn_style)
         self.btn_yesterday.clicked.connect(lambda: self._set_quick_date(-1))
         
         self.btn_day_before = QPushButton(u"前天")
+        self.btn_day_before.setFixedSize(118, 42)
         self.btn_day_before.setStyleSheet(quick_btn_style)
         self.btn_day_before.clicked.connect(lambda: self._set_quick_date(-2))
         
         quick_date_layout.addWidget(self.btn_today)
         quick_date_layout.addWidget(self.btn_yesterday)
         quick_date_layout.addWidget(self.btn_day_before)
+        quick_date_layout.addStretch()
 
         # The date/time controls and the quick day buttons no longer compete
         # for one horizontal line on a 1024px Win7 POS display.
@@ -398,8 +412,9 @@ class HistoryWidget(QWidget):
         header_controls.setSpacing(6)
         header_controls.addLayout(date_layout)
         header_controls.addLayout(quick_date_layout)
-        header_bar.addLayout(header_controls, stretch=1)
-        header_bar.addSpacing(8)
+        header_controls.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        header_bar.addLayout(header_controls)
+        header_bar.addSpacing(18)
         header_bar.addStretch()
         
         main_layout.addLayout(header_bar)

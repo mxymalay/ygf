@@ -2,6 +2,8 @@ import sys
 import os
 import time
 import subprocess
+import traceback
+import faulthandler
 
 # 屏蔽 Qt 框架在控制台输出的 png 色彩警告与窗口尺寸适应性提示
 os.environ["QT_LOGGING_RULES"] = "qt.png=false;qt.qpa.window=false;*.warning=false"
@@ -35,6 +37,44 @@ def main():
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
     app = QApplication(sys.argv)
+
+    # Keep a native/Python fatal-error trace even when the packaged Win7
+    # executable has no console.  This is separate from app_events.jsonl so a
+    # Qt/driver crash that bypasses Python exceptions still leaves evidence.
+    try:
+        crash_base = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        crash_dir = os.path.join(crash_base, "data")
+        os.makedirs(crash_dir, exist_ok=True)
+        crash_stream = open(os.path.join(crash_dir, "startup_crash.log"), "a", encoding="utf-8")
+        faulthandler.enable(file=crash_stream, all_threads=True)
+        app._startup_crash_stream = crash_stream
+    except Exception:
+        crash_stream = None
+
+    # Exceptions raised by queued Qt slots are otherwise invisible in a
+    # packaged Win7 build (the console is hidden), which looks like a silent
+    # crash exactly after the final startup progress update.  Route them to
+    # the same Win7-safe dialog used by the rest of the POS and keep a trace.
+    def _handle_unhandled_exception(exc_type, exc_value, exc_tb):
+        detail = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            log_event(CAT_SYSTEM, "界面未处理异常", detail[-6000:])
+        except Exception:
+            pass
+        try:
+            from ui.custom_dialog import show_error
+            show_error(
+                None,
+                u"POS 运行异常",
+                u"程序遇到未处理异常，原始数据未被删除。\n\n%s\n\n详细信息已写入 data/app_events.jsonl。" % str(exc_value),
+            )
+        except Exception:
+            try:
+                sys.__stderr__.write(detail)
+            except Exception:
+                pass
+
+    sys.excepthook = _handle_unhandled_exception
 
     # 设置默认字体
     font = QFont("Microsoft YaHei", 10)
@@ -144,13 +184,31 @@ def main():
     #    所以要等对象创建完毕后再关闭启动提示。
     from ui.login_window import LoginWindow
 
-    login_dlg = LoginWindow(config)
+    login_dlg = None
+    try:
+        login_dlg = LoginWindow(config)
+    except Exception as exc:
+        detail = traceback.format_exc()
+        log_event(CAT_SYSTEM, "登录界面创建失败", detail[-6000:])
+        from ui.custom_dialog import show_error
+        show_error(None, u"登录界面启动失败", u"检测页面无法打开：\n%s\n\n详细信息已写入 data/app_events.jsonl。" % exc)
+        _log_system_shutdown()
+        return 1
     if boot_loading is not None:
         boot_loading.close()
         boot_loading.deleteLater()
         boot_loading = None
         app.processEvents()
-    if login_dlg.exec_() != QDialog.Accepted:
+    try:
+        login_result = login_dlg.exec_()
+    except Exception as exc:
+        detail = traceback.format_exc()
+        log_event(CAT_SYSTEM, "登录检测异常退出", detail[-6000:])
+        from ui.custom_dialog import show_error
+        show_error(None, u"登录检测异常", u"检测页面运行失败：\n%s\n\n详细信息已写入 data/app_events.jsonl。" % exc)
+        _log_system_shutdown()
+        return 1
+    if login_result != QDialog.Accepted:
         # 用户点击退出或直接关闭窗口
         _log_system_shutdown()
         sys.exit(0)
@@ -164,6 +222,8 @@ def main():
     startup_loading = StartupLoadingDialog()
     startup_loading.show()
     app.processEvents()
+    window = None
+    startup_error = None
     try:
         # Keep the loading dialog visible while importing/constructing the
         # heavy main window modules on slower Win7 cashiers.
@@ -193,17 +253,45 @@ def main():
         window.raise_()
         window.activateWindow()
         app.processEvents()
+    except Exception as exc:
+        startup_error = exc
+        detail = traceback.format_exc()
+        log_event(CAT_SYSTEM, "主窗口启动失败", detail[-6000:])
     finally:
         startup_loading.close()
         startup_loading.deleteLater()
+    if window is None:
+        # Keep the final splash cleanup from turning the actual exception into
+        # a silent process exit.  The user gets an actionable dialog instead.
+        from ui.custom_dialog import show_error
+        show_error(
+            None,
+            u"POS 启动失败",
+            u"主界面在启动收尾阶段未能打开，程序没有删除订单或配置。\n\n原因：%s\n\n详细信息已写入 data/app_events.jsonl。" % startup_error,
+        )
+        _log_system_shutdown()
+        return 1
     # A recovered order is detected during widget construction.  Let the
     # startup overlay close first, then show the notice with the maximized
     # window's final screen geometry.
-    QTimer.singleShot(0, window.show_startup_notifications)
+    def _show_startup_notifications_safely():
+        try:
+            window.show_startup_notifications()
+        except Exception as exc:
+            detail = traceback.format_exc()
+            log_event(CAT_SYSTEM, "启动提示显示失败", detail[-6000:])
+            from ui.custom_dialog import show_error
+            show_error(None, u"启动提示异常", u"主界面已打开，但启动提示显示失败：\n%s" % exc)
+
+    QTimer.singleShot(0, _show_startup_notifications_safely)
     log_event(CAT_SYSTEM, "主界面就绪", f"开始运营服务，模拟模式: {config.get('is_mock_mode', False)}")
 
     sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
-    main()
+    # Preserve a non-zero status for launchers/installers when the startup
+    # dialog reports a failure; normal operation exits from app.exec_().
+    result = main()
+    if result:
+        sys.exit(result)

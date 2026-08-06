@@ -276,7 +276,11 @@ class DecisionWeightChart(QWidget):
             midpoint = left + (right - left) / 2.0
             state = self._app_state_at(midpoint)
             if state == "closed":
-                pen = QPen(QColor("#EF4444"), 2.4, Qt.DashLine)
+                # Downtime is context, not a second data series: keep the
+                # red interruption line hairline-thin and translucent so it
+                # stays behind the blue/green cumulative curve.
+                closed_color = QColor(239, 68, 68, 105)
+                pen = QPen(closed_color, 1.0, Qt.DashLine)
             else:
                 pen = QPen(QColor("#64748B"), 1.8, Qt.SolidLine)
             painter.setPen(pen)
@@ -546,14 +550,28 @@ class DecisionWeightChart(QWidget):
         legend_font = QFont("Microsoft YaHei", 11)
         legend_font.setBold(False)
         title_width = float(QFontMetrics(title_font).horizontalAdvance(title))
-        legend_items = (
-            (self.OFFICIAL_COLOR, u"官方"),
-            (self.PRIVATE_COLOR, u"私有"),
-            (self.MANUAL_COLOR, u"手动切换"),
-        )
+        if self.chart_mode == "histogram":
+            # The histogram has no route-change points; its legend only
+            # explains the two stacked bar colours.
+            legend_items = (
+                ("line", self.OFFICIAL_COLOR, u"官方"),
+                ("line", self.PRIVATE_COLOR, u"私有"),
+            )
+        else:
+            # The line chart also explains the point markers.  The orange
+            # circle and red square match the clickable start/close nodes.
+            legend_items = (
+                ("line", self.OFFICIAL_COLOR, u"官方"),
+                ("line", self.PRIVATE_COLOR, u"私有"),
+                ("line", self.MANUAL_COLOR, u"手动切换"),
+                ("circle", QColor("#F59E0B"), u"程序开启"),
+                ("square", QColor("#EF4444"), u"程序关闭"),
+            )
         item_widths = [
-            48.0 + float(QFontMetrics(legend_font).horizontalAdvance(label)) + 24.0
-            for _color, label in legend_items
+            (44.0 if kind == "line" else 28.0)
+            + float(QFontMetrics(legend_font).horizontalAdvance(label))
+            + 18.0
+            for kind, _color, label in legend_items
         ]
         legend_width = sum(item_widths) + 12.0 * (len(item_widths) - 1)
         legend_x = left + title_width + 34.0
@@ -568,12 +586,25 @@ class DecisionWeightChart(QWidget):
         painter.setFont(title_font)
         painter.drawText(QPointF(left, float(y)), title)
         cursor_x = legend_x
-        for item_index, (color, label) in enumerate(legend_items):
-            painter.setPen(QPen(color, 4))
-            painter.drawLine(QPointF(cursor_x, float(y) - 7), QPointF(cursor_x + 40.0, float(y) - 7))
+        for item_index, (kind, color, label) in enumerate(legend_items):
+            painter.save()
+            if kind == "line":
+                painter.setPen(QPen(color, 4))
+                painter.drawLine(QPointF(cursor_x, float(y) - 7), QPointF(cursor_x + 34.0, float(y) - 7))
+                text_x = cursor_x + 42.0
+            else:
+                painter.setPen(QPen(QColor("#0F172A"), 1))
+                painter.setBrush(color)
+                marker_center = QPointF(cursor_x + 10.0, float(y) - 7.0)
+                if kind == "circle":
+                    painter.drawEllipse(marker_center, 5.0, 5.0)
+                else:
+                    painter.drawRect(QRectF(marker_center.x() - 5.0, marker_center.y() - 5.0, 10.0, 10.0))
+                text_x = cursor_x + 22.0
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(legend_font)
-            painter.drawText(QPointF(cursor_x + 50.0, float(y)), label)
+            painter.drawText(QPointF(text_x, float(y)), label)
+            painter.restore()
             cursor_x += item_widths[item_index] + 12.0
         painter.restore()
 
@@ -1366,7 +1397,7 @@ class SwitchSettingsWidget(QWidget):
         # 的 route-event 明细，而不是日志文本，避免日志截断后丢失节点。
         chart_title = QLabel(u"今日累计称重折线图")
         chart_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
-        chart_tip = QLabel(u"一条连续累计总重量线；蓝/绿线段分别表示该次称重走官方/私有，节点“+重量”是本次称重；紫色圆点表示手动切换，红色虚线表示软件关闭期间，灰线表示已运行但暂无称重。")
+        chart_tip = QLabel(u"一条连续累计总重量线；蓝/绿线段分别表示该次称重走官方/私有，节点“+重量”是本次称重；紫色圆点表示手动切换，橙色圆点/红色方点表示程序开启/关闭，红色虚线表示软件关闭期间，灰线表示已运行但暂无称重。")
         chart_tip.setWordWrap(True)
         chart_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
         chart_zoom_bar = QWidget()
@@ -1616,18 +1647,27 @@ class SwitchSettingsWidget(QWidget):
         year = QComboBox()
         month = QComboBox()
         day = QComboBox()
-        for combo, width in ((year, 112), (month, 96), (day, 96)):
+        # Win7 high-DPI scales the popup viewport independently from the
+        # combo box.  Give both the field and its popup enough room so years
+        # never collapse to ``202...`` and the arrow does not cover ``年/月/日``.
+        for combo, width, popup_width in (
+            (year, 148, 250), (month, 112, 190), (day, 112, 190)
+        ):
             combo.setStyleSheet(combo_style)
-            combo.setMinimumWidth(width)
+            combo.setFixedWidth(width)
             combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-            combo.view().setTextElideMode(Qt.ElideNone)
-            combo.view().setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            combo.view().setMinimumWidth(width + 16)
             try:
                 from ui.styles import apply_touch_combo_style
                 apply_touch_combo_style(combo, item_height=48)
             except Exception:
                 pass
+            # apply_touch_combo_style installs a new QListView, so apply the
+            # popup width after it; otherwise Win7 silently restores the
+            # narrow native view and renders years as ``202...``.
+            popup = combo.view()
+            popup.setTextElideMode(Qt.ElideNone)
+            popup.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            popup.setMinimumWidth(popup_width)
 
         current = QDate.currentDate()
         for value in range(2020, current.year() + 5):
@@ -1655,6 +1695,7 @@ class SwitchSettingsWidget(QWidget):
         today = QPushButton(u"今天")
         yesterday = QPushButton(u"昨天")
         for button in (today, yesterday):
+            button.setFixedWidth(112)
             button.setMinimumHeight(42)
             button.setStyleSheet(quick_style)
         today.clicked.connect(lambda _checked=False, k=key: self._set_filter_date(k, 0))
@@ -1723,8 +1764,12 @@ class SwitchSettingsWidget(QWidget):
         self._on_filter_date_changed(key)
 
     def _refresh_logs(self):
-        """拉取日志，仅筛选 决策、切换、避险"""
-        all_logs = read_logs(limit=2000)
+        """读取保留期内的完整日志，再筛选 决策、切换、避险。"""
+        # Do not cap this at the newest 2,000 global rows: a busy store can
+        # push yesterday's daytime entries out of that tail, making the date
+        # page appear to start in the evening.  The logger already trims the
+        # file to a bounded size, so loading the retained file is safe here.
+        all_logs = read_logs(limit=None)
         selected_date = self._selected_filter_date("logs")
         self.filtered_algo_logs = [
             entry for entry in all_logs

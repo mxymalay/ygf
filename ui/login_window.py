@@ -11,6 +11,7 @@ from PyQt5.QtGui import QColor, QFont
 from utils.port_scanner import scan_printers
 from config import save_config, app_branding
 from utils.window_utils import find_official_window_handle, is_official_window_configured
+from core.app_logger import log_event, CAT_SYSTEM
 
 def check_ygf_official_running(config=None) -> bool:
     """检测已配置的官方 POS 窗口是否正在运行。"""
@@ -199,6 +200,20 @@ class LoginWindow(QDialog):
     def _on_debug_click(self):
         self.is_mock_mode = True
         self.accept()
+
+    def _run_check_step_safely(self, label, callback, fallback=None):
+        """Keep a hardware-check timer exception from terminating Win7 Qt."""
+        try:
+            callback()
+        except Exception as exc:
+            detail = "%s: %s" % (label, exc)
+            log_event(CAT_SYSTEM, "登录检测步骤异常", detail)
+            self.hardware_warnings.append(detail)
+            self.lbl_err.setText(u"%s；已跳过此项检测" % detail)
+            if fallback is not None:
+                QTimer.singleShot(0, fallback)
+            else:
+                self.btn_debug.show()
         
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -429,7 +444,9 @@ class LoginWindow(QDialog):
                 self.btn_close.setText(u"退出系统")
                 self.check_widget.show()
                 self.lbl_err.setText(u"未完成官方 POS 窗口配置；检测结束后可进入模拟模式或退出。")
-                QTimer.singleShot(100, self._check_official_software)
+                QTimer.singleShot(100, lambda: self._run_check_step_safely(
+                    u"官方 POS 检测", self._check_official_software, self._check_printer
+                ))
                 return
             self.form_widget.hide()
             
@@ -440,7 +457,9 @@ class LoginWindow(QDialog):
             
             self.check_widget.show()
             self.lbl_err.setText("")
-            QTimer.singleShot(100, self._check_official_software)
+            QTimer.singleShot(100, lambda: self._run_check_step_safely(
+                u"官方 POS 检测", self._check_official_software, self._check_printer
+            ))
         else:
             self.lbl_err.setText(u"账号或密码错误，请重试！")
 
@@ -462,14 +481,18 @@ class LoginWindow(QDialog):
         return True
             
     def _check_official_software(self):
+        log_event(CAT_SYSTEM, "登录检测阶段", "开始官方 POS 与电子秤检测")
         self.progress_bar.setValue(15)
         self.lbl_badge1.setText(u"正在检测...")
         self.lbl_badge1.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
         self.lbl_badge1_sub.setText(u"正在检测...")
         self.lbl_badge1_sub.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
-        QTimer.singleShot(250, self._do_check_official_software)
+        QTimer.singleShot(250, lambda: self._run_check_step_safely(
+            u"官方 POS 与电子秤检测", self._do_check_official_software, self._check_printer
+        ))
         
     def _do_check_official_software(self):
+        log_event(CAT_SYSTEM, "登录检测阶段", "执行官方 POS 与电子秤检测")
         self.progress_bar.setValue(35)
         official_running = check_ygf_official_running(self.config)
         scale_source = self.config.get("scale_source", "official")
@@ -525,12 +548,16 @@ class LoginWindow(QDialog):
         QTimer.singleShot(250, self._check_printer)
 
     def _check_printer(self):
+        log_event(CAT_SYSTEM, "登录检测阶段", "开始打印机检测")
         self.progress_bar.setValue(50)
         self.lbl_badge2.setText(u"正在检测...")
         self.lbl_badge2.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
-        QTimer.singleShot(250, self._do_check_printer)
+        QTimer.singleShot(250, lambda: self._run_check_step_safely(
+            u"打印机检测", self._do_check_printer, self._check_shouqianba
+        ))
 
     def _do_check_printer(self):
+        log_event(CAT_SYSTEM, "登录检测阶段", "执行打印机检测")
         self.progress_bar.setValue(70)
         printers = scan_printers()
         if printers:
@@ -544,12 +571,16 @@ class LoginWindow(QDialog):
         QTimer.singleShot(250, self._check_shouqianba)
 
     def _check_shouqianba(self):
+        log_event(CAT_SYSTEM, "登录检测阶段", "开始收钱吧检测")
         self.progress_bar.setValue(85)
         self.lbl_badge3.setText(u"正在检测...")
         self.lbl_badge3.setStyleSheet("color: #38BDF8; background-color: #0369A1; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0EA5E9;")
-        QTimer.singleShot(250, self._do_check_shouqianba)
+        QTimer.singleShot(250, lambda: self._run_check_step_safely(
+            u"收钱吧检测", self._do_check_shouqianba
+        ))
 
     def _do_check_shouqianba(self):
+        log_event(CAT_SYSTEM, "登录检测阶段", "执行收钱吧检测，进度 100%")
         self.progress_bar.setValue(100)
         try:
             from core.shouqianba_sender import test_shouqianba_port
@@ -570,8 +601,10 @@ class LoginWindow(QDialog):
             self.hardware_warnings.append(f"收钱吧 {port} 未连通")
 
         if self.official_ok:
+            log_event(CAT_SYSTEM, "登录检测完成", "硬件检测结束，准备进入主界面")
             QTimer.singleShot(400, self.accept)
         else:
+            log_event(CAT_SYSTEM, "登录检测完成", "硬件检测结束，需要选择模拟模式或退出")
             self.btn_debug.show()
 
     def _on_debug_click(self):

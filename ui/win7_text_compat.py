@@ -5,7 +5,7 @@ otherwise valid labels, which is especially confusing in the settings and
 takeout category tables. Keep the source wording but replace emoji only at
 the presentation boundary with short, readable ASCII/Unicode-safe tags.
 """
-from PyQt5.QtCore import QObject, QEvent, QTimer
+from PyQt5.QtCore import QObject, QEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QLabel, QComboBox, QTabWidget, QTableWidget,
     QListWidget, QTreeWidget, QTreeWidgetItem,
@@ -13,21 +13,17 @@ from PyQt5.QtWidgets import (
 
 
 _REPLACEMENTS = {
-    "⚠️": "[!]", "⚠": "[!]", "❌": "[X]", "✅": "[OK]",
-    "❓": "[?]", "ℹ️": "[i]", "ℹ": "[i]", "⭐": "*",
-    "🍲": "[汤]", "🥩": "[肉]", "🥬": "[菜]", "🥤": "[饮]",
-    "💵": "[钱]", "💳": "[卡]", "📱": "[码]", "💻": "[电脑]",
-    "🖥️": "[窗口]", "🖥": "[窗口]", "⚖️": "[秤]", "⚖": "[秤]",
-    "📋": "[表]", "📊": "[图]", "📈": "[图]", "📉": "[图]",
-    "📦": "[包]", "📥": "[入]", "📤": "[出]", "🖨️": "[印]",
-    "🖨": "[印]", "🔄": "[刷新]", "🔍": "[查]", "🧹": "[清理]",
-    "🗑️": "[删]", "🗑": "[删]", "🎨": "[图标]", "🎵": "[音乐]",
-    "🌐": "[网络]", "🏪": "[店]", "⚙️": "[设置]", "⚙": "[设置]",
-    "🔔": "[提醒]", "🧠": "[算法]", "🔥": "[重置]", "🚨": "[警告]",
-    "🛠️": "[工具]", "🛠": "[工具]", "🛡️": "[保护]", "🛡": "[保护]",
-    "💡": "[提示]", "📌": "[固定]", "🔤": "[文字]", "🧪": "[测试]",
-    "👨‍🍳": "[制作]", "🎉": "[完成]", "🎯": "[命中]", "⏳": "[等待]",
-    "🍜": "[餐]", "🧾": "[票]", "👋": "[欢迎]", "💰": "[钱]",
+    # Only the glyphs reported from the Win7 screenshots are substituted.
+    # Use compact monochrome symbols instead of Chinese text labels.  These
+    # BMP symbols are present in the Win7 system fonts; all other emoji remain
+    # exactly as authored in the application.
+    "⚙️": "✦", "⚙": "✦",       # system/settings
+    "🧠": "◈",                  # algorithm
+    "💵": "￥",                 # money/cash
+    "🧹": "✧",                 # cleanup
+    "🖥️": "▣", "🖥": "▣",       # window/display
+    "🧪": "◇",                  # simulation/test
+    "🍲": "♨", "🥩": "◆", "🥬": "✤", "🥤": "●",  # takeout categories
 }
 
 
@@ -36,8 +32,7 @@ def win7_safe_text(value):
     text = str(value or "")
     for source, replacement in sorted(_REPLACEMENTS.items(), key=lambda pair: len(pair[0]), reverse=True):
         text = text.replace(source, replacement)
-    # Remove variation selectors left by a platform-specific emoji sequence.
-    return text.replace("\ufe0f", "")
+    return text
 
 
 def _set_text_if_needed(widget, getter, setter):
@@ -102,10 +97,19 @@ def sanitize_widget_text(root):
 
 
 class Win7TextCompatFilter(QObject):
-    """Sanitize controls when shown or when a dynamic child is added."""
+    """Sanitize controls when they are actually shown.
+
+    Do not defer work from ChildAdded/LayoutRequest with ``singleShot``:
+    during startup Qt can destroy a page before the queued callback runs.
+    Calling ``findChildren`` on that stale wrapper is a native access violation
+    on Win7, not a catchable Python exception.
+    """
     def eventFilter(self, obj, event):  # noqa: N802 - Qt API name
-        if event.type() in (QEvent.Show, QEvent.ChildAdded, QEvent.LayoutRequest):
-            QTimer.singleShot(0, lambda target=obj: sanitize_widget_text(target))
+        if event.type() == QEvent.Show:
+            try:
+                sanitize_widget_text(obj)
+            except (AttributeError, RuntimeError, TypeError):
+                pass
         return False
 
 
@@ -115,4 +119,3 @@ def install_win7_text_compat(app):
     app.installEventFilter(compat)
     app._win7_text_compat = compat
     return compat
-
