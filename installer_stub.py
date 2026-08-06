@@ -830,7 +830,10 @@ def _uninstall(install_dir, root=None):
 def _make_root():
     root = tk.Tk()
     root.title("YGF POS 安装程序")
-    root.geometry("600x360")
+    # The icon selector adds one full input row.  The old 360px window left
+    # the install/update buttons below the visible area on Win7 DPI scaling.
+    root.geometry("620x460")
+    root.minsize(620, 460)
     root.resizable(False, False)
     return root
 
