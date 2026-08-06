@@ -193,9 +193,10 @@ class TakeoutSortingWidget(QWidget):
         # ── 2. Tab 选项卡配置板块 ──
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #334155; background: #1E293B; border-radius: 8px; }
-            QTabBar::tab { background: #0F172A; color: #94A3B8; font-weight: bold; font-size: 13px; padding: 8px 16px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
-            QTabBar::tab:selected { background: #1E293B; color: #38BDF8; border: 1px solid #334155; border-bottom: none; }
+            QTabWidget::pane { border: 2px solid #475569; background: #1E293B; border-radius: 8px; }
+            QTabBar::tab { background: #0B1220; color: #CBD5E1; font-weight: bold; font-size: 14px; padding: 10px 18px; border: 1px solid #334155; border-bottom: 2px solid #334155; border-top-left-radius: 7px; border-top-right-radius: 7px; }
+            QTabBar::tab:hover { background: #17243A; color: #F8FAFC; }
+            QTabBar::tab:selected { background: #243B53; color: #7DD3FC; border: 2px solid #38BDF8; border-bottom: 2px solid #243B53; }
         """)
 
         # Tab A: 分类与关键字排序

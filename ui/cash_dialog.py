@@ -10,12 +10,16 @@ class CashCalculatorDialog(QDialog):
     现金结算计算器
     自动弹钱箱，收银员输入实收金额，显示找零，点击确认出票。
     """
-    def __init__(self, sale_data, parent=None, on_confirm=None, printer=None):
+    def __init__(self, sale_data, parent=None, on_confirm=None, printer=None,
+                 allow_partial=False, on_amount_confirm=None, on_partial_confirm=None):
         super().__init__(parent)
         self.sale_data = sale_data
         self.total_amount = sale_data.get("total_price", 0.0)
         self.on_confirm = on_confirm
         self.printer = printer
+        self.allow_partial = bool(allow_partial)
+        self.on_amount_confirm = on_amount_confirm
+        self.on_partial_confirm = on_partial_confirm
         self.received_amount_str = ""
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
@@ -64,7 +68,7 @@ class CashCalculatorDialog(QDialog):
 
         # 标题栏
         header = QHBoxLayout()
-        lbl_title = QLabel(u"💵 现金结算")
+        lbl_title = QLabel(u"💵 混合支付 - 现金部分" if self.allow_partial else u"💵 现金结算")
         lbl_title.setStyleSheet("font-size: 24px; font-weight: 900; color: #60A5FA; border: none;")
         header.addWidget(lbl_title)
         header.addStretch()
@@ -104,7 +108,7 @@ class CashCalculatorDialog(QDialog):
         
         # 找零
         row_zl = QHBoxLayout()
-        lbl_zl_t = QLabel(u"找零金额：")
+        lbl_zl_t = QLabel(u"扫码补差：" if self.allow_partial else u"找零金额：")
         lbl_zl_t.setStyleSheet("font-size: 18px; color: #94A3B8; border: none;")
         self.lbl_zl = QLabel(u"￥<b>0</b>.<span style='font-size:36px;'>00</span>")
         self.lbl_zl.setStyleSheet("font-size: 64px; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; color: #FF3B30; border: none;")
@@ -193,6 +197,16 @@ class CashCalculatorDialog(QDialog):
         int_ss, dec_ss = f"{val:.2f}".split('.')
         self.lbl_ss.setText(f"￥<b>{int_ss}</b>.<span style='font-size:24px;'>{dec_ss}</span>")
         
+        if self.allow_partial:
+            remaining = max(0.0, self.total_amount - val)
+            int_remaining, dec_remaining = f"{remaining:.2f}".split('.')
+            self.lbl_zl.setText(u"￥<b>%s</b>.<span style='font-size:36px;'>%s</span>" % (int_remaining, dec_remaining))
+            self.lbl_zl.setStyleSheet(
+                "font-size: 64px; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif; "
+                "color: #F59E0B; border: none;"
+            )
+            return
+
         change = val - self.total_amount
         if change < 0:
             self.lbl_zl.setText(u"￥<b>0</b>.<span style='font-size:36px;'>00</span>")
@@ -209,12 +223,35 @@ class CashCalculatorDialog(QDialog):
                 val = float(self.received_amount_str)
         except ValueError:
             pass
-            
-        if val < self.total_amount:
+
+        if self.allow_partial and val > self.total_amount:
             from ui.custom_dialog import show_warning
-            show_warning(self, u"提示", u"实收金额小于应收金额！")
+            show_warning(self, u"提示", u"混合支付的现金金额不能超过应收金额；如需找零，请选择现金结算。")
             return
             
+        if val < self.total_amount:
+            if not self.allow_partial:
+                if self.on_partial_confirm:
+                    if val <= 0.0:
+                        from ui.custom_dialog import show_warning
+                        show_warning(self, u"提示", u"请输入本次现金收款金额！")
+                        return
+                    self.on_partial_confirm(val)
+                    self.accept()
+                    return
+                from ui.custom_dialog import show_warning
+                show_warning(self, u"提示", u"实收金额小于应收金额！")
+                return
+            if val <= 0.0:
+                from ui.custom_dialog import show_warning
+                show_warning(self, u"提示", u"请输入本次现金收款金额！")
+                return
+
+        if self.allow_partial and self.on_amount_confirm:
+            self.on_amount_confirm(val)
+            self.accept()
+            return
+
         if self.on_confirm:
             self.on_confirm("cash")
         self.accept()

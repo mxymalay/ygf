@@ -7,6 +7,7 @@ import time
 import socket
 import unicodedata
 from config import DATA_DIR
+from core.payment_utils import payment_display_label
 
 
 def str_w(s: str) -> int:
@@ -208,7 +209,13 @@ class ReceiptPrinter:
             "qr": "二维码",
         }
         if payment:
-            payment = payment_labels.get(payment.lower(), payment)
+            if payment.lower() == "mixed":
+                payment = payment_display_label(
+                    payment,
+                    sale.get("payment_breakdown") or sale.get("payment_breakdown_json", ""),
+                )
+            else:
+                payment = payment_labels.get(payment.lower(), payment)
         if item is None:
             item_name = ""
             weight = ""

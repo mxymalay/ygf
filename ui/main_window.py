@@ -3,7 +3,8 @@
 PyQt5 + Python 3.8 兼容
 """
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QStackedWidget, QStatusBar, QLabel, QWidget, QHBoxLayout
+    QApplication, QMainWindow, QStackedWidget, QStatusBar, QLabel, QWidget, QHBoxLayout,
+    QPushButton
 )
 from PyQt5.QtCore import QTimer, Qt
 from datetime import datetime
@@ -29,6 +30,9 @@ class MainWindow(QMainWindow):
         self.config = config
         self.hardware_warnings = hardware_warnings or []
         self._startup_loading = startup_loading
+        self._hardware_check_running = False
+        self._hardware_check_step = 0
+        self._hardware_check_state = {}
         self.db = Database()
         self._startup_checkpoint(u"正在准备数据库", u"本地订单账本已打开", 10)
         self.call_mgr = CallNumberManager(config)
@@ -145,11 +149,31 @@ class MainWindow(QMainWindow):
 
         # 3. 底部状态栏
         self.status = QStatusBar()
-        self.status.setStyleSheet("QStatusBar::item { border: none; }")
+        self.status.setFixedHeight(34)
+        self.status.setStyleSheet(
+            "QStatusBar { padding: 0px; min-height: 0px; }"
+            "QStatusBar::item { border: none; margin: 0px; padding: 0px; }"
+        )
         self.setStatusBar(self.status)
 
+        self.hardware_status_panel = QWidget()
+        hardware_status_layout = QHBoxLayout(self.hardware_status_panel)
+        hardware_status_layout.setContentsMargins(12, 0, 0, 0)
+        hardware_status_layout.setSpacing(4)
         self.lbl_hw_status = QLabel()
-        self.status.addWidget(self.lbl_hw_status)
+        hardware_status_layout.addWidget(self.lbl_hw_status)
+        self.btn_hw_recheck = QPushButton(u"点击重检")
+        self.btn_hw_recheck.setCursor(Qt.PointingHandCursor)
+        self.btn_hw_recheck.setToolTip(u"重新检查硬件连接")
+        self.btn_hw_recheck.clicked.connect(self._on_hardware_status_clicked)
+        self.btn_hw_recheck.setStyleSheet(
+            "QPushButton { color: #94A3B8; font-size: 13px; font-weight: bold; "
+            "padding: 0px 2px; min-height: 0px; margin: 0px; border: none; "
+            "background: transparent; }"
+            "QPushButton:hover { color: #CBD5E1; text-decoration: underline; }"
+        )
+        hardware_status_layout.addWidget(self.btn_hw_recheck)
+        self.status.addWidget(self.hardware_status_panel)
         self.update_hardware_warnings(self.hardware_warnings)
 
         from config import APP_VERSION
@@ -206,13 +230,106 @@ class MainWindow(QMainWindow):
             print("[MainWindow] 初始化双系统智能组件异常:", e)
 
     def update_hardware_warnings(self, warnings: list):
+        self.hardware_warnings = list(warnings or [])
         if not warnings:
             self.lbl_hw_status.setText(u"[√] 硬件设备连接良好")
-            self.lbl_hw_status.setStyleSheet("color: #10B981; font-size: 13px; font-weight: bold; padding-left: 12px;")
+            self.lbl_hw_status.setStyleSheet(
+                "QLabel { color: #10B981; font-size: 13px; font-weight: bold; "
+                "padding: 0px; background: transparent; }"
+            )
+            self.btn_hw_recheck.show()
         else:
             warn_msg = " | ".join(warnings)
             self.lbl_hw_status.setText(f"⚠️ 硬件告警: {warn_msg}")
-            self.lbl_hw_status.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold; padding-left: 12px;")
+            self.lbl_hw_status.setStyleSheet(
+                "QLabel { color: #F59E0B; font-size: 13px; font-weight: bold; "
+                "padding: 0px; background: transparent; }"
+            )
+            self.btn_hw_recheck.show()
+
+    def _set_hardware_check_status(self, text):
+        """Show the current recheck stage in the clickable status control."""
+        self.lbl_hw_status.setText(u"⟳ " + text)
+        self.lbl_hw_status.setStyleSheet(
+            "QLabel { color: #38BDF8; font-size: 13px; font-weight: bold; "
+            "padding: 0px; background: transparent; }"
+        )
+        self.btn_hw_recheck.hide()
+
+    def _on_hardware_status_clicked(self):
+        """Run the same four hardware checks used at login, one stage at a time."""
+        if self._hardware_check_running:
+            return
+        self._hardware_check_running = True
+        self._hardware_check_step = 0
+        self._hardware_check_state = {}
+        self.hardware_warnings = []
+        self._set_hardware_check_status(u"正在检查：官方 POS 窗口")
+        QTimer.singleShot(50, self._run_hardware_check_step)
+
+    def _run_hardware_check_step(self):
+        """Advance the non-blocking UI sequence for a hardware recheck."""
+        steps = (
+            (u"正在检查：官方 POS 窗口", self._check_official_window),
+            (u"正在检查：电子秤通信", self._check_scale_connection),
+            (u"正在检查：热敏打印机", self._check_printer_connection),
+            (u"正在检查：收钱吧通信", self._check_shouqianba_connection),
+        )
+        if self._hardware_check_step >= len(steps):
+            self._hardware_check_running = False
+            self.update_hardware_warnings(self.hardware_warnings)
+            return
+        message, check = steps[self._hardware_check_step]
+        self._set_hardware_check_status(message)
+        try:
+            check()
+        except Exception as exc:
+            self.hardware_warnings.append(u"检查异常：%s" % exc)
+        self._hardware_check_step += 1
+        QTimer.singleShot(50, self._run_hardware_check_step)
+
+    def _check_official_window(self):
+        from ui.login_window import check_ygf_official_running
+        from utils.window_utils import is_official_window_configured
+
+        configured = is_official_window_configured(self.config)
+        running = check_ygf_official_running(self.config) if configured else False
+        self._hardware_check_state["official_ok"] = running
+        if not configured:
+            self.hardware_warnings.append(u"尚未配置官方 POS 窗口识别词")
+        elif not running:
+            self.hardware_warnings.append(u"当前识别词未找到官方 POS 窗口")
+
+    def _check_scale_connection(self):
+        if self.config.get("scale_source", "official") != "com":
+            return
+        from ui.login_window import probe_dibal_scale_connection
+
+        scale_ok, detail = probe_dibal_scale_connection(self.config)
+        self._hardware_check_state["scale_ok"] = scale_ok
+        if not scale_ok:
+            self.hardware_warnings.append(
+                u"当前选择 COM 称重，但秤串口检测失败：%s" % detail
+            )
+            if self._hardware_check_state.get("official_ok"):
+                port = self.config.get("scale_port", "COM3")
+                self.hardware_warnings.append(
+                    u"官方 POS 已运行；本 POS 的 %s 尚未验证：%s" % (port, detail)
+                )
+
+    def _check_printer_connection(self):
+        from utils.port_scanner import scan_printers
+
+        if not scan_printers():
+            self.hardware_warnings.append(u"打印机未连接")
+
+    def _check_shouqianba_connection(self):
+        from core.shouqianba_sender import test_shouqianba_port
+
+        ok, _detail = test_shouqianba_port(self.config)
+        if not ok:
+            port = self.config.get("shouqianba_port", "COM10")
+            self.hardware_warnings.append(u"收钱吧 %s 未连通" % port)
 
 
 

@@ -34,6 +34,18 @@ def _native_showinfo(title, message):
         ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x40)
 
 
+def _install_complete_message(display_name, target_dir):
+    """Return the same explicit completion notice for both installer UIs."""
+    return (
+        "安装完成！\n\n"
+        "%s 已安装/更新完成。\n\n"
+        "请使用桌面或开始菜单中的“%s”启动 POS。\n"
+        "实际程序文件：启动.exe\n"
+        "安装路径：%s"
+        % (display_name, display_name, target_dir)
+    )
+
+
 def _native_showerror(title, message):
     if os.name == "nt":
         ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x10)
@@ -550,7 +562,7 @@ def main():
             return
         try:
             _install(target, display_name)
-            _native_showinfo("安装完成", "%s 已安装/更新完成。\n\n实际程序文件：启动.exe\n安装路径：%s" % (display_name, target))
+            _native_showinfo("安装完成", _install_complete_message(display_name, target))
         except Exception as exc:
             _native_showerror("安装失败", str(exc))
         return
@@ -612,7 +624,9 @@ def main():
             return
         try:
             _install(target, display_name)
-            messagebox.showinfo("安装完成", "%s 已安装/更新完成。\n\n启动程序：%s\n实际程序文件：启动.exe" % (display_name, display_name), parent=root)
+            status.configure(text="安装完成，正在显示完成提示。")
+            root.update_idletasks()
+            messagebox.showinfo("安装完成", _install_complete_message(display_name, target), parent=root)
             root.destroy()
         except Exception as exc:
             messagebox.showerror("安装失败", str(exc), parent=root)

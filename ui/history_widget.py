@@ -13,6 +13,7 @@ from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor, QFont
 
 from core.database import Database, REFUNDED
+from core.payment_utils import payment_display_label
 
 
 class OrderCard(QFrame):
@@ -87,9 +88,10 @@ class OrderCard(QFrame):
 
         # 结账方式标签
         pm = r.get("payment_method", "")
-        pm_labels = {"shouqianba": "收钱吧", "scan": "手持机器", "cash": "现金", "qr": "被扫"}
-        pm_colors = {"shouqianba": "#F97316", "scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED"}
-        pm_text = pm_labels.get(pm, "")
+        pm_colors = {"shouqianba": "#F97316", "scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED", "mixed": "#D97706"}
+        pm_text = payment_display_label(pm, r.get("payment_breakdown_json", ""))
+        if pm == "mixed":
+            pm_text = "混合支付"
         pm_color = pm_colors.get(pm, "#6B7280")
 
         row1.addWidget(lbl_title)
@@ -834,9 +836,13 @@ class HistoryWidget(QWidget):
         
         # 结账方式
         pm = record.get("payment_method", "")
-        pm_display = {"shouqianba": "收钱吧", "scan": "手持机器", "cash": "现金", "qr": "被扫"}
         payment_state = record.get("payment_status", "PAID")
-        self.lbl_payment_method.setText(u"结账方式：%s" % pm_display.get(pm, "未记录"))
+        self.lbl_payment_method.setText(
+            u"结账方式：%s" % payment_display_label(
+                pm, record.get("payment_breakdown_json", "")
+            )
+            if pm else u"结账方式：未记录"
+        )
         if payment_state == REFUNDED:
             self.lbl_remark_info.setText(
                 u"退款：%s；原因：%s" % (

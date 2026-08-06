@@ -62,27 +62,21 @@
   "skewer_reminder_enabled": true,
   "official_pos_log_dir": "",
   "official_pos_window_configured": true,
-  "official_pos_window_title": "MuMuPlayer",
-  "official_pos_window_class": "Qt5156QWindowToolSaveBits",
-  "official_pos_process_name": "MuMuNxMain.exe",
+  "official_pos_window_title": "ChatGPT",
+  "official_pos_window_class": "Chrome_WidgetWin_1",
+  "official_pos_process_name": "ChatGPT.exe",
   "official_pos_process_keywords": [
-    "MuMuNxMain.exe"
+    "ChatGPT.exe"
   ],
   "official_pos_window_keywords": [
-    "MuMuPlayer"
+    "ChatGPT"
   ],
   "config_schema_version": 3,
   "call_used_numbers": [
-    289,
-    292,
-    238,
-    239,
-    242,
-    211,
-    221,
-    255
+    138,
+    158
   ],
-  "call_last_slot": "evening",
+  "call_last_slot": "afternoon",
   "call_manual_no": 1,
   "call_seq_no": null,
   "min_valid_weight_kg": 0.08,

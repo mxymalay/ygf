@@ -5,6 +5,14 @@ import installer_stub
 
 
 class InstallerStubTests(unittest.TestCase):
+    def test_install_complete_message_names_launcher_and_path(self):
+        message = installer_stub._install_complete_message("门店 POS", r"C:\Store POS")
+
+        self.assertIn("安装完成", message)
+        self.assertIn("门店 POS", message)
+        self.assertIn("启动.exe", message)
+        self.assertIn(r"C:\Store POS", message)
+
     def test_no_tk_fallback_uses_selected_directory_and_name(self):
         with patch.object(installer_stub, "HAS_TKINTER", False), patch.object(
             installer_stub, "_existing_install_dir", return_value=""

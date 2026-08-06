@@ -12,8 +12,11 @@ from PyQt5.QtWidgets import (
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
     QScrollArea, QDialog, QLineEdit, QComboBox, QListView
 )
-from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer, QPoint
-from PyQt5.QtGui import QPainter, QPolygon, QFontMetrics
+from PyQt5.QtCore import (
+    Qt, pyqtSlot, pyqtSignal, QTimer, QPoint,
+    QPropertyAnimation, QEasingCurve,
+)
+from PyQt5.QtGui import QPainter, QPolygon, QFontMetrics, QBrush, QPen, QColor
 
 from core.calculator import calculate_price, weight_display, price_unit_label
 from core.database import Database
@@ -464,6 +467,79 @@ class TakeoutLabel(QLabel):
             self.clicked.emit()
             event.accept()
 
+
+class ClickableStatusLabel(QLabel):
+    """Small status icon that can trigger a recovery/recheck action."""
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+class ComicActionLabel(ClickableStatusLabel):
+    """Compact speech bubble with a small tail pointing toward its target."""
+
+    def __init__(self, text, background, border, foreground, parent=None, tail_center=None):
+        super().__init__(text, parent)
+        self._bubble_background = QColor(background)
+        self._bubble_border = QColor(border)
+        self._bubble_foreground = QColor(foreground)
+        self._text_padding = (0, 0)
+        # Existing status bubbles point toward their nearby icon.  Callers
+        # that center a bubble over a wider target can opt into a centered
+        # tail without changing those established positions.
+        self._tail_center = 15 if tail_center is None else int(tail_center)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAlignment(Qt.AlignCenter)
+        self.setCursor(Qt.PointingHandCursor)
+        font = self.font()
+        font.setPointSize(10)
+        font.setBold(True)
+        self.setFont(font)
+        metrics = QFontMetrics(font)
+        self.setFixedSize(max(42, metrics.horizontalAdvance(text) + 14), max(24, metrics.height() + 10))
+
+    def paintEvent(self, event):
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        body_bottom = self.height() - 7
+        body = self.rect().adjusted(1, 1, -2, -8)
+        tail_center = self._tail_center
+        tail = QPolygon([
+            QPoint(tail_center - 5, body_bottom - 1),
+            QPoint(tail_center + 5, body_bottom - 1),
+            QPoint(tail_center - 2, self.height() - 2),
+        ])
+        # Paint the body first, then put the tail on top of its lower edge.
+        # The tail fill covers the body's bottom border at the join; only its
+        # two sides and tip are outlined, so no horizontal line cuts the
+        # speech bubble into two pieces.
+        painter.setBrush(QBrush(self._bubble_background))
+        painter.setPen(QPen(self._bubble_border, 1.5))
+        painter.drawRoundedRect(body, 7, 7)
+        painter.setPen(Qt.NoPen)
+        painter.drawPolygon(tail)
+        painter.setPen(QPen(self._bubble_border, 1.5))
+        painter.drawPolyline(QPolygon([
+            tail[0], tail[2], tail[1]
+        ]))
+        horizontal_padding, vertical_padding = self._text_padding
+        text_body = body.adjusted(
+            horizontal_padding,
+            vertical_padding,
+            -horizontal_padding,
+            -vertical_padding,
+        )
+        painter.setPen(self._bubble_foreground)
+        painter.setFont(self.font())
+        painter.drawText(text_body, Qt.AlignCenter, self.text())
+
+
 class OrderItemCard(QFrame):
     """无边框极简 POS 风格订单细项卡片 (深浅主题自适应，支持选中高亮与点击选择)"""
     clicked = pyqtSignal(int)
@@ -782,6 +858,7 @@ class SaleWidget(QWidget):
         self._is_stable = False
         self._low_price_warning_shown = False
         self._scale_connected = False
+        self._scale_status_message = ""
         # 首次收到硬件数据前，不把“没有读数”伪装成正常的 0.000 kg。
         self._has_scale_reading = False
         self._last_weight_monotonic = 0.0
@@ -800,6 +877,11 @@ class SaleWidget(QWidget):
         # controller is connected instead of disappearing silently.
         self._pending_weighing_cycle_weight = None
         self._checkout_active = False
+        # A deliberately quiet, non-layout hint above the cash button.  The
+        # animation is a normal Qt GUI animation, so it stays on the main
+        # thread and cannot interfere with payment or scale worker threads.
+        self._mixed_hint_animation = None
+        self._mixed_hint_base_pos = QPoint()
         # Simulation starts in the safer/manual mode.  It is intentionally a
         # session setting: real hardware configuration is never changed by
         # the mock controls.
@@ -1118,8 +1200,28 @@ class SaleWidget(QWidget):
         led_layout = QHBoxLayout(led_banner)
         led_layout.setContentsMargins(12, 4, 12, 4)
 
+        # These are deliberately parented to the banner but not added to its
+        # layout: they float over the top-right of the related status item.
+        self.lbl_scale_diagnose_action = ComicActionLabel(
+            u"故障分析", "#991B1B", "#FCA5A5", "#FFF7ED", led_banner
+        )
+        self.lbl_scale_diagnose_action.setToolTip(u"查看电子秤故障原因")
+        self.lbl_scale_diagnose_action.clicked.connect(self._show_scale_diagnostic_dialog)
+        self.lbl_scale_diagnose_action.hide()
+
+        self.lbl_mock_action = ComicActionLabel(
+            u"切换模拟", "#1D4ED8", "#93C5FD", "#EFF6FF", led_banner
+        )
+        self.lbl_mock_action.setToolTip(u"切换到模拟称重模式")
+        self.lbl_mock_action.clicked.connect(self._show_scale_detail_dialog)
+        self.lbl_mock_action.hide()
+
         # 状态指示图标: ⏳ vs ✅
-        self.lbl_scale_status_icon = QLabel(u"⏳")
+        self.lbl_scale_status_icon = ClickableStatusLabel(u"⏳")
+        self.lbl_scale_status_icon.setCursor(Qt.PointingHandCursor)
+        self.lbl_scale_status_icon.clicked.connect(self._on_scale_status_icon_click)
+        self.lbl_scale_status_icon.setAlignment(Qt.AlignCenter)
+        self.lbl_scale_status_icon.setFixedSize(36, 36)
         self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
@@ -1194,6 +1296,7 @@ class SaleWidget(QWidget):
         led_layout.addWidget(self.lbl_weight, stretch=1, alignment=Qt.AlignRight)
 
         left_layout.addWidget(led_banner)
+        QTimer.singleShot(0, self._position_led_action_labels)
 
         # 上一单摘要：当前购物车为空时显示，便于收银员快速核对上一笔金额。
         # 有新订单时隐藏，不占用点菜/购物车区域。
@@ -1518,6 +1621,27 @@ class SaleWidget(QWidget):
 
         right.addLayout(btn_box)
 
+        # Tiny speech bubble explaining that cash can be combined with a
+        # second payment method.  It is parented to the page instead of a
+        # layout and positioned from btn_cash's geometry, so it never changes
+        # the width or height of the checkout controls.
+        self.lbl_mixed_hint = ComicActionLabel(
+            u"可混合",
+            QColor(34, 46, 63, 220),
+            QColor(69, 83, 103, 185),
+            QColor(143, 158, 177, 185),
+            self,
+            tail_center=27,
+        )
+        hint_font = self.lbl_mixed_hint.font()
+        hint_font.setPointSize(8)
+        hint_font.setBold(True)
+        self.lbl_mixed_hint.setFont(hint_font)
+        self.lbl_mixed_hint._text_padding = (4, 1)
+        self.lbl_mixed_hint.setFixedSize(54, 28)
+        self.lbl_mixed_hint.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.lbl_mixed_hint.hide()
+
         layout.addLayout(right, stretch=7)
 
         self._update_price_display()
@@ -1547,6 +1671,95 @@ class SaleWidget(QWidget):
             "stop:0 %s, stop:1 %s); border-radius: 8px; padding: 8px 14px; border: none; }"
             % (start, end)
         )
+
+    def _position_led_action_labels(self):
+        """Place status actions above their targets without taking layout width."""
+        if not hasattr(self, "led_banner") or not hasattr(self, "lbl_weight"):
+            return
+        targets = (
+            (getattr(self, "lbl_scale_diagnose_action", None), self.lbl_scale_status_icon),
+            (getattr(self, "lbl_mock_action", None), self.lbl_weight),
+        )
+        for label, target in targets:
+            if label is None or target is None:
+                continue
+            label.adjustSize()
+            target_rect = target.geometry()
+            if label is self.lbl_scale_diagnose_action:
+                # Fault bubble sits to the upper-right of the red X.
+                x = target_rect.right() + 8
+                y = max(0, target_rect.top() - label.height() // 2)
+            else:
+                # Mock bubble sits over the upper-right edge of the weight text.
+                x = target_rect.right() - label.width() - 12
+                y = max(0, target_rect.top() - label.height() // 4)
+            label.move(max(0, x), y)
+            label.raise_()
+
+    def _position_mixed_hint(self):
+        """Keep the tiny mixed-payment bubble centered above ``去现金``."""
+        label = getattr(self, "lbl_mixed_hint", None)
+        target = getattr(self, "btn_cash", None)
+        if label is None or target is None or target.width() <= 0:
+            return
+
+        # Stop the current cycle while geometry is being updated.  A resize
+        # can otherwise leave the animated label a couple of pixels behind.
+        animation = getattr(self, "_mixed_hint_animation", None)
+        if animation is not None:
+            animation.stop()
+
+        label.adjustSize()
+        target_pos = target.mapTo(self, QPoint(0, 0))
+        x = target_pos.x() + (target.width() - label.width()) // 2
+        y = target_pos.y() - label.height() - 3
+        base_pos = QPoint(max(0, x), max(0, y))
+        label.move(base_pos)
+        label.raise_()
+        self._mixed_hint_base_pos = base_pos
+
+        if label.isVisible():
+            self._start_mixed_hint_animation()
+
+    def _start_mixed_hint_animation(self):
+        """Give the hint a barely perceptible two-pixel vertical float."""
+        label = getattr(self, "lbl_mixed_hint", None)
+        if label is None or not label.isVisible():
+            return
+        if self._mixed_hint_animation is None:
+            animation = QPropertyAnimation(label, b"pos", self)
+            animation.setDuration(1100)
+            animation.setEasingCurve(QEasingCurve.InOutSine)
+            animation.setLoopCount(-1)
+            self._mixed_hint_animation = animation
+        else:
+            animation = self._mixed_hint_animation
+            animation.stop()
+
+        base = self._mixed_hint_base_pos
+        animation.setStartValue(base)
+        animation.setKeyValueAt(0.5, QPoint(base.x(), base.y() + 2))
+        animation.setEndValue(base)
+        animation.start()
+
+    def _show_mixed_hint(self):
+        """Show the hint once for the current non-empty basket."""
+        label = getattr(self, "lbl_mixed_hint", None)
+        if label is None:
+            return
+        self._position_mixed_hint()
+        label.show()
+        label.raise_()
+        self._start_mixed_hint_animation()
+
+    def _hide_mixed_hint(self):
+        """Hide the hint without affecting the checkout layout."""
+        animation = getattr(self, "_mixed_hint_animation", None)
+        if animation is not None:
+            animation.stop()
+        label = getattr(self, "lbl_mixed_hint", None)
+        if label is not None:
+            label.hide()
 
     def _show_toast(self, msg_text):
         """显示一个自动消失的提示框（使用系统级 WindowOpacity 保证丝滑动画）"""
@@ -2029,12 +2242,16 @@ class SaleWidget(QWidget):
         super().showEvent(event)
         self._cart_dirty = True
         QTimer.singleShot(50, self._update_price_display)
+        QTimer.singleShot(50, self._position_led_action_labels)
+        QTimer.singleShot(50, self._position_mixed_hint)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._resize_timer is not None:
             self.killTimer(self._resize_timer)
         self._resize_timer = self.startTimer(80)
+        QTimer.singleShot(0, self._position_led_action_labels)
+        QTimer.singleShot(0, self._position_mixed_hint)
 
     def timerEvent(self, event):
         if event.timerId() == self._resize_timer:
@@ -2113,6 +2330,14 @@ class SaleWidget(QWidget):
         self.lbl_item_count.setText(u"共 %d 件，需付款：" % total_items)
         self.lbl_price.setText(u"￥%.2f" % total_price)
         self._schedule_draft_save()
+        # The bubble is intentionally tied to basket presence, not to a
+        # layout slot.  It appears after the first item is added and stays
+        # quiet while the basket is being edited.
+        if self.cart_items and not self._checkout_active:
+            if not self.lbl_mixed_hint.isVisible():
+                self._show_mixed_hint()
+        else:
+            self._hide_mixed_hint()
 
     def _rebuild_cart_cards(self, start_idx, end_idx):
         """高效重建当前页购物车卡片"""
@@ -2217,6 +2442,95 @@ class SaleWidget(QWidget):
             return bool(self.scale.restart())
         return True
 
+    def _on_scale_status_icon_click(self):
+        """Explain the current scale failure without starting another probe."""
+        try:
+            self._show_scale_diagnostic_dialog()
+        except Exception as exc:
+            log_event(CAT_SYSTEM, "显示称重故障分析失败", str(exc))
+
+    def _show_scale_diagnostic_dialog(self):
+        """Explain why the configured scale source cannot provide a reading."""
+        import os
+        from ui.custom_dialog import show_info
+
+        source = str(self.config.get("scale_source", "official") or "official").strip().lower()
+        lines = [u"当前称重来源：%s" % (u"跟随官方 POS" if source == "official" else u"COM 串口 / POS 称桥接")]
+        last_message = str(getattr(self, "_scale_status_message", "") or "").strip()
+        if last_message:
+            lines.append(u"最近一次状态：%s" % last_message)
+
+        if source == "official":
+            from core.official_pos import find_active_official_log, get_official_log_dirs
+            from utils.window_utils import find_official_window_info, is_official_window_configured
+
+            configured = is_official_window_configured(self.config)
+            lines.append(u"官方 POS 窗口配置：%s" % (u"已配置" if configured else u"未配置"))
+            if not configured:
+                lines.append(u"原因：没有保存官方 POS 的窗口识别信息，系统无法确认从哪个窗口取数。")
+                lines.append(u"处理：到“系统设置 → 官方 POS 窗口识别”检测并保存窗口。")
+            elif find_official_window_info(self.config):
+                lines.append(u"官方 POS 窗口：已找到")
+            else:
+                lines.append(u"原因：已保存识别信息，但当前没有找到匹配的官方 POS 窗口。")
+                lines.append(u"处理：先启动官方 POS，或重新选择正确的窗口。")
+
+            configured_dir = str(self.config.get("official_pos_log_dir", "") or "").strip()
+            if configured_dir:
+                lines.append(u"指定日志目录：%s（%s）" % (
+                    configured_dir, u"目录存在" if os.path.isdir(configured_dir) else u"目录不存在"
+                ))
+            candidate_dirs = get_official_log_dirs(self.config)
+            existing_dirs = [path for path in candidate_dirs if os.path.isdir(path)]
+            matching_files = []
+            for folder in existing_dirs:
+                try:
+                    for filename in os.listdir(folder):
+                        if filename.lower().startswith("log_serial_ports"):
+                            full_path = os.path.join(folder, filename)
+                            if os.path.isfile(full_path):
+                                matching_files.append(full_path)
+                except OSError:
+                    continue
+            active_log = find_active_official_log(self.config)
+            if active_log:
+                lines.append(u"称重日志：正在刷新（%s）" % active_log)
+            elif matching_files:
+                lines.append(u"原因：找到了称重日志文件，但最近 5 秒没有更新。")
+                lines.append(u"处理：让官方 POS 先读取一次重量；若仍无效，检查日志目录和文件格式。")
+            elif existing_dirs:
+                lines.append(u"原因：日志目录存在，但里面没有 log_serial_ports 开头的称重文件。")
+                lines.append(u"处理：确认选择的是官方 POS 的 serial 文件夹。")
+            else:
+                lines.append(u"原因：没有找到可用的官方 POS serial 日志目录。")
+                lines.append(u"处理：在设置中选择包含 log_serial_ports 文件的 serial 文件夹。")
+        else:
+            port = str(self.config.get("scale_port", "") or "").strip()
+            mode = str(self.config.get("scale_connection_mode", "direct") or "direct").strip().lower()
+            lines.append(u"COM 端口：%s" % (port or u"未配置"))
+            lines.append(u"连接方式：%s" % (u"POS 称桥接" if mode == "bridge" else u"本 POS 直连物理秤"))
+            if not port:
+                lines.append(u"原因：没有配置电子秤 COM 端口。")
+                lines.append(u"处理：到“系统设置 → 称重来源”选择并保存实际端口。")
+            elif mode == "bridge":
+                try:
+                    from scale_bridge.lifecycle import ScaleBridgeServiceController
+                    state = ScaleBridgeServiceController().query()
+                    if not state.installed:
+                        lines.append(u"原因：POS 称桥接服务未安装。")
+                    elif state.state_code != 4:
+                        lines.append(u"原因：POS 称桥接服务已安装，但当前状态是 %s。" % (state.state or u"未知"))
+                    else:
+                        lines.append(u"POS 称桥接服务：运行中；若仍无读数，请检查虚拟端口配对和物理秤。")
+                except Exception as exc:
+                    lines.append(u"原因：无法读取 POS 称桥接服务状态：%s" % exc)
+                lines.append(u"处理：到“系统设置 → POS 称桥接”检查服务、配对端口和物理秤通道。")
+            else:
+                lines.append(u"如果 COM 端口未连通，常见原因是端口不存在、被其他程序占用、驱动未安装或数据线未连接。")
+                lines.append(u"处理：确认端口号、波特率和驱动，并在系统设置中测试该 COM 端口。")
+
+        show_info(self, u"电子秤故障分析", "\n".join(lines))
+
     def _setup_scale(self):
         # Simulation is a complete session mode.  Do not start the real
         # reader in the background: its disconnected/error signal used to
@@ -2246,6 +2560,10 @@ class SaleWidget(QWidget):
             # Keep the signal handler usable by lightweight test/recovery
             # objects that only provide the original label attribute.
             self.lbl_weight.setText("%06.3f kg" % weight_kg)
+        if hasattr(self, "lbl_mock_action"):
+            self.lbl_mock_action.hide()
+        if hasattr(self, "lbl_scale_diagnose_action"):
+            self.lbl_scale_diagnose_action.hide()
         # Only ScaleReader's configured N-sample stability window may mark a
         # reading stable.  Two matching UI frames are not sufficient.
         if abs(weight_kg - self._stable_weight) > 0.005:
@@ -2257,14 +2575,19 @@ class SaleWidget(QWidget):
     @pyqtSlot(bool, str)
     def _on_status_change(self, connected, msg):
         self._scale_connected = connected
+        self._scale_status_message = str(msg or "")
         is_mock = self._is_mock_mode
         if is_mock:
             self.lbl_scale_status_icon.hide()
+            if hasattr(self, "lbl_scale_diagnose_action"):
+                self.lbl_scale_diagnose_action.hide()
             return
 
         self.lbl_scale_status_icon.show()
 
         if connected:
+            if hasattr(self, "lbl_scale_diagnose_action"):
+                self.lbl_scale_diagnose_action.hide()
             if not hasattr(self, '_is_stable') or not self._is_stable:
                 self.lbl_scale_status_icon.setText(u"⏳")
                 self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
@@ -2277,9 +2600,16 @@ class SaleWidget(QWidget):
         else:
             self._is_stable = False
             self._has_scale_reading = False
+            if hasattr(self, "lbl_scale_diagnose_action"):
+                self.lbl_scale_diagnose_action.show()
             self.lbl_scale_status_icon.setText(u"✕")
-            self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
-            self.lbl_scale_status_icon.setToolTip(u"电子秤连接提示: %s" % msg)
+            self.lbl_scale_status_icon.setStyleSheet(
+                "font-size: 32px; font-weight: 900; color: #991B1B; "
+                "background: transparent; border: none; padding: 0px;"
+            )
+            self.lbl_scale_status_icon.setToolTip(
+                u"电子秤连接失败：%s；点击此图标或左下角硬件状态重新检查" % msg
+            )
             self._set_weight_placeholder()
             self.lbl_weight.setToolTip(u"电子秤未连接或暂时没有可用读数")
 
@@ -2290,6 +2620,10 @@ class SaleWidget(QWidget):
         self._last_weight_monotonic = time.monotonic()
         self._is_stable = True
         self._stable_weight = float(weight_kg)
+        if hasattr(self, "lbl_scale_diagnose_action"):
+            self.lbl_scale_diagnose_action.hide()
+        if hasattr(self, "lbl_mock_action"):
+            self.lbl_mock_action.hide()
         set_live_text = getattr(self, "_set_live_weight_text", None)
         if callable(set_live_text):
             set_live_text(self.current_weight)
@@ -2377,10 +2711,20 @@ class SaleWidget(QWidget):
     def _on_error(self, msg):
         if self._is_mock_mode:
             self.lbl_scale_status_icon.hide()
+            if hasattr(self, "lbl_scale_diagnose_action"):
+                self.lbl_scale_diagnose_action.hide()
             return
+        self._scale_status_message = str(msg or "")
+        if hasattr(self, "lbl_scale_diagnose_action"):
+            self.lbl_scale_diagnose_action.show()
         self.lbl_scale_status_icon.setText(u"✕")
-        self.lbl_scale_status_icon.setStyleSheet("font-size: 26px; font-weight: bold; color: #EF4444; border: none; background: transparent;")
-        self.lbl_scale_status_icon.setToolTip(u"错误: %s" % msg)
+        self.lbl_scale_status_icon.setStyleSheet(
+            "font-size: 32px; font-weight: 900; color: #991B1B; "
+            "background: transparent; border: none; padding: 0px;"
+        )
+        self.lbl_scale_status_icon.setToolTip(
+            u"电子秤错误：%s；点击此图标或左下角硬件状态重新检查" % msg
+        )
         self._set_weight_placeholder()
         self.lbl_weight.setToolTip(u"电子秤读数失败：%s" % msg)
 
@@ -2391,6 +2735,13 @@ class SaleWidget(QWidget):
             "font-size: 32px; font-weight: 900; color: #FED7AA; border: none; background: transparent; "
             "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
         )
+        if self._is_mock_mode:
+            if hasattr(self, "lbl_scale_diagnose_action"):
+                self.lbl_scale_diagnose_action.hide()
+            return
+        if hasattr(self, "lbl_mock_action"):
+            self.lbl_mock_action.show()
+            self._position_led_action_labels()
 
     def _set_live_weight_text(self, weight_kg):
         self.lbl_weight.setText("%06.3f kg" % float(weight_kg))
@@ -2398,6 +2749,8 @@ class SaleWidget(QWidget):
             "font-size: 32px; font-weight: 900; color: #FFFFFF; border: none; background: transparent; "
             "font-family: 'Segoe UI', 'Consolas', sans-serif; letter-spacing: 1px;"
         )
+        if hasattr(self, "lbl_mock_action"):
+            self.lbl_mock_action.hide()
 
     def _enter_mock_mode(self):
         """Stop the live reader and enter the safe manual simulation mode."""
@@ -2420,6 +2773,8 @@ class SaleWidget(QWidget):
         self._scale_connected = False
         self._update_weight_banner_style()
         self.lbl_scale_status_icon.hide()
+        if hasattr(self, "lbl_scale_diagnose_action"):
+            self.lbl_scale_diagnose_action.hide()
         self.cmb_mock_weight_mode.blockSignals(True)
         self.cmb_mock_weight_mode.setCurrentIndex(0)
         self.cmb_mock_weight_mode.blockSignals(False)
@@ -2687,8 +3042,18 @@ class SaleWidget(QWidget):
 
         from ui.checkout_dialog import CheckoutDialog
 
-        def handle_payment(payment_method):
+        def handle_payment(payment_method, payment_breakdown=None):
             import json
+            payment_breakdown_json = ""
+            if payment_breakdown:
+                try:
+                    breakdown_total = sum(float(value or 0.0) for value in payment_breakdown.values())
+                except (AttributeError, TypeError, ValueError):
+                    breakdown_total = -1.0
+                if breakdown_total < 0.0 or abs(breakdown_total - total_price) > 0.01:
+                    show_warning(self, u"混合支付金额异常", u"现金与扫码金额之和没有等于应付金额，订单未完成，请重新收款。")
+                    return False
+                payment_breakdown_json = json.dumps(payment_breakdown, ensure_ascii=False, sort_keys=True)
             existing = self.db.get_sale_by_order_id(self.current_order_id)
             if existing:
                 log_event(CAT_ORDER, "拦截重复结账", "订单标识: %s" % self.current_order_id)
@@ -2711,6 +3076,7 @@ class SaleWidget(QWidget):
                     remark=u"单号:%s 叫号:#%s 项目:%s" % (self.temp_order_no, sale_data["call_no"], items_summary),
                     cart_items_json=cart_items_json,
                     payment_method=payment_method,
+                    payment_breakdown_json=payment_breakdown_json,
                     order_id=self.current_order_id,
                 )
             except Exception as exc:
@@ -2728,6 +3094,8 @@ class SaleWidget(QWidget):
 
             full_sale = dict(record)
             full_sale.update(sale_data)
+            if payment_breakdown:
+                full_sale["payment_breakdown"] = payment_breakdown
 
             log_event(CAT_USER, f"点击付款结算", f"选择方式: {payment_method} | 应付: ¥{total_price:.2f}")
 
@@ -2780,11 +3148,20 @@ class SaleWidget(QWidget):
                 print(f"[SaleWidget] 唤起收钱吧金额失败: {e}")
 
         self._checkout_active = True
+        self._hide_mixed_hint()
         try:
             dlg = CheckoutDialog(sale_data, on_payment_callback=handle_payment, parent=self, mode=mode)
             dlg.exec_()
         finally:
             self._checkout_active = False
+            self._refresh_mixed_hint_after_checkout()
+
+    def _refresh_mixed_hint_after_checkout(self):
+        """Restore the hint after a cancelled checkout if items remain."""
+        if self.cart_items:
+            self._show_mixed_hint()
+        else:
+            self._hide_mixed_hint()
 
     def _on_cash_checkout(self):
         """去现金结账"""

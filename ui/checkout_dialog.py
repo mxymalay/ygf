@@ -16,12 +16,14 @@ PAYMENT_SQB  = "shouqianba"  # 收钱吧 PC 客户端自动调起
 PAYMENT_SCAN = "scan"        # 主扫
 PAYMENT_CASH = "cash"        # 现金
 PAYMENT_QR   = "qr"          # 被扫/静态码
+PAYMENT_MIXED = "mixed"      # 现金 + 收钱吧扫码补差
 
 PAYMENT_LABELS = {
     PAYMENT_SQB:  "收钱吧",
     PAYMENT_SCAN: "手持机器",
     PAYMENT_CASH: "现金",
     PAYMENT_QR:   "被扫",
+    PAYMENT_MIXED: "现金+扫码",
 }
 
 
@@ -113,22 +115,179 @@ class PaymentStatusWidget(QFrame):
             painter.restore()
 
 
+class MixedPaymentChoiceDialog(QDialog):
+    """Choose how to collect the amount left after a partial cash payment."""
+
+    def __init__(self, cash_amount, remaining_amount, parent=None):
+        super().__init__(parent)
+        self.choice = ""
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+
+        card = QFrame(self)
+        card.setObjectName("MixedPaymentCard")
+        card.setStyleSheet(
+            "QFrame#MixedPaymentCard { background: #1E293B; border: 2px solid #CBD5E1; border-radius: 16px; }"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(26, 24, 26, 24)
+        layout.setSpacing(14)
+
+        title = QLabel(u"收取剩余款项")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            "font-size: 24px; font-weight: 900; color: #F8FAFC; "
+            "border: none; background: transparent;"
+        )
+        layout.addWidget(title)
+
+        subtitle = QLabel(u"已收取部分现金，请选择余款的收取方式")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet(
+            "font-size: 13px; color: #94A3B8; border: none; background: transparent;"
+        )
+        layout.addWidget(subtitle)
+
+        summary = QFrame()
+        summary.setObjectName("MixedPaymentSummary")
+        summary.setStyleSheet(
+            "QFrame#MixedPaymentSummary { background: #111827; border: 1px solid #334155; border-radius: 12px; }"
+        )
+        summary_layout = QHBoxLayout(summary)
+        summary_layout.setContentsMargins(22, 13, 22, 13)
+        summary_layout.setSpacing(18)
+
+        cash_box = QVBoxLayout()
+        cash_box.setSpacing(3)
+        cash_caption = QLabel(u"已收现金")
+        cash_caption.setAlignment(Qt.AlignCenter)
+        cash_caption.setStyleSheet(
+            "font-size: 13px; color: #94A3B8; border: none; background: transparent;"
+        )
+        cash_value = QLabel(u"¥%.2f" % cash_amount)
+        cash_value.setAlignment(Qt.AlignCenter)
+        cash_value.setStyleSheet(
+            "font-size: 19px; font-weight: 800; color: #E2E8F0; border: none; background: transparent;"
+        )
+        cash_box.addWidget(cash_caption)
+        cash_box.addWidget(cash_value)
+        summary_layout.addLayout(cash_box, stretch=1)
+
+        divider = QFrame()
+        divider.setFixedWidth(1)
+        divider.setStyleSheet("background: #334155; border: none;")
+        summary_layout.addWidget(divider)
+
+        remaining_box = QVBoxLayout()
+        remaining_box.setSpacing(1)
+        remaining_caption = QLabel(u"剩余应收")
+        remaining_caption.setAlignment(Qt.AlignCenter)
+        remaining_caption.setStyleSheet(
+            "font-size: 13px; font-weight: 700; color: #FBBF24; border: none; background: transparent;"
+        )
+        remaining_value = QLabel(u"¥%.2f" % remaining_amount)
+        remaining_value.setAlignment(Qt.AlignCenter)
+        remaining_value.setStyleSheet(
+            "font-size: 29px; font-weight: 900; color: #FBBF24; border: none; background: transparent;"
+        )
+        remaining_box.addWidget(remaining_caption)
+        remaining_box.addWidget(remaining_value)
+        summary_layout.addLayout(remaining_box, stretch=1)
+        layout.addWidget(summary)
+
+        primary_header = QHBoxLayout()
+        primary_header.setSpacing(8)
+        recommended = QLabel(u"推荐")
+        recommended.setAlignment(Qt.AlignCenter)
+        recommended.setFixedSize(42, 22)
+        recommended.setStyleSheet(
+            "background: #075985; color: #BAE6FD; border: 1px solid #38BDF8; "
+            "border-radius: 11px; font-size: 11px; font-weight: 900;"
+        )
+        primary_header.addWidget(recommended)
+        primary_note = QLabel(u"直接调出扫码收款")
+        primary_note.setStyleSheet(
+            "font-size: 13px; color: #BAE6FD; border: none; background: transparent;"
+        )
+        primary_header.addWidget(primary_note)
+        primary_header.addStretch()
+        layout.addLayout(primary_header)
+
+        scan_button = QPushButton(u"扫码剩余")
+        scan_button.setObjectName("MixedPrimaryScanButton")
+        scan_button.setCursor(Qt.PointingHandCursor)
+        scan_button.setMinimumWidth(420)
+        scan_button.setMinimumHeight(70)
+        scan_button.setStyleSheet(
+            "QPushButton#MixedPrimaryScanButton { background: #0EA5E9; color: #FFFFFF; "
+            "border: 3px solid #7DD3FC; border-radius: 12px; padding: 12px 18px; "
+            "font-size: 23px; font-weight: 900; }"
+            "QPushButton#MixedPrimaryScanButton:hover { background: #0284C7; border-color: #BAE6FD; }"
+            "QPushButton#MixedPrimaryScanButton:pressed { background: #0369A1; }"
+        )
+        scan_button.clicked.connect(lambda checked=False: self._choose("scan"))
+        layout.addWidget(scan_button)
+
+        secondary_buttons = QHBoxLayout()
+        secondary_buttons.setSpacing(10)
+
+        retry_button = QPushButton(u"重输金额")
+        retry_button.setCursor(Qt.PointingHandCursor)
+        retry_button.setMinimumWidth(120)
+        retry_button.setMinimumHeight(46)
+        retry_button.setStyleSheet(
+            "QPushButton { background: #334155; color: #CBD5E1; border: 1px solid #64748B; "
+            "border-radius: 9px; padding: 9px 14px; font-size: 15px; font-weight: 700; }"
+            "QPushButton:hover { background: #475569; color: #FFFFFF; }"
+        )
+        retry_button.clicked.connect(lambda checked=False: self._choose("retry"))
+        secondary_buttons.addWidget(retry_button, stretch=1)
+
+        other_button = QPushButton(u"其他剩余")
+        other_button.setCursor(Qt.PointingHandCursor)
+        other_button.setMinimumWidth(120)
+        other_button.setMinimumHeight(46)
+        other_button.setStyleSheet(
+            "QPushButton { background: #4C1D95; color: #EDE9FE; border: 1px solid #8B5CF6; "
+            "border-radius: 9px; padding: 9px 14px; font-size: 15px; font-weight: 700; }"
+            "QPushButton:hover { background: #6D28D9; color: #FFFFFF; }"
+        )
+        other_button.clicked.connect(lambda checked=False: self._choose("other"))
+        secondary_buttons.addWidget(other_button, stretch=1)
+        layout.addLayout(secondary_buttons)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(card)
+        self.resize(560, 360)
+
+    def _choose(self, choice):
+        self.choice = choice
+        self.accept()
+
+
 class CheckoutDialog(QDialog):
     """
     结账模态框：左侧发票小票预览 + 右侧动态支付通道 (支持 mode="OTHER" / mode="SCAN_CODE")
     """
 
-    def __init__(self, sale_data, parent=None, on_payment_callback=None, config=None, mode="OTHER"):
+    def __init__(self, sale_data, parent=None, on_payment_callback=None, config=None,
+                 mode="OTHER", animate_on_complete=True):
         super().__init__(parent)
         self.sale_data = sale_data
         self.on_payment_callback = on_payment_callback
         self.config = config or (parent.config if parent and hasattr(parent, 'config') else {})
         self.mode = mode  # "OTHER" | "SCAN_CODE"
+        self._animate_on_complete = bool(animate_on_complete)
         self.selected_payment_method = ""
         self._checkout_finalizing = False
         self._checkout_completed = False
         self._cancelled = False
         self._payment_monitors = []
+        self._mixed_cash_amount = 0.0
+        self._mixed_scan_amount = 0.0
+        self._payment_option_frames = []
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
@@ -201,7 +360,7 @@ class CheckoutDialog(QDialog):
         self._add_sep(tc_layout)
         
         cart_items = sale_data.get("cart_items", [])
-        total_p = sum(i.get("price", 0.0) for i in cart_items)
+        total_p = float(sale_data.get("total_price", sum(i.get("price", 0.0) for i in cart_items)) or 0.0)
         lbl_total = QLabel(f"应收金额：￥{total_p:.2f}")
         lbl_total.setAlignment(Qt.AlignRight)
         lbl_total.setStyleSheet("font-size: 26px; font-weight: bold; color: #059669; border: none;")
@@ -269,6 +428,7 @@ class CheckoutDialog(QDialog):
         elif self.mode == "CASH":
             # ── 去现金模式：无额外付款按钮，展示现金状态与 60FPS 绿对号动画 ──
             lbl_title = QLabel(u"现金收款")
+            self.lbl_payment_title = lbl_title
             lbl_title.setAlignment(Qt.AlignCenter)
             lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
             right_layout.addWidget(lbl_title)
@@ -281,12 +441,35 @@ class CheckoutDialog(QDialog):
             self.status_widget = PaymentStatusWidget(right_frame)
             right_layout.addWidget(self.status_widget, alignment=Qt.AlignCenter)
 
+            self.btn_mixed_retry = QPushButton(u"重新发起扫码")
+            self.btn_mixed_retry.setCursor(Qt.PointingHandCursor)
+            self.btn_mixed_retry.setStyleSheet(
+                "QPushButton { background: #B45309; color: #FFF7ED; border: 1px solid #F59E0B; "
+                "border-radius: 8px; padding: 9px 16px; font-weight: bold; }"
+                "QPushButton:hover { background: #D97706; }"
+            )
+            self.btn_mixed_retry.clicked.connect(self._retry_mixed_scan)
+            right_layout.addWidget(self.btn_mixed_retry)
+            self.btn_mixed_retry.hide()
+
+            self.btn_mixed_cancel = QPushButton(u"退还现金并取消")
+            self.btn_mixed_cancel.setCursor(Qt.PointingHandCursor)
+            self.btn_mixed_cancel.setStyleSheet(
+                "QPushButton { background: transparent; color: #FCA5A5; border: 1px solid #B91C1C; "
+                "border-radius: 8px; padding: 7px 12px; font-weight: bold; }"
+                "QPushButton:hover { background: #7F1D1D; color: #FFF1F2; }"
+            )
+            self.btn_mixed_cancel.clicked.connect(self._cancel_mixed_payment)
+            right_layout.addWidget(self.btn_mixed_cancel)
+            self.btn_mixed_cancel.hide()
+
             # 50ms 后弹出现金计算器
             QTimer.singleShot(50, self._trigger_cash_calc)
 
         else:
-            # ── 其他模式：去除收钱吧和现金，保留剩下两个 (手持POS/被扫/静态码) ──
+            # ── 其他模式：常规手持 POS / 被扫付款 ──
             lbl_title = QLabel(u"其它渠道 记账结算")
+            self.lbl_payment_title = lbl_title
             lbl_title.setAlignment(Qt.AlignCenter)
             lbl_title.setStyleSheet("font-size: 22px; font-weight: 900; color: #FFFFFF; border: none;")
             right_layout.addWidget(lbl_title)
@@ -356,6 +539,7 @@ class CheckoutDialog(QDialog):
 
                 grid_layout.addWidget(sub_frame)
                 self.pay_buttons.append(sub_overlay)
+                self._payment_option_frames.append(sub_frame)
 
             right_layout.addLayout(grid_layout)
 
@@ -484,27 +668,8 @@ class CheckoutDialog(QDialog):
 
         # 如果点击的是【收钱吧】，先唤起收钱吧并推送金额，启动后台无感侦测
         if method == PAYMENT_SQB:
-            try:
-                from core.shouqianba_sender import (
-                    begin_sqb_payment_probe,
-                    send_shouqianba_amount,
-                )
-                total_amt = self.sale_data.get("total_price", 0.0)
-                cfg = self.sale_data.get("config", {})
-                parent_w = self.parent()
-                if parent_w and hasattr(parent_w, 'window'):
-                    parent_w = parent_w.window()
-                if not cfg and parent_w and hasattr(parent_w, 'config'):
-                    cfg = parent_w.config
-                # Snapshot the plugin log at the exact start of this order.
-                # SQB logs use integer cents, so 1.00 yuan is matched to 100.
-                begin_sqb_payment_probe(total_amt, cfg)
-                send_shouqianba_amount(total_amt, cfg)
-            except Exception as e:
-                print(f"[CheckoutDialog] 调起收钱吧金额异常: {e}")
-
-            # 启动智能无感监测：收钱吧窗口打开时静默等待；成功则直接打票结账；若窗口被关闭/超时未扣款，才弹窗确认
-            self._start_sqb_smart_monitoring(total_amt, method)
+            total_amt = float(self.sale_data.get("total_price", 0.0) or 0.0)
+            self._start_sqb_payment(total_amt, method)
             return
 
         elif method == PAYMENT_CASH:
@@ -537,6 +702,120 @@ class CheckoutDialog(QDialog):
         # 其他付款方式（主扫/被扫）直接完成
         self._complete_checkout(method)
 
+    def _start_sqb_payment(self, amount, method):
+        """Push an amount to 收钱吧 and start its success monitor."""
+        amount = round(max(0.0, float(amount or 0.0)), 2)
+        try:
+            from core.shouqianba_sender import (
+                begin_sqb_payment_probe,
+                send_shouqianba_amount,
+            )
+            cfg = self.sale_data.get("config", {})
+            parent_w = self.parent()
+            if parent_w and hasattr(parent_w, "window"):
+                parent_w = parent_w.window()
+            if not cfg and parent_w and hasattr(parent_w, "config"):
+                cfg = parent_w.config
+            # Snapshot the plugin log at the exact start of this payment leg.
+            begin_sqb_payment_probe(amount, cfg)
+            send_shouqianba_amount(amount, cfg)
+        except Exception as exc:
+            print("[CheckoutDialog] 调起收钱吧金额异常: %s" % exc)
+        self._start_sqb_smart_monitoring(amount, method)
+
+    def _show_mixed_payment_choice(self, cash_amount):
+        """Ask how to collect the remainder after a partial cash input."""
+        total = round(float(self.sale_data.get("total_price", 0.0) or 0.0), 2)
+        cash = min(total, max(0.0, round(float(cash_amount or 0.0), 2)))
+        remaining = round(max(0.0, total - cash), 2)
+        self._mixed_cash_amount = cash
+        self._mixed_scan_amount = remaining
+        self.selected_payment_method = PAYMENT_MIXED
+
+        choice_dialog = MixedPaymentChoiceDialog(cash, remaining, self)
+        choice_dialog.exec_()
+        if choice_dialog.choice == "retry":
+            QTimer.singleShot(0, self._trigger_cash_calc)
+        elif choice_dialog.choice == "scan":
+            self._start_remaining_scan()
+        elif choice_dialog.choice == "other":
+            self._start_remaining_other()
+        else:
+            # Cash has already been accepted; do not leave the outer dialog
+            # in an unusable state if the choice dialog is dismissed.
+            QTimer.singleShot(0, lambda: self._show_mixed_payment_choice(cash))
+
+    def _start_remaining_scan(self):
+        """Send only the unpaid remainder to the existing scan flow."""
+        if self._mixed_scan_amount <= 0.0:
+            return
+        self.selected_payment_method = PAYMENT_MIXED
+        self._show_mixed_scan_panel(u"扫码剩余 ¥%.2f" % self._mixed_scan_amount)
+        self._start_sqb_payment(self._mixed_scan_amount, PAYMENT_MIXED)
+
+    def _start_remaining_other(self):
+        """Open the regular “去其他” choices for the unpaid remainder."""
+        if self._mixed_scan_amount <= 0.0:
+            return
+        remaining_data = dict(self.sale_data)
+        remaining_data["total_price"] = self._mixed_scan_amount
+        result = [None]
+
+        def on_remaining_payment(method):
+            result[0] = method
+            return True
+
+        remaining_dialog = CheckoutDialog(
+            remaining_data,
+            parent=self,
+            on_payment_callback=on_remaining_payment,
+            config=self.config,
+            mode="OTHER",
+            animate_on_complete=False,
+        )
+        remaining_dialog.exec_()
+        if result[0]:
+            self._finish_mixed_payment(result[0])
+        else:
+            self._show_mixed_scan_panel(
+                u"其他支付未完成，仍需支付 ¥%.2f" % self._mixed_scan_amount
+            )
+
+    def _show_mixed_scan_panel(self, message=None):
+        """Switch the right side to the remaining-amount scan state."""
+        if not hasattr(self, "lbl_sqb_desc"):
+            return
+        if hasattr(self, "lbl_payment_title"):
+            self.lbl_payment_title.setText(u"混合支付：扫码补差")
+        self.lbl_sqb_desc.setText(message or u"扫码补差 ¥%.2f" % self._mixed_scan_amount)
+        if hasattr(self, "status_widget"):
+            self.status_widget.set_state("WAITING")
+            self.status_widget.show()
+        if hasattr(self, "btn_mixed_retry"):
+            self.btn_mixed_retry.show()
+        if hasattr(self, "btn_mixed_cancel"):
+            self.btn_mixed_cancel.show()
+
+    def _retry_mixed_scan(self):
+        if self._mixed_scan_amount <= 0.0 or self._checkout_completed:
+            return
+        self._show_mixed_scan_panel(u"重新发起扫码：¥%.2f" % self._mixed_scan_amount)
+        self._start_sqb_payment(self._mixed_scan_amount, PAYMENT_MIXED)
+
+    def _cancel_mixed_payment(self):
+        """Cancel only after the operator confirms the cash is returned."""
+        from ui.custom_dialog import show_question
+
+        confirmed = show_question(
+            self,
+            u"取消混合支付",
+            u"本笔已经收取现金 ¥%.2f。请先将现金退还给顾客，再确认取消。" % self._mixed_cash_amount,
+        )
+        if confirmed:
+            self._mixed_cash_amount = 0.0
+            self._mixed_scan_amount = 0.0
+            self.reject()
+
     def _trigger_cash_calc(self):
         """去现金模式下的现金计算器唤起与确认动画流程"""
         from ui.cash_dialog import CashCalculatorDialog
@@ -548,13 +827,27 @@ class CheckoutDialog(QDialog):
         self.inner_container.setGraphicsEffect(blur)
 
         cash_confirmed = [False]
+        partial_cash_amount = [None]
         def on_cash_confirm(pm):
             cash_confirmed[0] = True
 
-        calc = CashCalculatorDialog(self.sale_data, parent=self, on_confirm=on_cash_confirm, printer=printer)
+        def on_partial_confirm(amount):
+            partial_cash_amount[0] = round(float(amount or 0.0), 2)
+
+        calc = CashCalculatorDialog(
+            self.sale_data,
+            parent=self,
+            on_confirm=on_cash_confirm,
+            on_partial_confirm=on_partial_confirm,
+            printer=printer,
+        )
         calc.exec_()
 
         self.inner_container.setGraphicsEffect(None)
+
+        if partial_cash_amount[0] is not None:
+            self._show_mixed_payment_choice(partial_cash_amount[0])
+            return
 
         if cash_confirmed[0]:
             if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
@@ -619,7 +912,7 @@ class CheckoutDialog(QDialog):
                     self.status_widget.set_state("SUCCESS")
                 if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
                     self.lbl_sqb_desc.setText(u"🎉 支付成功！已自动完成出票")
-                QTimer.singleShot(600, lambda: self._complete_checkout(method))
+                QTimer.singleShot(600, lambda: self._finish_payment(method))
                 return
             success_hits[0] = 0
 
@@ -677,12 +970,30 @@ class CheckoutDialog(QDialog):
 
     def _restore_pay_buttons(self):
         """恢复付款按钮可用状态与描述信息"""
+        if self.selected_payment_method == PAYMENT_MIXED and self._mixed_scan_amount > 0.0:
+            self._show_mixed_scan_panel(u"扫码未完成，仍需支付 ¥%.2f" % self._mixed_scan_amount)
+            return
         for btn in self.pay_buttons:
             btn.setEnabled(True)
         if hasattr(self, 'lbl_sqb_desc') and self.lbl_sqb_desc:
             self.lbl_sqb_desc.setText(u"电脑扫码")
 
-    def _complete_checkout(self, method):
+    def _finish_payment(self, method):
+        """Finish a normal payment or attach the two legs of a split payment."""
+        if method == PAYMENT_MIXED:
+            return self._finish_mixed_payment(PAYMENT_SQB)
+        return self._complete_checkout(method)
+
+    def _finish_mixed_payment(self, remaining_method):
+        return self._complete_checkout(
+            PAYMENT_MIXED,
+            {
+                "cash": round(self._mixed_cash_amount, 2),
+                str(remaining_method): round(self._mixed_scan_amount, 2),
+            },
+        )
+
+    def _complete_checkout(self, method, payment_breakdown=None):
         """执行最终结账、发送打印指令与飞出出票动画"""
         if self._checkout_completed or self._checkout_finalizing or self._cancelled:
             return False
@@ -696,7 +1007,13 @@ class CheckoutDialog(QDialog):
 
         # 立即回调发送打印指令与保存数据库
         try:
-            completed = self.on_payment_callback(method) if self.on_payment_callback else True
+            if self.on_payment_callback:
+                if payment_breakdown is None:
+                    completed = self.on_payment_callback(method)
+                else:
+                    completed = self.on_payment_callback(method, payment_breakdown)
+            else:
+                completed = True
         except Exception:
             completed = False
         if completed is False:
@@ -707,7 +1024,10 @@ class CheckoutDialog(QDialog):
         self._stop_payment_monitors()
 
         # 启动飞出动画
-        QTimer.singleShot(100, self._start_fly_animation)
+        if self._animate_on_complete:
+            QTimer.singleShot(100, self._start_fly_animation)
+        else:
+            QTimer.singleShot(0, self.accept)
         return True
 
     def _stop_payment_monitors(self):
@@ -721,7 +1041,7 @@ class CheckoutDialog(QDialog):
             return
         self._cancelled = True
         self._stop_payment_monitors()
-        if self.mode == "SCAN_CODE":
+        if self.mode == "SCAN_CODE" or self.selected_payment_method in (PAYMENT_SQB, PAYMENT_MIXED):
             try:
                 from core.shouqianba_sender import clear_shouqianba_amount
                 clear_shouqianba_amount(self.config)
@@ -867,11 +1187,17 @@ class CheckoutDialog(QDialog):
 
         if res == QDialog.Accepted:
             # 确认付款成功 → 执行结账出票
-            self._complete_checkout(method)
+            self._finish_payment(method)
         else:
-            # 支付失败/退回：取消结账并重置插件金额。
-            print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，已清空收钱吧金额并退出至点菜界面。")
-            self.reject()
+            if method == PAYMENT_MIXED:
+                # 现金部分已经收下，不能直接关闭结账窗口丢失剩余金额。
+                # 保留混合支付状态，让收银员重新发起同一笔扫码补差。
+                print("[CheckoutDialog] 混合支付扫码未确认，保留现金部分并等待重新扫码。")
+                self._restore_pay_buttons()
+            else:
+                # 支付失败/退回：取消结账并重置插件金额。
+                print("[CheckoutDialog] 用户点击收钱吧支付失败/退回，已清空收钱吧金额并退出至点菜界面。")
+                self.reject()
 
     def _start_fly_animation(self):
         """小票动画：需打票则向上飞出，免打票则向下下沉，右侧面板淡出后关闭"""

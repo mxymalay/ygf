@@ -156,6 +156,30 @@ class FloatingBall(QWidget):
         self._show_checkmark = False
         self.update()
 
+    def _switch_hint_text(self):
+        """Return the compact text shown above the floating capsule."""
+        if self._switch_remaining_kg is None:
+            return ""
+        remaining = float(self._switch_remaining_kg)
+        if remaining <= 0.0005:
+            next_channel = self._switch_next_channel.strip()
+            if not next_channel:
+                next_is_private = self._next_switch_is_private
+                if next_is_private is None:
+                    next_is_private = not self.is_our_pos_active
+                next_channel = "私域 POS" if next_is_private else "官方 POS"
+            elif next_channel in ("私有 POS", "私有POS"):
+                # The controller's internal wording is “私有 POS”; the
+                # operator-facing floating hint uses the product term “私域”.
+                next_channel = "私域 POS"
+            return u"下次切%s" % next_channel
+        return u"还需 %.3f kg" % remaining
+
+    def _switch_hint_width(self):
+        # Match the main capsule width so the hint is centered over it rather
+        # than extending to one side when the next-channel text is shown.
+        return 86
+
     def start_countdown(self, seconds: float):
         """出票后启动边框隐退倒计时动效"""
         self._countdown_active = True
@@ -218,6 +242,13 @@ class FloatingBall(QWidget):
         liquid_path.addRoundedRect(QRectF(2, 18, 84, 46), 23, 23)
         painter.setClipPath(liquid_path)
 
+        # The capsule's fill represents the system currently shown to the
+        # operator.  The quota snapshot can legitimately refer to the
+        # previous routing cycle, but using that mode's colour here leaves a
+        # green strip behind after switching to the blue official system (or
+        # vice versa).
+        visual_is_private = bool(self.is_our_pos_active)
+
         def liquid_gradient(private, alpha, start_x, end_x):
             """Create the translucent left-to-right liquid sheen."""
             if private:
@@ -236,7 +267,7 @@ class FloatingBall(QWidget):
         if previous_w > 0:
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(liquid_gradient(
-                self._quota_previous_is_private, 92, track_x, track_x + previous_w
+                visual_is_private, 92, track_x, track_x + previous_w
             )))
             painter.drawRect(QRectF(track_x, track_y, previous_w, track_h))
 
@@ -249,11 +280,11 @@ class FloatingBall(QWidget):
         if current_width > 0:
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(liquid_gradient(
-                self._quota_is_private, 154, current_x, current_x + current_width
+                visual_is_private, 154, current_x, current_x + current_width
             )))
             painter.drawRect(QRectF(current_x, track_y, current_width, track_h))
         if current_w > 0:
-            if self._quota_is_private:
+            if visual_is_private:
                 boundary = QColor(5, 150, 105, 225)
             else:
                 boundary = QColor(29, 78, 216, 225)
@@ -284,15 +315,17 @@ class FloatingBall(QWidget):
 
         # 下一次切换剩余重量：放在胶囊上方的黑底白字小标签中。
         # 这是“本轮还差多少重量”的提示，不与结账倒计时混在一起。
-        if self._switch_remaining_kg is not None:
+        switch_hint = self._switch_hint_text()
+        if switch_hint:
+            hint_width = self._switch_hint_width()
             painter.setBrush(QColor(0, 0, 0, 175))
             painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(2, 1, 88, 14, 7, 7)
+            painter.drawRoundedRect(1, 1, hint_width, 14, 7, 7)
             painter.setPen(QColor(255, 255, 255))
             painter.setFont(QFont("Microsoft YaHei", 7, QFont.Bold))
             painter.drawText(
-                QRect(3, 1, 86, 14), Qt.AlignCenter,
-                u"还需 %.3f kg" % self._switch_remaining_kg,
+                QRect(2, 1, hint_width - 2, 14), Qt.AlignCenter,
+                switch_hint,
             )
 
         # 出票后倒计时数字放在胶囊右侧，不占用顶部剩余重量和底部状态栏。
@@ -368,9 +401,10 @@ class FloatingBall(QWidget):
 
             # 顶部“还需 xxx kg”是独立的信息入口。点击它只打开并定位
             # 到算法折线图，不应触发原有的官方/私有切换或三连击避险。
+            hint_width = self._switch_hint_width()
             self._progress_hint_pressed = bool(
-                self._switch_remaining_kg is not None
-                and QRect(0, 0, 92, 16).contains(event.pos())
+                bool(self._switch_hint_text())
+                and QRect(1, 0, hint_width, 16).contains(event.pos())
             )
             if self._progress_hint_pressed:
                 self._long_press_timer.stop()

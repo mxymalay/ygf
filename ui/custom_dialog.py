@@ -29,7 +29,7 @@ class ModernDialog(QDialog):
         card.setObjectName("DialogCard")
         card.setStyleSheet(
             "QFrame#DialogCard { background: #1E293B; border-radius: 16px; "
-            "border: 1px solid #334155; }"
+            "border: 2px solid #CBD5E1; }"
         )
 
         layout = QVBoxLayout(self)
@@ -144,7 +144,7 @@ class ModernInputDialog(QDialog):
         card.setObjectName("DialogCard")
         card.setStyleSheet(
             "QFrame#DialogCard { background: #1E293B; border-radius: 16px; "
-            "border: 1px solid #334155; }"
+            "border: 2px solid #CBD5E1; }"
         )
 
         layout = QVBoxLayout(self)
@@ -227,7 +227,7 @@ class ModernDoubleInputDialog(QDialog):
         card.setObjectName("DialogCard")
         card.setStyleSheet(
             "QFrame#DialogCard { background: #1E293B; border-radius: 16px; "
-            "border: 1px solid #334155; }"
+            "border: 2px solid #CBD5E1; }"
         )
 
         layout = QVBoxLayout(self)
@@ -325,7 +325,7 @@ class FirstRunInitDialog(QDialog):
         card.setObjectName("DialogCard")
         card.setStyleSheet(
             "QFrame#DialogCard { background: #1E293B; border-radius: 16px; "
-            "border: 1px solid #334155; }"
+            "border: 2px solid #CBD5E1; }"
         )
 
         layout = QVBoxLayout(self)
@@ -647,7 +647,7 @@ class ReceiptPreviewDialog(QDialog):
         card.setObjectName("ReceiptCard")
         card.setStyleSheet(
             "QFrame#ReceiptCard { background: #0F172A; border-radius: 16px; "
-            "border: 2px dashed #334155; }"
+            "border: 2px dashed #CBD5E1; }"
         )
 
         layout = QVBoxLayout(self)

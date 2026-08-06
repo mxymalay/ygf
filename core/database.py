@@ -9,6 +9,7 @@ import sqlite3
 from datetime import date, datetime
 
 from config import DATA_DIR, DB_PATH
+from core.payment_utils import parse_payment_breakdown
 
 
 PAID = "PAID"
@@ -86,6 +87,7 @@ class Database:
                     remark          TEXT DEFAULT '',
                     created_at      TEXT NOT NULL,
                     payment_method  TEXT DEFAULT '',
+                    payment_breakdown_json TEXT DEFAULT '',
                     payment_status  TEXT NOT NULL DEFAULT 'PAID',
                     payment_confirmed_at TEXT DEFAULT '',
                     cart_items_json TEXT,
@@ -144,6 +146,7 @@ class Database:
                 "order_id": "TEXT",
                 "cart_items_json": "TEXT",
                 "payment_method": "TEXT DEFAULT ''",
+                "payment_breakdown_json": "TEXT DEFAULT ''",
                 "payment_status": "TEXT NOT NULL DEFAULT 'PAID'",
                 "payment_confirmed_at": "TEXT DEFAULT ''",
                 "print_status": "TEXT NOT NULL DEFAULT 'PENDING'",
@@ -259,6 +262,7 @@ class Database:
         remark="",
         cart_items_json=None,
         payment_method="",
+        payment_breakdown_json="",
         order_id=None,
     ):
         """Create one paid order, returning ``(record, created)``.
@@ -282,9 +286,9 @@ class Database:
             conn.execute(
                 """INSERT INTO sales
                    (sale_no, order_id, weight_kg, unit_price, price_unit, total_price,
-                    remark, created_at, payment_method, payment_status,
+                    remark, created_at, payment_method, payment_breakdown_json, payment_status,
                     payment_confirmed_at, cart_items_json, printed, print_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
                 (
                     sale_no,
                     order_id,
@@ -295,6 +299,7 @@ class Database:
                     remark,
                     created_at,
                     payment_method,
+                    payment_breakdown_json or "",
                     PAID,
                     created_at,
                     cart_items_json,
@@ -351,13 +356,31 @@ class Database:
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                """SELECT COALESCE(payment_method, '') AS pm, COUNT(*) AS cnt,
-                          COALESCE(SUM(total_price), 0) AS amt
+                """SELECT COALESCE(payment_method, '') AS pm,
+                          COALESCE(total_price, 0) AS amt,
+                          COALESCE(payment_breakdown_json, '') AS breakdown
                    FROM sales WHERE DATE(created_at) BETWEEN ? AND ?
-                     AND payment_status = ? GROUP BY pm""",
+                     AND payment_status = ?""",
                 (s_str, e_str, PAID),
             ).fetchall()
-            return [dict(row) for row in rows]
+            totals = {}
+            for row in rows:
+                item = dict(row)
+                method = str(item.get("pm", "") or "")
+                if method == "mixed":
+                    breakdown = parse_payment_breakdown(item.get("breakdown", ""))
+                    if breakdown:
+                        for component, amount in breakdown.items():
+                            bucket = totals.setdefault(component, {"pm": component, "cnt": 0, "amt": 0.0})
+                            bucket["cnt"] += 1
+                            bucket["amt"] += amount
+                        continue
+                bucket = totals.setdefault(method, {"pm": method, "cnt": 0, "amt": 0.0})
+                bucket["cnt"] += 1
+                bucket["amt"] += float(item.get("amt", 0.0) or 0.0)
+            for bucket in totals.values():
+                bucket["amt"] = round(bucket["amt"], 2)
+            return list(totals.values())
         finally:
             conn.close()
 
