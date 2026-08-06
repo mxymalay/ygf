@@ -115,7 +115,7 @@ class DecisionWeightChart(QWidget):
         # scroll horizontally when there are many events.
         # 纵向给两张图各留出完整的触屏阅读区域；外层设置页面负责
         # 纵向滚动，图表内部只负责横向浏览长时间轴。
-        min_height = 1180 if self.chart_mode == "combined" else (650 if self.chart_mode == "line" else 430)
+        min_height = 1180 if self.chart_mode == "combined" else (520 if self.chart_mode == "line" else 360)
         self.setMinimumHeight(min_height)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("background: transparent;")
@@ -884,7 +884,8 @@ class SwitchSettingsWidget(QWidget):
         """
         self.chart_line_scroll = QScrollArea()
         self.chart_line_scroll.setWidgetResizable(True)
-        self.chart_line_scroll.setMinimumHeight(680)
+        self.chart_line_scroll.setFixedHeight(540)
+        self.chart_line_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.chart_line_scroll.setFrameShape(QFrame.NoFrame)
         self.chart_line_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.chart_line_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -900,7 +901,8 @@ class SwitchSettingsWidget(QWidget):
         chart_hist_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
         self.chart_hist_scroll = QScrollArea()
         self.chart_hist_scroll.setWidgetResizable(True)
-        self.chart_hist_scroll.setMinimumHeight(460)
+        self.chart_hist_scroll.setFixedHeight(390)
+        self.chart_hist_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.chart_hist_scroll.setFrameShape(QFrame.NoFrame)
         self.chart_hist_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.chart_hist_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
