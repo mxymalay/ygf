@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
 from datetime import datetime, timedelta
-from math import ceil
+from html import escape
 from config import save_config
 from core.app_logger import log_event, CAT_SYSTEM, read_logs, CAT_DECISION, CAT_SWITCH, CAT_PANIC
 
@@ -106,15 +106,17 @@ class DecisionWeightChart(QWidget):
     GRID_COLOR = QColor("#26364D")
     TEXT_COLOR = QColor("#CBD5E1")
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, chart_mode="combined"):
         super().__init__(parent)
+        self.chart_mode = str(chart_mode or "combined")
         self.events = []
         # The widget contains a decision line chart and a compact stacked
         # histogram. Keep both touch-readable; the outer page can still
         # scroll horizontally when there are many events.
         # 纵向给两张图各留出完整的触屏阅读区域；外层设置页面负责
         # 纵向滚动，图表内部只负责横向浏览长时间轴。
-        self.setMinimumHeight(1180)
+        min_height = 1180 if self.chart_mode == "combined" else (650 if self.chart_mode == "line" else 430)
+        self.setMinimumHeight(min_height)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("background: transparent;")
 
@@ -124,7 +126,12 @@ class DecisionWeightChart(QWidget):
         # 之前只按称重点计算宽度，手动切换很多时所有红线会挤在左侧。
         # 事件很多时由外层 QScrollArea 提供横向滚动。
         event_count = max(1, len(self.events))
-        self.setMinimumWidth(max(720, min(12000, 110 + event_count * 72)))
+        if self.chart_mode == "histogram":
+            # The summary always has twelve fixed bins; it should fit its own
+            # card and never inherit the long time-axis width of the line chart.
+            self.setMinimumWidth(720)
+        else:
+            self.setMinimumWidth(max(720, min(12000, 110 + event_count * 72)))
         self.update()
 
     @staticmethod
@@ -257,6 +264,57 @@ class DecisionWeightChart(QWidget):
             cursor_x += item_widths[item_index] + 12.0
         painter.restore()
 
+    def _paint_histogram_only(self, painter, route_points):
+        """Paint the two-hour summary as its own independently scrollable card."""
+        width = float(self.width())
+        height = float(self.height())
+        title_font = QFont("Microsoft YaHei", 12)
+        title_font.setBold(True)
+        title_font.setPointSize(16)
+        histogram_top = 62.0
+        histogram = QRectF(
+            68,
+            histogram_top,
+            max(120.0, width - 92),
+            max(150.0, height - histogram_top - 54.0),
+        )
+        self._draw_fixed_header(painter, 34, u"按时段重量分布（每 2 小时）", title_font)
+        bins = [(0.0, 0.0) for _ in range(12)]
+        for when, weight, channel, _event in route_points:
+            slot = min(11, max(0, int((when.hour * 60 + when.minute) / 120)))
+            official, private = bins[slot]
+            if channel == "private":
+                private += weight
+            else:
+                official += weight
+            bins[slot] = (official, private)
+        hist_max = max([official + private for official, private in bins] or [0.1])
+        hist_max = max(0.1, hist_max * 1.15)
+        axis_font = QFont("Microsoft YaHei", 9)
+        painter.setFont(axis_font)
+        painter.setPen(QPen(self.GRID_COLOR, 1))
+        for index in range(3):
+            ratio = float(index) / 2.0
+            y = histogram.bottom() - ratio * histogram.height()
+            painter.drawLine(QPointF(histogram.left(), y), QPointF(histogram.right(), y))
+            painter.setPen(self.TEXT_COLOR)
+            painter.drawText(QRectF(5, y - 8, 57, 16), Qt.AlignRight | Qt.AlignVCenter, "%.2f" % (hist_max * ratio))
+            painter.setPen(QPen(self.GRID_COLOR, 1))
+        bar_width = histogram.width() / 12.0
+        for index, (official, private) in enumerate(bins):
+            x = histogram.left() + index * bar_width + bar_width * 0.16
+            width_bar = bar_width * 0.68
+            official_h = (official / hist_max) * histogram.height()
+            private_h = (private / hist_max) * histogram.height()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self.OFFICIAL_COLOR)
+            painter.drawRect(QRectF(x, histogram.bottom() - official_h, width_bar, official_h))
+            painter.setBrush(self.PRIVATE_COLOR)
+            painter.drawRect(QRectF(x, histogram.bottom() - official_h - private_h, width_bar, private_h))
+            painter.setPen(self.TEXT_COLOR)
+            painter.setFont(axis_font)
+            painter.drawText(QRectF(x - 8, histogram.bottom() + 6, width_bar + 16, 18), Qt.AlignCenter, "%02d" % (index * 2))
+
     def paintEvent(self, event):  # noqa: N802 - Qt API name
         del event
         painter = QPainter(self)
@@ -273,6 +331,11 @@ class DecisionWeightChart(QWidget):
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(QFont("Microsoft YaHei", 13))
             painter.drawText(outer, Qt.AlignCenter, u"今日暂无称重决策记录")
+            painter.end()
+            return
+
+        if self.chart_mode == "histogram":
+            self._paint_histogram_only(painter, route_points)
             painter.end()
             return
 
@@ -418,6 +481,10 @@ class DecisionWeightChart(QWidget):
                     last_manual_label_x = x
             painter.restore()
 
+        if self.chart_mode == "line":
+            painter.end()
+            return
+
         # Bottom stacked histogram: each two-hour slot shows the cumulative
         # official/private weight. It answers a different question from the
         # line chart ("which channel got this bowl?") while staying compact
@@ -476,8 +543,6 @@ class SwitchSettingsWidget(QWidget):
     # below for older/newer entries instead of an internal scrolling log.
     LOG_PAGE_SIZE = 8
     LOG_GAP_SECONDS = 5 * 60
-    LOG_TEXT_MIN_HEIGHT = 116
-    LOG_TEXT_MAX_HEIGHT = 430
 
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
@@ -503,6 +568,15 @@ class SwitchSettingsWidget(QWidget):
     def hideEvent(self, event):
         super().hideEvent(event)
         self.log_timer.stop()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Keep the log editor anchored between the date bar and pager when
+        # the POS window is resized or the display orientation changes.
+        if getattr(self, "section_stack", None) is not None:
+            logs_index = getattr(self, "_section_targets", {}).get("logs")
+            if self.section_stack.currentIndex() == logs_index:
+                QTimer.singleShot(0, lambda: self._select_switch_section("logs", scroll=False))
 
     def _build_ui(self):
         # Use one page-level vertical scroll area.  The configuration form and
@@ -794,14 +868,12 @@ class SwitchSettingsWidget(QWidget):
         chart_tip.setWordWrap(True)
         chart_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
         right_layout.addWidget(chart_tip)
-        self.weight_chart = DecisionWeightChart()
-        self.chart_scroll = QScrollArea()
-        self.chart_scroll.setWidgetResizable(True)
-        self.chart_scroll.setMinimumHeight(1180)
-        self.chart_scroll.setFrameShape(QFrame.NoFrame)
-        self.chart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.chart_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.chart_scroll.setStyleSheet("""
+        self.weight_line_chart = DecisionWeightChart(chart_mode="line")
+        self.weight_histogram_chart = DecisionWeightChart(chart_mode="histogram")
+        # Keep the old attribute as a compatibility alias for callers that
+        # only need to refresh or focus the main line chart.
+        self.weight_chart = self.weight_line_chart
+        chart_scroll_style = """
             QScrollArea { border: none; background: transparent; }
             QScrollBar:horizontal {
                 height: 14px; background: #0F172A; border-radius: 7px;
@@ -809,17 +881,53 @@ class SwitchSettingsWidget(QWidget):
             QScrollBar::handle:horizontal {
                 background: #475569; border-radius: 7px; min-width: 60px;
             }
-        """)
-        self.chart_scroll.setWidget(self.weight_chart)
-        right_layout.addWidget(self.chart_scroll)
+        """
+        self.chart_line_scroll = QScrollArea()
+        self.chart_line_scroll.setWidgetResizable(True)
+        self.chart_line_scroll.setMinimumHeight(680)
+        self.chart_line_scroll.setFrameShape(QFrame.NoFrame)
+        self.chart_line_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chart_line_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chart_line_scroll.setStyleSheet(chart_scroll_style)
+        self.chart_line_scroll.setWidget(self.weight_line_chart)
+        # The line chart owns its own horizontal scrollbar directly below it.
+        self.chart_scroll = self.chart_line_scroll
+
+        chart_hist_title = QLabel(u"按时段重量分布（每 2 小时）")
+        chart_hist_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
+        chart_hist_tip = QLabel(u"按 2 小时汇总官方与私有重量，便于快速查看一天内各时段的分布。")
+        chart_hist_tip.setWordWrap(True)
+        chart_hist_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
+        self.chart_hist_scroll = QScrollArea()
+        self.chart_hist_scroll.setWidgetResizable(True)
+        self.chart_hist_scroll.setMinimumHeight(460)
+        self.chart_hist_scroll.setFrameShape(QFrame.NoFrame)
+        self.chart_hist_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chart_hist_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chart_hist_scroll.setStyleSheet(chart_scroll_style)
+        self.chart_hist_scroll.setWidget(self.weight_histogram_chart)
+        right_layout.addWidget(self.chart_line_scroll)
+        right_layout.addWidget(chart_hist_title)
+        right_layout.addWidget(chart_hist_tip)
+        right_layout.addWidget(self.chart_hist_scroll)
 
         # 图表放在算法日志之前：操作员先看今日分流走势，再向下查看
         # 对应的逐条实时日志。此前图表追加在日志末尾，阅读顺序相反。
-        for chart_widget in (chart_title, chart_tip, self.chart_scroll):
+        for chart_widget in (
+            chart_title,
+            chart_tip,
+            self.chart_line_scroll,
+            chart_hist_title,
+            chart_hist_tip,
+            self.chart_hist_scroll,
+        ):
             right_layout.removeWidget(chart_widget)
         right_layout.insertWidget(0, chart_title)
         right_layout.insertWidget(1, chart_tip)
-        right_layout.insertWidget(2, self.chart_scroll)
+        right_layout.insertWidget(2, self.chart_line_scroll)
+        right_layout.insertWidget(3, chart_hist_title)
+        right_layout.insertWidget(4, chart_hist_tip)
+        right_layout.insertWidget(5, self.chart_hist_scroll)
 
         # 切换算法页的二级目录，布局与系统设置保持一致：左侧固定
         # 导航栏，右侧为可纵向滚动的内容区。
@@ -880,12 +988,15 @@ class SwitchSettingsWidget(QWidget):
         chart_layout.addWidget(self.chart_date_bar)
         chart_layout.addWidget(chart_title)
         chart_layout.addWidget(chart_tip)
-        chart_layout.addWidget(self.chart_scroll, stretch=1)
+        chart_layout.addWidget(self.chart_line_scroll)
+        chart_layout.addWidget(chart_hist_title)
+        chart_layout.addWidget(chart_hist_tip)
+        chart_layout.addWidget(self.chart_hist_scroll)
 
         logs_panel = QWidget()
         # 日志必须是单屏分页，不随设置页的超高 sizeHint 一起被撑开。
         logs_panel.setMinimumHeight(0)
-        logs_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        logs_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         logs_layout = QVBoxLayout(logs_panel)
         logs_layout.setContentsMargins(10, 0, 10, 20)
         logs_layout.setSpacing(10)
@@ -894,11 +1005,12 @@ class SwitchSettingsWidget(QWidget):
         logs_title = QLabel(u"▣ 算法实时追踪（自动刷新）")
         logs_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
         logs_layout.addWidget(logs_title)
-        # 分页日志只展示当前页，不需要把文本框拉伸到整张屏幕。
-        self.txt_logs.setMinimumHeight(self.LOG_TEXT_MIN_HEIGHT)
-        self.txt_logs.setMaximumHeight(self.LOG_TEXT_MAX_HEIGHT)
-        self.txt_logs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        logs_layout.addWidget(self.txt_logs)
+        # 日志区填满日期栏与分页栏之间的所有空间，避免记录较少时在下方
+        # 留出大片空白，也让分页器始终贴在页面底部。
+        self.txt_logs.setMinimumHeight(0)
+        self.txt_logs.setMaximumHeight(16777215)
+        self.txt_logs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        logs_layout.addWidget(self.txt_logs, stretch=1)
         logs_layout.addLayout(log_paging_bar)
         self._logs_panel = logs_panel
 
@@ -919,7 +1031,7 @@ class SwitchSettingsWidget(QWidget):
         self._section_page_heights = {
             "settings": max(1, left_panel.sizeHint().height()),
             "chart": max(1, chart_panel.sizeHint().height()),
-            "logs": 650,
+            "logs": 1,
         }
 
         # 右侧内容区默认支持设置页纵向滚动；日志页会在切换时关闭
@@ -1126,7 +1238,8 @@ class SwitchSettingsWidget(QWidget):
                 })
         except Exception as exc:
             log_event(CAT_SYSTEM, "手动切换图表标记读取失败", str(exc))
-        self.weight_chart.set_events(events)
+        self.weight_line_chart.set_events(events)
+        self.weight_histogram_chart.set_events(events)
 
     def focus_weight_chart(self):
         """将页面滚动到折线图，供悬浮球顶部剩余重量入口调用。"""
@@ -1147,11 +1260,16 @@ class SwitchSettingsWidget(QWidget):
         # page.  Resize it to the selected page so the log page is genuinely
         # one screen with its pagination bar visible.
         if section_id == "logs":
-            # The log page has pagination, so it must never require a second
-            # vertical scroll.  Its height follows the current page instead
-            # of reserving a large empty text area when only a few records
-            # exist.
-            page_height = self._logs_panel_height()
+            # The log page owns the full available viewport.  The text editor
+            # expands between the date bar and pager instead of leaving a
+            # large unused area below a short log list.
+            viewport_height = int(self.page_scroll.viewport().height() or 0)
+            margins = self.page_scroll.widget().layout().contentsMargins()
+            usable_height = viewport_height - margins.top() - margins.bottom()
+            # page_container has its own top/bottom margins.  Leaving them out
+            # here creates a tiny outer scroll range, so the mouse wheel still
+            # moves the supposedly fixed log page.
+            page_height = max(1, usable_height or self._logs_panel_height())
             self.page_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         else:
             self.page_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -1192,7 +1310,7 @@ class SwitchSettingsWidget(QWidget):
         return max(1, int(panel.sizeHint().height()))
 
     def _fit_log_text_height(self):
-        """Shrink the log editor to its rendered content, within touch-safe bounds."""
+        """Update wrapping metrics without overriding the full-page log height."""
         text_edit = getattr(self, "txt_logs", None)
         if text_edit is None:
             return
@@ -1200,15 +1318,32 @@ class SwitchSettingsWidget(QWidget):
         # QTextDocument needs the available width to calculate wrapped lines.
         width = max(1, text_edit.viewport().width() or text_edit.width())
         document.setTextWidth(width)
-        content_height = ceil(float(document.size().height())) + 24
-        target = max(self.LOG_TEXT_MIN_HEIGHT, min(self.LOG_TEXT_MAX_HEIGHT, content_height))
-        text_edit.setFixedHeight(int(target))
-        if hasattr(self, "_section_page_heights"):
-            self._section_page_heights["logs"] = self._logs_panel_height()
-        if getattr(self, "section_stack", None) is not None:
-            current = self.section_stack.currentIndex()
-            if current == getattr(self, "_section_targets", {}).get("logs"):
-                self.section_stack.setFixedHeight(self._logs_panel_height())
+
+    @classmethod
+    def _log_group_range_label(cls, entries):
+        """Return the chronological HH:MM-HH:MM range for one log group."""
+        timestamps = [
+            cls._parse_log_timestamp(entry.get("ts", ""))
+            for entry in entries
+        ]
+        timestamps = [value for value in timestamps if value is not None]
+        if not timestamps:
+            return ""
+        start = min(timestamps)
+        end = max(timestamps)
+        return "%s-%s" % (start.strftime("%H:%M"), end.strftime("%H:%M"))
+
+    @classmethod
+    def _log_groups(cls, entries):
+        """Split logs when adjacent records are more than five minutes apart."""
+        groups = []
+        for entry in entries:
+            if not groups:
+                groups.append([])
+            elif cls._log_gap_label(groups[-1][-1], entry):
+                groups.append([])
+            groups[-1].append(entry)
+        return groups
 
     def _render_log_page(self):
         """仅渲染当前页面的少量算法日志，保证单屏可读并避免卡顿"""
@@ -1232,20 +1367,36 @@ class SwitchSettingsWidget(QWidget):
         end_idx = min(start_idx + self.LOG_PAGE_SIZE, total)
         page_entries = self.filtered_algo_logs[start_idx:end_idx]
 
+        # Build groups from the complete filtered list first.  This keeps the
+        # five-minute rule correct even when a group crosses a page boundary.
+        groups = self._log_groups(self.filtered_algo_logs)
+        group_by_index = {}
+        group_index = 0
+        for group in groups:
+            for _group_entry in group:
+                group_by_index[group_index] = group
+                group_index += 1
+
         html = ""
-        # Keep the grouping marker correct when a five-minute gap falls
-        # exactly at a pagination boundary.
-        previous_entry = self.filtered_algo_logs[start_idx - 1] if start_idx > 0 else None
-        for entry in page_entries:
-            if previous_entry is not None:
-                gap_label = self._log_gap_label(previous_entry, entry)
-                if gap_label:
+        active_group = None
+        for page_offset, entry in enumerate(page_entries):
+            group = group_by_index.get(start_idx + page_offset)
+            if group is not active_group:
+                if active_group is not None:
+                    html += "<div style='height:28px;'></div>"
+                range_label = self._log_group_range_label(group or [entry])
+                if range_label:
                     html += (
-                        "<div style='color:#64748B; text-align:center; font-size:11px; "
-                        "letter-spacing:1px; margin:10px 0 3px;'>%s</div>"
-                        "<div style='border-top:1px dashed #64748B; height:1px; "
-                        "margin:0 0 10px;'></div>"
-                    ) % gap_label
+                        "<div style='color:#E2E8F0; text-align:left; font-size:18px; "
+                        "font-weight:900; letter-spacing:1px; margin:20px 0 8px;'>%s</div>"
+                        # QTextEdit's Qt rich-text engine does not reliably
+                        # render CSS border-top styles, so use a literal
+                        # dashed rule that also remains visible on Win7.
+                        "<div style='color:#64748B; font-size:12px; "
+                        "letter-spacing:2px; margin:0 0 18px;'>"
+                        "- - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>"
+                    ) % escape(range_label)
+                active_group = group
             cat = entry.get("cat")
             msg = entry.get("msg", "")
             detail = entry.get("detail", "")
@@ -1256,14 +1407,13 @@ class SwitchSettingsWidget(QWidget):
             elif cat == CAT_SWITCH: color = "#FF781F"
             elif cat == CAT_PANIC: color = "#EF4444"
 
-            html += f"<div style='margin-bottom: 8px; border-bottom: 1px dashed #1E293B; padding-bottom: 6px;'>"
-            html += f"<span style='color: #475569;'>[{ts}]</span> "
-            html += f"<b style='color: {color};'>[{cat}]</b> "
-            html += f"<span style='color: #E2E8F0;'>{msg}</span><br>"
+            html += f"<div style='margin-bottom: 8px; padding-bottom: 6px;'>"
+            html += f"<span style='color: #475569;'>[{escape(str(ts))}]</span> "
+            html += f"<b style='color: {color};'>[{escape(str(cat))}]</b> "
+            html += f"<span style='color: #E2E8F0;'>{escape(str(msg))}</span><br>"
             if detail:
-                html += f"<span style='color: #94A3B8; font-size: 12px;'> - {detail}</span>"
+                html += f"<span style='color: #94A3B8; font-size: 12px;'> - {escape(str(detail))}</span>"
             html += f"</div>"
-            previous_entry = entry
 
         self.txt_logs.setHtml(html)
         self._fit_log_text_height()

@@ -29,6 +29,20 @@ class DecisionWeightChartTests(unittest.TestCase):
         self.assertEqual([item[2] for item in series], ["private", "official", "private"])
         self.assertEqual([round(item[4], 3) for item in series], [0.4, 0.3, 0.5])
 
+    def test_histogram_mode_keeps_fixed_width_for_its_own_scroll_card(self):
+        line = DecisionWeightChart(chart_mode="line")
+        histogram = DecisionWeightChart(chart_mode="histogram")
+        self.addCleanup(line.deleteLater)
+        self.addCleanup(histogram.deleteLater)
+        events = [
+            {"created_at": "2026-08-06 12:%02d:00" % (index % 60), "weight_kg": 0.25, "channel": "official"}
+            for index in range(80)
+        ]
+        line.set_events(events)
+        histogram.set_events(events)
+        self.assertGreater(line.minimumWidth(), histogram.minimumWidth())
+        self.assertEqual(histogram.minimumWidth(), 720)
+
 
 if __name__ == "__main__":
     unittest.main()
