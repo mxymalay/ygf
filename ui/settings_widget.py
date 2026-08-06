@@ -13,12 +13,13 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit
 )
-from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QKeySequence, QDesktopServices
+from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QKeySequence, QDesktopServices, QIcon, QPixmap
 
 from config import (
     BASE_DIR, DATA_DIR, save_config, reset_module_config, reset_all_config,
     export_config_bundle, import_config_bundle, backup_config_bundle,
+    APP_LOGO_PRESETS, app_logo_path,
 )
 from utils.port_scanner import scan_printers
 from utils.window_utils import (
@@ -1432,6 +1433,53 @@ class SettingsWidget(QWidget):
 
         layout.addLayout(grid)
 
+        # 应用 Logo 选择。这里单独保存，避免必须先完成官方 POS 识别词
+        # 才能更换 Logo；选择后会同步更新左侧品牌徽标和窗口图标。
+        logo_panel = QFrame()
+        logo_panel.setStyleSheet(
+            "QFrame { background: #0F172A; border: 2px solid #0EA5E9; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        logo_layout = QVBoxLayout(logo_panel)
+        logo_layout.setContentsMargins(18, 16, 18, 16)
+        logo_layout.setSpacing(10)
+        logo_title = QLabel(u"🎨 应用 Logo")
+        logo_title.setStyleSheet("color: #BAE6FD; font-size: 18px; font-weight: 900;")
+        logo_layout.addWidget(logo_title)
+        logo_hint = QLabel(u"可选择内置候选图标。保存后立即应用到左侧品牌标识和软件窗口图标。")
+        logo_hint.setWordWrap(True)
+        logo_hint.setStyleSheet("color: #CBD5E1; font-size: 14px;")
+        logo_layout.addWidget(logo_hint)
+
+        logo_row = QHBoxLayout()
+        logo_row.setSpacing(14)
+        self.lbl_app_logo_preview = QLabel()
+        self.lbl_app_logo_preview.setFixedSize(82, 82)
+        self.lbl_app_logo_preview.setAlignment(Qt.AlignCenter)
+        self.lbl_app_logo_preview.setStyleSheet(
+            "background: #1E293B; border: 1px solid #475569; border-radius: 12px;"
+        )
+        logo_row.addWidget(self.lbl_app_logo_preview)
+        self.cmb_app_logo = QComboBox()
+        self.cmb_app_logo.setIconSize(QSize(52, 52))
+        self.cmb_app_logo.setMinimumHeight(60)
+        self.cmb_app_logo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        current_logo = str(self.config.get("app_logo_preset", "yangguofu") or "yangguofu")
+        for preset_id, (label, _filename) in APP_LOGO_PRESETS.items():
+            pixmap = QPixmap(app_logo_path(preset_id))
+            self.cmb_app_logo.addItem(QIcon(pixmap), label, preset_id)
+        index = self.cmb_app_logo.findData(current_logo)
+        self.cmb_app_logo.setCurrentIndex(index if index >= 0 else 0)
+        self.cmb_app_logo.currentIndexChanged.connect(self._preview_app_logo)
+        logo_row.addWidget(self.cmb_app_logo, stretch=1)
+        self.btn_save_app_logo = QPushButton(u"保存并应用 Logo")
+        self._style_touch_action_btn(self.btn_save_app_logo, "blue")
+        self.btn_save_app_logo.clicked.connect(self._save_app_logo)
+        logo_row.addWidget(self.btn_save_app_logo)
+        logo_layout.addLayout(logo_row)
+        layout.addWidget(logo_panel)
+        self._preview_app_logo(self.cmb_app_logo.currentIndex())
+
         reminder_panel = QFrame()
         reminder_panel.setStyleSheet(
             "QFrame { background: #0F172A; border: 2px solid #F59E0B; border-radius: 12px; }"
@@ -2337,6 +2385,31 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"店铺与计价设置已保存！")
 
+    def _preview_app_logo(self, index):
+        """Show the selected bundled Logo before the operator saves it."""
+        if not hasattr(self, "cmb_app_logo"):
+            return
+        preset_id = self.cmb_app_logo.itemData(index) or "yangguofu"
+        pixmap = QPixmap(app_logo_path(preset_id))
+        if pixmap.isNull():
+            self.lbl_app_logo_preview.clear()
+            self.lbl_app_logo_preview.setText(u"无预览")
+            return
+        self.lbl_app_logo_preview.setPixmap(
+            pixmap.scaled(70, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+
+    def _save_app_logo(self):
+        """Persist and apply the Logo without requiring unrelated system fields."""
+        preset_id = self.cmb_app_logo.currentData() or "yangguofu"
+        self.config["app_logo_preset"] = str(preset_id)
+        save_config(self.config)
+        parent_mw = self.window()
+        if hasattr(parent_mw, "apply_app_logo"):
+            parent_mw.apply_app_logo(self.config["app_logo_preset"])
+        from ui.custom_dialog import show_info
+        show_info(self, u"Logo 已保存", u"应用 Logo 已立即更新。")
+
     def _on_save_sys(self):
         from ui.custom_dialog import show_warning
         window_keywords = [
@@ -2359,6 +2432,7 @@ class SettingsWidget(QWidget):
         self.config["auto_start_enabled"] = (self.cmb_auto_start.currentIndex() == 0)
         self.config["auto_start_delay"] = self.spin_auto_start_delay.value()
         self.config["floating_ball_enabled"] = (self.cmb_floating_ball.currentIndex() == 0)
+        self.config["app_logo_preset"] = self.cmb_app_logo.currentData() or "yangguofu"
         self.config["low_price_warning_enabled"] = (self.cmb_low_price_warning.currentIndex() == 0)
         self.config["low_price_warning_threshold"] = self.spin_low_price_threshold.value()
         self.config["packing_reminder_enabled"] = (self.cmb_packing_reminder.currentIndex() == 0)
@@ -2372,6 +2446,8 @@ class SettingsWidget(QWidget):
         )
 
         parent_mw = self.window()
+        if hasattr(parent_mw, "apply_app_logo"):
+            parent_mw.apply_app_logo(self.config.get("app_logo_preset", "yangguofu"))
         if hasattr(parent_mw, 'switch_controller') and parent_mw.switch_controller:
             parent_mw.switch_controller.update_config(self.config)
 

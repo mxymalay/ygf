@@ -8,7 +8,7 @@ os.environ["QT_LOGGING_RULES"] = "qt.png=false;qt.qpa.window=false;*.warning=fal
 
 from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 
 from core.app_logger import log_event, cleanup_old_logs, CAT_SYSTEM
 from core.safe_console import install_safe_console_streams
@@ -85,6 +85,16 @@ def main():
         )
         app.processEvents()
         config = load_config()
+
+    # Apply the saved Logo before the login dialog is created so every window
+    # in the session, including the Win7 taskbar entry, uses the same icon.
+    try:
+        from config import app_logo_path
+        app_icon = QIcon(app_logo_path(config.get("app_logo_preset", "yangguofu")))
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
+    except Exception:
+        pass
 
     # 启动时自动清理超过 3 天的旧日志
     try:

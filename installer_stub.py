@@ -39,11 +39,94 @@ def _install_complete_message(display_name, target_dir):
     return (
         "安装完成！\n\n"
         "%s 已安装/更新完成。\n\n"
-        "请使用桌面或开始菜单中的“%s”启动 POS。\n"
+        "点击“现在打开”可立即启动 POS，点击“完成”只关闭安装器。\n"
         "实际程序文件：启动.exe\n"
         "安装路径：%s"
-        % (display_name, display_name, target_dir)
+        % (display_name, target_dir)
     )
+
+
+def _open_installed_app(target_dir):
+    """Start the installed launcher after the completion dialog is closed."""
+    launcher = os.path.join(os.path.abspath(target_dir), "启动.exe")
+    if not os.path.isfile(launcher):
+        return False
+    try:
+        subprocess.Popen([launcher], cwd=os.path.dirname(launcher), close_fds=True)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _native_install_complete(display_name, target_dir):
+    """Win32 fallback with explicit Open/Finish choices for Win7."""
+    message = _install_complete_message(display_name, target_dir)
+    if os.name == "nt":
+        result = ctypes.windll.user32.MessageBoxW(
+            0,
+            message,
+            "安装/更新完成",
+            0x00000004 | 0x00000040 | 0x00010000,  # MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND
+        )
+        if result == 6:  # IDYES = 现在打开
+            _open_installed_app(target_dir)
+        return result == 6
+    _native_showinfo("安装/更新完成", message)
+    return False
+
+
+def _show_install_complete(root, display_name, target_dir):
+    """Show a foreground completion dialog with ``现在打开`` / ``完成``."""
+    if not HAS_TKINTER or root is None:
+        return _native_install_complete(display_name, target_dir)
+
+    dialog = tk.Toplevel(root)
+    dialog.title("安装/更新完成")
+    dialog.geometry("520x260")
+    dialog.resizable(False, False)
+    dialog.transient(root)
+    dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+    try:
+        dialog.grab_set()
+        dialog.focus_force()
+        dialog.lift()
+    except tk.TclError:
+        pass
+
+    frame = ttk.Frame(dialog, padding=24)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text="安装/更新完成", font=("Microsoft YaHei", 18, "bold")).pack(anchor="w")
+    ttk.Label(
+        frame,
+        text=("%s 已安装/更新完成。\n\n"
+               "现在打开：立即启动 POS\n"
+               "完成：关闭安装器，不启动 POS") % display_name,
+        justify="left",
+        wraplength=460,
+    ).pack(anchor="w", pady=(16, 20))
+    buttons = ttk.Frame(frame)
+    buttons.pack(fill="x", side="bottom")
+
+    def close_and_open():
+        try:
+            dialog.grab_release()
+        except tk.TclError:
+            pass
+        dialog.destroy()
+        root.destroy()
+        _open_installed_app(target_dir)
+
+    def close_only():
+        try:
+            dialog.grab_release()
+        except tk.TclError:
+            pass
+        dialog.destroy()
+
+    ttk.Button(buttons, text="现在打开", command=close_and_open).pack(side="left", ipadx=24, ipady=8)
+    ttk.Button(buttons, text="完成", command=close_only).pack(side="right", ipadx=24, ipady=8)
+    dialog.wait_window()
+    return False
 
 
 def _native_showerror(title, message):
@@ -231,6 +314,21 @@ def _native_prompt_string(title, prompt, initial_value=""):
 
 APP_DISPLAY_NAME = "YGF POS 称重打印系统"
 DISPLAY_NAME_OPTIONS = ("私有 POS 系统", "门店称重助手", "称重桥接管理器", "用户自定")
+APP_ICON_OPTIONS = (
+    ("yangguofu", "内置杨国福"),
+    ("netease_music", "网易云音乐"),
+    ("windows", "Windows"),
+    ("qq_penguin", "QQ 企鹅"),
+    ("dollar", "美元"),
+    ("settings_gears", "蓝色齿轮"),
+    ("red_music_note", "红色音符"),
+    ("gold_blue_mark", "蓝金图标"),
+    ("green_dollar", "绿色美元"),
+)
+APP_ICON_FILES = dict(
+    (preset_id, "app_icon_%s.ico" % preset_id)
+    for preset_id, _label in APP_ICON_OPTIONS
+)
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\YGF-POS"
 SERVICE_NAME = "YgfScaleBridge"
 PAYLOAD_NAME = "YGF-POS-Payload.zip"
@@ -275,6 +373,17 @@ def _registry_install_dir():
 def _registry_display_name():
     if not winreg:
         return ""
+
+
+def _registry_icon_preset():
+    if not winreg:
+        return ""
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY) as key:
+            value = str(winreg.QueryValueEx(key, "IconPreset")[0] or "")
+            return value if value in APP_ICON_FILES else ""
+    except (OSError, TypeError, ValueError):
+        return ""
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY) as key:
             return str(winreg.QueryValueEx(key, "DisplayName")[0] or "")
@@ -302,7 +411,7 @@ def _existing_install_dir():
     return ""
 
 
-def _write_uninstall_entry(install_dir, display_name):
+def _write_uninstall_entry(install_dir, display_name, icon_preset):
     if not winreg:
         return
     with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY) as key:
@@ -310,6 +419,7 @@ def _write_uninstall_entry(install_dir, display_name):
         winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "1.0")
         winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "YGF POS")
         winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, install_dir)
+        winreg.SetValueEx(key, "IconPreset", 0, winreg.REG_SZ, icon_preset)
         winreg.SetValueEx(
             key,
             "UninstallString",
@@ -334,20 +444,23 @@ def _powershell_quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def _create_shortcut(shortcut_path, target_path, working_dir, display_name):
+def _create_shortcut(shortcut_path, target_path, working_dir, display_name, icon_path=""):
     os.makedirs(os.path.dirname(shortcut_path), exist_ok=True)
+    icon_line = "$l.IconLocation=%s;" % _powershell_quote("%s,0" % icon_path) if icon_path else ""
     script = (
         "$s=New-Object -ComObject WScript.Shell;"
         "$l=$s.CreateShortcut(%s);"
         "$l.TargetPath=%s;"
         "$l.WorkingDirectory=%s;"
         "$l.Description=%s;"
+        "%s"
         "$l.Save()"
         % (
             _powershell_quote(shortcut_path),
             _powershell_quote(target_path),
             _powershell_quote(working_dir),
             _powershell_quote(display_name),
+            icon_line,
         )
     )
     try:
@@ -435,8 +548,9 @@ def _safe_extract_payload(target_dir):
                 shutil.copyfileobj(source, target)
 
 
-def _install(target_dir, display_name):
+def _install(target_dir, display_name, icon_preset="yangguofu"):
     target_dir = os.path.abspath(target_dir)
+    icon_preset = icon_preset if icon_preset in APP_ICON_FILES else "yangguofu"
     old_dir = _existing_install_dir()
     old_display_name = _registry_display_name() or APP_DISPLAY_NAME
     was_running = _service_running()
@@ -456,11 +570,16 @@ def _install(target_dir, display_name):
         except OSError:
             pass
     _remove_shortcuts(old_display_name)
-    _write_uninstall_entry(target_dir, display_name)
+    _write_uninstall_entry(target_dir, display_name, icon_preset)
     launcher = os.path.join(target_dir, "启动.exe")
+    icon_path = os.path.join(target_dir, "data", "assets", APP_ICON_FILES[icon_preset])
+    if not os.path.isfile(icon_path):
+        # Older payloads may not have the selectable ICO assets; use the
+        # launcher resource rather than creating a shortcut with a dead icon.
+        icon_path = launcher
     desktop, start_menu, uninstall_link = _shortcut_paths(display_name)
-    _create_shortcut(desktop, launcher, target_dir, display_name)
-    _create_shortcut(start_menu, launcher, target_dir, display_name)
+    _create_shortcut(desktop, launcher, target_dir, display_name, icon_path)
+    _create_shortcut(start_menu, launcher, target_dir, display_name, icon_path)
     _create_shortcut(uninstall_link, os.path.join(target_dir, "卸载.exe"), target_dir, "卸载 %s" % display_name)
     if was_running and (not old_dir or _norm(old_dir) == _norm(target_dir)):
         _run_hidden([os.path.join(target_dir, "ScaleBridgeService.exe"), "start"], timeout=60)
@@ -562,7 +681,7 @@ def main():
             return
         try:
             _install(target, display_name)
-            _native_showinfo("安装完成", _install_complete_message(display_name, target))
+            _native_install_complete(display_name, target)
         except Exception as exc:
             _native_showerror("安装失败", str(exc))
         return
@@ -572,6 +691,14 @@ def main():
     default_dir = existing or os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "YGF-POS")
     path_var = tk.StringVar(value=default_dir)
     display_name_var = tk.StringVar(value=_registry_display_name() or DISPLAY_NAME_OPTIONS[0])
+    saved_icon_preset = _registry_icon_preset() or "yangguofu"
+    icon_labels = [label for _preset_id, label in APP_ICON_OPTIONS]
+    icon_id_by_label = {label: preset_id for preset_id, label in APP_ICON_OPTIONS}
+    icon_preset_var = tk.StringVar(value=icon_labels[0])
+    for preset_id, label in APP_ICON_OPTIONS:
+        if preset_id == saved_icon_preset:
+            icon_preset_var.set(label)
+            break
 
     frame = ttk.Frame(root, padding=24)
     frame.pack(fill="both", expand=True)
@@ -586,6 +713,15 @@ def main():
         font=("Microsoft YaHei", 12),
     )
     name_box.pack(fill="x", pady=(6, 14), ipady=6)
+    ttk.Label(frame, text="桌面快捷方式图标：").pack(anchor="w")
+    icon_box = ttk.Combobox(
+        frame,
+        textvariable=icon_preset_var,
+        values=icon_labels,
+        state="readonly",
+        font=("Microsoft YaHei", 12),
+    )
+    icon_box.pack(fill="x", pady=(6, 14), ipady=6)
     ttk.Label(frame, text="安装目录：").pack(anchor="w")
     path_row = ttk.Frame(frame)
     path_row.pack(fill="x", pady=(6, 18))
@@ -623,11 +759,20 @@ def main():
             messagebox.showerror("目录无效", "请选择有效的安装目录。", parent=root)
             return
         try:
-            _install(target, display_name)
+            icon_preset = icon_id_by_label.get(icon_preset_var.get(), "yangguofu")
+            _install(target, display_name, icon_preset)
             status.configure(text="安装完成，正在显示完成提示。")
             root.update_idletasks()
-            messagebox.showinfo("安装完成", _install_complete_message(display_name, target), parent=root)
-            root.destroy()
+            # Keep the root alive until the explicit foreground completion
+            # dialog is closed; this avoids Win7 losing a Tk messagebox while
+            # the installer window is being torn down.
+            _show_install_complete(root, display_name, target)
+            try:
+                root_exists = bool(root.winfo_exists())
+            except tk.TclError:
+                root_exists = False
+            if root_exists:
+                root.destroy()
         except Exception as exc:
             messagebox.showerror("安装失败", str(exc), parent=root)
 

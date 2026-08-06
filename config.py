@@ -25,6 +25,28 @@ os.makedirs(DATA_DIR, exist_ok=True)
 DB_DIR = os.path.join(DATA_DIR, "db")
 os.makedirs(DB_DIR, exist_ok=True)
 
+# 可由店员在系统设置中选择的应用 Logo。配置只保存稳定的 preset id，
+# 不保存开发机绝对路径，这样复制到另一台收银机或打包成 exe 后仍能使用。
+APP_LOGO_PRESETS = {
+    "yangguofu": (u"内置杨国福", "yangguofu_logo_source.png"),
+    "netease_music": (u"网易云音乐", "netease_music.png"),
+    "windows": (u"Windows", "windows_logo.jpg"),
+    "qq_penguin": (u"QQ 企鹅", "qq_penguin.png"),
+    "dollar": (u"美元", "dollar_logo.png"),
+    "settings_gears": (u"蓝色齿轮", "settings_gears.png"),
+    "red_music_note": (u"红色音符", "red_music_note.png"),
+    "gold_blue_mark": (u"蓝金图标", "gold_blue_mark.jpg"),
+    "green_dollar": (u"绿色美元", "green_dollar.jpg"),
+}
+
+
+def app_logo_path(preset_id):
+    """Resolve a bundled application Logo preset to an absolute asset path."""
+    item = APP_LOGO_PRESETS.get(str(preset_id or "yangguofu"))
+    if not item:
+        item = APP_LOGO_PRESETS["yangguofu"]
+    return os.path.join(DATA_DIR, "assets", item[1])
+
 # 拆分后的模块化配置文件目录 data/settings/
 SETTINGS_DIR = os.path.join(DATA_DIR, "settings")
 os.makedirs(SETTINGS_DIR, exist_ok=True)
@@ -82,6 +104,7 @@ DEFAULT_CONFIG = {
     "printer_logo_path": "",
     "printer_logo_enabled": True,
     "printer_logo_width_px": 512,
+    "app_logo_preset": "yangguofu",
     "printer_customer_template_custom": "",
     "printer_kitchen_template_custom": "",
     "unit_price": 47.60,

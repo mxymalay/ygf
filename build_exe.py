@@ -144,6 +144,7 @@ def main():
         "--workpath=%s" % os.path.join("build", "pos"),
         "--specpath=%s" % os.path.join("build", "spec"),
         "--uac-admin",          # 强制请求管理员权限 (解决UIPI隔离导致无法控制收钱吧的问题)
+        "--icon=%s" % os.path.join("data", "assets", "app_icon_yangguofu.ico"),
         "--hidden-import=win32print",
         "--hidden-import=sqlite3",
         "--hidden-import=PyQt5.QtCore",
@@ -264,6 +265,14 @@ def main():
         shutil.copy2(sqb_installer, os.path.join(bundled_sqb, os.path.basename(sqb_installer)))
         bundled_data = os.path.join(package_dir, "data")
         os.makedirs(bundled_data, exist_ok=True)
+        # The runtime resolves bundled Logos and printer artwork from
+        # ``data/assets`` beside the installed executable.  Include the whole
+        # asset folder so newly selectable Logo presets also work in a clean
+        # deployment, not only from a source checkout.
+        assets_source = os.path.join("data", "assets")
+        assets_target = os.path.join(bundled_data, "assets")
+        if os.path.isdir(assets_source):
+            shutil.copytree(assets_source, assets_target, dirs_exist_ok=True)
         scale_example = os.path.join("data", "scale_bridge.example.json")
         if os.path.isfile(scale_example):
             shutil.copy2(scale_example, os.path.join(bundled_data, "scale_bridge.example.json"))

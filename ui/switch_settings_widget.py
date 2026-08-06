@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
 from datetime import datetime, timedelta
+from math import ceil
 from config import save_config
 from core.app_logger import log_event, CAT_SYSTEM, read_logs, CAT_DECISION, CAT_SWITCH, CAT_PANIC
 
@@ -474,6 +475,9 @@ class SwitchSettingsWidget(QWidget):
     # second line, so keep the page deliberately short and use the buttons
     # below for older/newer entries instead of an internal scrolling log.
     LOG_PAGE_SIZE = 8
+    LOG_GAP_SECONDS = 5 * 60
+    LOG_TEXT_MIN_HEIGHT = 116
+    LOG_TEXT_MAX_HEIGHT = 430
 
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
@@ -880,7 +884,7 @@ class SwitchSettingsWidget(QWidget):
 
         logs_panel = QWidget()
         # 日志必须是单屏分页，不随设置页的超高 sizeHint 一起被撑开。
-        logs_panel.setFixedHeight(650)
+        logs_panel.setMinimumHeight(0)
         logs_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         logs_layout = QVBoxLayout(logs_panel)
         logs_layout.setContentsMargins(10, 0, 10, 20)
@@ -891,7 +895,9 @@ class SwitchSettingsWidget(QWidget):
         logs_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8;")
         logs_layout.addWidget(logs_title)
         # 分页日志只展示当前页，不需要把文本框拉伸到整张屏幕。
-        self.txt_logs.setFixedHeight(430)
+        self.txt_logs.setMinimumHeight(self.LOG_TEXT_MIN_HEIGHT)
+        self.txt_logs.setMaximumHeight(self.LOG_TEXT_MAX_HEIGHT)
+        self.txt_logs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         logs_layout.addWidget(self.txt_logs)
         logs_layout.addLayout(log_paging_bar)
         self._logs_panel = logs_panel
@@ -1142,10 +1148,10 @@ class SwitchSettingsWidget(QWidget):
         # one screen with its pagination bar visible.
         if section_id == "logs":
             # The log page has pagination, so it must never require a second
-            # vertical scroll.  Keep a fixed height so the text area and
-            # pagination bar stay together on one touch screen.
-            # 固定为单屏分页高度，避免日志框随图表页面尺寸被拉长。
-            page_height = 650
+            # vertical scroll.  Its height follows the current page instead
+            # of reserving a large empty text area when only a few records
+            # exist.
+            page_height = self._logs_panel_height()
             self.page_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         else:
             self.page_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -1156,6 +1162,53 @@ class SwitchSettingsWidget(QWidget):
             self.section_stack.setFixedHeight(page_height)
         if scroll:
             self.page_scroll.verticalScrollBar().setValue(0)
+
+    @staticmethod
+    def _parse_log_timestamp(value):
+        """Return a log timestamp as ``datetime`` or ``None`` when invalid."""
+        text = str(value or "")[:19]
+        try:
+            return datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _log_gap_label(cls, newer_entry, older_entry):
+        """Return a display range when two adjacent logs are over five minutes apart."""
+        newer = cls._parse_log_timestamp(newer_entry.get("ts", ""))
+        older = cls._parse_log_timestamp(older_entry.get("ts", ""))
+        if newer is None or older is None:
+            return ""
+        if abs((newer - older).total_seconds()) <= cls.LOG_GAP_SECONDS:
+            return ""
+        # Logs are rendered newest first, so present the elapsed interval in
+        # chronological order even though the records below it go backwards.
+        return "%s-%s" % (older.strftime("%H:%M"), newer.strftime("%H:%M"))
+
+    def _logs_panel_height(self):
+        panel = getattr(self, "_logs_panel", None)
+        if panel is None:
+            return 1
+        return max(1, int(panel.sizeHint().height()))
+
+    def _fit_log_text_height(self):
+        """Shrink the log editor to its rendered content, within touch-safe bounds."""
+        text_edit = getattr(self, "txt_logs", None)
+        if text_edit is None:
+            return
+        document = text_edit.document()
+        # QTextDocument needs the available width to calculate wrapped lines.
+        width = max(1, text_edit.viewport().width() or text_edit.width())
+        document.setTextWidth(width)
+        content_height = ceil(float(document.size().height())) + 24
+        target = max(self.LOG_TEXT_MIN_HEIGHT, min(self.LOG_TEXT_MAX_HEIGHT, content_height))
+        text_edit.setFixedHeight(int(target))
+        if hasattr(self, "_section_page_heights"):
+            self._section_page_heights["logs"] = self._logs_panel_height()
+        if getattr(self, "section_stack", None) is not None:
+            current = self.section_stack.currentIndex()
+            if current == getattr(self, "_section_targets", {}).get("logs"):
+                self.section_stack.setFixedHeight(self._logs_panel_height())
 
     def _render_log_page(self):
         """仅渲染当前页面的少量算法日志，保证单屏可读并避免卡顿"""
@@ -1169,6 +1222,7 @@ class SwitchSettingsWidget(QWidget):
 
         if not self.filtered_algo_logs:
             self.txt_logs.setHtml("<div style='color: #475569; text-align: center; margin-top: 40px; font-weight: bold;'>暂无算法追踪日志</div>")
+            self._fit_log_text_height()
             self.lbl_log_page.setText("第 0 / 0 页")
             self.btn_log_prev.setEnabled(False)
             self.btn_log_next.setEnabled(False)
@@ -1179,7 +1233,19 @@ class SwitchSettingsWidget(QWidget):
         page_entries = self.filtered_algo_logs[start_idx:end_idx]
 
         html = ""
+        # Keep the grouping marker correct when a five-minute gap falls
+        # exactly at a pagination boundary.
+        previous_entry = self.filtered_algo_logs[start_idx - 1] if start_idx > 0 else None
         for entry in page_entries:
+            if previous_entry is not None:
+                gap_label = self._log_gap_label(previous_entry, entry)
+                if gap_label:
+                    html += (
+                        "<div style='color:#64748B; text-align:center; font-size:11px; "
+                        "letter-spacing:1px; margin:10px 0 3px;'>%s</div>"
+                        "<div style='border-top:1px dashed #64748B; height:1px; "
+                        "margin:0 0 10px;'></div>"
+                    ) % gap_label
             cat = entry.get("cat")
             msg = entry.get("msg", "")
             detail = entry.get("detail", "")
@@ -1197,8 +1263,10 @@ class SwitchSettingsWidget(QWidget):
             if detail:
                 html += f"<span style='color: #94A3B8; font-size: 12px;'> - {detail}</span>"
             html += f"</div>"
+            previous_entry = entry
 
         self.txt_logs.setHtml(html)
+        self._fit_log_text_height()
         self.lbl_log_page.setText(f"第 {self.log_current_page} / {self.total_log_pages} 页 · 共 {total} 条")
 
         self.btn_log_prev.setEnabled(self.log_current_page > 1)

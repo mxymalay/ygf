@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QPushButton
 )
 from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QIcon
 from datetime import datetime
 
 from core.database import Database
@@ -20,6 +21,7 @@ from ui.settings_widget import SettingsWidget
 from ui.log_widget import LogWidget
 from ui.switch_settings_widget import SwitchSettingsWidget
 from ui.styles import DARK_STYLE, LIGHT_STYLE
+from config import app_logo_path
 
 
 class MainWindow(QMainWindow):
@@ -74,6 +76,19 @@ class MainWindow(QMainWindow):
         else:
             self.resize(1180, 700)
         self.setStyleSheet(DARK_STYLE)
+        self.apply_app_logo(self.config.get("app_logo_preset", "yangguofu"))
+
+    def apply_app_logo(self, preset_id):
+        """Apply the selected Logo to the window icon and navigation badge."""
+        self.config["app_logo_preset"] = str(preset_id or "yangguofu")
+        icon = QIcon(app_logo_path(self.config["app_logo_preset"]))
+        if not icon.isNull():
+            self.setWindowIcon(icon)
+            app = QApplication.instance()
+            if app is not None:
+                app.setWindowIcon(icon)
+        if hasattr(self, "sidebar"):
+            self.sidebar.set_logo(self.config["app_logo_preset"])
 
 
 
@@ -85,7 +100,7 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
 
         # 1. 经典杨国福红 竖向固定侧边栏 (SideNavBar)
-        self.sidebar = SideNavBar()
+        self.sidebar = SideNavBar(self.config)
         self.sidebar.page_changed.connect(self._on_page_changed)
         self.sidebar.update_requested.connect(self._on_auto_update)
         self.sidebar.minimized_requested.connect(self.showMinimized)

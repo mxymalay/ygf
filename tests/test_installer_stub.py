@@ -1,4 +1,6 @@
 import unittest
+import os
+import tempfile
 from unittest.mock import patch
 
 import installer_stub
@@ -13,6 +15,23 @@ class InstallerStubTests(unittest.TestCase):
         self.assertIn("启动.exe", message)
         self.assertIn(r"C:\Store POS", message)
 
+    def test_shortcut_command_sets_win7_icon_location(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(installer_stub, "_run_hidden") as run_hidden:
+            run_hidden.return_value.returncode = 0
+            shortcut = os.path.join(temp_dir, "YGF.lnk")
+            self.assertTrue(
+                installer_stub._create_shortcut(
+                    shortcut,
+                    r"C:\YGF-POS\启动.exe",
+                    r"C:\YGF-POS",
+                    "YGF POS",
+                    r"C:\YGF-POS\data\assets\app_icon_yangguofu.ico",
+                )
+            )
+        command = run_hidden.call_args.args[0][-1]
+        self.assertIn("IconLocation", command)
+        self.assertIn("app_icon_yangguofu.ico,0", command)
+
     def test_no_tk_fallback_uses_selected_directory_and_name(self):
         with patch.object(installer_stub, "HAS_TKINTER", False), patch.object(
             installer_stub, "_existing_install_dir", return_value=""
@@ -21,7 +40,7 @@ class InstallerStubTests(unittest.TestCase):
         ), patch.object(
             installer_stub, "_native_prompt_string", return_value="门店称重助手"
         ), patch.object(installer_stub, "_install") as install, patch.object(
-            installer_stub, "_native_showinfo"
+            installer_stub, "_native_install_complete"
         ):
             installer_stub.main()
 

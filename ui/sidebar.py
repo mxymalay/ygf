@@ -7,7 +7,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QLabel, QFrame, QApplication
 )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QPixmap
+from config import app_logo_path
 
 
 class SideNavItem(QPushButton):
@@ -51,8 +52,9 @@ class SideNavBar(QWidget):
     minimized_requested = pyqtSignal()
     exit_requested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, config=None, parent=None):
         super().__init__(parent)
+        self.config = config or {}
         self.setFixedWidth(78)
         self._items = []
 
@@ -72,16 +74,15 @@ class SideNavBar(QWidget):
         bf_layout.setAlignment(Qt.AlignCenter)
         bf_layout.setContentsMargins(0, 4, 0, 4)
 
-        lbl_logo = QLabel(u"🍜")
-        lbl_logo.setAlignment(Qt.AlignCenter)
-        lbl_logo.setStyleSheet(
-            "font-size: 18px; "
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F97316, stop:1 #EA580C); "
-            "border-radius: 17px; min-width: 34px; max-width: 34px; "
-            "min-height: 34px; max-height: 34px; border: none;"
+        self.lbl_logo = QLabel()
+        self.lbl_logo.setAlignment(Qt.AlignCenter)
+        self.lbl_logo.setFixedSize(38, 38)
+        self.lbl_logo.setStyleSheet(
+            "background: #1E293B; border-radius: 19px; border: 1px solid #475569;"
         )
-        bf_layout.addWidget(lbl_logo)
+        bf_layout.addWidget(self.lbl_logo)
         layout.addWidget(brand_frame)
+        self.set_logo(self.config.get("app_logo_preset", "yangguofu"))
 
         # 分割线
         line1 = QFrame()
@@ -161,6 +162,22 @@ class SideNavBar(QWidget):
 
         # 默认选中第一页
         self._select_page(0)
+
+    def set_logo(self, preset_id):
+        """Update the compact brand badge without rebuilding the navigation."""
+        path = app_logo_path(preset_id)
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            self.lbl_logo.setPixmap(QPixmap())
+            self.lbl_logo.setText(u"🍜")
+            self.lbl_logo.setStyleSheet(
+                "font-size: 18px; background: #EA580C; border-radius: 19px; border: none;"
+            )
+            return
+        self.lbl_logo.setText("")
+        self.lbl_logo.setPixmap(
+            pixmap.scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
 
     def _select_page(self, index):
         for item in self._items:
