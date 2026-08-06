@@ -7,7 +7,7 @@ import subprocess
 os.environ["QT_LOGGING_RULES"] = "qt.png=false;qt.qpa.window=false;*.warning=false"
 
 from PyQt5.QtWidgets import QApplication, QDialog
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
 
 from core.app_logger import log_event, cleanup_old_logs, CAT_SYSTEM
@@ -169,6 +169,10 @@ def main():
     finally:
         startup_loading.close()
         startup_loading.deleteLater()
+    # A recovered order is detected during widget construction.  Let the
+    # startup overlay close first, then show the notice with the maximized
+    # window's final screen geometry.
+    QTimer.singleShot(0, window.show_startup_notifications)
     log_event(CAT_SYSTEM, "主界面就绪", f"开始运营服务，模拟模式: {config.get('is_mock_mode', False)}")
 
     sys.exit(app.exec_())

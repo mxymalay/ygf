@@ -372,7 +372,7 @@ class TasteSelectionDialog(QDialog):
         self._reset_auto_close_timer()
         
     def _reset_auto_close_timer(self):
-        self.auto_close_timer.start(1500)
+        self.auto_close_timer.start(1000)
 
     def update_layout_margins(self):
         if self.arrow_direction == "up":
@@ -818,6 +818,11 @@ class SaleWidget(QWidget):
         self._resize_timer = None
         self._cart_dirty = True
         self._draft_signature = ""
+        # A restored order is detected while the main window is still being
+        # constructed.  Wait until this page is actually visible before
+        # showing its toast, otherwise startup progress event processing can
+        # display it against the default (0, 0) window geometry.
+        self._draft_restore_notice_pending = False
         self._previous_order_created_at = ""
         # Keep the complete ledger row behind the summary card.  Passing the
         # row itself avoids a second lookup that can fail for legacy rows or
@@ -864,7 +869,14 @@ class SaleWidget(QWidget):
                 btn.set_count(btn.count + max(1, int(item.get("qty", 1))))
         self._auto_focus_requested = True
         self._update_price_display()
-        QTimer.singleShot(350, lambda: self._show_toast(u"已恢复上次未结账订单，请核对后再收款"))
+        self._draft_restore_notice_pending = True
+
+    def show_pending_draft_restore_notice(self):
+        """Announce a recovered draft after the startup overlay has closed."""
+        if not self._draft_restore_notice_pending:
+            return
+        self._draft_restore_notice_pending = False
+        self._show_toast(u"已恢复上次未结账订单，请核对后再收款")
 
     def _schedule_draft_save(self):
         """Coalesce frequent touch edits into one atomic draft write."""
@@ -1570,7 +1582,10 @@ class SaleWidget(QWidget):
         
         # 居中显示在主窗口中心偏上
         main_win = self.window()
-        main_rect = main_win.geometry()
+        # This is a top-level tool window, so move() needs screen coordinates.
+        # frameGeometry() is valid after showEvent and includes the real
+        # maximized position instead of the pre-show default origin.
+        main_rect = main_win.frameGeometry()
         x = main_rect.x() + (main_rect.width() - toast.width()) // 2
         y = main_rect.y() + (main_rect.height() - toast.height()) // 2 - 80
         toast.move(x, y)
@@ -2013,7 +2028,6 @@ class SaleWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._cart_dirty = True
-        from PyQt5.QtCore import QTimer
         QTimer.singleShot(50, self._update_price_display)
 
     def resizeEvent(self, event):

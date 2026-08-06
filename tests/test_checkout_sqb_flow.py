@@ -51,6 +51,34 @@ class CheckoutSqbFlowTests(unittest.TestCase):
         self.assertEqual(events[0][1], 1.0)
         self.assertIs(events[0][2], config)
 
+    def test_restored_order_toast_waits_until_sale_page_is_visible(self):
+        config = {"unit_price": 47.6, "price_unit": "per_jin"}
+        draft = {
+            "order_id": "2608061200000000000000000",
+            "temp_order_no": "TMP-1",
+            "cart_items": [{"type": "item", "name": "测试菜品", "qty": 1}],
+        }
+
+        with patch.object(SaleWidget, "_build_ui", lambda _self: None), patch.object(
+            SaleWidget, "_refresh_previous_order_card", lambda _self: None
+        ), patch.object(SaleWidget, "_setup_scale", lambda _self: None), patch.object(
+            SaleWidget, "refresh_call_number_display", lambda _self: None
+        ), patch.object(SaleWidget, "_update_price_display", lambda _self: None), patch(
+            "ui.sale_widget.ReceiptPrinter", return_value=SimpleNamespace()
+        ), patch("ui.sale_widget.load_draft", return_value=draft), patch.object(
+            SaleWidget, "_show_toast"
+        ) as show_toast:
+            widget = SaleWidget(config, SimpleNamespace(), _FakeCallManager())
+            self.addCleanup(widget.deleteLater)
+
+            self.assertTrue(widget._draft_restore_notice_pending)
+            self.app.processEvents()
+            show_toast.assert_not_called()
+
+            widget.show_pending_draft_restore_notice()
+            show_toast.assert_called_once_with(u"已恢复上次未结账订单，请核对后再收款")
+            self.assertFalse(widget._draft_restore_notice_pending)
+
 
 if __name__ == "__main__":
     unittest.main()

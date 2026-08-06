@@ -52,6 +52,10 @@ class MainWindow(QMainWindow):
             # A splash is only feedback; never let it prevent POS startup.
             pass
 
+    def show_startup_notifications(self):
+        """Display deferred notices only after the startup overlay has closed."""
+        self.sale_page.show_pending_draft_restore_notice()
+
     def _init_window(self):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setMinimumSize(960, 640)
