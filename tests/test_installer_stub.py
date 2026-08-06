@@ -2,8 +2,23 @@ import unittest
 import os
 import tempfile
 from unittest.mock import patch
+from ctypes import wintypes
 
 import installer_stub
+
+
+class _NativeFunction(object):
+    """Minimal callable which also exposes ctypes prototype attributes."""
+
+    def __call__(self, *_args):
+        return 0
+
+
+class _NativeLibrary(object):
+    def __getattr__(self, _name):
+        function = _NativeFunction()
+        setattr(self, _name, function)
+        return function
 
 
 class InstallerStubTests(unittest.TestCase):
@@ -31,6 +46,20 @@ class InstallerStubTests(unittest.TestCase):
         command = run_hidden.call_args.args[0][-1]
         self.assertIn("IconLocation", command)
         self.assertIn("app_icon_yangguofu.ico,0", command)
+
+    def test_native_dialog_api_keeps_create_window_instance_pointer_wide(self):
+        user32 = _NativeLibrary()
+        kernel32 = _NativeLibrary()
+
+        installer_stub._configure_native_dialog_api(user32, kernel32)
+
+        # The 11th CreateWindowExW argument is HINSTANCE.  Without this
+        # prototype ctypes converts it to c_int and Win7 x64 raises
+        # OverflowError before the icon chooser is shown.
+        self.assertEqual(len(user32.CreateWindowExW.argtypes), 12)
+        self.assertIs(user32.CreateWindowExW.argtypes[10], wintypes.HINSTANCE)
+        self.assertEqual(user32.CreateWindowExW.restype, installer_stub.ctypes.c_void_p)
+        self.assertEqual(user32.SendMessageW.argtypes[3], installer_stub.ctypes.c_void_p)
 
     def test_update_current_shortcut_icon_rewrites_both_shortcuts(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -143,18 +143,28 @@ def _native_askyesno(title, message):
 def _configure_native_dialog_api(user32, kernel32):
     """Keep Win32 handles 64-bit wide in the no-Tk Win7 fallback.
 
-    ``ctypes.windll`` defaults pointer-returning functions to a 32-bit
-    ``c_int``.  That truncates HWND/HINSTANCE values on 64-bit Windows and
-    the next callback can terminate the installer instead of returning a
-    Python exception.  The packaged installer can enter this path when Tk
-    cannot initialise, so configure the small set of APIs used by both
-    native dialogs explicitly.
+    ``ctypes.windll`` defaults both pointer-returning values *and untyped
+    arguments* to 32-bit ``c_int``.  That truncates HWND/HINSTANCE values on
+    64-bit Windows; supplying an HINSTANCE to ``CreateWindowExW`` then raises
+    ``OverflowError: int too long to convert`` before the dialog appears.
+    The packaged installer can enter this path when Tk cannot initialise, so
+    configure every handle-bearing API used by both native dialogs.
     """
     handle = ctypes.c_void_p
+    unsigned_ptr = ctypes.c_size_t
     kernel32.GetModuleHandleW.restype = handle
     kernel32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
+    user32.CreateWindowExW.argtypes = [
+        wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID,
+    ]
     user32.CreateWindowExW.restype = handle
+    # WNDCLASSW is declared inside each dialog function.  A void pointer is
+    # the compatible common signature for a pointer to either structure.
+    user32.RegisterClassW.argtypes = [ctypes.c_void_p]
     user32.RegisterClassW.restype = ctypes.c_ushort
+    user32.UnregisterClassW.argtypes = [wintypes.LPCWSTR, wintypes.HINSTANCE]
     user32.UnregisterClassW.restype = ctypes.c_int
     user32.DestroyWindow.argtypes = [handle]
     user32.DestroyWindow.restype = ctypes.c_int
@@ -162,11 +172,19 @@ def _configure_native_dialog_api(user32, kernel32):
     user32.SetFocus.restype = handle
     user32.UpdateWindow.argtypes = [handle]
     user32.UpdateWindow.restype = ctypes.c_int
+    user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
     user32.GetMessageW.restype = ctypes.c_int
+    user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
     user32.TranslateMessage.restype = ctypes.c_int
+    user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
     user32.DispatchMessageW.restype = ctypes.c_ssize_t
     user32.PostQuitMessage.argtypes = [ctypes.c_int]
+    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, unsigned_ptr, ctypes.c_void_p]
     user32.SendMessageW.restype = ctypes.c_ssize_t
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowTextW.restype = ctypes.c_int
 
 
 def _native_select_folder(initial_dir):
@@ -200,7 +218,8 @@ def _native_select_folder(initial_dir):
     @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
     def callback(hwnd, message, _lparam, data):
         if message == BFFM_INITIALIZED:
-            user32.SendMessageW(hwnd, BFFM_SETSELECTIONW, 1, ctypes.c_wchar_p(data))
+            initial_path = ctypes.cast(data, ctypes.c_void_p)
+            user32.SendMessageW(hwnd, BFFM_SETSELECTIONW, 1, initial_path)
         return 0
 
     display = ctypes.create_unicode_buffer(260)
@@ -214,7 +233,12 @@ def _native_select_folder(initial_dir):
         ctypes.cast(initial_buffer, ctypes.c_void_p),
         0,
     )
+    shell32.SHBrowseForFolderW.argtypes = [ctypes.POINTER(BROWSEINFO)]
     shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+    shell32.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR]
+    shell32.SHGetPathFromIDListW.restype = wintypes.BOOL
+    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    ole32.CoTaskMemFree.restype = None
     pidl = shell32.SHBrowseForFolderW(ctypes.byref(info))
     if not pidl:
         return None
@@ -463,7 +487,8 @@ def _native_prompt_choice(title, prompt, options, initial_id=""):
         )
         selected_index = 0
         for index, (preset_id, label) in enumerate(choices):
-            user32.SendMessageW(state["combo"], CB_ADDSTRING, 0, ctypes.c_wchar_p(str(label)))
+            label_ptr = ctypes.cast(ctypes.c_wchar_p(str(label)), ctypes.c_void_p)
+            user32.SendMessageW(state["combo"], CB_ADDSTRING, 0, label_ptr)
             if preset_id == initial_id:
                 selected_index = index
         user32.SendMessageW(state["combo"], CB_SETCURSEL, selected_index, 0)
