@@ -16,13 +16,34 @@ import zipfile
 import ctypes
 from ctypes import wintypes
 
-try:
-    import tkinter as tk
-    from tkinter import filedialog, messagebox, simpledialog, ttk
-    HAS_TKINTER = True
-except ImportError:
-    HAS_TKINTER = False
-    tk = filedialog = messagebox = simpledialog = ttk = None
+# Do not import Tk at module import time.  The installed POS imports a few
+# shortcut-update helpers from this module, and loading Tcl/Tk there can keep
+# PyInstaller's one-file ``_MEI`` directory locked on Win7 until the POS exits.
+# The standalone installer still loads Tk lazily when its own UI starts.
+HAS_TKINTER = None
+tk = filedialog = messagebox = simpledialog = ttk = None
+
+
+def _ensure_tkinter():
+    """Load Tk only for the standalone installer UI, never for the POS."""
+    global HAS_TKINTER, tk, filedialog, messagebox, simpledialog, ttk
+    if HAS_TKINTER is not None:
+        return bool(HAS_TKINTER)
+    try:
+        import tkinter as _tk
+        from tkinter import filedialog as _filedialog
+        from tkinter import messagebox as _messagebox
+        from tkinter import simpledialog as _simpledialog
+        from tkinter import ttk as _ttk
+        tk = _tk
+        filedialog = _filedialog
+        messagebox = _messagebox
+        simpledialog = _simpledialog
+        ttk = _ttk
+        HAS_TKINTER = True
+    except ImportError:
+        HAS_TKINTER = False
+    return bool(HAS_TKINTER)
 
 try:
     import winreg
@@ -725,6 +746,7 @@ def _make_root():
 
 
 def main():
+    _ensure_tkinter()
     if not HAS_TKINTER:
         existing = _existing_install_dir()
         default_dir = existing or os.path.join(
