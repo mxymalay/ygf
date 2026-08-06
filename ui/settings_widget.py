@@ -1477,6 +1477,32 @@ class SettingsWidget(QWidget):
         self.btn_save_app_logo.clicked.connect(self._save_app_logo)
         logo_row.addWidget(self.btn_save_app_logo)
         logo_layout.addLayout(logo_row)
+
+        desktop_icon_row = QHBoxLayout()
+        desktop_icon_row.setSpacing(12)
+        desktop_icon_label = QLabel(u"桌面快捷方式图标：")
+        desktop_icon_label.setStyleSheet("color: #E2E8F0; font-size: 15px; font-weight: bold;")
+        desktop_icon_row.addWidget(desktop_icon_label)
+        self.cmb_desktop_icon = QComboBox()
+        self.cmb_desktop_icon.setIconSize(QSize(42, 42))
+        self.cmb_desktop_icon.setMinimumHeight(54)
+        self.cmb_desktop_icon.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        try:
+            from installer_stub import current_shortcut_icon_preset
+            current_desktop_icon = current_shortcut_icon_preset()
+        except Exception:
+            current_desktop_icon = "yangguofu"
+        for preset_id, (label, _filename) in APP_LOGO_PRESETS.items():
+            icon_path = os.path.join(DATA_DIR, "assets", "app_icon_%s.ico" % preset_id)
+            self.cmb_desktop_icon.addItem(QIcon(icon_path), label, preset_id)
+        desktop_index = self.cmb_desktop_icon.findData(current_desktop_icon)
+        self.cmb_desktop_icon.setCurrentIndex(desktop_index if desktop_index >= 0 else 0)
+        desktop_icon_row.addWidget(self.cmb_desktop_icon, stretch=1)
+        self.btn_save_desktop_icon = QPushButton(u"保存桌面图标")
+        self._style_touch_action_btn(self.btn_save_desktop_icon, "blue")
+        self.btn_save_desktop_icon.clicked.connect(self._save_desktop_icon)
+        desktop_icon_row.addWidget(self.btn_save_desktop_icon)
+        logo_layout.addLayout(desktop_icon_row)
         layout.addWidget(logo_panel)
         self._preview_app_logo(self.cmb_app_logo.currentIndex())
 
@@ -2409,6 +2435,21 @@ class SettingsWidget(QWidget):
             parent_mw.apply_app_logo(self.config["app_logo_preset"])
         from ui.custom_dialog import show_info
         show_info(self, u"Logo 已保存", u"应用 Logo 已立即更新。")
+
+    def _save_desktop_icon(self):
+        """Update desktop/start-menu shortcuts without changing the app logo."""
+        preset_id = self.cmb_desktop_icon.currentData() or "yangguofu"
+        try:
+            from installer_stub import update_current_shortcut_icon
+            ok, detail = update_current_shortcut_icon(str(preset_id))
+        except Exception as exc:
+            ok, detail = False, str(exc)
+        if ok:
+            from ui.custom_dialog import show_info
+            show_info(self, u"桌面图标已保存", detail)
+        else:
+            from ui.custom_dialog import show_warning
+            show_warning(self, u"桌面图标更新失败", detail)
 
     def _on_save_sys(self):
         from ui.custom_dialog import show_warning

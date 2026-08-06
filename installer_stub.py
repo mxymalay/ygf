@@ -203,6 +203,10 @@ def _native_prompt_string(title, prompt, initial_value=""):
         return None
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
+    user32.DefWindowProcW.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+    ]
+    user32.DefWindowProcW.restype = ctypes.c_ssize_t
     WM_COMMAND = 0x0111
     WM_CLOSE = 0x0010
     WM_DESTROY = 0x0002
@@ -218,7 +222,7 @@ def _native_prompt_string(title, prompt, initial_value=""):
     BS_DEFPUSHBUTTON = 0x00000001
     COLOR_WINDOW = 5
     WNDPROC = ctypes.WINFUNCTYPE(
-        ctypes.c_long, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+        ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
     )
 
     class WNDCLASSW(ctypes.Structure):
@@ -312,6 +316,144 @@ def _native_prompt_string(title, prompt, initial_value=""):
         user32.UnregisterClassW(class_name, instance)
 
 
+def _native_prompt_choice(title, prompt, options, initial_id=""):
+    """Win32 combo-box choice dialog used when Tk is unavailable on Win7."""
+    if os.name != "nt":
+        return None
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    user32.DefWindowProcW.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+    ]
+    user32.DefWindowProcW.restype = ctypes.c_ssize_t
+    WM_COMMAND = 0x0111
+    WM_CLOSE = 0x0010
+    WM_DESTROY = 0x0002
+    CB_ADDSTRING = 0x0143
+    CB_GETCURSEL = 0x0147
+    CB_SETCURSEL = 0x014E
+    ID_OK = 1
+    ID_CANCEL = 2
+    WS_OVERLAPPED = 0x00000000
+    WS_CAPTION = 0x00C00000
+    WS_SYSMENU = 0x00080000
+    WS_VISIBLE = 0x10000000
+    WS_CHILD = 0x40000000
+    WS_TABSTOP = 0x00010000
+    WS_VSCROLL = 0x00200000
+    CBS_DROPDOWNLIST = 0x0003
+    BS_DEFPUSHBUTTON = 0x00000001
+    WNDPROC = ctypes.WINFUNCTYPE(
+        ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+    )
+
+    class WNDCLASSW(ctypes.Structure):
+        _fields_ = [
+            ("style", ctypes.c_uint),
+            ("lpfnWndProc", WNDPROC),
+            ("cbClsExtra", ctypes.c_int),
+            ("cbWndExtra", ctypes.c_int),
+            ("hInstance", ctypes.c_void_p),
+            ("hIcon", ctypes.c_void_p),
+            ("hCursor", ctypes.c_void_p),
+            ("hbrBackground", ctypes.c_void_p),
+            ("lpszMenuName", ctypes.c_wchar_p),
+            ("lpszClassName", ctypes.c_wchar_p),
+        ]
+
+    choices = list(options or [])
+    if not choices:
+        return None
+    state = {"done": False, "accepted": False, "combo": None, "value": ""}
+
+    def loword(value):
+        return int(value) & 0xFFFF
+
+    @WNDPROC
+    def wndproc(hwnd, message, wparam, lparam):
+        if message == WM_COMMAND and loword(wparam) in (ID_OK, ID_CANCEL):
+            if loword(wparam) == ID_OK:
+                index = int(user32.SendMessageW(state["combo"], CB_GETCURSEL, 0, 0))
+                if 0 <= index < len(choices):
+                    state["value"] = choices[index][0]
+                    state["accepted"] = True
+            state["done"] = True
+            user32.DestroyWindow(hwnd)
+            return 0
+        if message == WM_CLOSE:
+            state["done"] = True
+            user32.DestroyWindow(hwnd)
+            return 0
+        if message == WM_DESTROY:
+            user32.PostQuitMessage(0)
+            return 0
+        return user32.DefWindowProcW(hwnd, message, wparam, lparam)
+
+    class_name = "YGFInstallerChoice_%d" % os.getpid()
+    instance = kernel32.GetModuleHandleW(None)
+    class_info = WNDCLASSW(0, wndproc, 0, 0, instance, 0, 0, 5 + 1, None, class_name)
+    if not user32.RegisterClassW(ctypes.byref(class_info)):
+        return None
+    try:
+        hwnd = user32.CreateWindowExW(
+            0,
+            class_name,
+            str(title),
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+            0,
+            0,
+            560,
+            240,
+            0,
+            0,
+            instance,
+            0,
+        )
+        if not hwnd:
+            return None
+        user32.CreateWindowExW(
+            0, "STATIC", str(prompt), WS_CHILD | WS_VISIBLE,
+            18, 18, 510, 30, hwnd, 0, instance, 0,
+        )
+        state["combo"] = user32.CreateWindowExW(
+            0,
+            "COMBOBOX",
+            "",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+            18,
+            55,
+            510,
+            240,
+            hwnd,
+            100,
+            instance,
+            0,
+        )
+        selected_index = 0
+        for index, (preset_id, label) in enumerate(choices):
+            user32.SendMessageW(state["combo"], CB_ADDSTRING, 0, ctypes.c_wchar_p(str(label)))
+            if preset_id == initial_id:
+                selected_index = index
+        user32.SendMessageW(state["combo"], CB_SETCURSEL, selected_index, 0)
+        user32.CreateWindowExW(
+            0, "BUTTON", "确定", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+            320, 155, 90, 34, hwnd, ID_OK, instance, 0,
+        )
+        user32.CreateWindowExW(
+            0, "BUTTON", "取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            425, 155, 90, 34, hwnd, ID_CANCEL, instance, 0,
+        )
+        user32.SetFocus(state["combo"])
+        user32.UpdateWindow(hwnd)
+        message = wintypes.MSG()
+        while not state["done"] and user32.GetMessageW(ctypes.byref(message), 0, 0, 0) > 0:
+            user32.TranslateMessage(ctypes.byref(message))
+            user32.DispatchMessageW(ctypes.byref(message))
+        return state["value"] if state["accepted"] else None
+    finally:
+        user32.UnregisterClassW(class_name, instance)
+
+
 APP_DISPLAY_NAME = "YGF POS 称重打印系统"
 DISPLAY_NAME_OPTIONS = ("私有 POS 系统", "门店称重助手", "称重桥接管理器", "用户自定")
 APP_ICON_OPTIONS = (
@@ -377,6 +519,11 @@ def _registry_install_dir():
 def _registry_display_name():
     if not winreg:
         return ""
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY) as key:
+            return str(winreg.QueryValueEx(key, "DisplayName")[0] or "")
+    except (OSError, TypeError, ValueError):
+        return ""
 
 
 def _registry_icon_preset():
@@ -388,11 +535,11 @@ def _registry_icon_preset():
             return value if value in APP_ICON_FILES else ""
     except (OSError, TypeError, ValueError):
         return ""
-    try:
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY) as key:
-            return str(winreg.QueryValueEx(key, "DisplayName")[0] or "")
-    except (OSError, TypeError, ValueError):
-        return ""
+
+
+def current_shortcut_icon_preset():
+    """Return the installed shortcut icon id for settings-page initialization."""
+    return _registry_icon_preset() or "yangguofu"
 
 
 def _existing_install_dir():
@@ -485,6 +632,36 @@ def _shortcut_paths(display_name=APP_DISPLAY_NAME):
         os.path.join(start_menu, "%s.lnk" % display_name),
         os.path.join(start_menu, "卸载 %s.lnk" % display_name),
     )
+
+
+def update_current_shortcut_icon(icon_preset):
+    """Update the installed desktop/start-menu shortcuts to a selected icon."""
+    if icon_preset not in APP_ICON_FILES:
+        return False, "未知的桌面图标选项"
+    install_dir = _existing_install_dir()
+    if not install_dir:
+        return False, "未找到当前安装目录"
+    display_name = _registry_display_name() or APP_DISPLAY_NAME
+    launcher = os.path.join(install_dir, "启动.exe")
+    icon_path = os.path.join(install_dir, "data", "assets", APP_ICON_FILES[icon_preset])
+    if not os.path.isfile(launcher):
+        return False, "安装目录中缺少启动.exe"
+    if not os.path.isfile(icon_path):
+        return False, "安装目录中缺少所选图标资源"
+    desktop, start_menu, _uninstall_link = _shortcut_paths(display_name)
+    ok_desktop = _create_shortcut(desktop, launcher, install_dir, display_name, icon_path)
+    ok_start_menu = _create_shortcut(start_menu, launcher, install_dir, display_name, icon_path)
+    if not (ok_desktop and ok_start_menu):
+        return False, "更新桌面或开始菜单快捷方式失败，请检查权限"
+    if winreg:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, "IconPreset", 0, winreg.REG_SZ, icon_preset)
+        except (OSError, TypeError, ValueError):
+            # The shortcut itself was updated; registry metadata is only used
+            # as the next installer's initial selection and is non-critical.
+            pass
+    return True, "桌面快捷方式图标已更新"
 
 
 def _remove_shortcuts(display_name=APP_DISPLAY_NAME):
@@ -683,8 +860,18 @@ def main():
         if len(display_name) > 48:
             _native_showerror("名称过长", "应用显示名称最多 48 个字符。")
             return
+        saved_icon_preset = _registry_icon_preset() or "yangguofu"
+        icon_preset = _native_prompt_choice(
+            "桌面快捷方式图标",
+            "请选择安装后桌面快捷方式使用的图标：",
+            APP_ICON_OPTIONS,
+            saved_icon_preset,
+        )
+        if icon_preset is None:
+            _native_showinfo("安装已取消", "未选择桌面快捷方式图标，安装没有执行。")
+            return
         try:
-            _install(target, display_name)
+            _install(target, display_name, icon_preset)
             _native_install_complete(display_name, target)
         except Exception as exc:
             _native_showerror("安装失败", str(exc))
