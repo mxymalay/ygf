@@ -211,9 +211,14 @@ class MainWindow(QMainWindow):
         )
         self.btn_hw_recheck.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         hardware_status_layout.addWidget(self.btn_hw_recheck)
+        # Keep any remaining status-bar width after the pair. Without an
+        # explicit trailing stretch, Qt distributes free space between the
+        # label and button, making “点击重检” appear in the middle instead of
+        # immediately after the hardware text.
+        hardware_status_layout.addStretch(1)
         # Let the hardware text consume only the space left before the
-        # permanent version/clock widgets.  The recheck button therefore stays
-        # at the far right of this panel, immediately before the version.
+        # permanent version/clock widgets; the trailing stretch keeps the
+        # status text and recheck button together as one left-aligned pair.
         self.status.addWidget(self.hardware_status_panel, 1)
         self.update_hardware_warnings(self.hardware_warnings)
 

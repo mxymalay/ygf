@@ -8,6 +8,8 @@ import shutil
 import zipfile
 import sys
 import copy
+import tempfile
+import time
 from datetime import datetime
 
 # ─── 应用版本号 ───────────────────────────────────────
@@ -369,15 +371,46 @@ def _known_config_only(value):
 
 
 def _atomic_json_write(filepath: str, data: dict):
-    """Never leave a half-written configuration file after a power loss."""
+    """Write JSON atomically even when POS and relay processes save together.
+
+    The old implementation always used ``filepath + '.tmp'``.  The main POS
+    and detached relay can both call ``save_config`` at the same time; on
+    Windows that made the second writer truncate/hold the same temporary file
+    and the first ``os.replace`` failed with WinError 32.  A unique temporary
+    name removes that collision.  A short retry also covers antivirus/indexer
+    handles or a concurrent replacement of the destination file.
+    """
     directory = os.path.dirname(filepath)
     os.makedirs(directory, exist_ok=True)
-    temporary = filepath + ".tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(temporary, filepath)
+    fd, temporary = tempfile.mkstemp(
+        prefix=os.path.basename(filepath) + ".",
+        suffix=".tmp",
+        dir=directory,
+    )
+    os.close(fd)
+    try:
+        with open(temporary, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        last_error = None
+        for attempt in range(8):
+            try:
+                os.replace(temporary, filepath)
+                return
+            except OSError as exc:
+                last_error = exc
+                if attempt >= 7:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
+    finally:
+        try:
+            if os.path.exists(temporary):
+                os.remove(temporary)
+        except OSError:
+            pass
 
 
 def migrate_legacy_database():
