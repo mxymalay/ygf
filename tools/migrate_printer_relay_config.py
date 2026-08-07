@@ -180,12 +180,48 @@ def main(argv=None):
     canonical_module = os.path.join(data_dir, "settings", "printer_relay.json")
     if os.path.exists(legacy_module):
         if args.dry_run:
-            print("[预览] 将重命名：%s -> %s" % (legacy_module, canonical_module))
+            action = u"合并后删除旧文件" if os.path.exists(canonical_module) else u"重命名"
+            print("[预览] 将%s：%s -> %s" % (action, legacy_module, canonical_module))
+            total += 1
         elif not os.path.exists(canonical_module):
             os.makedirs(backup_dir, exist_ok=True)
             shutil.copy2(legacy_module, os.path.join(backup_dir, "takeout.json"))
             os.replace(legacy_module, canonical_module)
             print("[迁移] 已重命名配置模块：%s -> %s" % (legacy_module, canonical_module))
+            total += 1
+        else:
+            # Both generations exist: preserve canonical values, fill only
+            # missing keys from the old file, then remove takeout.json.
+            try:
+                with open(legacy_module, "r", encoding="utf-8") as stream:
+                    legacy_value = json.load(stream)
+                with open(canonical_module, "r", encoding="utf-8") as stream:
+                    canonical_value = json.load(stream)
+                if not isinstance(legacy_value, dict) or not isinstance(canonical_value, dict):
+                    raise ValueError("配置模块根节点必须是对象")
+                old_migrated = {rename_key(key): item for key, item in legacy_value.items()}
+                merged = dict(old_migrated)
+                merged.update(canonical_value)
+                os.makedirs(backup_dir, exist_ok=True)
+                shutil.copy2(legacy_module, os.path.join(backup_dir, "takeout.json"))
+                shutil.copy2(canonical_module, os.path.join(backup_dir, "printer_relay.json"))
+                fd, temporary = tempfile.mkstemp(
+                    prefix="printer_relay.json.", suffix=".tmp", dir=os.path.dirname(canonical_module)
+                )
+                os.close(fd)
+                try:
+                    with open(temporary, "w", encoding="utf-8") as stream:
+                        json.dump(merged, stream, ensure_ascii=False, indent=2)
+                        stream.write("\n")
+                    os.replace(temporary, canonical_module)
+                finally:
+                    if os.path.exists(temporary):
+                        os.remove(temporary)
+                os.remove(legacy_module)
+                print("[迁移] 已合并并删除旧配置模块：%s" % legacy_module)
+                total += 1
+            except (OSError, ValueError) as exc:
+                print("[迁移 Warning] 无法合并旧配置模块：%s" % exc)
     total += rename_runtime_artifacts(data_dir, dry_run=args.dry_run)
     for path in config_files(data_dir):
         changed, message = migrate_file(path, backup_dir, dry_run=args.dry_run)
