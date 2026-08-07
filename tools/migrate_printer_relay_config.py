@@ -16,8 +16,27 @@ import argparse
 import json
 import os
 import shutil
+import sys
 import tempfile
 from datetime import datetime
+
+
+def _configure_console_encoding():
+    """Keep Chinese migration messages readable in Git Bash and Win32 shells.
+
+    Git Bash normally expects UTF-8 while a Python process launched from
+    Windows can inherit a legacy code page.  Reconfiguring only the text
+    streams leaves the file migration logic untouched and also works on
+    Python versions that expose ``TextIOWrapper.reconfigure``.
+    """
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
 
 
 EXPLICIT_RENAMES = {
@@ -165,6 +184,7 @@ def migrate_file(path, backup_dir, dry_run=False):
 
 
 def main(argv=None):
+    _configure_console_encoding()
     parser = argparse.ArgumentParser(description="迁移 data 中旧 takeout 配置字段")
     parser.add_argument("--data", default=None, help="data 目录；默认使用项目根目录下的 data")
     parser.add_argument("--dry-run", action="store_true", help="只检查，不写入文件")

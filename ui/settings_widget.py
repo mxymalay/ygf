@@ -2125,6 +2125,11 @@ class SettingsWidget(QWidget):
             if not isinstance(metadata, dict):
                 continue
             stem = os.path.splitext(name)[0]
+            # A sidecar can be an older saved capture rather than a packet
+            # received during this UI session.  Keep that distinction visible
+            # instead of presenting every file as a new live POS event.
+            live_record = live_records.get(name, {})
+            bin_path = os.path.join(root, stem + ".bin")
             extracted_text = str(metadata.get("extracted_text", "") or "")
             payment_method = str(metadata.get("payment_method", "") or "")
             if not payment_method:
@@ -2164,13 +2169,16 @@ class SettingsWidget(QWidget):
                 "item_count": int(metadata.get("item_count", 0) or 0),
                 "capture_file": stem + ".bin",
                 "capture_json_file": name,
+                "capture_json_exists": True,
+                "capture_bin_exists": os.path.isfile(bin_path),
+                "capture_source": "live" if live_record else "saved_capture",
                 "payload_size": int(metadata.get("payload_size", 0) or 0),
                 "order_time": metadata.get("order_time", ""),
                 "amount_source": metadata.get("amount_source", ""),
                 "recognized_fields": recognized_fields,
                 "extracted_text_preview": extracted_text[:500],
             }
-            record.update({key: value for key, value in live_records.get(name, {}).items()
+            record.update({key: value for key, value in live_record.items()
                            if key in ("duplicate", "conflict_detected", "refund_linked",
                                       "refund_match_status", "refund_match_reason",
                                       "refund_original_order_key", "refund_original_order_id")})
@@ -2220,10 +2228,12 @@ class SettingsWidget(QWidget):
             "cancelled": (u"已取消/退款", "#FCA5A5"),
             "unknown": (u"状态未知", "#FDE68A"),
         }
+        live_count = sum(1 for item in records if isinstance(item, dict) and item.get("capture_source") == "live")
         cards = [
             u"<div style='font-size:16px;color:#7DD3FC;font-weight:900;margin-bottom:8px'>"
-            u"实时监控：本次捕获的全部打印任务（%d 条）</div>" % len(records)
+            u"实时监控：已保存的实际捕获文件（%d 条，其中本次会话新收到 %d 条）</div>" % (len(records), live_count)
             + u"<div style='color:#CBD5E1;font-size:12px;margin-bottom:6px'>"
+            u"这些记录来自磁盘中真实存在的 .json/.bin 文件；没有新打印时不会清空。"
             u"颜色说明：<span style='color:#F9A8D4;font-weight:900'>粉色字段=内置算法已提取</span>　"
             u"<span style='color:#86EFAC;font-weight:900'>绿色=已结账/金额已校验</span>　"
             u"<span style='color:#FDE68A;font-weight:900'>黄色=状态未知或解析失败</span></div>"
@@ -2287,9 +2297,9 @@ class SettingsWidget(QWidget):
                 u"border-radius:8px;padding:8px;margin:5px 0;background:#0F2740'>"
                 u"<div style='color:#BAE6FD;font-weight:900;font-family:Consolas,monospace'>"
                 u"[%d] %s</div>"
-                u"<div style='color:#94A3B8;font-size:12px'>收到=%s｜格式=%s｜大小=%s bytes｜平台=%s｜类型=%s</div>"
+                u"<div style='color:#94A3B8;font-size:12px'>收到=%s｜格式=%s｜大小=%s bytes｜平台=%s｜类型=%s｜来源=%s｜文件存在=JSON:%s BIN:%s</div>"
                 u"<div style='font-family:Consolas,monospace;font-size:13px;margin-top:4px'>"
-                u"<span style='color:#A78BFA'>内置 JSON：</span>%s</div>"
+                u"<span style='color:#A78BFA'>JSON 元数据摘要（从已存在的 sidecar 文件读取）：</span>%s</div>"
                 u"<div style='margin-top:4px'>"
                 u"<span style='color:#CBD5E1'>识别：</span>"
                 u"<span style='color:#F9A8D4;font-weight:900'>完整订单号=%s</span>　"
@@ -2307,6 +2317,9 @@ class SettingsWidget(QWidget):
                    html.escape(str(record.get("payload_type") or u"未知")),
                    html.escape(str(record.get("payload_size") or 0)),
                    html.escape(str(record.get("platform") or u"官方 POS")), html.escape(kind),
+                   u"本次中继收到" if record.get("capture_source") == "live" else u"历史保存捕获",
+                   u"是" if record.get("capture_json_exists") else u"否",
+                   u"是" if record.get("capture_bin_exists") else u"否",
                    json_line, html.escape(str(order_id)), html.escape(str(call_no)),
                    amount_color, html.escape(amount_text),
                    u"已校验" if record.get("amount_valid") else u"未校验",
@@ -2545,7 +2558,6 @@ class SettingsWidget(QWidget):
         self.tbl_sku_items.setEditTriggers(
             QAbstractItemView.DoubleClicked
             | QAbstractItemView.EditKeyPressed
-            | QAbstractItemView.SelectedClicked
         )
         self.tbl_sku_items.setAlternatingRowColors(True)
         self.tbl_sku_items.verticalHeader().setDefaultSectionSize(42)
@@ -2553,9 +2565,17 @@ class SettingsWidget(QWidget):
             "QTableWidget { background: #111827; color: #E2E8F0; "
             "gridline-color: #334155; border: 1px solid #334155; "
             "outline: none; } "
-            "QTableWidget::item { padding: 6px 8px; border: none; } "
+            "QTableWidget::item { background: #111827; color: #E2E8F0; "
+            "padding: 6px 8px; border: none; } "
+            "QTableWidget::item:alternate { background: #172136; color: #E2E8F0; } "
             "QTableWidget::item:selected { background: #334155; color: #F8FAFC; "
+            "selection-background-color: #334155; selection-color: #F8FAFC; "
             "border: none; } "
+            "QTableWidget::item:alternate:selected { background: #334155; "
+            "color: #F8FAFC; } "
+            "QLineEdit { background: #1E293B; color: #F8FAFC; "
+            "selection-background-color: #0284C7; selection-color: #FFFFFF; "
+            "border: 1px solid #38BDF8; border-radius: 4px; padding: 4px 6px; } "
             "QHeaderView::section { background: #1E293B; color: #BAE6FD; "
             "padding: 8px; border: none; }"
         )
