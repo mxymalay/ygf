@@ -42,10 +42,9 @@ class FloatingBall(QWidget):
         # “还需约 xxx kg”提示，底部继续保留暂停/锁定/对勾状态栏。
         self.setFixedSize(160, 84)
 
-        # 默认放在右侧商品区的第一排卡片下方，不遮住左侧重量区；
-        # 分类按钮/商品按钮由 SaleWidget 创建完成后即可取到，
-        # 比固定写死坐标更适合不同分辨率和缩放比例。
-        self._move_to_default_position()
+        # 优先恢复用户上次拖动后保存的位置；首次运行才使用右上角默认位
+        # 置。默认位置会在主界面完成首轮布局后再计算一次。
+        self._restore_or_move_to_default()
 
         self._drag_pos = QPoint()
         self._is_dragging = False
@@ -89,8 +88,36 @@ class FloatingBall(QWidget):
         self._progress_hint_pressed = False
         # The first layout pass may not have assigned the product button's
         # final global geometry yet; repeat once after the main window is
-        # shown so the default aligns with the real product row.
-        QTimer.singleShot(0, self._move_to_default_position)
+        # shown so a first-run default aligns with the real product row.
+        QTimer.singleShot(0, self._restore_or_move_to_default)
+
+    def _restore_or_move_to_default(self):
+        """Restore a dragged position, otherwise place the ball by the menu."""
+        if not self._restore_saved_position():
+            self._move_to_default_position()
+
+    def _restore_saved_position(self):
+        """Restore the last user position and return whether it was usable."""
+        config = getattr(self.main_window, "config", None)
+        saved = config.get("floating_ball_position") if isinstance(config, dict) else None
+        if not isinstance(saved, dict):
+            return False
+        try:
+            x = int(saved.get("x"))
+            y = int(saved.get("y"))
+        except (TypeError, ValueError):
+            return False
+
+        from PyQt5.QtWidgets import QApplication
+        screen = QApplication.screenAt(QPoint(x, y)) or QApplication.primaryScreen()
+        if screen is None:
+            return False
+        geo = screen.availableGeometry()
+        # Keep a saved ball recoverable after a monitor/resolution change.
+        x = max(geo.left(), min(x, geo.right() - self.width() + 1))
+        y = max(geo.top(), min(y, geo.bottom() - self.height() + 1))
+        self.move(x, y)
+        return True
 
     def _move_to_default_position(self):
         """Place the first-run ball at the top-right of the product area."""
@@ -100,27 +127,57 @@ class FloatingBall(QWidget):
         if screen is None:
             return
         screen_geo = screen.availableGeometry()
+        # The visible capsule is 88px wide inside a 160px transparent wrapper;
+        # anchor that visible part to the menu's top-right, not the wrapper's
+        # right edge, so it does not look like it is in the lower-right corner.
         x = screen_geo.left() + screen_geo.width() - 182
         y = screen_geo.top() + 28
 
         sale_page = getattr(self.main_window, "sale_page", None)
         menu_buttons = getattr(sale_page, "menu_buttons", None) or {}
         first_menu_button = next(iter(menu_buttons.values()), None)
+        menu_group = getattr(sale_page, "menu_group", None)
+        if menu_group is not None:
+            try:
+                menu_top_left = menu_group.mapToGlobal(QPoint(0, 0))
+                # Leave a small margin from the menu's right edge.  The
+                # transparent wrapper may extend past the edge; only the
+                # visible capsule is anchored here.
+                x = menu_top_left.x() + menu_group.width() - 96
+                y = menu_top_left.y() - 17
+            except (AttributeError, RuntimeError):
+                pass
         if first_menu_button is not None:
             try:
                 first_top = first_menu_button.mapToGlobal(QPoint(0, 0)).y()
                 # The capsule is drawn 17 px below the floating window's top.
-                # Put it just below the first product row, matching the
-                # operator's preferred position in the product area.
-                y = first_top + first_menu_button.height() + 3
+                # Align it with the top of the first product row, at the
+                # upper-right of the catalogue rather than below the grid.
+                y = first_top - 17
             except (AttributeError, RuntimeError):
                 pass
 
-        # Keep the transparent wrapper from being placed excessively offscreen
-        # on a multi-monitor/Win7 desktop while allowing the capsule itself to
-        # sit flush with the category row.
+        # Keep the visible capsule on the active screen while allowing the
+        # transparent right-side wrapper to extend beyond the edge.
+        x = max(screen_geo.left() - 1, x)
         y = max(screen_geo.top() - 16, min(y, screen_geo.bottom() - self.height() + 1))
         self.move(x, y)
+
+    def _save_dragged_position(self):
+        """Persist a user-selected global position for the next launch."""
+        config = getattr(self.main_window, "config", None)
+        if not isinstance(config, dict):
+            return
+        config["floating_ball_position"] = {
+            "x": int(self.x()),
+            "y": int(self.y()),
+        }
+        try:
+            from config import save_config
+            save_config(config)
+        except Exception as exc:
+            # A failed diagnostic save must never affect checkout or dragging.
+            print("[FloatingBall] 保存悬浮球位置失败:", exc)
 
     def set_quota_progress(self, private_ratio, target_private_ratio, is_private):
         """更新悬浮球内的配额水位，并保留上一份水位作浅色背景。"""
@@ -491,6 +548,8 @@ class FloatingBall(QWidget):
             if self._progress_hint_pressed:
                 if not self._is_dragging:
                     self._on_progress_hint_click()
+                else:
+                    self._save_dragged_position()
                 self._progress_hint_pressed = False
                 self._is_dragging = False
                 event.accept()
@@ -498,6 +557,8 @@ class FloatingBall(QWidget):
 
             if not self._is_dragging:
                 self._on_click_toggle()
+            else:
+                self._save_dragged_position()
 
             self._is_dragging = False
             event.accept()

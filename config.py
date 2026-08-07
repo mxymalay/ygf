@@ -207,6 +207,8 @@ DEFAULT_CONFIG = {
     "auto_start_delay": 8,
     "auto_switch_enabled": True,
     "floating_ball_enabled": True,
+    # 用户拖动悬浮球后保存的屏幕坐标；为空时使用销售页右上角默认位置。
+    "floating_ball_position": None,
     "panic_hotkey": "F10",
     "auto_hide_delay_sec": 10,
     "scale_source": "official",
