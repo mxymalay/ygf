@@ -1589,12 +1589,19 @@ class SaleWidget(QWidget):
         
         self.btn_clear = QPushButton(u"清空")
         self.btn_clear.setObjectName("btn_clear")
+        # Keep the two utility actions readable when the cashier panel is
+        # narrowed on Win7/small displays.  Without a width floor, the
+        # stretchable payment row can squeeze these buttons into tiny tiles.
+        self.btn_clear.setMinimumWidth(82)
+        self.btn_clear.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_clear.setCursor(Qt.PointingHandCursor)
         self.btn_clear.clicked.connect(self._on_clear)
         clear_box.addWidget(self.btn_clear, stretch=1)
         
         self.btn_open_drawer = QPushButton(u"钱箱")
         self.btn_open_drawer.setObjectName("btn_open_drawer")
+        self.btn_open_drawer.setMinimumWidth(82)
+        self.btn_open_drawer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_open_drawer.setCursor(Qt.PointingHandCursor)
         self.btn_open_drawer.clicked.connect(lambda: self.printer.open_cash_drawer() if self.printer else None)
         clear_box.addWidget(self.btn_open_drawer, stretch=1)
