@@ -189,6 +189,24 @@ def main():
         "scale_bridge_service.py"
     ]
 
+    takeout_service_cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--name=TakeoutRelayService",
+        "--noconsole",
+        "--onefile",
+        "--clean",
+        "--distpath=%s" % package_dir,
+        "--workpath=%s" % os.path.join("build", "takeout_relay_service"),
+        "--specpath=%s" % os.path.join("build", "spec"),
+        "--hidden-import=servicemanager",
+        "--hidden-import=win32service",
+        "--hidden-import=win32serviceutil",
+        "--hidden-import=win32event",
+        "--hidden-import=win32timezone",
+    ] + common_hidden + [
+        "takeout_relay_service.py"
+    ]
+
     maintenance_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name=ScaleBridgeMaintenance",
@@ -212,6 +230,9 @@ def main():
     if res == 0:
         print("[*] 正在打包独立 ScaleBridge Windows 服务...")
         res = subprocess.call(service_cmd)
+    if res == 0:
+        print("[*] 正在打包独立外卖中继 Windows 服务...")
+        res = subprocess.call(takeout_service_cmd)
     if res == 0:
         print("[*] 正在打包 ScaleBridge 命令行维修工具...")
         res = subprocess.call(maintenance_cmd)

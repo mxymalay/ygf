@@ -257,7 +257,10 @@ class AutoSwitchController(QObject):
         page = getattr(self.main_window, "sale_page", None)
         return str(getattr(page, "current_order_id", "") or "")
 
-    def _record_quota_decision(self, weight_kg, is_private, forced_official=False):
+    def _record_quota_decision(
+        self, weight_kg, is_private, forced_official=False,
+        routing_basis="weight", operating_mode=None, official_receipt_key="",
+    ):
         """Update in-memory and persisted counters for a new decision."""
         self._ensure_quota_date()
         weight = max(0.0, float(weight_kg or 0.0))
@@ -272,6 +275,8 @@ class AutoSwitchController(QObject):
             self._forced_official_orders += 1
 
         db = getattr(self.main_window, "db", None)
+        if operating_mode is None:
+            operating_mode = str(self.config.get("takeout_relay_mode", "compatibility") or "compatibility")
         if db and hasattr(db, "record_switch_quota_decision"):
             try:
                 db.record_switch_quota_decision(weight, is_private, forced_official)
@@ -287,12 +292,16 @@ class AutoSwitchController(QObject):
                 event = db.create_weighing_route_event(
                     weight,
                     is_private,
-                    "forced_official" if forced_official else "quota",
+                    ("forced_official" if forced_official else ("amount" if routing_basis == "amount" else "quota")),
                     # A route is observed before the cashier actually adds a
                     # soup line.  Bind it to an order only after that explicit
                     # UI action, otherwise an unused second weighing can be
                     # incorrectly confirmed as paid with the first bowl.
                     order_id="",
+                    routing_basis=routing_basis,
+                    operating_mode=operating_mode,
+                    official_receipt_key=official_receipt_key,
+                    estimated_amount=max(0.0, float(weight or 0.0)) * max(0.0, float(self.config.get("unit_price", 0.0) or 0.0)) if routing_basis == "amount" else 0.0,
                 )
                 self._last_route_event_key = str((event or {}).get("event_key", "") or "")
                 self._last_route_event_channel = "private" if is_private else "official"
@@ -339,6 +348,59 @@ class AutoSwitchController(QObject):
         except Exception as exc:
             _safe_console(f"[AutoDecisionEngine] 官方 POS 状态检测失败，按不可用处理: {exc}")
             return False
+
+    def _verified_official_amount_state(self):
+        """Return verified official-POS revenue in live enhanced mode.
+
+        The relay status file is intentionally the gate: merely having an
+        amount in a printed ticket cannot switch the routing algorithm.
+        """
+        try:
+            from core.takeout_proxy_host import read_proxy_status
+            state = read_proxy_status()
+            if not state.get("running") or state.get("mode") != "enhanced":
+                return 0.0, False
+            from datetime import date
+            if hasattr(self.main_window, "db") and self.main_window.db:
+                summary = self.main_window.db.get_official_stats_by_date(date.today(), date.today())
+                return max(0.0, float(summary.get("amount_sum", 0.0) or 0.0)), True
+            return 0.0, False
+        except Exception as exc:
+            _safe_console(f"[AutoDecisionEngine] 读取已验证官方金额失败，继续兼容模式: {exc}")
+            return 0.0, False
+
+    # Backward-compatible alias for older integrations that still call the
+    # external-order-specific helper name.
+    def _verified_takeout_amount_state(self):
+        return self._verified_official_amount_state()
+
+    def _amount_route_decision(self, weight_kg):
+        """Choose a channel from verified revenue when enhanced mode is live.
+
+        The current bowl amount is an estimate from its observed weight and
+        configured unit price; it is never used to prove payment.  If any
+        prerequisite is absent, return ``None`` so the old weight algorithm
+        remains authoritative.
+        """
+        verified_external, ready = self._verified_official_amount_state()
+        if not ready:
+            return None
+        db = getattr(self.main_window, "db", None)
+        if not db or not hasattr(db, "get_today_summary"):
+            return None
+        try:
+            private_revenue = max(0.0, float(db.get_today_summary().get("total_amount", 0.0) or 0.0))
+            unit_price = max(0.0, float(self.config.get("unit_price", 0.0) or 0.0))
+            estimated_amount = max(0.0, float(weight_kg or 0.0)) * unit_price
+            target = min(1.0, max(0.0, self._target_private_ratio / 100.0))
+            total_after_private = private_revenue + verified_external + estimated_amount
+            if total_after_private <= 0.0:
+                return True
+            private_ratio_after = (private_revenue + estimated_amount) / total_after_private
+            return private_ratio_after < target
+        except Exception as exc:
+            _safe_console(f"[AutoDecisionEngine] 金额分流估算失败，继续兼容模式: {exc}")
+            return None
 
     def _fallback_to_private_after_official_failure(self, weight_kg):
         """Undo an official decision if the window disappeared in the race."""
@@ -654,8 +716,10 @@ class AutoSwitchController(QObject):
                     )
                     return True
 
-        # 规则 0B：官方多碗/连续开单保护 (如果上一碗刚分配给官方 POS，继承走官方 POS，防止弹窗打断店员官方开单)
-        if now_ts - self._last_official_time < self._official_lock_sec:
+        # 规则 0B：官方多碗/连续开单保护。只有中继已进入增强模式、并
+        # 且订单金额与结账状态都已验证时，才允许金额分流替代这一把锁。
+        amount_route = self._amount_route_decision(weight_kg)
+        if now_ts - self._last_official_time < self._official_lock_sec and amount_route is None:
             elapsed = now_ts - self._last_official_time
             self._set_official_continuation_lock(now_ts)  # 刷新连单锁定期
             if not official_available:
@@ -673,6 +737,19 @@ class AutoSwitchController(QObject):
             self._last_decision_reason = "官方 POS 连单继承"
             _safe_console(f"[AutoDecisionEngine] 检测到 {self._official_lock_sec} 秒内已有官方开单记录 (间隔 {elapsed:.1f}s)，保持【官方界面】连续开单")
             log_event(CAT_DECISION, "官方连单继承 -> 保持官方界面", f"距离上一单官方操作 {elapsed:.1f}s < {self._official_lock_sec}s | 本次称重 {weight_kg:.3f}kg")
+            return False
+
+        if amount_route is not None:
+            if not official_available or amount_route:
+                self._record_quota_decision(weight_kg, True, routing_basis="amount", operating_mode="enhanced")
+                self._last_decision_kind = "amount_private"
+                self._last_decision_reason = "已验证官方 POS 金额参与比例计算，留在私有 POS"
+                log_event(CAT_DECISION, "增强模式金额分流 -> 私有 POS", f"重量 {weight_kg:.3f}kg")
+                return True
+            self._record_quota_decision(weight_kg, False, routing_basis="amount", operating_mode="enhanced")
+            self._last_decision_kind = "amount_official"
+            self._last_decision_reason = "已验证官方 POS 金额参与比例计算，分配官方 POS"
+            log_event(CAT_DECISION, "增强模式金额分流 -> 官方 POS", f"重量 {weight_kg:.3f}kg")
             return False
 
         # 规则 0C：当日累计收款封顶保护。周中/周末使用不同门限。

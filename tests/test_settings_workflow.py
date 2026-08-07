@@ -106,6 +106,38 @@ class SettingsWorkflowTests(unittest.TestCase):
             all(button.minimumHeight() >= 54 for button in widget.sqb_hotkey_preset_buttons)
         )
 
+    def test_relay_and_paper_format_are_separate_sources_of_truth(self):
+        widget = self._create_widget()
+        self.addCleanup(widget.deleteLater)
+
+        labels = [button.text() for button in widget.nav_buttons]
+        self.assertTrue(any(u"打印机中继" in label for label in labels))
+        self.assertTrue(any(u"打印纸格式" in label for label in labels))
+        self.assertEqual(widget.stacked_widget.count(), len(widget.NAV_ITEMS))
+        self.assertTrue(hasattr(widget, "cmb_relay_printer_name"))
+        self.assertFalse(hasattr(widget, "cmb_printer_name"))
+
+    def test_relay_output_fields_follow_selected_transport(self):
+        widget = self._create_widget()
+        self.addCleanup(widget.deleteLater)
+
+        # The pre-change/default configuration uses a Windows queue.
+        self.assertFalse(widget.cmb_relay_printer_name.isHidden())
+        self.assertTrue(widget.txt_relay_ip.isHidden())
+        self.assertTrue(widget.spin_relay_printer_port.isHidden())
+        self.assertTrue(widget.txt_relay_serial_port.isHidden())
+
+        widget.cmb_relay_printer_type.setCurrentIndex(1)  # network
+        self.assertTrue(widget.cmb_relay_printer_name.isHidden())
+        self.assertFalse(widget.txt_relay_ip.isHidden())
+        self.assertFalse(widget.spin_relay_printer_port.isHidden())
+        self.assertTrue(widget.txt_relay_serial_port.isHidden())
+
+        widget.cmb_relay_printer_type.setCurrentIndex(2)  # serial
+        self.assertTrue(widget.cmb_relay_printer_name.isHidden())
+        self.assertTrue(widget.txt_relay_ip.isHidden())
+        self.assertFalse(widget.txt_relay_serial_port.isHidden())
+
     def test_maintenance_dialog_never_covers_windows_installer_prompt(self):
         dialog = _MaintenanceBusyDialog("维护中", "测试")
         self.addCleanup(dialog.deleteLater)

@@ -26,7 +26,7 @@
   "printer_kitchen_footer": "打印时间：{time}",
   "printer_report_title": "营业汇总报表",
   "printer_report_footer": "打印时间：{time}",
-  "printer_template_profile": "legacy",
+  "printer_template_profile": "official_v2",
   "printer_service_phone": "400-6058-777",
   "printer_operator": "",
   "printer_logo_path": "",
@@ -71,6 +71,23 @@
   "takeout_proxy_port": 9101,
   "takeout_proxy_queue_name": "",
   "takeout_proxy_mode_version": 1,
+  "takeout_relay_mode": "compatibility",
+  "takeout_relay_mode_policy": "auto",
+  "takeout_relay_last_check_at": "",
+  "takeout_relay_last_success_at": "",
+  "takeout_relay_last_error": "",
+  "takeout_relay_last_identification": "",
+  "takeout_relay_payment_required": true,
+  "official_pos_field_mapping": {
+    "order_id_labels": ["订单号", "订单编号"],
+    "amount_labels": ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"],
+    "paid_keywords": ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"],
+    "cancelled_keywords": ["已取消", "取消订单", "退款成功", "已退款"],
+    "dinein_keywords": ["堂食", "POS点餐", "收银", "消费小票", "结账单", "制作单-堂食"]
+  },
+  "takeout_capture_enabled": false,
+  "takeout_capture_max_files": 20,
+  "takeout_capture_max_bytes": 2097152,
   "takeout_auto_print": true,
   "takeout_categories": [
     {

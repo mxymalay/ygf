@@ -4,6 +4,7 @@
 打印机故障、重复点击或程序重启后，门店仍能找到同一笔交易并继续处理。
 """
 import os
+import json
 import shutil
 import sqlite3
 from datetime import date, datetime
@@ -101,9 +102,9 @@ class Database:
                     refund_operator TEXT DEFAULT ''
                 );
 
-                -- Routing statistics are deliberately separate from sales:
-                -- official POS payments are not written to this database,
-                -- while the scale routing decision is still observable.
+                -- Routing statistics are deliberately separate from sales;
+                -- official POS payments use the dedicated verified ledger
+                -- below, while scale routing decisions remain observable.
                 -- One row per local day keeps the quota stable across a POS
                 -- restart without pretending to know the official amount.
                 CREATE TABLE IF NOT EXISTS switch_quota_daily (
@@ -134,9 +135,86 @@ class Database:
                     decision_kind   TEXT DEFAULT '',
                     status          TEXT NOT NULL DEFAULT 'PENDING',
                     order_id        TEXT DEFAULT '',
+                    routing_basis   TEXT NOT NULL DEFAULT 'weight',
+                    operating_mode  TEXT NOT NULL DEFAULT 'compatibility',
+                    official_receipt_key TEXT DEFAULT '',
+                    estimated_amount REAL NOT NULL DEFAULT 0,
                     created_at      TEXT NOT NULL,
                     resolved_at     TEXT DEFAULT '',
                     resolution_note TEXT DEFAULT ''
+                );
+
+                -- Verified official-POS revenue is kept separate from the
+                -- private POS ``sales`` ledger.  The stable order key makes
+                -- original prints, reprints and retries idempotent.
+                CREATE TABLE IF NOT EXISTS official_pos_revenue (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_key       TEXT UNIQUE NOT NULL,
+                    platform        TEXT DEFAULT '',
+                    order_id        TEXT DEFAULT '',
+                    amount          REAL NOT NULL,
+                    payment_status  TEXT NOT NULL DEFAULT 'PAID',
+                    source          TEXT DEFAULT 'takeout_relay',
+                    created_at      TEXT NOT NULL
+                );
+
+                -- Parsed external-order history is separate from both POS
+                -- ledgers.  It keeps recognition/audit fields without storing
+                -- the original receipt payload or unnecessary customer data.
+                CREATE TABLE IF NOT EXISTS takeout_orders (
+                    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_key                TEXT UNIQUE NOT NULL,
+                    platform                 TEXT DEFAULT '',
+                    full_order_id            TEXT DEFAULT '',
+                    order_no                 TEXT DEFAULT '',
+                    amount                   REAL,
+                    amount_valid             INTEGER NOT NULL DEFAULT 0,
+                    payment_status           TEXT NOT NULL DEFAULT 'unknown',
+                    payment_status_confidence TEXT DEFAULT 'unknown',
+                    key_confidence           TEXT DEFAULT 'low',
+                    item_count               INTEGER NOT NULL DEFAULT 0,
+                    item_names_json          TEXT DEFAULT '[]',
+                    is_duplicate             INTEGER NOT NULL DEFAULT 0,
+                    conflict_detected        INTEGER NOT NULL DEFAULT 0,
+                    created_at               TEXT NOT NULL,
+                    printed_at               TEXT DEFAULT '',
+                    print_count              INTEGER NOT NULL DEFAULT 0,
+                    last_result              TEXT DEFAULT 'PENDING',
+                    last_error               TEXT DEFAULT ''
+                );
+
+                -- All recognized official-POS receipts are retained here,
+                -- including unknown/unpaid observations. Only rows that pass
+                -- the final evidence checks are copied to official revenue.
+                CREATE TABLE IF NOT EXISTS official_pos_receipts (
+                    id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receipt_key                TEXT UNIQUE NOT NULL,
+                    receipt_kind               TEXT NOT NULL DEFAULT 'unknown',
+                    platform                   TEXT DEFAULT '',
+                    order_id                   TEXT DEFAULT '',
+                    order_no                   TEXT DEFAULT '',
+                    amount                     REAL,
+                    amount_valid               INTEGER NOT NULL DEFAULT 0,
+                    payment_status            TEXT NOT NULL DEFAULT 'unknown',
+                    payment_status_confidence TEXT DEFAULT 'unknown',
+                    key_confidence             TEXT DEFAULT 'low',
+                    payload_type               TEXT DEFAULT '',
+                    capture_path               TEXT DEFAULT '',
+                    observed_at                TEXT NOT NULL,
+                    print_count                INTEGER NOT NULL DEFAULT 1,
+                    is_duplicate               INTEGER NOT NULL DEFAULT 0,
+                    conflict_detected          INTEGER NOT NULL DEFAULT 0,
+                    last_result                TEXT DEFAULT 'RECEIVED',
+                    last_error                 TEXT DEFAULT ''
+                );
+
+                CREATE TABLE IF NOT EXISTS relay_mode_events (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    previous_mode TEXT NOT NULL DEFAULT '',
+                    new_mode      TEXT NOT NULL,
+                    policy        TEXT NOT NULL DEFAULT 'auto',
+                    reason        TEXT DEFAULT '',
+                    created_at    TEXT NOT NULL
                 );
                 """
             )
@@ -171,6 +249,16 @@ class Database:
             for name, definition in switch_upgrades.items():
                 self._ensure_column(conn, name, definition, table="switch_quota_daily")
 
+            route_upgrades = {
+                "routing_basis": "TEXT NOT NULL DEFAULT 'weight'",
+                "operating_mode": "TEXT NOT NULL DEFAULT 'compatibility'",
+                "official_receipt_key": "TEXT DEFAULT ''",
+                "estimated_amount": "REAL NOT NULL DEFAULT 0",
+            }
+            for name, definition in route_upgrades.items():
+                self._ensure_column(conn, name, definition, table="weighing_route_events")
+            self._ensure_column(conn, "conflict_detected", "INTEGER NOT NULL DEFAULT 0", table="official_pos_receipts")
+
             # Do not create indexes until after the column migration.  An old
             # store can have a valid ``sales`` table without ``order_id``;
             # creating the index in the initial CREATE script would make
@@ -184,6 +272,22 @@ class Database:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_route_events_status "
                 "ON weighing_route_events(status, channel)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_official_revenue_date "
+                "ON official_pos_revenue(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_takeout_orders_date "
+                "ON takeout_orders(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_official_receipts_observed "
+                "ON official_pos_receipts(observed_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_relay_mode_events_date "
+                "ON relay_mode_events(created_at)"
             )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_order_id "
@@ -450,6 +554,313 @@ class Database:
         finally:
             conn.close()
 
+    def record_official_revenue(self, order_key, platform, order_id, amount,
+                                payment_status="PAID", source="takeout_relay",
+                                created_at=None):
+        """Persist one verified official-POS amount, once per stable order key."""
+        key = str(order_key or "").strip()
+        try:
+            value = float(amount)
+        except (TypeError, ValueError):
+            return False
+        if not key or value < 0 or str(payment_status or "").upper() != PAID:
+            return False
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO official_pos_revenue
+                   (order_key, platform, order_id, amount, payment_status, source, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (key, str(platform or ""), str(order_id or ""), round(value, 2),
+                 PAID, str(source or "takeout_relay"), str(created_at or _now_text())),
+            )
+            conn.commit()
+            return bool(cursor.rowcount)
+        finally:
+            conn.close()
+
+    def record_official_receipt(self, receipt_key, parsed=None, payload_type="",
+                                capture_path="", observed_at=None):
+        """Persist a generic official-POS receipt without assuming payment.
+
+        Reprints update the observation count but do not create a second
+        revenue row. The caller separately decides whether the evidence is
+        strong enough for ``record_official_revenue``.
+        """
+        parsed = parsed or {}
+        key = str(receipt_key or parsed.get("receipt_key") or "").strip()
+        if not key:
+            return False, None
+        amount = parsed.get("order_amount")
+        try:
+            amount = None if amount is None else round(float(amount), 2)
+        except (TypeError, ValueError):
+            amount = None
+        now = str(observed_at or _now_text())
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO official_pos_receipts
+                   (receipt_key, receipt_kind, platform, order_id, order_no,
+                    amount, amount_valid, payment_status,
+                    payment_status_confidence, key_confidence, payload_type,
+                    capture_path, observed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    key,
+                    str(parsed.get("receipt_kind", "unknown") or "unknown"),
+                    str(parsed.get("platform", "") or ""),
+                    str(parsed.get("full_order_id", "") or ""),
+                    str(parsed.get("order_no", "") or ""),
+                    amount,
+                    1 if parsed.get("amount_valid") is True else 0,
+                    str(parsed.get("payment_status", "unknown") or "unknown"),
+                    str(parsed.get("payment_status_confidence", "unknown") or "unknown"),
+                    str(parsed.get("key_confidence", "low") or "low"),
+                    str(payload_type or parsed.get("payload_type", "") or ""),
+                    str(capture_path or parsed.get("capture_path", "") or ""),
+                    now,
+                ),
+            )
+            created = bool(cursor.rowcount)
+            if not created:
+                existing = conn.execute(
+                    "SELECT amount, payment_status FROM official_pos_receipts WHERE receipt_key=?",
+                    (key,),
+                ).fetchone()
+                conflict = False
+                if existing is not None:
+                    old_amount = existing[0]
+                    if amount is not None and old_amount is not None:
+                        conflict = round(float(old_amount), 2) != round(float(amount), 2)
+                    old_status = str(existing[1] or "unknown").lower()
+                    new_status = str(parsed.get("payment_status", "unknown") or "unknown").lower()
+                    if old_status != "unknown" and new_status != "unknown" and old_status != new_status:
+                        conflict = True
+                conn.execute(
+                    """UPDATE official_pos_receipts
+                       SET observed_at=?, print_count=print_count+1,
+                           is_duplicate=1,
+                           conflict_detected=CASE WHEN ? THEN 1 ELSE conflict_detected END,
+                           amount=CASE WHEN amount IS NULL THEN ? ELSE amount END,
+                           amount_valid=CASE WHEN amount_valid=0 AND ? THEN 1 ELSE amount_valid END,
+                           payment_status=CASE WHEN payment_status='unknown' AND ? <> 'unknown' THEN ? ELSE payment_status END,
+                           payment_status_confidence=CASE WHEN payment_status='unknown' AND ? <> 'unknown' THEN ? ELSE payment_status_confidence END,
+                           payload_type=COALESCE(NULLIF(?, ''), payload_type),
+                           capture_path=COALESCE(NULLIF(?, ''), capture_path)
+                       WHERE receipt_key=?""",
+                    (
+                        now, 1 if conflict else 0, amount,
+                        1 if parsed.get("amount_valid") is True else 0,
+                        str(parsed.get("payment_status", "unknown") or "unknown").lower(),
+                        str(parsed.get("payment_status", "unknown") or "unknown"),
+                        str(parsed.get("payment_status", "unknown") or "unknown").lower(),
+                        str(parsed.get("payment_status_confidence", "unknown") or "unknown"),
+                        str(payload_type or ""), str(capture_path or ""), key,
+                    ),
+                )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM official_pos_receipts WHERE receipt_key=?", (key,)
+            ).fetchone()
+            return created, (dict(row) if row else None)
+        finally:
+            conn.close()
+
+    def get_official_receipts(self, start_date=None, end_date=None, limit=200):
+        """Return generic official-POS receipt observations for diagnostics."""
+        clauses = []
+        params = []
+        if start_date:
+            clauses.append("DATE(observed_at) >= ?")
+            params.append(str(start_date))
+        if end_date:
+            clauses.append("DATE(observed_at) <= ?")
+            params.append(str(end_date))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM official_pos_receipts%s ORDER BY id DESC LIMIT ?" % where,
+                tuple(params + [max(1, int(limit or 200))]),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def record_relay_mode_event(self, previous_mode, new_mode, policy="auto",
+                                reason="", created_at=None):
+        """Keep mode transitions auditable without rewriting past decisions."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """INSERT INTO relay_mode_events
+                   (previous_mode, new_mode, policy, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (str(previous_mode or ""), str(new_mode or ""),
+                 str(policy or "auto"), str(reason or "")[:500],
+                 str(created_at or _now_text())),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def get_relay_mode_events(self, start_date=None, end_date=None, limit=200):
+        clauses = []
+        params = []
+        if start_date:
+            clauses.append("DATE(created_at) >= ?")
+            params.append(str(start_date))
+        if end_date:
+            clauses.append("DATE(created_at) <= ?")
+            params.append(str(end_date))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM relay_mode_events%s ORDER BY id DESC LIMIT ?" % where,
+                tuple(params + [max(1, int(limit or 200))]),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_official_stats_by_date(self, start_date, end_date=None):
+        """Return only persisted, verified official-POS revenue for a range."""
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                """SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount_sum
+                   FROM official_pos_revenue
+                   WHERE DATE(created_at) BETWEEN ? AND ? AND payment_status=?""",
+                (s_str, e_str, PAID),
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
+    def get_official_revenue_by_date(self, start_date, end_date=None):
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM official_pos_revenue
+                   WHERE DATE(created_at) BETWEEN ? AND ? AND payment_status=?
+                   ORDER BY created_at ASC""",
+                (s_str, e_str, PAID),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def record_takeout_order(self, order_key, parsed=None, job=None,
+                             duplicate=False, observed_at=None):
+        """Persist parsed external-order metadata with a stable dedup key."""
+        parsed = parsed or {}
+        job = job or {}
+        key = str(order_key or job.get("key") or "").strip()
+        if not key:
+            return False
+        item_names = parsed.get("item_names") or []
+        try:
+            item_json = json.dumps([str(item) for item in item_names], ensure_ascii=False)
+        except (TypeError, ValueError):
+            item_json = "[]"
+        amount = job.get("order_amount", parsed.get("order_amount"))
+        try:
+            amount = None if amount is None else round(float(amount), 2)
+        except (TypeError, ValueError):
+            amount = None
+        created_at = str(job.get("created_at") or observed_at or _now_text())
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO takeout_orders
+                   (order_key, platform, full_order_id, order_no, amount,
+                    amount_valid, payment_status, payment_status_confidence,
+                    key_confidence, item_count, item_names_json, is_duplicate,
+                    conflict_detected, created_at, printed_at, print_count,
+                    last_result, last_error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    key,
+                    str(job.get("platform", parsed.get("platform", "外卖订单")) or ""),
+                    str(job.get("full_order_id", parsed.get("full_order_id", "")) or ""),
+                    str(job.get("order_no", parsed.get("order_no", "")) or ""),
+                    amount,
+                    1 if job.get("amount_valid", parsed.get("amount_valid")) is True else 0,
+                    str(job.get("payment_status", parsed.get("payment_status", "unknown")) or "unknown"),
+                    str(job.get("payment_status_confidence", parsed.get("payment_status_confidence", "unknown")) or "unknown"),
+                    str(job.get("key_confidence", "low") or "low"),
+                    int(parsed.get("item_count", job.get("item_count", 0)) or 0),
+                    item_json,
+                    1 if duplicate else 0,
+                    1 if job.get("conflict_detected") else 0,
+                    created_at,
+                    str(job.get("printed_at", "") or ""),
+                    int(job.get("print_count", 0) or 0),
+                    str(job.get("last_result", "PENDING") or "PENDING"),
+                    str(job.get("last_error", "") or "")[:300],
+                ),
+            )
+            if not cursor.rowcount and str(parsed.get("payment_status", "unknown") or "unknown").lower() in ("paid", "cancelled"):
+                conn.execute(
+                    """UPDATE takeout_orders
+                       SET payment_status=CASE WHEN payment_status='unknown' THEN ? ELSE payment_status END,
+                           payment_status_confidence=CASE WHEN payment_status='unknown' THEN ? ELSE payment_status_confidence END,
+                           amount=CASE WHEN amount IS NULL THEN ? ELSE amount END,
+                           amount_valid=CASE WHEN amount_valid=0 AND ? THEN 1 ELSE amount_valid END,
+                           is_duplicate=1
+                       WHERE order_key=?""",
+                    (
+                        str(parsed.get("payment_status") or "unknown"),
+                        str(parsed.get("payment_status_confidence") or "unknown"),
+                        amount,
+                        1 if parsed.get("amount_valid") is True else 0,
+                        key,
+                    ),
+                )
+            conn.commit()
+            return bool(cursor.rowcount)
+        finally:
+            conn.close()
+
+    def update_takeout_order_print_result(self, order_key, success, copies, error=""):
+        key = str(order_key or "").strip()
+        if not key:
+            return False
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """UPDATE takeout_orders
+                   SET printed_at=?, print_count=print_count+?, last_result=?, last_error=?
+                   WHERE order_key=?""",
+                (_now_text(), max(0, int(copies or 0)), "PRINTED" if success else "FAILED",
+                 "" if success else str(error or "打印失败")[:300], key),
+            )
+            conn.commit()
+            return bool(cursor.rowcount)
+        finally:
+            conn.close()
+
+    def get_takeout_orders_by_date(self, start_date, end_date=None):
+        s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM takeout_orders
+                   WHERE DATE(created_at) BETWEEN ? AND ? ORDER BY created_at DESC, id DESC""",
+                (s_str, e_str),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
     @staticmethod
     def _switch_stat_date(stat_date=None):
         value = stat_date or date.today()
@@ -639,7 +1050,9 @@ class Database:
     # Stable-weighing lifecycle ledger
     # ------------------------------------------------------------------
     def create_weighing_route_event(
-        self, weight_kg, is_private, decision_kind="", event_key=None, order_id=""
+        self, weight_kg, is_private, decision_kind="", event_key=None, order_id="",
+        routing_basis="weight", operating_mode="compatibility",
+        official_receipt_key="", estimated_amount=0.0,
     ):
         """Create a pending record for one stable weighing decision.
 
@@ -658,9 +1071,15 @@ class Database:
         try:
             conn.execute(
                 """INSERT OR IGNORE INTO weighing_route_events
-                   (event_key, weight_kg, channel, decision_kind, status, order_id, created_at)
-                   VALUES (?, ?, ?, ?, 'PENDING', ?, ?)""",
-                (key, weight, channel, str(decision_kind or ""), str(order_id or ""), now),
+                   (event_key, weight_kg, channel, decision_kind, status, order_id,
+                    routing_basis, operating_mode, official_receipt_key,
+                    estimated_amount, created_at)
+                   VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?)""",
+                (
+                    key, weight, channel, str(decision_kind or ""), str(order_id or ""),
+                    str(routing_basis or "weight"), str(operating_mode or "compatibility"),
+                    str(official_receipt_key or ""), max(0.0, float(estimated_amount or 0.0)), now,
+                ),
             )
             conn.commit()
             row = conn.execute(

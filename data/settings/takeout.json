@@ -3,6 +3,16 @@
   "takeout_proxy_port": 9101,
   "takeout_proxy_queue_name": "",
   "takeout_proxy_mode_version": 1,
+  "takeout_relay_mode": "compatibility",
+  "takeout_relay_mode_policy": "auto",
+  "takeout_relay_last_check_at": "",
+  "takeout_relay_last_success_at": "",
+  "takeout_relay_last_error": "",
+  "takeout_relay_last_identification": "",
+  "takeout_relay_payment_required": true,
+  "takeout_capture_enabled": false,
+  "takeout_capture_max_files": 20,
+  "takeout_capture_max_bytes": 2097152,
   "takeout_auto_print": true,
   "takeout_categories": [
     {

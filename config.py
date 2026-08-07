@@ -168,7 +168,9 @@ DEFAULT_CONFIG = {
     "printer_report_footer": "打印时间：{time}",
     # 模板方案：legacy 保留旧版当前格式，official_v2 对齐新版官方票面，
     # custom 使用设置页中的可编辑正文，便于以后换版时无需改程序。
-    "printer_template_profile": "legacy",
+    # 新安装默认对齐官方新版票面；已有配置中的 legacy/custom 值会被
+    # 原样保留，不在升级时静默覆盖。
+    "printer_template_profile": "official_v2",
     "printer_service_phone": "400-6058-777",
     "printer_operator": "",
     "printer_logo_path": "",
@@ -255,6 +257,31 @@ DEFAULT_CONFIG = {
     "takeout_proxy_port": 9101,
     "takeout_proxy_queue_name": "",
     "takeout_proxy_mode_version": 1,
+    # Relay health/mode is persisted as a diagnostic hint only.  Any stale or
+    # missing value is treated as compatibility mode at runtime.
+    "takeout_relay_mode": "compatibility",
+    # Automatic mode is safe default; force_compatibility is a manual
+    # maintenance/test override and never enables enhanced routing by itself.
+    "takeout_relay_mode_policy": "auto",
+    "takeout_relay_last_check_at": "",
+    "takeout_relay_last_success_at": "",
+    "takeout_relay_last_error": "",
+    "takeout_relay_last_identification": "",
+    "takeout_relay_payment_required": True,
+    # Official POS receipt field aliases.  Empty/custom values are optional;
+    # parser defaults remain active for old configurations.
+    "official_pos_field_mapping": {
+        "order_id_labels": ["订单号", "订单编号"],
+        "amount_labels": ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"],
+        "paid_keywords": ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"],
+        "cancelled_keywords": ["已取消", "取消订单", "退款成功", "已退款"],
+        "dinein_keywords": ["堂食", "POS点餐", "收银", "消费小票", "结账单", "制作单-堂食"],
+    },
+    # Keep a bounded copy of official POS printer samples for test-machine
+    # format analysis.  Samples may contain order details; disable after use.
+    "takeout_capture_enabled": False,
+    "takeout_capture_max_files": 20,
+    "takeout_capture_max_bytes": 2097152,
     "takeout_auto_print": True,
     "takeout_categories": [
         {"id": "cat_1", "name": u"主食类", "keywords": [u"面", u"米饭", u"粉丝", u"年糕", u"方便面"]},

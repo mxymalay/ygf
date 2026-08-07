@@ -28,8 +28,8 @@ else:
     from scale_bridge.ipc import StatusPipeServer
 
 
-SERVICE_NAME = "YgfScaleBridge"
-SERVICE_DISPLAY_NAME = "YGF POS ScaleBridge"
+SERVICE_NAME = "ppposScaleBridge"
+SERVICE_DISPLAY_NAME = "ppposScaleBridge"
 
 
 def default_config_path() -> str:

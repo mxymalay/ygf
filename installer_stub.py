@@ -322,7 +322,8 @@ APP_ICON_CATEGORIES = {
     "custom": "custom",
 }
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\YGF-POS"
-SERVICE_NAME = "YgfScaleBridge"
+SERVICE_NAME = "ppposScaleBridge"
+LEGACY_SCALE_SERVICE_NAMES = ("YgfScaleBridge",)
 PAYLOAD_NAME = "YGF-POS-Payload.zip"
 
 
@@ -602,6 +603,32 @@ def _stop_service(install_dir, remove=False):
         pass
 
 
+TAKEOUT_SERVICE_NAME = "ppposTakeoutRelay"
+
+
+def _stop_takeout_service(install_dir, remove=False):
+    service_exe = os.path.join(install_dir, "TakeoutRelayService.exe")
+    try:
+        if os.path.isfile(service_exe):
+            _run_hidden([service_exe, "stop"], timeout=60)
+            if remove:
+                _run_hidden([service_exe, "remove"], timeout=60)
+        elif remove:
+            _run_hidden(["sc.exe", "delete", TAKEOUT_SERVICE_NAME], timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _remove_legacy_scale_services():
+    """Migrate the pre-pppos service name without touching user config/data."""
+    for legacy_name in LEGACY_SCALE_SERVICE_NAMES:
+        try:
+            _run_hidden(["sc.exe", "stop", legacy_name], timeout=30)
+            _run_hidden(["sc.exe", "delete", legacy_name], timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
 def _service_running():
     try:
         result = _run_hidden(["sc.exe", "query", SERVICE_NAME], timeout=20)
@@ -640,11 +667,21 @@ def _install(target_dir, display_name, icon_preset="yangguofu"):
     icon_preset = icon_preset if icon_preset in APP_ICON_FILES else "yangguofu"
     old_dir = _existing_install_dir()
     old_display_name = _registry_display_name() or APP_DISPLAY_NAME
+    _remove_legacy_scale_services()
     was_running = _service_running()
+    takeout_was_running = False
+    try:
+        result = _run_hidden(["sc.exe", "query", TAKEOUT_SERVICE_NAME], timeout=20)
+        output = ((result.stdout or b"") + (result.stderr or b"")).decode("mbcs", errors="ignore")
+        takeout_was_running = result.returncode == 0 and ("RUNNING" in output.upper() or "运行" in output)
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        pass
     if old_dir and _norm(old_dir) != _norm(target_dir):
         _stop_service(old_dir, remove=True)
+        _stop_takeout_service(old_dir, remove=True)
     else:
         _stop_service(target_dir, remove=False)
+        _stop_takeout_service(target_dir, remove=False)
     _safe_extract_payload(target_dir)
     _write_runtime_branding(target_dir, icon_preset)
     # Keep the uninstaller beside the launcher.  It is intentionally copied
@@ -671,6 +708,8 @@ def _install(target_dir, display_name, icon_preset="yangguofu"):
     _create_shortcut(uninstall_link, os.path.join(target_dir, "卸载.exe"), target_dir, "卸载 %s" % display_name)
     if was_running and (not old_dir or _norm(old_dir) == _norm(target_dir)):
         _run_hidden([os.path.join(target_dir, "ScaleBridgeService.exe"), "start"], timeout=60)
+    if takeout_was_running and (not old_dir or _norm(old_dir) == _norm(target_dir)):
+        _run_hidden([os.path.join(target_dir, "TakeoutRelayService.exe"), "start"], timeout=60)
 
 
 def _schedule_remove(install_dir, keep_data):
@@ -723,6 +762,7 @@ def _uninstall(install_dir, root=None):
             return
     display_name = _registry_display_name() or APP_DISPLAY_NAME
     _stop_service(install_dir, remove=True)
+    _stop_takeout_service(install_dir, remove=True)
     _remove_shortcuts(display_name)
     _remove_uninstall_entry()
     _schedule_remove(install_dir, keep_data)

@@ -42,7 +42,7 @@ from .protocol import DibalFrameAssembler, parse_dibal_weight
 
 
 MANIFEST_FILENAME = "scale_bridge_installation.json"
-SERVICE_NAME = "YgfScaleBridge"
+SERVICE_NAME = "ppposScaleBridge"
 COM0COM_INSTALLER_SHA256 = "26486B28604B49A9008C54FEB11B9ECE0008A8287EE5CAF0BCF2A62F4317128F"
 SERVICE_STATES = {
     1: "STOPPED",
@@ -1482,7 +1482,7 @@ class ScaleBridgeLifecycle:
 
         Normal removal only touches resources recorded in the product manifest.
         ``allow_unowned_service`` is intentionally limited to the exact
-        ``YgfScaleBridge`` Windows service and is used only after the touch UI
+        ``ppposScaleBridge`` Windows service and is used only after the touch UI
         shows a separate high-risk confirmation for pre-manifest installations.
         It never widens COM-pair deletion: unrecorded virtual pairs remain.
         """

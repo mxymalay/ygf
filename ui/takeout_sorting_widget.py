@@ -7,10 +7,11 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QTextEdit, QScrollArea
+    QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QStackedWidget, QTextEdit, QScrollArea
 )
 from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text, build_takeout_escpos_ticket
 from core.takeout_jobs import TakeoutJobStore
+from core.takeout_relay import mode_label
 from config import save_config
 from ui.custom_dialog import show_info, show_warning, show_question
 
@@ -77,6 +78,42 @@ class TakeoutSortingWidget(QWidget):
         # 仅在进入本页面时触发一次官方 POS 检测，无需后台定时循环
         self._check_official_pos_status()
 
+    def _select_section(self, section_id):
+        """切换外卖设置的二级菜单。"""
+        if section_id not in ("initial", "format"):
+            section_id = "initial"
+        index = 0 if section_id == "initial" else 1
+        if hasattr(self, "section_stack"):
+            self.section_stack.setCurrentIndex(index)
+            # QStackedWidget otherwise keeps the tallest page's size hint.
+            # The long “外卖格式” form was making the compact initial page
+            # inherit a huge empty area.  Size the stack to the active page.
+            page_height = getattr(self, "_section_page_heights", {}).get(section_id)
+            if page_height:
+                self.section_stack.setFixedHeight(page_height)
+        for current_id, button in getattr(self, "section_buttons", {}).items():
+            active = current_id == section_id
+            button.setChecked(active)
+            button.setStyleSheet(
+                "QPushButton { text-align: left; padding: 12px 14px; font-size: 17px; "
+                "background-color: %s; color: %s; font-weight: %s; border-radius: 10px; "
+                "border: none; border-left: %s; }"
+                "QPushButton:hover { color: #F1F5F9; background-color: #1E293B; }" % (
+                    "#1E293B" if active else "transparent",
+                    "#38BDF8" if active else "#94A3B8",
+                    "bold" if active else "600",
+                    "4px solid #38BDF8" if active else "4px solid transparent",
+                )
+            )
+
+    def _select_format_third_section(self, section_id):
+        """切换“外卖设置 → 外卖格式”内部的三级菜单。"""
+        if section_id not in getattr(self, "_format_third_targets", {}):
+            section_id = "categories"
+        self.format_third_stack.setCurrentIndex(self._format_third_targets[section_id])
+        for current_id, button in self.format_third_buttons.items():
+            button.setChecked(current_id == section_id)
+
     def _build_ui(self):
         # 1. 采用外层 QScrollArea 容器，完美适配触屏滑动
         scroll_area = QScrollArea(self)
@@ -96,7 +133,7 @@ class TakeoutSortingWidget(QWidget):
         hc_layout = QHBoxLayout(header_card)
         hc_layout.setContentsMargins(16, 10, 16, 10)
 
-        lbl_title = QLabel(u"↔ 外卖打印中继与排序")
+        lbl_title = QLabel(u"↔ 外卖设置")
         lbl_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F8FAFC; border: none;")
         hc_layout.addWidget(lbl_title)
 
@@ -110,87 +147,50 @@ class TakeoutSortingWidget(QWidget):
         self.lbl_printer.setStyleSheet("font-size: 13px; color: #38BDF8; font-weight: bold; border: none;")
         hc_layout.addWidget(self.lbl_printer)
 
-        is_active = bool(
-            self.config.get("takeout_interceptor_enabled", False)
-            and str(self.config.get("takeout_proxy_queue_name", "")).strip()
-        )
-        self.btn_toggle = QPushButton(u"停止中继" if is_active else u"启动中继")
-        self.btn_toggle.setCheckable(True)
-        self.btn_toggle.setChecked(is_active)
-        self.btn_toggle.setCursor(Qt.PointingHandCursor)
-        self.btn_toggle.setStyleSheet(
-            "QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; "
-            "border-radius: 6px; padding: 7px 18px; border: 1px solid #059669; }"
-            "QPushButton:checked { background: #10B981; }"
-            "QPushButton:!checked { background: #64748B; border-color: #475569; }"
-            "QPushButton:disabled { background: #334155; color: #64748B; border-color: #1E293B; }"
-        )
-        self.btn_toggle.clicked.connect(self._on_toggle)
-        hc_layout.addWidget(self.btn_toggle)
-
         main_layout.addWidget(header_card)
 
         proxy_card = QFrame()
         proxy_card.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #0EA5E9; padding: 10px; }")
         proxy_layout = QVBoxLayout(proxy_card)
+        proxy_layout.setContentsMargins(16, 16, 16, 16)
         proxy_layout.setSpacing(8)
-        proxy_title = QLabel(u"先配置一次：让官方 POS 的外卖单先进入本中继")
-        proxy_title.setStyleSheet("font-size: 16px; font-weight: 900; color: #38BDF8; border: none;")
+        proxy_title = QLabel(u"官方 POS 中继状态与票据识别")
+        proxy_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; border: none;")
         proxy_layout.addWidget(proxy_title)
-        proxy_hint = QLabel(
-            u"1. 启动中继；2. 在 Windows 新建一个“外卖中继”打印队列，端口为标准 TCP/IP：127.0.0.1；"
-            u"端口填下方数值，并使用能保留 RAW/ESC-POS 数据的热敏打印驱动；3. 官方 POS 的外卖打印选择该队列；"
-            u"4. 本 POS 的打印机设置仍选择真实物理打印机。启动后中继守护进程会独立运行；即使退出本 POS 界面，"
-            u"官方 POS 的外卖通道仍保持可用。原始外卖单不会直达物理机，中继会重排后再打印。"
-        )
+        proxy_hint = QLabel(u"步骤 3：分别打印真实外卖单、堂食单或收款单，检查识别结果，再决定是否启用增强模式和金额分流。\n打印机、端口、Windows 队列和测试操作已统一在“系统设置 → 打印机中继”维护。本页只显示结果，不重复保存配置。")
         proxy_hint.setWordWrap(True)
         proxy_hint.setStyleSheet("font-size: 13px; color: #CBD5E1; border: none;")
         proxy_layout.addWidget(proxy_hint)
-        proxy_row = QHBoxLayout()
-        proxy_row.addWidget(QLabel(u"中继端口："))
-        self.spn_proxy_port = QSpinBox()
-        self.spn_proxy_port.setRange(1024, 65535)
-        self.spn_proxy_port.setValue(int(self.config.get("takeout_proxy_port", 9101)))
-        proxy_row.addWidget(self.spn_proxy_port)
-        proxy_row.addWidget(QLabel(u"Windows 中继队列名："))
-        self.txt_proxy_queue = QLineEdit(self.config.get("takeout_proxy_queue_name", ""))
-        self.txt_proxy_queue.setPlaceholderText(u"例如：YGF 外卖中继（用于防止输出回环）")
-        proxy_row.addWidget(self.txt_proxy_queue)
-        self.chk_auto_print = QCheckBox(u"识别到外卖单后自动打印制作联/存根联")
-        self.chk_auto_print.setChecked(self.config.get("takeout_auto_print", True))
-        proxy_row.addWidget(self.chk_auto_print)
-        proxy_row.addStretch()
-        proxy_layout.addLayout(proxy_row)
-
-        proxy_action_row = QHBoxLayout()
-        proxy_action_row.addStretch()
-        self.btn_test_proxy = QPushButton(u"🧪 测试中继识别")
-        self.btn_test_proxy.clicked.connect(self._on_test_proxy)
-        proxy_action_row.addWidget(self.btn_test_proxy)
+        mode_help = QLabel(
+            u"模式说明：兼容模式保留原有连单锁和按重量分流；增强模式只在官方订单号、金额和明确付款状态"
+            u"都验证通过后启用金额分流；候选、状态未知或异常时自动降级为兼容模式。"
+        )
+        mode_help.setWordWrap(True)
+        mode_help.setStyleSheet("font-size: 13px; color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; border-radius: 8px; padding: 9px;")
+        proxy_layout.addWidget(mode_help)
+        self.lbl_relay_guide = QLabel()
+        self.lbl_relay_guide.setWordWrap(True)
+        self.lbl_relay_guide.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 8px; padding: 10px;")
+        proxy_layout.addWidget(self.lbl_relay_guide)
+        # Stack the two actions vertically: on Win7 high-DPI/narrow displays
+        # two wide buttons in one row force the right one outside the page.
+        proxy_action_row = QVBoxLayout()
         self.btn_reprint_last = QPushButton(u"重打最近外卖单")
         self.btn_reprint_last.clicked.connect(self._on_reprint_last)
         proxy_action_row.addWidget(self.btn_reprint_last)
-        self.btn_check_proxy = QPushButton(u"检查 Windows 队列")
-        self.btn_check_proxy.clicked.connect(self._check_proxy_setup)
-        proxy_action_row.addWidget(self.btn_check_proxy)
-        self.btn_reset_proxy = QPushButton(u"清除本页中继配置")
-        self.btn_reset_proxy.clicked.connect(self._on_reset_proxy_config)
-        proxy_action_row.addWidget(self.btn_reset_proxy)
-        for button in (
-            self.btn_toggle, self.btn_test_proxy, self.btn_reprint_last,
-            self.btn_check_proxy, self.btn_reset_proxy,
-        ):
+        self.btn_open_relay_settings = QPushButton(u"前往打印机中继设置")
+        self.btn_open_relay_settings.clicked.connect(self._open_relay_settings)
+        proxy_action_row.addWidget(self.btn_open_relay_settings)
+        for button in (self.btn_reprint_last, self.btn_open_relay_settings):
             button.setMinimumHeight(52)
             button.setCursor(Qt.PointingHandCursor)
-        self.spn_proxy_port.setMinimumHeight(52)
-        self.txt_proxy_queue.setMinimumHeight(52)
         proxy_layout.addLayout(proxy_action_row)
         self.lbl_last_job = QLabel(u"最近任务：无")
         self.lbl_last_job.setStyleSheet("color: #94A3B8; font-size: 13px; border: none;")
         proxy_layout.addWidget(self.lbl_last_job)
-        main_layout.addWidget(proxy_card)
+        self._refresh_relay_guide()
 
-        # ── 2. Tab 选项卡配置板块 ──
+        # ── 2. 配置区（由左侧二级菜单切换） ──
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane { border: 2px solid #475569; background: #1E293B; border-radius: 8px; }
@@ -435,11 +435,87 @@ class TakeoutSortingWidget(QWidget):
         self.chk_preorder.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_preorder)
 
+        self.chk_auto_print = QCheckBox(u"识别成功后自动打印重排制作单")
+        self.chk_auto_print.setChecked(self.config.get("takeout_auto_print", True))
+        self.chk_auto_print.setStyleSheet("color: #34D399; font-size: 13px; font-weight: bold;")
+        self.chk_auto_print.stateChanged.connect(self._auto_save_format_settings)
+        hc_box.addWidget(self.chk_auto_print)
+
         th_lay.addWidget(h_card)
         th_lay.addStretch()
         self.tabs.addTab(tab_header, u"📌 地址与单号配置")
 
-        main_layout.addWidget(self.tabs)
+        # “初始设置”合并原来的分类排序、地址/单号配置；“外卖格式”
+        # 保留字号、联数和打印内容相关设置。这样页面二级菜单只维护
+        # 两个稳定入口，不再把三个横向 Tab 挤在窄屏顶部。
+        self.tabs.removeTab(2)
+        self.tabs.removeTab(1)
+        self.tabs.removeTab(0)
+        initial_panel = QWidget()
+        initial_layout = QVBoxLayout(initial_panel)
+        initial_layout.setContentsMargins(0, 0, 0, 0)
+        initial_layout.setSpacing(12)
+        initial_layout.addWidget(proxy_card)
+        initial_layout.addStretch()
+
+        format_panel = QWidget()
+        format_layout = QVBoxLayout(format_panel)
+        format_layout.setContentsMargins(0, 0, 0, 0)
+        format_layout.setSpacing(12)
+        # “外卖设置”是二级页面；外卖格式内部再用三级菜单拆分内容，
+        # 保留原有三组配置，但一次只显示当前选中的一组。
+        format_third_menu = QFrame()
+        format_third_menu.setObjectName("TakeoutFormatThirdLevelMenu")
+        format_third_menu.setStyleSheet(
+            "QFrame#TakeoutFormatThirdLevelMenu { background: #111827; border-bottom: 1px solid #334155; }"
+            "QPushButton { background: transparent; color: #94A3B8; border: none; "
+            "border-bottom: 3px solid transparent; border-radius: 0; padding: 9px 14px; "
+            "font-size: 14px; font-weight: 700; }"
+            "QPushButton:hover { background: #1E293B; color: #F8FAFC; }"
+            "QPushButton:checked { background: #172554; color: #7DD3FC; border-bottom-color: #38BDF8; }"
+        )
+        format_third_menu_layout = QHBoxLayout(format_third_menu)
+        format_third_menu_layout.setContentsMargins(0, 0, 0, 0)
+        format_third_menu_layout.setSpacing(3)
+        self.format_third_buttons = {}
+        self.format_third_stack = QStackedWidget()
+        self.format_third_stack.setStyleSheet("QStackedWidget { background: transparent; }")
+        format_groups = (
+            ("categories", u"① 菜品分类", tab_categories),
+            ("font", u"② 字号与联数", tab_format),
+            ("header", u"③ 地址与单号", tab_header),
+        )
+        for section_id, label, content in format_groups:
+            panel = QWidget()
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(0, 0, 0, 0)
+            panel_layout.setSpacing(0)
+            content.setParent(panel)
+            content.show()
+            panel_layout.addWidget(content)
+            self.format_third_stack.addWidget(panel)
+
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setMinimumHeight(46)
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(
+                lambda checked=False, sid=section_id: self._select_format_third_section(sid)
+            )
+            format_third_menu_layout.addWidget(button, 1)
+            self.format_third_buttons[section_id] = button
+        format_third_menu_layout.addStretch()
+        self._format_third_targets = {
+            section_id: index for index, (section_id, _label, _content) in enumerate(format_groups)
+        }
+        format_layout.addWidget(format_third_menu)
+        format_layout.addWidget(self.format_third_stack)
+        self._select_format_third_section("categories")
+        self.section_stack = QStackedWidget()
+        self.section_stack.setStyleSheet("QStackedWidget { background: transparent; }")
+        self.section_stack.addWidget(initial_panel)
+        self.section_stack.addWidget(format_panel)
+        main_layout.addWidget(self.section_stack)
 
         # ── 3. 独立下置大高度【实时小票效果预览】卡片 ──
         pv_card = QFrame()
@@ -461,10 +537,10 @@ class TakeoutSortingWidget(QWidget):
         btn_refresh.clicked.connect(self._update_live_preview)
         pv_hdr.addWidget(btn_refresh)
 
-        btn_test = QPushButton(u"🧪 物理打票测试")
+        btn_test = QPushButton(u"前往中继测试")
         btn_test.setCursor(Qt.PointingHandCursor)
         btn_test.setStyleSheet("QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 16px; border: 1px solid #059669; } QPushButton:hover { background: #059669; }")
-        btn_test.clicked.connect(self._on_test_print)
+        btn_test.clicked.connect(self._open_relay_settings)
         pv_hdr.addWidget(btn_test)
 
         pv_lay.addLayout(pv_hdr)
@@ -478,13 +554,50 @@ class TakeoutSortingWidget(QWidget):
         )
         pv_lay.addWidget(self.txt_preview)
 
-        main_layout.addWidget(pv_card)
+        format_layout.addWidget(pv_card)
+        self._section_page_heights = {
+            "initial": max(1, initial_panel.sizeHint().height()),
+            "format": max(1, format_panel.sizeHint().height()),
+        }
 
-        # 2. 设置布局外层为 scroll_area
-        scroll_area.setWidget(scroll_content)
-        outer_layout = QVBoxLayout(self)
+        # ── 4. 左侧二级菜单 ──
+        section_sidebar = QFrame()
+        section_sidebar.setObjectName("TakeoutSidebar")
+        section_sidebar.setFixedWidth(220)
+        section_sidebar.setStyleSheet(
+            "QFrame#TakeoutSidebar { background-color: #0F172A; border-right: 1px solid #1E293B; }"
+            "QLabel { background: transparent; }"
+        )
+        sidebar_layout = QVBoxLayout(section_sidebar)
+        sidebar_layout.setContentsMargins(14, 18, 14, 18)
+        sidebar_layout.setSpacing(8)
+        sidebar_title = QLabel(u"↔ 外卖设置")
+        sidebar_title.setStyleSheet(
+            "font-size: 22px; font-weight: 900; color: #F8FAFC; "
+            "padding-left: 8px; margin-bottom: 8px; border: none;"
+        )
+        sidebar_layout.addWidget(sidebar_title)
+        self.section_buttons = {}
+        for section_id, label in (("initial", u"⚙ 初始设置"), ("format", u"♨ 外卖格式")):
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setMinimumHeight(56)
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(lambda checked=False, sid=section_id: self._select_section(sid))
+            sidebar_layout.addWidget(button)
+            self.section_buttons[section_id] = button
+        sidebar_layout.addStretch()
+
+        # 让左侧菜单固定在页面边缘，右侧内容继续使用原有触屏滚动区。
+        outer_layout = QHBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.addWidget(scroll_area)
+        outer_layout.setSpacing(0)
+        outer_layout.addWidget(section_sidebar)
+        outer_layout.addWidget(scroll_area, stretch=1)
+        self._select_section("initial")
+
+        # 设置布局外层为 scroll_area
+        scroll_area.setWidget(scroll_content)
 
         # 3. 全局触控下拉框、选择框与数字框统一美化 (借鉴系统设置，完美适配触屏与高亮盲操)
         from ui.styles import apply_touch_combo_style, apply_touch_checkbox_style, apply_touch_spinbox_style
@@ -500,26 +613,54 @@ class TakeoutSortingWidget(QWidget):
     def _check_official_pos_status(self):
         if not self.interceptor:
             self.on_interceptor_status(u"✕ 外卖中继守护进程未加载")
+            self._refresh_relay_guide()
             return
+        if hasattr(self.interceptor, "ensure_running"):
+            self.interceptor.ensure_running()
         state = self.interceptor.get_status()
         if state.get("running"):
-            self.btn_toggle.setChecked(True)
-            self.btn_toggle.setText(u"停止中继")
             self.on_interceptor_status(u"● 守护中继运行中：127.0.0.1:%d" % self.interceptor.port)
             last_order = state.get("last_order", "")
             if last_order:
                 self.lbl_last_job.setText(u"守护中继最新：%s" % last_order)
+            self._refresh_relay_guide(state)
             return
         if state.get("last_error"):
-            # A checked toggle would make the next touch stop an already-dead
-            # host.  Present a clear retry action instead.
-            self.btn_toggle.setChecked(False)
-            self.btn_toggle.setText(u"重新启动中继")
             self.on_interceptor_status(u"✕ 中继异常：%s" % state.get("last_error"))
+            self._refresh_relay_guide(state)
             return
-        self.btn_toggle.setChecked(False)
-        self.btn_toggle.setText(u"启动中继")
-        self.on_interceptor_status(u"○ 中继未启动；官方 POS 外卖单不会被拦截")
+        self.on_interceptor_status(u"○ 中继未启动；发送到中继队列的官方 POS 打印任务不会被接收")
+        self._refresh_relay_guide(state)
+
+    def _refresh_relay_guide(self, state=None):
+        if not hasattr(self, "lbl_relay_guide"):
+            return
+        state = state or (self.interceptor.get_status() if self.interceptor else {})
+        queue = str(self.config.get("takeout_proxy_queue_name", "") or "").strip()
+        physical = str(self.config.get("printer_name", "") or "").strip() if str(self.config.get("printer_type", "windows")).lower() == "windows" else ""
+        if not queue:
+            text = u"尚未配置中继：请先前往“打印机中继”完成端口、Windows 队列和实体打印机配置。"
+        elif queue.casefold() == physical.casefold() and physical:
+            text = u"配置异常：中继队列与实体输出打印机相同，存在打印回环风险。请前往设置修复。"
+        elif state.get("last_error"):
+            text = u"中继异常：%s\n系统会继续使用兼容模式；请前往设置检查队列和监听状态。" % state.get("last_error")
+        elif state.get("running"):
+            mode = state.get("mode") or self.config.get("takeout_relay_mode", "compatibility")
+            policy = state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", "auto")
+            reason = state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "等待验证")
+            policy_text = u"自动判断" if policy == "auto" else u"强制兼容"
+            text = u"中继已配置且监听中。当前：%s；策略：%s。\n原因：%s\n只有唯一订单、最终金额和可靠结账状态均验证通过，才会进入增强模式。" % (
+                mode_label(mode), policy_text, reason)
+        else:
+            text = u"中继配置已填写但监听未运行。当前使用兼容模式，请前往设置启动并完成真实测试单。"
+        self.lbl_relay_guide.setText(text)
+
+    def _open_relay_settings(self):
+        parent = self.window()
+        if hasattr(parent, "open_printer_relay_settings"):
+            parent.open_printer_relay_settings()
+        else:
+            show_warning(self, u"无法打开设置", u"请从系统设置进入“打印机中继”。")
 
     def _refresh_printer_info(self):
         printer_name = self.config.get("printer_name", "")
@@ -671,10 +812,7 @@ class TakeoutSortingWidget(QWidget):
         self.config["takeout_show_time"] = self.chk_time.isChecked()
         self.config["takeout_show_full_id"] = self.chk_full_id.isChecked()
         self.config["takeout_show_preorder"] = self.chk_preorder.isChecked()
-        self.config["takeout_proxy_port"] = self.spn_proxy_port.value()
-        self.config["takeout_proxy_queue_name"] = self.txt_proxy_queue.text().strip()
         self.config["takeout_auto_print"] = self.chk_auto_print.isChecked()
-
         save_config(self.config)
 
     def _update_live_preview(self):
@@ -707,9 +845,17 @@ class TakeoutSortingWidget(QWidget):
         )
 
     def on_order_intercepted(self, parsed):
-        raw_text = parsed.get("raw_text", "")
-        dry_run = bool(parsed.get("dry_run"))
+        incoming = dict(parsed or {})
+        raw_text = incoming.get("raw_text", "")
+        dry_run = bool(incoming.get("dry_run"))
         parsed = self._parse_text(raw_text)
+        for key in (
+            "full_order_id", "order_no", "order_amount", "amount_source", "amount_valid",
+            "payment_status", "payment_status_evidence", "payment_status_confidence",
+            "payload_type", "parse_failed", "raw_payload",
+        ):
+            if key in incoming:
+                parsed[key] = incoming[key]
         job, created = self.job_store.create_or_get(parsed, raw_text)
         self.last_job = job
         self.txt_preview.setPlainText(parsed.get("sorted_text", ""))
@@ -720,21 +866,32 @@ class TakeoutSortingWidget(QWidget):
             )
         )
         if parsed.get("item_count", 0) <= 0:
-            show_warning(self, u"外卖单待人工核对", u"中继收到任务，但没有识别到菜品；未自动打印。请核对官方 POS 的打印驱动是否输出 RAW 文本。")
+            # Recognition failures are expected during driver/template
+            # validation.  Keep the page status explicit without opening a
+            # modal on every retry; the relay host already attempts raw
+            # forwarding and compatibility fallback.
+            self.lbl_last_job.setText(u"最近任务：状态未知，已尝试原始转发；当前使用兼容模式")
+            self.on_interceptor_status(u"ⓘ 打印数据无法完整解析，已降级兼容模式")
             return
-        if created and not dry_run and self.chk_auto_print.isChecked():
+        if created and not dry_run and bool(self.config.get("takeout_auto_print", True)):
             self._print_job(job, parsed, reprint=False)
 
     def _print_job(self, job, parsed, reprint=False):
         if not self.printer:
             show_warning(self, u"无法打印", u"没有可用的小票打印机。请先在系统设置中选择真实物理打印机。")
             return False
-        proxy_queue_name = self.txt_proxy_queue.text().strip().casefold()
+        proxy_queue_name = str(self.config.get("takeout_proxy_queue_name", "")).strip().casefold()
         physical_printer = str(self.config.get("printer_name", "")).strip().casefold()
+        if not physical_printer:
+            try:
+                import win32print
+                physical_printer = str(win32print.GetDefaultPrinter() or "").strip().casefold()
+            except Exception:
+                pass
         if proxy_queue_name and proxy_queue_name == physical_printer:
             show_warning(
                 self, u"已阻止打印回环",
-                u"系统设置中的真实打印机不能等于外卖中继队列。请把系统打印机改回物理热敏打印机后重试。",
+                u"系统设置中的真实输出打印机不能等于官方 POS 中继队列，否则会形成打印回环。请改回实体热敏打印机后重试。",
             )
             return False
         kitchen = self.spn_kitchen_copies.value()
@@ -762,35 +919,7 @@ class TakeoutSortingWidget(QWidget):
         return success
 
     def _on_toggle(self):
-        is_on = self.btn_toggle.isChecked()
-        queue_name = self.txt_proxy_queue.text().strip()
-        if is_on and not queue_name:
-            self.btn_toggle.setChecked(False)
-            show_warning(
-                self, u"请先填写中继队列名",
-                u"请填写刚在 Windows 创建、并供官方 POS 选择的外卖中继打印队列名。这样程序才能防止把转发单又打回中继队列。",
-            )
-            return
-        self.config["takeout_interceptor_enabled"] = is_on
-        self.config["takeout_proxy_port"] = self.spn_proxy_port.value()
-        self.config["takeout_proxy_queue_name"] = queue_name
-        self.config["takeout_auto_print"] = self.chk_auto_print.isChecked()
-        save_config(self.config)
-        self.btn_toggle.setText(u"停止中继" if is_on else u"启动中继")
-        if self.interceptor:
-            started = self.interceptor.update_config(self.config)
-            if is_on and not started:
-                self.btn_toggle.setChecked(False)
-                self.config["takeout_interceptor_enabled"] = False
-                save_config(self.config)
-                self.btn_toggle.setText(u"启动中继")
-                show_warning(self, u"中继未启动", self.interceptor.last_error or u"端口被占用或不可用")
-            elif is_on:
-                self.on_interceptor_status(u"ⓘ 正在启动独立中继守护进程…")
-            else:
-                self.on_interceptor_status(u"○ 已请求停止中继守护进程")
-        else:
-            show_warning(self, u"中继服务未加载", u"请重启 POS 后再启动外卖中继。")
+        self._open_relay_settings()
 
     def _on_save_rules(self):
         self._auto_save_categories()
@@ -804,11 +933,7 @@ class TakeoutSortingWidget(QWidget):
         self._print_job(job, parsed, reprint=True)
 
     def _on_test_proxy(self):
-        parsed = self._parse_text(SAMPLE_RAW_TAKEOUT)
-        parsed["raw_text"] = SAMPLE_RAW_TAKEOUT
-        parsed["dry_run"] = True
-        self.on_order_intercepted(parsed)
-        show_info(self, u"中继识别测试", u"已完成本地识别测试，未发送物理打印。确认预览正确后，再在官方 POS 打印一张外卖单验证拦截。")
+        self._open_relay_settings()
 
     def _on_reprint_last(self):
         if not self.last_job:
@@ -825,51 +950,7 @@ class TakeoutSortingWidget(QWidget):
         self._print_job(self.last_job, parsed, reprint=True)
 
     def _check_proxy_setup(self):
-        queue_name = self.txt_proxy_queue.text().strip()
-        physical_name = str(self.config.get("printer_name", "")).strip()
-        if not queue_name:
-            show_warning(self, u"缺少中继队列名", u"请填写 Windows 中供官方 POS 使用的外卖中继打印队列名。")
-            return
-        if queue_name.casefold() == physical_name.casefold():
-            show_warning(self, u"配置错误", u"外卖中继队列与真实物理打印机不能相同，否则会形成无限打印回环。")
-            return
-        try:
-            import win32print
-            names = [entry[2] for entry in win32print.EnumPrinters(
-                win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS, None, 1
-            )]
-        except Exception as exc:
-            show_warning(self, u"无法读取 Windows 打印机", str(exc))
-            return
-        if queue_name not in names:
-            show_warning(
-                self, u"未找到中继队列",
-                u"Windows 中没有找到“%s”。请先按页面步骤创建本机 TCP/IP 队列，再让官方 POS 选择它。" % queue_name,
-            )
-            return
-        running = bool(self.interceptor and self.interceptor._running)
-        show_info(
-            self, u"中继配置检查通过",
-            u"中继队列：%s\n真实输出打印机：%s\n本地监听端口：127.0.0.1:%d\n守护进程状态：%s\n\n"
-            u"下一步：在官方 POS 打印一张外卖单；本页“最近任务”应出现该订单，物理机只会收到重排后的单据。"
-            u"中继启动后可以关闭本 POS 界面，守护进程不会随界面退出。"
-            % (queue_name, physical_name or u"默认打印机", self.spn_proxy_port.value(), u"运行中" if running else u"未启动"),
-        )
+        self._open_relay_settings()
 
     def _on_reset_proxy_config(self):
-        if not show_question(
-            self, u"清除中继配置",
-            u"将停止本 POS 的外卖中继并清除队列名称/端口配置。不会删除 Windows 中的打印队列，避免误删物理打印机。确定继续吗？",
-        ):
-            return
-        self.config["takeout_interceptor_enabled"] = False
-        self.config["takeout_proxy_queue_name"] = ""
-        self.config["takeout_proxy_port"] = 9101
-        save_config(self.config)
-        self.txt_proxy_queue.clear()
-        self.spn_proxy_port.setValue(9101)
-        self.btn_toggle.setChecked(False)
-        self.btn_toggle.setText(u"启动中继")
-        if self.interceptor:
-            self.interceptor.update_config(self.config)
-        self.on_interceptor_status(u"○ 已清除本 POS 中继配置；Windows 队列未删除")
+        self._open_relay_settings()

@@ -750,7 +750,7 @@ class _ServiceRunner(object):
         if command[:2] == ["sc.exe", "query"]:
             if not self.installed:
                 return self.Result(b"not installed", 1060)
-            output = ("SERVICE_NAME: YgfScaleBridge\r\n        STATE              : %d  %s\r\n" % (
+            output = ("SERVICE_NAME: ppposScaleBridge\r\n        STATE              : %d  %s\r\n" % (
                 self.state, {1: "STOPPED", 4: "RUNNING"}.get(self.state, "PENDING")
             )).encode("ascii")
             return self.Result(output)

@@ -10,7 +10,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QMessageBox, QSpinBox, QCheckBox, QGridLayout, QGroupBox,
-    QScrollArea, QDialog, QLineEdit, QComboBox, QListView
+    QScrollArea, QDialog, QLineEdit, QComboBox, QListView, QSizePolicy
 )
 from PyQt5.QtCore import (
     Qt, pyqtSlot, pyqtSignal, QTimer, QPoint,
@@ -926,8 +926,13 @@ class SaleWidget(QWidget):
         self._previous_order_time_timer.setInterval(30000)
         self._previous_order_time_timer.timeout.connect(self._refresh_previous_order_time_hint)
         self._previous_order_time_timer.start()
+        self._global_mode_timer = QTimer(self)
+        self._global_mode_timer.setInterval(2000)
+        self._global_mode_timer.timeout.connect(self._refresh_global_relay_mode)
+        self._global_mode_timer.start()
         self._setup_scale()
         self.refresh_call_number_display()
+        self._refresh_global_relay_mode()
 
     def _restore_draft(self):
         """Restore an unfinished basket after an abnormal POS exit."""
@@ -1068,8 +1073,8 @@ class SaleWidget(QWidget):
             self._previous_order_id = ""
             self.lbl_previous_status.setText(u"—")
             self.lbl_previous_title.setText(
-                u'<span style="font-size:22px; font-weight:800;">上一单</span>'
-                u'<br><span style="font-size:14px; color:#94A3B8;">(暂无记录)</span>'
+                u'<span style="font-size:20px; font-weight:800;">上一单</span>'
+                u'<br><span style="font-size:12px; color:#94A3B8;">(暂无记录)</span>'
             )
             if hasattr(self, "lbl_previous_call_no"):
                 self.lbl_previous_call_no.setText(u"#---")
@@ -1117,8 +1122,8 @@ class SaleWidget(QWidget):
         call_match = re.search(r"叫号:#?(\w+)", remark)
         call_no = call_match.group(1) if call_match else str(record.get("sale_no", "") or "")[-3:]
         self.lbl_previous_title.setText(
-            u'<span style="font-size:22px; font-weight:800;">上一单</span>'
-            u'<br><span style="font-size:14px; color:#CBD5E1;">(共%d项，%.3f kg)</span>' %
+            u'<span style="font-size:20px; font-weight:800;">上一单</span>'
+            u'<br><span style="font-size:12px; color:#CBD5E1;">(共%d项，%.3f kg)</span>' %
             (item_count, weight_kg)
         )
         if hasattr(self, "lbl_previous_call_no"):
@@ -1175,6 +1180,18 @@ class SaleWidget(QWidget):
         self.btn_toggle_detail.clicked.connect(self._toggle_call_detail)
         call_header.addWidget(self.btn_toggle_detail)
 
+        self.btn_global_relay_mode = QPushButton(u"模式：兼容模式")
+        self.btn_global_relay_mode.setCursor(Qt.PointingHandCursor)
+        self.btn_global_relay_mode.setToolTip(u"点击查看兼容模式/增强模式区别，并进入打印机中继设置")
+        self.btn_global_relay_mode.clicked.connect(self._show_global_relay_mode_dialog)
+        self.btn_global_relay_mode.setMinimumHeight(34)
+        self.btn_global_relay_mode.setStyleSheet(
+            "QPushButton { background: #422006; color: #FDE68A; border: 1px solid #A16207; "
+            "border-radius: 8px; padding: 3px 10px; font-size: 13px; font-weight: bold; }"
+            "QPushButton:hover { background: #713F12; color: #FEF3C7; }"
+        )
+        call_header.addWidget(self.btn_global_relay_mode)
+
         call_header.addStretch()
 
         left_layout.addLayout(call_header)
@@ -1225,7 +1242,10 @@ class SaleWidget(QWidget):
         self.lbl_scale_status_icon.setCursor(Qt.PointingHandCursor)
         self.lbl_scale_status_icon.clicked.connect(self._on_scale_status_icon_click)
         self.lbl_scale_status_icon.setAlignment(Qt.AlignCenter)
-        self.lbl_scale_status_icon.setFixedSize(36, 36)
+        # Real mode and mock mode share the same horizontal slot.  In mock
+        # mode the selector occupies it; in real mode the status icon is
+        # centered in it, so the point-order area never changes width.
+        self.lbl_scale_status_icon.setFixedSize(104, 36)
         self.lbl_scale_status_icon.setToolTip(u"读数计算中...")
         self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
         led_layout.addWidget(self.lbl_scale_status_icon)
@@ -1236,14 +1256,15 @@ class SaleWidget(QWidget):
         mode_selector_row = QHBoxLayout()
         mode_selector_row.setSpacing(6)
         self.cmb_mock_weight_mode = MockWeightModeComboBox()
-        self.cmb_mock_weight_mode.addItem(u"手动输入重量", "manual")
-        self.cmb_mock_weight_mode.addItem(u"随机生成重量", "random")
-        self.cmb_mock_weight_mode.addItem(u"切换到正常模式（检测设备）", "normal")
+        self.cmb_mock_weight_mode.addItem(u"手动", "manual")
+        self.cmb_mock_weight_mode.addItem(u"随机", "random")
+        self.cmb_mock_weight_mode.addItem(u"正常", "normal")
+        self.cmb_mock_weight_mode.setToolTip(u"手动：输入重量；随机：生成模拟重量；正常：检测并切换到真实电子秤")
         self.cmb_mock_weight_mode.setMinimumHeight(56)
-        # Leave enough horizontal room for the complete ``00.000 kg`` readout
-        # on the narrower Win7 touch layout.
-        self.cmb_mock_weight_mode.setMinimumWidth(140)
-        self.cmb_mock_weight_mode.setMaximumWidth(165)
+        # Keep the mock selector compact so the point-order area has nearly
+        # the same width as real-scale mode; the full explanation is in the
+        # tooltip and the mode help shown on the relay/settings page.
+        self.cmb_mock_weight_mode.setFixedWidth(104)
         self.cmb_mock_weight_mode.setFocusPolicy(Qt.NoFocus)
         self.cmb_mock_weight_mode.setStyleSheet(
             "QComboBox { background: #2E1065; color: #F5F3FF; border: 2px solid #8B5CF6; "
@@ -1258,6 +1279,10 @@ class SaleWidget(QWidget):
             "QListView::item:selected, QListView::item:hover { background: #7C3AED; color: #FFFFFF; }"
         )
         mode_view = QListView()
+        # The popup may be wider than the compact in-banner selector; do not
+        # let its touch padding elide the option labels.
+        mode_view.setMinimumWidth(220)
+        mode_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         mode_view.setStyleSheet(
             "QListView { background: #1E1B4B; color: #F5F3FF; border: 2px solid #8B5CF6; "
             "border-radius: 10px; padding: 6px; outline: none; }"
@@ -1311,20 +1336,25 @@ class SaleWidget(QWidget):
         self.previous_order_card.setToolTip(u"点击查看这一单的订单详情")
         self.previous_order_card.clicked.connect(self._open_previous_order)
         previous_layout = QVBoxLayout(self.previous_order_card)
-        previous_layout.setContentsMargins(16, 12, 16, 12)
-        previous_layout.setSpacing(6)
+        # Keep the card width unchanged on narrow Win7 displays.  The
+        # previous 16px side margins plus a fixed status column left too
+        # little room for the rich-text title and the time hint.
+        previous_layout.setContentsMargins(10, 10, 10, 10)
+        previous_layout.setSpacing(4)
 
         previous_header = QHBoxLayout()
         self.lbl_previous_status = QLabel(u"✓")
-        self.lbl_previous_status.setFixedWidth(34)
+        self.lbl_previous_status.setFixedWidth(28)
         self.lbl_previous_status.setAlignment(Qt.AlignCenter)
         previous_header.addWidget(self.lbl_previous_status)
         self.lbl_previous_title = QLabel(
-            u'<span style="font-size:22px; font-weight:800;">上一单</span>'
-            u'<br><span style="font-size:14px; color:#94A3B8;">(暂无记录)</span>'
+            u'<span style="font-size:20px; font-weight:800;">上一单</span>'
+            u'<br><span style="font-size:12px; color:#94A3B8;">(暂无记录)</span>'
         )
         self.lbl_previous_title.setTextFormat(Qt.RichText)
         self.lbl_previous_title.setWordWrap(True)
+        self.lbl_previous_title.setMinimumWidth(0)
+        self.lbl_previous_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.lbl_previous_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         previous_header.addWidget(self.lbl_previous_title, stretch=1)
         self.lbl_previous_call_no = QLabel(u"#---")
@@ -1349,6 +1379,9 @@ class SaleWidget(QWidget):
         self.lbl_previous_due_label, self.lbl_previous_due = _summary_row(u"应收")
         self.lbl_previous_time = QLabel("")
         self.lbl_previous_time.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.lbl_previous_time.setWordWrap(True)
+        self.lbl_previous_time.setMinimumWidth(0)
+        self.lbl_previous_time.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         previous_layout.addWidget(self.lbl_previous_time)
         # 子标签不拦截触屏点击，让整张卡片都能打开订单详情。
         for child in self.previous_order_card.findChildren(QLabel):
@@ -2238,6 +2271,85 @@ class SaleWidget(QWidget):
             self.btn_toggle_detail.setText(u"详细信息 ∨")
         from PyQt5.QtCore import QTimer
         QTimer.singleShot(20, self._update_price_display)
+
+    def _global_relay_mode_state(self):
+        """Return the global relay/routing mode without making it a local switch."""
+        state = {}
+        parent = self.window()
+        controller = getattr(parent, "takeout_interceptor", None)
+        if controller is not None:
+            try:
+                state = controller.get_status() or {}
+            except Exception:
+                state = {}
+        mode = str(state.get("mode") or self.config.get("takeout_relay_mode", "compatibility") or "compatibility")
+        policy = str(state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", "auto") or "auto")
+        reason = str(state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "等待中继验证") or "等待中继验证")
+        return {
+            "mode": mode,
+            "policy": policy,
+            "reason": reason,
+            "running": bool(state.get("running")),
+            "last_identified_at": state.get("last_identified_at") or "暂无",
+            "last_enhanced_success_at": state.get("last_enhanced_success_at") or "暂无",
+        }
+
+    def _refresh_global_relay_mode(self):
+        if not hasattr(self, "btn_global_relay_mode"):
+            return
+        state = self._global_relay_mode_state()
+        mode = state["mode"]
+        labels = {
+            "compatibility": u"兼容模式",
+            "candidate": u"增强模式候选",
+            "enhanced": u"增强模式",
+            "degraded": u"已降级·兼容模式",
+        }
+        label = labels.get(mode, u"兼容模式")
+        self.btn_global_relay_mode.setText(u"模式：%s" % label)
+        self.btn_global_relay_mode.setToolTip(
+            u"当前%s\n原因：%s\n点击查看两种模式区别并进入打印机中继设置。" % (label, state["reason"])
+        )
+        if mode == "enhanced":
+            color = ("#064E3B", "#6EE7B7", "#10B981")
+        elif mode in ("candidate", "degraded"):
+            color = ("#422006", "#FDE68A", "#A16207")
+        else:
+            color = ("#1E293B", "#CBD5E1", "#475569")
+        self.btn_global_relay_mode.setStyleSheet(
+            "QPushButton { background: %s; color: %s; border: 1px solid %s; "
+            "border-radius: 8px; padding: 3px 10px; font-size: 13px; font-weight: bold; }"
+            "QPushButton:hover { background: %s; color: #FFFFFF; }" % (
+                color[0], color[1], color[2], color[0]
+            )
+        )
+
+    def _show_global_relay_mode_dialog(self):
+        state = self._global_relay_mode_state()
+        mode = state["mode"]
+        labels = {
+            "compatibility": u"兼容模式",
+            "candidate": u"增强模式候选",
+            "enhanced": u"增强模式",
+            "degraded": u"已降级到兼容模式",
+        }
+        current = labels.get(mode, u"兼容模式")
+        detail = (
+            u"当前全局模式：%s\n\n"
+            u"兼容模式：保留原有连单锁和按重量分流；打印中继未配置、异常或付款状态未知时使用。\n\n"
+            u"增强模式：只有中继正常、订单唯一、金额已验证且有可靠付款状态时才自动启用，可按金额分流。\n\n"
+            u"当前原因：%s\n"
+            u"最近识别：%s\n"
+            u"最近增强成功：%s\n\n"
+            u"这里不提供强制打开增强模式。可在打印机中继设置中检查队列、识别测试，或锁定兼容模式。"
+        ) % (current, state["reason"], state["last_identified_at"], state["last_enhanced_success_at"])
+        if show_question(
+            self, u"全局分流工作模式", detail,
+            confirm_text=u"前往打印机中继设置", cancel_text=u"关闭",
+        ):
+            parent = self.window()
+            if hasattr(parent, "open_printer_relay_settings"):
+                parent.open_printer_relay_settings()
 
     def _compute_cart_pages(self):
         """根据每张卡片真实渲染总像素高度 (含外间距：带口味约 76px，无口味约 56px) 毫厘不差切页"""

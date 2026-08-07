@@ -36,6 +36,110 @@ class DatabaseLedgerTests(unittest.TestCase):
         self.assertEqual(first["id"], second["id"])
         self.assertEqual(len(self.db.get_recent_sales()), 1)
 
+    def test_verified_official_revenue_is_separate_and_idempotent(self):
+        self.assertTrue(self.db.record_official_revenue(
+            "meituan:1001", "美团", "1001", 28.5,
+            created_at="2026-08-07 12:00:00"
+        ))
+        self.assertFalse(self.db.record_official_revenue(
+            "meituan:1001", "美团", "1001", 28.5,
+            created_at="2026-08-07 12:01:00"
+        ))
+        stats = self.db.get_official_stats_by_date("2026-08-07")
+        self.assertEqual(stats["count"], 1)
+        self.assertEqual(stats["amount_sum"], 28.5)
+        self.assertEqual(self.db.get_stats_by_date("2026-08-07")["count"], 0)
+
+    def test_generic_official_receipt_tracks_reprints_without_recounting(self):
+        parsed = {
+            "receipt_kind": "dinein",
+            "platform": "官方POS-堂食",
+            "full_order_id": "DINE-1001",
+            "order_no": "#1001",
+            "order_amount": 32.0,
+            "amount_valid": True,
+            "payment_status": "unknown",
+            "payment_status_confidence": "unknown",
+            "key_confidence": "high",
+        }
+        created, row = self.db.record_official_receipt(
+            "official:DINE-1001", parsed, payload_type="escpos",
+            observed_at="2026-08-07 12:00:00",
+        )
+        self.assertTrue(created)
+        self.assertEqual(row["receipt_kind"], "dinein")
+        created_again, row_again = self.db.record_official_receipt(
+            "official:DINE-1001", parsed, payload_type="escpos",
+            observed_at="2026-08-07 12:01:00",
+        )
+        self.assertFalse(created_again)
+        self.assertEqual(row_again["print_count"], 2)
+        self.assertEqual(self.db.get_official_stats_by_date("2026-08-07")["count"], 0)
+
+        paid = dict(parsed, payment_status="paid", payment_status_confidence="high")
+        _created_paid, paid_row = self.db.record_official_receipt("official:DINE-1001", paid)
+        self.assertEqual(paid_row["payment_status"], "paid")
+
+    def test_generic_official_receipt_marks_amount_change_as_conflict(self):
+        base = {
+            "receipt_kind": "dinein", "platform": "官方POS-堂食",
+            "full_order_id": "DINE-CONFLICT", "order_amount": 20.0,
+            "amount_valid": True, "payment_status": "paid",
+            "payment_status_confidence": "high", "key_confidence": "high",
+        }
+        self.db.record_official_receipt("official:DINE-CONFLICT", base)
+        changed = dict(base, order_amount=21.0)
+        _created, row = self.db.record_official_receipt("official:DINE-CONFLICT", changed)
+        self.assertEqual(row["conflict_detected"], 1)
+
+    def test_route_event_keeps_amount_basis_and_mode(self):
+        event = self.db.create_weighing_route_event(
+            0.5, False, "amount", routing_basis="amount",
+            operating_mode="enhanced", estimated_amount=23.8,
+            official_receipt_key="official:DINE-1001",
+        )
+        self.assertEqual(event["routing_basis"], "amount")
+        self.assertEqual(event["operating_mode"], "enhanced")
+        self.assertAlmostEqual(event["estimated_amount"], 23.8, places=2)
+
+    def test_relay_mode_transitions_are_audited(self):
+        self.assertTrue(self.db.record_relay_mode_event(
+            "compatibility", "enhanced", "auto", "官方金额和付款状态已验证",
+            "2026-08-07 12:00:00",
+        ))
+        events = self.db.get_relay_mode_events("2026-08-07")
+        self.assertEqual(events[0]["new_mode"], "enhanced")
+
+    def test_takeout_order_metadata_has_its_own_sqlite_ledger(self):
+        parsed = {
+            "platform": "美团",
+            "full_order_id": "1002",
+            "order_no": "#1002",
+            "order_amount": 19.9,
+            "amount_valid": True,
+            "payment_status": "unknown",
+            "payment_status_confidence": "unknown",
+            "item_count": 1,
+            "item_names": ["肥牛"],
+        }
+        job = {
+            "key": "meituan:1002",
+            "platform": "美团",
+            "full_order_id": "1002",
+            "order_no": "#1002",
+            "order_amount": 19.9,
+            "amount_valid": True,
+            "payment_status": "unknown",
+            "key_confidence": "high",
+            "created_at": "2026-08-07 12:00:00",
+        }
+        self.assertTrue(self.db.record_takeout_order(job["key"], parsed, job))
+        self.assertFalse(self.db.record_takeout_order(job["key"], parsed, job, duplicate=True))
+        rows = self.db.get_takeout_orders_by_date("2026-08-07")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["payment_status"], "unknown")
+        self.assertEqual(self.db.get_stats_by_date("2026-08-07")["count"], 0)
+
     def test_print_and_refund_are_audited_without_deleting_order(self):
         record, _ = self._insert()
         self.db.mark_print_result(record["id"], False, "offline")

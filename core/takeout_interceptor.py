@@ -7,7 +7,9 @@ import re
 import time
 import threading
 import socket
+import hashlib
 from PyQt5.QtCore import QObject, pyqtSignal
+from core.takeout_capture import capture_print_payload
 
 
 # 默认菜品分类关键词规则
@@ -59,6 +61,8 @@ def _is_takeout_metadata_line(line: str) -> bool:
         "美团", "饿了么", "外卖订单", "订单号", "订单编号", "实付", "应付", "原价",
         "合计", "配送费", "包装费", "下单时间", "订单时间", "送餐地址", "收货地址",
         "地址", "联系电话", "顾客", "备注", "预计送达", "送达时间", "商家",
+        "堂食", "POS点餐", "取餐号", "名称", "规格", "单价", "数量", "小计",
+        "支付", "付款", "结账", "打印时间", "服务热线", "操作人",
     )
     return compact.startswith(prefixes)
 
@@ -103,6 +107,35 @@ def classify_item(item_name: str, custom_categories: list = None, match_mode: st
     return "other"
 
 
+def _mapping_values(mapping, key, defaults):
+    """Read comma-separated/list aliases configured for official POS parsing."""
+    value = (mapping or {}).get(key, defaults) if isinstance(mapping, dict) else defaults
+    if isinstance(value, str):
+        values = re.split(r"[,，、\n]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = defaults
+    result = []
+    for item in values:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result or list(defaults)
+
+
+def _keyword_pattern(values):
+    """Build a literal keyword regex while tolerating full/half-width colons."""
+    parts = []
+    for value in values:
+        escaped = re.escape(str(value))
+        escaped = escaped.replace(r"\:", r"\s*[:：]?\s*")
+        escaped = escaped.replace(":", r"\s*[:：]?\s*")
+        escaped = escaped.replace("：", r"\s*[:：]?\s*")
+        parts.append(escaped)
+    return "|".join(parts)
+
+
 def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     """
     解析外卖单文本并按检菜规范重排 (默认全量打包规则)
@@ -116,6 +149,11 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     show_preorder_alert = opts.get("show_preorder_alert", True)
     match_mode = opts.get("takeout_match_mode", "contains")
     custom_categories = opts.get("custom_categories", DEFAULT_CATEGORIES)
+    mapping = opts.get("official_pos_field_mapping") or opts
+    order_id_labels = _mapping_values(mapping, "order_id_labels", ["订单号", "订单编号"])
+    amount_labels = _mapping_values(mapping, "amount_labels", ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"])
+    paid_keywords = _mapping_values(mapping, "paid_keywords", ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"])
+    cancelled_keywords = _mapping_values(mapping, "cancelled_keywords", ["已取消", "取消订单", "退款成功", "已退款"])
 
     raw_text = str(raw_text or "").replace("\r\n", "\n").strip()
     is_meituan = "美团外卖" in raw_text or "美团" in raw_text
@@ -140,8 +178,49 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     order_time_str = time_match.group(0) if time_match else time.strftime("%Y-%m-%d %H:%M:%S")
 
     # 提取完整订单号
-    full_id_match = re.search(r"(?:订单号|订单编号)[:：]\s*([A-Za-z0-9_-]{4,})", raw_text)
+    order_label_pattern = "|".join(re.escape(label) for label in order_id_labels)
+    full_id_match = re.search(r"(?:%s)[:：]?\s*([A-Za-z0-9#_-]{2,})" % order_label_pattern, raw_text)
     full_order_id = full_id_match.group(1) if full_id_match else ""
+
+    # 金额是可选字段。仅从明确的金额标签中取值，并保留来源；不能把
+    # “收到打印任务”或“实付金额存在”当作付款成功证据。
+    amount_matches = []
+    # Official v2 receipts render these labels as ``合计``, ``应付`` and
+    # ``实付``; spacing/alignment varies by driver, so match the visible text
+    # rather than the template variable names.
+    amount_label_pattern = "|".join(re.escape(label) for label in amount_labels)
+    amount_pattern = re.compile(
+        r"(%s)\s*[:：]?\s*[￥¥]?\s*([0-9]+(?:[.,][0-9]{1,2})?)" % amount_label_pattern
+    )
+    for match in amount_pattern.finditer(raw_text):
+        try:
+            value = float(match.group(2).replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        amount_matches.append((match.group(1), value))
+    preferred_amount = None
+    amount_source = ""
+    for label in amount_labels:
+        for source, value in amount_matches:
+            if source == label:
+                preferred_amount, amount_source = value, source
+                break
+        if preferred_amount is not None:
+            break
+    # 只有明确的支付/结账成功语句才会进入 paid；“实付：￥x”仅是金额来源。
+    paid_pattern = _keyword_pattern(paid_keywords)
+    cancelled_pattern = _keyword_pattern(cancelled_keywords)
+    paid_evidence = re.search(r"(?:%s)" % paid_pattern, raw_text, flags=re.IGNORECASE)
+    cancelled_evidence = re.search(r"(?:%s)" % cancelled_pattern, raw_text, flags=re.IGNORECASE)
+    if paid_evidence:
+        payment_status = "paid"
+        payment_status_evidence = paid_evidence.group(0)
+    elif cancelled_evidence:
+        payment_status = "cancelled"
+        payment_status_evidence = cancelled_evidence.group(0)
+    else:
+        payment_status = "unknown"
+        payment_status_evidence = ""
 
     lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
 
@@ -150,6 +229,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     categorized_items["other"] = []
 
     item_count = 0
+    item_names = []
     for line in lines:
         formatted_line, qty = _format_item_line(line, show_prices, mark_star)
         if not formatted_line:
@@ -160,6 +240,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
         else:
             categorized_items["other"].append(formatted_line)
         item_count += qty
+        item_names.append(clean_dish_name(formatted_line))
 
     # 组装票据文本
     platform_name = "美团外卖" if is_meituan else ("饿了么" if is_eleme else "外卖订单")
@@ -213,18 +294,104 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
 
     sorted_text = "\n".join(sorted_lines)
 
+    # 票面合计/实付若同时存在且不一致，只能把金额标为冲突，不能用于
+    # 金额分流。金额校验仍是票面内部校验，不等价于付款确认。
+    amount_by_label = {label: value for label, value in amount_matches}
+    amount_valid = preferred_amount is not None and preferred_amount >= 0
+    # Discounts commonly produce both original total and paid total.  That is
+    # still a valid amount source when the paid value does not exceed the
+    # original/amount-due value.  Conflicting duplicate labels remain invalid.
+    for label in ("实付", "实收", "支付金额", "付款金额"):
+        values = [value for source, value in amount_matches if source == label]
+        if values and len({round(value, 2) for value in values}) > 1:
+            amount_valid = False
+    if "实付" in amount_by_label and "原价合计" in amount_by_label:
+        amount_valid = amount_valid and amount_by_label["实付"] <= amount_by_label["原价合计"] + 0.01
+    if "实付" in amount_by_label and "应付" in amount_by_label:
+        amount_valid = amount_valid and amount_by_label["实付"] <= amount_by_label["应付"] + 0.01
+    if "实收" in amount_by_label and "应收" in amount_by_label:
+        amount_valid = amount_valid and amount_by_label["实收"] <= amount_by_label["应收"] + 0.01
+
     return {
         "is_waimai": is_waimai,
+        "receipt_kind": "takeout" if is_waimai else "unknown",
         "platform": platform_name,
         "order_no": order_no,
         "is_preorder": is_preorder,
         "address": address_str,
         "order_time": order_time_str,
         "full_order_id": full_order_id,
+        "order_amount": preferred_amount,
+        "amount_source": amount_source,
+        "amount_valid": amount_valid,
+        "payment_status": payment_status,
+        "payment_status_evidence": payment_status_evidence,
+        "payment_status_confidence": "high" if payment_status in ("paid", "cancelled") else "unknown",
+        "key_confidence": "high" if full_order_id else "low",
         "item_count": item_count,
+        "item_names": item_names,
         "raw_text": raw_text,
         "sorted_text": sorted_text,
     }
+
+
+def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
+    """Parse a generic official-POS receipt without changing its output.
+
+    The existing takeout parser remains the source of the external-order
+    sorting text.  This wrapper adds a conservative receipt classification and
+    a stable deduplication key for dine-in/customer receipts, which are passed
+    through unchanged by the relay.  A print job alone never becomes paid:
+    payment status still comes only from explicit status evidence.
+    """
+    parsed = parse_and_sort_takeout_text(raw_text, options)
+    mapping = (options or {}).get("official_pos_field_mapping") if isinstance(options, dict) else None
+    text = str(raw_text or "").replace("\r\n", "\n").strip()
+    compact = re.sub(r"\s+", "", text)
+    if parsed.get("is_waimai"):
+        receipt_kind = "takeout"
+        platform = parsed.get("platform") or "外卖订单"
+    else:
+        dinein_markers = _mapping_values(
+            mapping, "dinein_keywords",
+            ["堂食", "POS点餐", "收银", "消费小票", "结账单", "制作单-堂食"],
+        )
+        looks_dinein = any(marker in compact for marker in dinein_markers)
+        has_receipt_fields = bool(
+            parsed.get("order_amount") is not None
+            and (parsed.get("full_order_id") or parsed.get("item_count") or looks_dinein)
+        )
+        receipt_kind = "dinein" if (looks_dinein or has_receipt_fields) else "unknown"
+        platform = "官方POS-堂食" if receipt_kind == "dinein" else "官方POS"
+
+    parsed["receipt_kind"] = receipt_kind
+    parsed["platform"] = platform
+    parsed["is_official_receipt"] = receipt_kind in ("takeout", "dinein")
+
+    full_id = str(parsed.get("full_order_id") or "").strip()
+    order_no = str(parsed.get("order_no") or "").strip()
+    if full_id:
+        receipt_key = "official:%s" % full_id
+        key_confidence = "high"
+    elif order_no and order_no != "#---":
+        receipt_key = "official:%s:%s" % (receipt_kind, order_no)
+        key_confidence = "medium"
+    else:
+        # Remove volatile print-time lines so a reprint of the same ticket can
+        # still be recognized as the same receipt while retaining a bounded
+        # fallback key when the POS exposes no order number at all.
+        stable_lines = [
+            line.strip() for line in text.splitlines()
+            if line.strip() and not re.search(r"打印时间|打印日期", line)
+        ]
+        basis = "|".join(stable_lines)
+        digest = hashlib.sha256(basis.encode("utf-8", "ignore")).hexdigest()[:24]
+        receipt_key = "official:%s:hash:%s" % (receipt_kind, digest)
+        key_confidence = "low"
+    parsed["receipt_key"] = receipt_key
+    parsed["key_confidence"] = key_confidence
+    parsed["raw_text"] = text
+    return parsed
 
 
 def escpos_payload_to_text(payload: bytes) -> str:
@@ -250,6 +417,22 @@ def escpos_payload_to_text(payload: bytes) -> str:
             output.append(current)
         index += 1
     return bytes(output).decode("gbk", errors="ignore").replace("\r", "\n")
+
+
+def classify_print_payload(payload: bytes, extracted_text: str = "") -> str:
+    """Classify a captured job without assuming it is text/ESC-POS."""
+    data = bytes(payload or b"")
+    if not data:
+        return "empty"
+    if data.startswith(b"\x1b") or b"\x1dV" in data[:256] or b"\x1b@" in data[:256]:
+        return "raw_escpos"
+    upper = data[:32].upper()
+    if upper.startswith((b"%PDF", b"PCL", b"EMF", b"\x89PNG", b"\xff\xd8\xff")):
+        return "driver_rendered"
+    printable = sum(1 for value in data[:4096] if value in (9, 10, 13) or 32 <= value < 127)
+    if extracted_text and printable >= max(8, len(data[:4096]) * 0.35):
+        return "text_or_raw"
+    return "binary_or_unknown"
 
 
 def build_takeout_escpos_ticket(sorted_text: str, config: dict, ticket_kind="kitchen") -> bytes:
@@ -384,12 +567,21 @@ class TakeoutPrintInterceptor(QObject):
         if not payload:
             return
         text = escpos_payload_to_text(payload)
-        parsed = parse_and_sort_takeout_text(text)
-        if not parsed.get("is_waimai") or not parsed.get("item_count"):
-            self.status_changed.emit("ⓘ 已忽略非外卖或无法识别的打印任务")
-            return
+        # Pass the saved field mapping through the detached listener as well;
+        # otherwise the UI mapping would only affect the preview, not real
+        # official-POS print jobs.
+        parsed = parse_official_pos_text(text, self.config)
         parsed["raw_text"] = text
+        parsed["raw_payload"] = bytes(payload)
         parsed["payload_size"] = len(payload)
+        parsed["payload_type"] = classify_print_payload(payload, text)
+        parsed["parse_failed"] = not bool(
+            parsed.get("is_official_receipt") and (
+                parsed.get("item_count") or parsed.get("order_amount") is not None
+                or parsed.get("full_order_id")
+            )
+        )
+        parsed["capture_path"] = capture_print_payload(payload, parsed, self.config)
         if self.on_order:
             try:
                 self.on_order(parsed)
@@ -398,9 +590,12 @@ class TakeoutPrintInterceptor(QObject):
                 self.status_changed.emit("✕ " + self.last_error)
                 return
         self.order_intercepted.emit(parsed)
-        self.status_changed.emit("✓ 已拦截 %s %s（%d 项）" % (
-            parsed.get("platform"), parsed.get("order_no"), parsed.get("item_count", 0)
-        ))
+        if parsed["parse_failed"]:
+            self.status_changed.emit("ⓘ 已捕获但无法完整识别（%s），已进入原始转发兜底" % parsed.get("payload_type"))
+        else:
+            self.status_changed.emit("✓ 已拦截 %s %s（%d 项）" % (
+                parsed.get("platform"), parsed.get("order_no"), parsed.get("item_count", 0)
+            ))
 
     def stop(self):
         self._running = False

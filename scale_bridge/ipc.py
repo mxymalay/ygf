@@ -8,7 +8,7 @@ from typing import Callable, Dict, Optional
 
 
 logger = logging.getLogger("ScaleBridge")
-DEFAULT_PIPE_NAME = r"\\.\pipe\YgfScaleBridgeStatus"
+DEFAULT_PIPE_NAME = r"\\.\pipe\ppposScaleBridgeStatus"
 
 
 def _win32_modules():

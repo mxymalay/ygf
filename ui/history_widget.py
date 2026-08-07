@@ -86,6 +86,15 @@ class OrderCard(QFrame):
         lbl_status = QLabel(tag_text)
         lbl_status.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {tag_color}; border: 1px solid {tag_color}; border-radius: 4px; padding: 2px 6px; background: transparent;")
 
+        source = str(r.get("source", "private") or "private").lower()
+        source_text = u"官方" if source in ("official", "official_pos", "official_pos_relay") else u"私域"
+        source_color = "#0EA5E9" if source_text == u"官方" else "#10B981"
+        lbl_source = QLabel(source_text)
+        lbl_source.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #FFFFFF; background: %s; "
+            "border-radius: 4px; padding: 2px 6px;" % source_color
+        )
+
         # 结账方式标签
         pm = r.get("payment_method", "")
         pm_colors = {"shouqianba": "#F97316", "scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED", "mixed": "#D97706"}
@@ -95,6 +104,7 @@ class OrderCard(QFrame):
         pm_color = pm_colors.get(pm, "#6B7280")
 
         row1.addWidget(lbl_title)
+        row1.addWidget(lbl_source)
         row1.addWidget(lbl_status)
         row1.addStretch()
         if pm_text:
@@ -148,6 +158,8 @@ class HistoryWidget(QWidget):
         self.config = config or {}
         self.records = []
         self.selected_record = None
+        self.order_source_filter = "all"
+        self.order_source_buttons = {}
 
         self.current_page = 0
         self.items_per_page = 8
@@ -414,8 +426,34 @@ class HistoryWidget(QWidget):
         header_controls.addLayout(quick_date_layout)
         header_controls.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         header_bar.addLayout(header_controls)
-        header_bar.addSpacing(18)
-        header_bar.addStretch()
+
+        # 订单来源筛选紧跟“今天/昨天/前天”快捷按钮，默认显示官方和私域全部流水。
+        source_filter = QHBoxLayout()
+        source_filter.setSpacing(6)
+        source_title = QLabel(u"订单来源")
+        source_title.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #CBD5E1; border: none;"
+        )
+        source_filter.addWidget(source_title)
+        source_style = (
+            "QPushButton { background: #1F2937; color: #CBD5E1; border: 1px solid #374151; "
+            "border-radius: 6px; padding: 8px 14px; font-size: 14px; font-weight: bold; }"
+            "QPushButton:hover { background: #374151; color: #FFFFFF; }"
+            "QPushButton:checked { background: #0369A1; color: #FFFFFF; border-color: #38BDF8; }"
+        )
+        for source_key, source_label in (("all", u"全部"), ("official", u"官方"), ("private", u"私域")):
+            source_button = QPushButton(source_label)
+            source_button.setCheckable(True)
+            source_button.setMinimumHeight(42)
+            source_button.setStyleSheet(source_style)
+            source_button.clicked.connect(
+                lambda checked=False, key=source_key: self._set_order_source_filter(key)
+            )
+            source_filter.addWidget(source_button)
+            self.order_source_buttons[source_key] = source_button
+        self.order_source_buttons["all"].setChecked(True)
+        quick_date_layout.addSpacing(16)
+        quick_date_layout.addLayout(source_filter)
         
         main_layout.addLayout(header_bar)
 
@@ -706,6 +744,42 @@ class HistoryWidget(QWidget):
         self._update_days()
         self._on_query()
 
+    def _set_order_source_filter(self, source):
+        source = source if source in ("all", "official", "private") else "all"
+        self.order_source_filter = source
+        for key, button in self.order_source_buttons.items():
+            button.setChecked(key == source)
+        self._on_query()
+
+    @staticmethod
+    def _record_source(record):
+        source = str(record.get("source", "") or "").strip().lower()
+        return "official" if source in ("official", "official_pos", "official_pos_relay") else "private"
+
+    @staticmethod
+    def _official_record(row):
+        """Adapt the verified official-POS ledger to the order-card shape."""
+        order_id = str(row.get("order_id", "") or row.get("order_key", "") or "")
+        platform = str(row.get("platform", "") or "官方 POS")
+        amount = float(row.get("amount", 0.0) or 0.0)
+        return {
+            "id": "official:%s" % str(row.get("id", row.get("order_key", ""))),
+            "source": "official_pos",
+            "platform": platform,
+            "order_id": order_id,
+            "order_key": row.get("order_key", ""),
+            "sale_no": order_id,
+            "remark": u"官方 POS｜%s" % platform,
+            "created_at": str(row.get("created_at", "") or ""),
+            "payment_status": str(row.get("payment_status", "PAID") or "PAID"),
+            "payment_method": "",
+            "payment_breakdown_json": "",
+            "total_price": amount,
+            "weight_kg": 0.0,
+            "cart_items_json": "[]",
+            "print_status": "PRINTED",
+        }
+
     def _on_query(self):
         y = self.cbo_year.currentData()
         m = self.cbo_month.currentData()
@@ -713,7 +787,18 @@ class HistoryWidget(QWidget):
         if not y or not m or not d:
             return
         target_date = f"{y}-{m:02d}-{d:02d}"
-        raw_records = self.db.get_sales_by_date(target_date, target_date)
+        raw_records = list(self.db.get_sales_by_date(target_date, target_date) or [])
+        # 官方营业额只来自已验证、已去重的官方 POS 流水；未知付款状态的
+        # 票据不会伪装成订单，也不会进入默认订单列表。
+        get_official = getattr(self.db, "get_official_revenue_by_date", None)
+        if callable(get_official):
+            try:
+                raw_records.extend(
+                    self._official_record(row)
+                    for row in (get_official(target_date, target_date) or [])
+                )
+            except Exception:
+                pass
 
         # 如果有关键字搜索或时间筛选
         kw = self.txt_search.text().strip()
@@ -727,6 +812,9 @@ class HistoryWidget(QWidget):
         
         filtered = []
         for r in raw_records:
+            source = self._record_source(r)
+            if self.order_source_filter != "all" and source != self.order_source_filter:
+                continue
             # 1. 时间筛选逻辑 (精确到分钟)
             created_at = r.get("created_at", "")
             if len(created_at) >= 16:
@@ -759,7 +847,10 @@ class HistoryWidget(QWidget):
 
         # 应用排序逻辑
         is_asc = getattr(self, "btn_sort", None) and self.btn_sort.isChecked()
-        self.records.sort(key=lambda x: x.get("id", 0), reverse=not is_asc)
+        self.records.sort(
+            key=lambda x: (str(x.get("created_at", "") or ""), str(x.get("id", "") or "")),
+            reverse=not is_asc,
+        )
 
         self.current_page = 0
         self._render_order_list()

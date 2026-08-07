@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QCheckBox, QFormLayout, QFrame, QMessageBox, QScrollArea, QGroupBox, QTextEdit,
     QComboBox,
     QStackedWidget,
+    QTabWidget,
     QSizePolicy
 )
 from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate, pyqtSignal
@@ -751,7 +752,7 @@ class DecisionWeightChart(QWidget):
         title_font = QFont("Microsoft YaHei", 12)
         title_font.setBold(True)
         title_font.setPointSize(16)
-        self._draw_fixed_header(painter, 28, u"今日累计称重（kg）", title_font)
+        self._draw_fixed_header(painter, 28, u"按重量分流：官方/私域累计重量（kg）", title_font)
 
         painter.setFont(QFont("Microsoft YaHei", 9))
         painter.setPen(QPen(self.GRID_COLOR, 1))
@@ -893,7 +894,12 @@ class DecisionWeightChart(QWidget):
         for when, _weight, channel, marker_event in points:
             x = point_for(when, 0.0).x()
             painter.save()
-            if channel == "private":
+            basis = str((marker_event or {}).get("routing_basis") or "").lower()
+            if not basis and str((marker_event or {}).get("decision_kind") or "").lower() == "amount":
+                basis = "amount"
+            if basis == "amount":
+                marker_color = QColor("#F59E0B")
+            elif channel == "private":
                 marker_color = QColor(self.PRIVATE_COLOR)
             elif channel == "official":
                 marker_color = QColor(self.OFFICIAL_COLOR)
@@ -1027,6 +1033,313 @@ class DecisionWeightChart(QWidget):
         painter.end()
 
 
+class DecisionAmountChart(QWidget):
+    """按金额查看官方/私域已入账金额，和重量图完全分开。
+
+    金额图不使用称重事件里的 ``estimated_amount`` 作为营业额；它只接收
+    ``official_pos_revenue`` 和私域 ``sales`` 中已经落库的金额。两条曲线
+    分别维护官方、私域累计值，点上的标签显示本笔入账金额，因此在自动
+    从重量模式切到金额模式时，不会把公斤数误画成金额。
+    """
+
+    OFFICIAL_COLOR = QColor("#38BDF8")
+    PRIVATE_COLOR = QColor("#22C55E")
+    GRID_COLOR = QColor("#26364D")
+    TEXT_COLOR = QColor("#CBD5E1")
+    point_clicked = pyqtSignal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.events = []
+        self.timeline_start = None
+        self.timeline_end = None
+        self._hit_targets = []
+        self.horizontal_scale = 1.0
+        self.setMinimumHeight(520)
+        self.setMinimumWidth(720)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setStyleSheet("background: transparent;")
+
+    @staticmethod
+    def _event_time(event):
+        return DecisionWeightChart._event_time(event)
+
+    @staticmethod
+    def _amount(event):
+        try:
+            return max(0.0, float(event.get("amount") or event.get("total_price") or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def set_events(self, events):
+        incoming = list(events or [])
+        if incoming == self.events:
+            return
+        self.events = incoming
+        self.setMinimumWidth(max(720, min(30000, 110 + max(1, len(incoming)) * 84)))
+        self.update()
+
+    def set_timeline_context(self, day_value, *args, **kwargs):
+        del args, kwargs
+        try:
+            day_start = datetime.strptime(str(day_value)[:10], "%Y-%m-%d")
+        except (TypeError, ValueError):
+            self.timeline_start = None
+            self.timeline_end = None
+        else:
+            self.timeline_start = day_start
+            self.timeline_end = day_start + timedelta(days=1)
+        self.update()
+
+    def zoom_in_horizontal(self):
+        self._set_zoom(self.horizontal_scale * 1.25)
+
+    def zoom_out_horizontal(self):
+        self._set_zoom(self.horizontal_scale / 1.25)
+
+    def reset_horizontal_zoom(self):
+        self._set_zoom(1.0)
+
+    def _set_zoom(self, value):
+        try:
+            self.horizontal_scale = max(0.75, min(4.0, float(value)))
+        except (TypeError, ValueError):
+            self.horizontal_scale = 1.0
+        self.setMinimumWidth(max(720, min(30000, int((110 + max(1, len(self.events)) * 84) * self.horizontal_scale))))
+        self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            for target in self._hit_targets:
+                point = target.get("point")
+                if point is not None and ((point.x() - event.pos().x()) ** 2 + (point.y() - event.pos().y()) ** 2) ** 0.5 <= 16:
+                    self.point_clicked.emit(dict(target))
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):  # noqa: N802 - Qt API name
+        del event
+        self._hit_targets = []
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        outer = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        painter.setPen(QPen(QColor("#334155"), 1))
+        painter.setBrush(QBrush(QColor("#0F172A")))
+        painter.drawRoundedRect(outer, 10, 10)
+
+        points = []
+        for event_row in self.events:
+            when = self._event_time(event_row)
+            channel = str(event_row.get("channel") or "").lower()
+            amount = self._amount(event_row)
+            if when is not None and channel in ("official", "private") and amount > 0:
+                points.append((when, amount, channel, event_row))
+        points.sort(key=lambda item: item[0])
+        if not points:
+            painter.setPen(self.TEXT_COLOR)
+            painter.setFont(QFont("Microsoft YaHei", 13))
+            painter.drawText(outer, Qt.AlignCenter, u"今日暂无已入账金额记录（金额图不使用估算金额）")
+            painter.end()
+            return
+
+        start_time = self.timeline_start or (points[0][0] - timedelta(minutes=5))
+        end_time = self.timeline_end or (points[-1][0] + timedelta(minutes=5))
+        total_seconds = max(1.0, (end_time - start_time).total_seconds())
+        width = float(self.width())
+        plot = QRectF(84, 58, max(120.0, width - 108), max(320.0, float(self.height()) - 124.0))
+        cumulative = {"official": 0.0, "private": 0.0}
+        series = {"official": [], "private": []}
+        for when, amount, channel, row in points:
+            cumulative[channel] += amount
+            series[channel].append((when, cumulative[channel], amount, row))
+        y_max = max([item[1] for values in series.values() for item in values] or [0.01])
+        y_max = max(1.0, ((y_max * 1.15) * 100.0 + 0.9999) // 1 / 100.0)
+
+        title_font = QFont("Microsoft YaHei", 12)
+        title_font.setBold(True)
+        title_font.setPointSize(16)
+        painter.setPen(self.TEXT_COLOR)
+        painter.setFont(title_font)
+        painter.drawText(QPointF(42.0, 32.0), u"按金额分流：官方/私域已入账金额（¥）")
+        legend_font = QFont("Microsoft YaHei", 10)
+        painter.setFont(legend_font)
+        painter.setPen(self.OFFICIAL_COLOR)
+        painter.drawText(QPointF(440.0, 32.0), u"■ 官方")
+        painter.setPen(self.PRIVATE_COLOR)
+        painter.drawText(QPointF(520.0, 32.0), u"■ 私域")
+
+        painter.setFont(QFont("Microsoft YaHei", 9))
+        for index in range(5):
+            ratio = float(index) / 4.0
+            y = plot.bottom() - ratio * plot.height()
+            painter.setPen(QPen(self.GRID_COLOR, 1))
+            painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
+            painter.setPen(self.TEXT_COLOR)
+            painter.drawText(QRectF(5, y - 8, 72, 16), Qt.AlignRight | Qt.AlignVCenter, "¥%.2f" % (y_max * ratio))
+
+        def point_for(when, value):
+            x = plot.left() + ((when - start_time).total_seconds() / total_seconds) * plot.width()
+            y = plot.bottom() - (value / y_max) * plot.height()
+            return QPointF(x, y)
+
+        for channel, color in (("official", self.OFFICIAL_COLOR), ("private", self.PRIVATE_COLOR)):
+            values = series[channel]
+            previous = point_for(start_time, 0.0)
+            for when, total, amount, row in values:
+                current = point_for(when, total)
+                painter.setPen(QPen(color, 2.8))
+                painter.drawLine(previous, current)
+                painter.setPen(QPen(QColor("#0F172A"), 1))
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(current, 5.0, 5.0)
+                painter.setPen(color)
+                painter.setFont(QFont("Microsoft YaHei", 9))
+                painter.drawText(QPointF(current.x() + 6, max(plot.top() + 12, min(plot.bottom() - 2, current.y() - 8))), "+¥%.2f" % amount)
+                self._hit_targets.append({
+                    "kind": "amount_revenue",
+                    "point": current,
+                    "when": when,
+                    "event": dict(row or {}),
+                    "channel": channel,
+                    "amount": amount,
+                    "cumulative_amount": total,
+                })
+                previous = current
+
+        painter.setPen(QPen(QColor("#64748B"), 1))
+        painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
+        painter.setPen(self.TEXT_COLOR)
+        painter.setFont(QFont("Microsoft YaHei", 9))
+        for when in (start_time, end_time):
+            x = point_for(when, 0.0).x()
+            painter.drawText(QRectF(x - 42, plot.bottom() + 8, 84, 18), Qt.AlignCenter, when.strftime("%H:%M"))
+        painter.end()
+
+
+class DecisionAmountHistogramChart(QWidget):
+    """按两小时汇总金额模式窗口内的官方/私域已入账金额。"""
+
+    OFFICIAL_COLOR = QColor("#38BDF8")
+    PRIVATE_COLOR = QColor("#22C55E")
+    GRID_COLOR = QColor("#26364D")
+    TEXT_COLOR = QColor("#CBD5E1")
+    point_clicked = pyqtSignal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.events = []
+        self.histogram_metadata = {}
+        self._hit_targets = []
+        self.setMinimumHeight(360)
+        self.setMinimumWidth(960)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setStyleSheet("background: transparent;")
+
+    def set_events(self, events):
+        incoming = list(events or [])
+        if incoming == self.events:
+            return
+        self.events = incoming
+        self.update()
+
+    def set_histogram_metadata(self, metadata):
+        self.histogram_metadata = dict(metadata or {})
+        self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            for target in self._hit_targets:
+                rect = target.get("rect")
+                if rect is not None and rect.contains(event.pos()):
+                    self.point_clicked.emit(dict(target))
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):  # noqa: N802 - Qt API name
+        del event
+        self._hit_targets = []
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        outer = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        painter.setPen(QPen(QColor("#334155"), 1))
+        painter.setBrush(QBrush(QColor("#0F172A")))
+        painter.drawRoundedRect(outer, 10, 10)
+        bins = [(0.0, 0.0) for _ in range(12)]
+        for row in self.events:
+            when = DecisionAmountChart._event_time(row)
+            if when is None:
+                continue
+            try:
+                amount = max(0.0, float(row.get("amount") or row.get("total_price") or 0.0))
+            except (TypeError, ValueError):
+                amount = 0.0
+            if amount <= 0:
+                continue
+            slot = min(11, max(0, int((when.hour * 60 + when.minute) / 120)))
+            official, private = bins[slot]
+            if str(row.get("channel") or "").lower() == "private":
+                private += amount
+            else:
+                official += amount
+            bins[slot] = (official, private)
+        if not any(official or private for official, private in bins):
+            painter.setPen(self.TEXT_COLOR)
+            painter.setFont(QFont("Microsoft YaHei", 13))
+            painter.drawText(outer, Qt.AlignCenter, u"当前日期暂无金额分流入账记录")
+            painter.end()
+            return
+        title_font = QFont("Microsoft YaHei", 12)
+        title_font.setBold(True)
+        title_font.setPointSize(16)
+        painter.setPen(self.TEXT_COLOR)
+        painter.setFont(title_font)
+        painter.drawText(QPointF(42.0, 34.0), u"按金额分流的时段金额分布（每 2 小时，¥）")
+        painter.setFont(QFont("Microsoft YaHei", 10))
+        painter.setPen(self.OFFICIAL_COLOR)
+        painter.drawText(QPointF(520.0, 34.0), u"■ 官方")
+        painter.setPen(self.PRIVATE_COLOR)
+        painter.drawText(QPointF(600.0, 34.0), u"■ 私域")
+        histogram = QRectF(84, 58, max(120.0, float(self.width()) - 108), max(190.0, float(self.height()) - 112.0))
+        hist_max = max(1.0, max([official + private for official, private in bins] or [0.01]) * 1.15)
+        axis_font = QFont("Microsoft YaHei", 9)
+        painter.setFont(axis_font)
+        for index in range(5):
+            ratio = float(index) / 4.0
+            y = histogram.bottom() - ratio * histogram.height()
+            painter.setPen(QPen(self.GRID_COLOR, 1))
+            painter.drawLine(QPointF(histogram.left(), y), QPointF(histogram.right(), y))
+            painter.setPen(self.TEXT_COLOR)
+            painter.drawText(QRectF(5, y - 8, 72, 16), Qt.AlignRight | Qt.AlignVCenter, "¥%.0f" % (hist_max * ratio))
+        bar_width = histogram.width() / 12.0
+        for index, (official, private) in enumerate(bins):
+            x = histogram.left() + index * bar_width + bar_width * 0.16
+            width_bar = bar_width * 0.68
+            official_h = official / hist_max * histogram.height()
+            private_h = private / hist_max * histogram.height()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self.OFFICIAL_COLOR)
+            painter.drawRect(QRectF(x, histogram.bottom() - official_h, width_bar, official_h))
+            painter.setBrush(self.PRIVATE_COLOR)
+            painter.drawRect(QRectF(x, histogram.bottom() - official_h - private_h, width_bar, private_h))
+            total = official + private
+            painter.setPen(self.PRIVATE_COLOR if total else QColor("#64748B"))
+            painter.setFont(axis_font)
+            painter.drawText(QRectF(x - 12, max(histogram.top() + 3, histogram.bottom() - official_h - private_h - 20), width_bar + 24, 16), Qt.AlignCenter, "%.0f%%" % (private / total * 100.0) if total else "--")
+            painter.setPen(self.TEXT_COLOR)
+            painter.drawText(QRectF(x - 8, histogram.bottom() + 5, width_bar + 16, 18), Qt.AlignCenter, "%02d" % (index * 2))
+            self._hit_targets.append({
+                "kind": "amount_histogram_slot",
+                "rect": QRectF(x, histogram.bottom() - official_h - private_h, width_bar, max(12.0, official_h + private_h)),
+                "slot": index,
+                "official_amount": official,
+                "private_amount": private,
+                "metadata": dict(self.histogram_metadata.get(index, {})),
+            })
+        painter.end()
+
+
 class SwitchSettingsWidget(QWidget):
 
     # One page must fit on a touch POS screen.  Each entry may wrap to a
@@ -1060,6 +1373,18 @@ class SwitchSettingsWidget(QWidget):
         "quota_official": (
             u"自动重量配额分流至官方",
             u"今天的私域重量占比已达到目标，因此自动选择官方。",
+        ),
+        "amount": (
+            u"自动金额比例分流",
+            u"中继已验证官方 POS 金额后，按官方/私域营业额比例选择本次渠道。",
+        ),
+        "amount_private": (
+            u"自动金额分流至私域",
+            u"按已验证官方与私域营业额比例，本次选择私域。",
+        ),
+        "amount_official": (
+            u"自动金额分流至官方",
+            u"按已验证官方与私域营业额比例，本次选择官方。",
         ),
         "inherited_private": (u"私域连单继承", u"沿用上一笔私域收银渠道。"),
         "inherited_official": (u"官方连单继承", u"沿用上一笔官方收银渠道。"),
@@ -1307,22 +1632,60 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.addWidget(grp4)
         lay4.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
-        left_layout.addWidget(form_container)
+        # 算法设置本身继续作为“分流规则”的二级页面；其内部再用三级菜单
+        # 拆分配置场景，避免四组表单在同一张长页面里同时展开。
+        algorithm_third_menu = QFrame()
+        algorithm_third_menu.setObjectName("SwitchAlgorithmThirdLevelMenu")
+        algorithm_third_menu.setStyleSheet(
+            "QFrame#SwitchAlgorithmThirdLevelMenu { background: #111827; border-bottom: 1px solid #334155; }"
+            "QPushButton { background: transparent; color: #94A3B8; border: none; "
+            "border-bottom: 3px solid transparent; border-radius: 0; padding: 9px 14px; "
+            "font-size: 14px; font-weight: 700; }"
+            "QPushButton:hover { background: #1E293B; color: #F8FAFC; }"
+            "QPushButton:checked { background: #172554; color: #7DD3FC; border-bottom-color: #38BDF8; }"
+        )
+        algorithm_third_menu_layout = QHBoxLayout(algorithm_third_menu)
+        algorithm_third_menu_layout.setContentsMargins(0, 0, 0, 0)
+        algorithm_third_menu_layout.setSpacing(3)
+        self.algorithm_third_buttons = {}
+        self.algorithm_third_stack = QStackedWidget()
+        self.algorithm_third_stack.setStyleSheet("QStackedWidget { background: transparent; }")
+        algorithm_groups = (
+            ("control", u"① 总控与比例", grp1),
+            ("continuity", u"② 连单保护", grp2),
+            ("scale", u"③ 秤具与干预", grp3),
+            ("finish", u"④ 收尾设置", grp4),
+        )
+        for section_id, label, group in algorithm_groups:
+            # group 原先位于 form_container；移出后放入独立三级页面。
+            form_vlayout.removeWidget(group)
+            group.setParent(None)
+            panel = QWidget()
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(0, 0, 0, 0)
+            panel_layout.setSpacing(0)
+            panel_layout.addWidget(group)
+            panel_layout.addStretch()
+            self.algorithm_third_stack.addWidget(panel)
 
-        # 底部保存按钮
-        self.btn_save = QPushButton(u"保存全部分流设置")
-        self.btn_save.setFixedHeight(50)
-        self.btn_save.setCursor(Qt.PointingHandCursor)
-        self.btn_save.setStyleSheet("""
-            QPushButton {
-                background-color: #0284C7; color: white;
-                font-size: 16px; font-weight: bold; border-radius: 8px; border: none;
-            }
-            QPushButton:hover { background-color: #0369A1; }
-            QPushButton:pressed { background-color: #075985; }
-        """)
-        self.btn_save.clicked.connect(self._on_save)
-        left_layout.addWidget(self.btn_save)
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setMinimumHeight(46)
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(
+                lambda checked=False, sid=section_id: self._select_algorithm_third_section(sid)
+            )
+            algorithm_third_menu_layout.addWidget(button, 1)
+            self.algorithm_third_buttons[section_id] = button
+        algorithm_third_menu_layout.addStretch()
+        self._algorithm_third_targets = {
+            section_id: index for index, (section_id, _label, _group) in enumerate(algorithm_groups)
+        }
+        form_container.setParent(None)
+        form_container.deleteLater()
+        left_layout.addWidget(algorithm_third_menu)
+        left_layout.addWidget(self.algorithm_third_stack)
+        self._select_algorithm_third_section("control")
 
         # ==========================================
         # 右侧：实时日志监控 (占 40% 宽度，带分页)
@@ -1395,11 +1758,20 @@ class SwitchSettingsWidget(QWidget):
 
         # 图表区域显示当天每次稳定称重的决策方向。图表使用数据库
         # 的 route-event 明细，而不是日志文本，避免日志截断后丢失节点。
-        chart_title = QLabel(u"今日累计称重折线图")
+        chart_title = QLabel(u"分流指标图（重量与金额分开）")
         chart_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
-        chart_tip = QLabel(u"一条连续累计总重量线；蓝/绿线段分别表示该次称重走官方/私有，节点“+重量”是本次称重；紫色圆点表示手动切换，橙色圆点/红色方点表示程序开启/关闭，红色虚线表示软件关闭期间，灰线表示已运行但暂无称重。")
+        chart_tip = QLabel(u"重量图只显示重量分流事件；金额图只显示已验证的官方 POS 金额和已支付的私域金额。系统在两种模式间切换时保留完整日期轴，未使用某种模式的时段显示为空白，不把公斤和金额混在同一坐标轴。")
         chart_tip.setWordWrap(True)
         chart_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
+        chart_legend = QLabel(
+            u"图例：<span style='color:#38BDF8;font-weight:bold'>■ 官方</span>　"
+            u"<span style='color:#22C55E;font-weight:bold'>■ 私域</span>　"
+            u"金额图只采用已入账金额，重量图只采用稳定称重重量"
+        )
+        chart_legend.setTextFormat(Qt.RichText)
+        chart_legend.setStyleSheet("font-size: 13px; color: #CBD5E1; background: #0F172A; border: 1px solid #334155; border-radius: 6px; padding: 7px 10px;")
+        self.lbl_route_basis_summary = QLabel(u"当前日期：金额分流 0 笔　|　重量分流 0 笔")
+        self.lbl_route_basis_summary.setStyleSheet("font-size: 13px; color: #F8FAFC; background: #1E293B; border-radius: 6px; padding: 7px 10px;")
         chart_zoom_bar = QWidget()
         chart_zoom_layout = QHBoxLayout(chart_zoom_bar)
         chart_zoom_layout.setContentsMargins(0, 0, 0, 0)
@@ -1430,12 +1802,20 @@ class SwitchSettingsWidget(QWidget):
         chart_zoom_layout.addWidget(btn_zoom_in)
         chart_zoom_layout.addStretch()
         self.weight_line_chart = DecisionWeightChart(chart_mode="line")
+        self.amount_chart = DecisionAmountChart()
+        self.amount_histogram_chart = DecisionAmountHistogramChart()
         self.weight_histogram_chart = DecisionWeightChart(chart_mode="histogram")
         # A point is found while the chart is handling mousePressEvent.  Queue
         # the detail dialog until that event (and its matching mouse release)
         # has finished; otherwise a private point's order dialog can receive
         # the same click and re-enter page navigation on some older Qt builds.
         self.weight_line_chart.point_clicked.connect(
+            self._on_weight_chart_point_clicked, Qt.QueuedConnection
+        )
+        self.amount_chart.point_clicked.connect(
+            self._on_weight_chart_point_clicked, Qt.QueuedConnection
+        )
+        self.amount_histogram_chart.point_clicked.connect(
             self._on_weight_chart_point_clicked, Qt.QueuedConnection
         )
         self.weight_histogram_chart.point_clicked.connect(
@@ -1481,9 +1861,69 @@ class SwitchSettingsWidget(QWidget):
         # The line chart owns its own horizontal scrollbar directly below it.
         self.chart_scroll = self.chart_line_scroll
 
-        chart_hist_title = QLabel(u"按时段重量分布（每 2 小时）")
+        self.chart_amount_scroll = QScrollArea()
+        self.chart_amount_scroll.setWidgetResizable(True)
+        self.chart_amount_scroll.setFixedHeight(540)
+        self.chart_amount_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.chart_amount_scroll.setFrameShape(QFrame.NoFrame)
+        self.chart_amount_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chart_amount_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chart_amount_scroll.setStyleSheet(chart_scroll_style)
+        self.chart_amount_scroll.setWidget(self.amount_chart)
+        amount_bar = self.chart_amount_scroll.horizontalScrollBar()
+        amount_bar.sliderPressed.connect(lambda: self.amount_chart.update())
+        amount_bar.sliderReleased.connect(lambda: self.amount_chart.update())
+
+        self.chart_amount_hist_scroll = QScrollArea()
+        self.chart_amount_hist_scroll.setWidgetResizable(True)
+        self.chart_amount_hist_scroll.setFixedHeight(390)
+        self.chart_amount_hist_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.chart_amount_hist_scroll.setFrameShape(QFrame.NoFrame)
+        self.chart_amount_hist_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chart_amount_hist_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chart_amount_hist_scroll.setStyleSheet(chart_scroll_style)
+        self.chart_amount_hist_scroll.setWidget(self.amount_histogram_chart)
+
+        # 通过页签把两个指标明确隔离：切换页签不会改变数据，只改变查看
+        # 的指标。两个图都使用当天完整时间轴，因此重量模式切到金额模式
+        # 后，另一张图仍能看到自己的历史记录和空白时段。
+        self.route_metric_tabs = QTabWidget()
+        self.route_metric_tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #334155; border-radius: 8px; }"
+            "QTabBar::tab { background: #1E293B; color: #CBD5E1; padding: 9px 22px; "
+            "font-size: 14px; font-weight: bold; border-top-left-radius: 6px; border-top-right-radius: 6px; }"
+            "QTabBar::tab:selected { background: #0EA5E9; color: #FFFFFF; }"
+        )
+        weight_tab = QWidget()
+        weight_tab_layout = QVBoxLayout(weight_tab)
+        weight_tab_layout.setContentsMargins(0, 0, 0, 0)
+        weight_tab_layout.addWidget(self.chart_line_scroll)
+        amount_tab_title = QLabel(u"按金额分流：官方/私域金额趋势与时段分布")
+        amount_tab_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
+        amount_tab_tip = QLabel(u"金额折线和金额直方图均只使用金额模式窗口内已确认支付的官方/私域流水；切换到重量模式的时段会留白。")
+        amount_tab_tip.setWordWrap(True)
+        amount_tab_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
+        amount_tab = QWidget()
+        amount_tab_layout = QVBoxLayout(amount_tab)
+        amount_tab_layout.setContentsMargins(0, 0, 0, 0)
+        amount_tab_layout.addWidget(amount_tab_title)
+        amount_tab_layout.addWidget(amount_tab_tip)
+        amount_tab_layout.addWidget(self.chart_amount_scroll)
+        amount_hist_title = QLabel(u"按金额分流的时段金额分布（每 2 小时）")
+        amount_hist_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
+        amount_hist_tip = QLabel(u"按 2 小时汇总官方与私域已入账金额；点击柱子可以查看该时段的金额和占比。")
+        amount_hist_tip.setWordWrap(True)
+        amount_hist_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
+        amount_tab_layout.addSpacing(24)
+        amount_tab_layout.addWidget(amount_hist_title)
+        amount_tab_layout.addWidget(amount_hist_tip)
+        amount_tab_layout.addWidget(self.chart_amount_hist_scroll)
+        self.route_metric_tabs.addTab(weight_tab, u"按重量分流")
+        self.route_metric_tabs.addTab(amount_tab, u"按金额分流")
+
+        chart_hist_title = QLabel(u"按重量分流的时段重量分布（每 2 小时）")
         chart_hist_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; margin-top: 12px;")
-        chart_hist_tip = QLabel(u"按 2 小时汇总官方与私有重量，便于快速查看一天内各时段的分布。")
+        chart_hist_tip = QLabel(u"这里只汇总 routing_basis=weight 的官方与私有重量；金额分流记录不会进入这张柱图。")
         chart_hist_tip.setWordWrap(True)
         chart_hist_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
         self.chart_hist_scroll = QScrollArea()
@@ -1498,6 +1938,12 @@ class SwitchSettingsWidget(QWidget):
         hist_bar = self.chart_hist_scroll.horizontalScrollBar()
         hist_bar.sliderPressed.connect(lambda: self.weight_histogram_chart.set_scroll_dragging(True))
         hist_bar.sliderReleased.connect(lambda: self.weight_histogram_chart.set_scroll_dragging(False))
+        # 重量页签同时承载重量折线和重量直方图；金额页签使用完全相同
+        # 的排布承载金额折线和金额直方图，避免两个指标上下错位。
+        weight_tab_layout.addSpacing(24)
+        weight_tab_layout.addWidget(chart_hist_title)
+        weight_tab_layout.addWidget(chart_hist_tip)
+        weight_tab_layout.addWidget(self.chart_hist_scroll)
         # 切换算法页的二级目录，布局与系统设置保持一致：左侧固定
         # 导航栏，右侧为可纵向滚动的内容区。
         section_sidebar = QFrame()
@@ -1557,15 +2003,10 @@ class SwitchSettingsWidget(QWidget):
         chart_layout.addWidget(self.chart_date_bar)
         chart_layout.addWidget(chart_title)
         chart_layout.addWidget(chart_tip)
+        chart_layout.addWidget(chart_legend)
+        chart_layout.addWidget(self.lbl_route_basis_summary)
         chart_layout.addWidget(chart_zoom_bar)
-        chart_layout.addWidget(self.chart_line_scroll)
-        # Separate the two chart cards clearly.  The line chart's scrollbar
-        # otherwise sits immediately against the histogram title on compact
-        # Win7 displays, making them look like one crowded panel.
-        chart_layout.addSpacing(30)
-        chart_layout.addWidget(chart_hist_title)
-        chart_layout.addWidget(chart_hist_tip)
-        chart_layout.addWidget(self.chart_hist_scroll)
+        chart_layout.addWidget(self.route_metric_tabs)
 
         logs_panel = QWidget()
         # 日志必须是单屏分页，不随设置页的超高 sizeHint 一起被撑开。
@@ -1855,6 +2296,15 @@ class SwitchSettingsWidget(QWidget):
                 decision_name, decision_explanation = self._decision_kind_display(decision_kind)
                 lines.append(u"分流依据：%s" % decision_name)
                 lines.append(u"说明：%s" % decision_explanation)
+            routing_basis = str(event.get("routing_basis") or "").strip().lower()
+            operating_mode = str(event.get("operating_mode") or "").strip()
+            if routing_basis:
+                lines.append(u"依据类型：%s" % (u"金额" if routing_basis == "amount" else u"重量"))
+            if operating_mode:
+                lines.append(u"运行模式：%s" % (u"增强模式" if operating_mode == "enhanced" else u"兼容模式"))
+            estimated_amount = self._chart_number(event.get("estimated_amount", 0.0))
+            if routing_basis == "amount" and estimated_amount > 0:
+                lines.append(u"本次估算金额：¥%.2f" % estimated_amount)
             if status:
                 lines.append(u"记录状态：%s" % status)
             if order_id:
@@ -1877,6 +2327,42 @@ class SwitchSettingsWidget(QWidget):
                 return
             show_info(self, title, detail)
             return
+        elif kind == "amount_revenue":
+            event = target.get("event") or {}
+            channel = str(target.get("channel") or event.get("channel") or "").lower()
+            channel_name = u"私域 POS" if channel == "private" else u"官方 POS"
+            amount = self._chart_number(target.get("amount", event.get("amount", 0.0)))
+            cumulative = self._chart_number(target.get("cumulative_amount", 0.0))
+            source = str(event.get("source") or "").strip()
+            detail_lines = [
+                u"时间：%s" % when_text,
+                u"数据来源：%s" % channel_name,
+                u"本笔已入账金额：¥%.2f" % amount,
+                u"该来源当日累计：¥%.2f" % cumulative,
+            ]
+            if source:
+                detail_lines.append(u"记录来源：%s" % source)
+            detail_lines.append(u"金额图只使用已落库并确认支付的金额，不使用称重估算值。")
+            show_info(self, u"金额入账详情", "\n".join(detail_lines))
+            return
+        elif kind == "amount_histogram_slot":
+            slot = int(self._chart_number(target.get("slot", 0)))
+            official_amount = self._chart_number(target.get("official_amount", 0.0))
+            private_amount = self._chart_number(target.get("private_amount", 0.0))
+            total_amount = official_amount + private_amount
+            metadata = target.get("metadata") or {}
+            start_hour = slot * 2
+            end_hour = start_hour + 2
+            show_info(self, u"时段金额详情", "\n".join([
+                u"时段：%02d:00–%02d:00" % (start_hour, end_hour),
+                u"官方已入账：¥%.2f" % official_amount,
+                u"私域已入账：¥%.2f" % private_amount,
+                u"合计已入账：¥%.2f" % total_amount,
+                u"私域占比：%.1f%%" % ((private_amount / total_amount * 100.0) if total_amount else 0.0),
+                u"金额分流决策数：%d" % int(self._chart_number(metadata.get("amount_decisions", 0))),
+                u"金额图只使用已确认支付的数据库流水。",
+            ]))
+            return
         elif kind == "histogram_slot":
             slot = int(self._chart_number(target.get("slot", 0)))
             official_weight = self._chart_number(target.get("official_weight", 0.0))
@@ -1894,9 +2380,14 @@ class SwitchSettingsWidget(QWidget):
                 u"合计重量：%.3f kg" % total_weight,
                 u"私域占比：%.1f%%" % private_ratio,
                 u"称重决策数：%d" % int(self._chart_number(metadata.get("decision_count", 0))),
+                u"金额分流：%d 笔；重量分流：%d 笔" % (
+                    int(self._chart_number(metadata.get("amount_decisions", 0))),
+                    int(self._chart_number(metadata.get("weight_decisions", 0))),
+                ),
                 u"已入账订单数：%d" % int(self._chart_number(metadata.get("order_count", 0))),
                 u"本地已记录营业额：¥%.2f" % self._chart_number(metadata.get("revenue", 0.0)),
-                u"（官方 POS 金额无官方回调时不会被本地账本猜测。）",
+                u"已验证官方营业额：¥%.2f" % self._chart_number(metadata.get("official_revenue", 0.0)),
+                u"（金额分流与重量分流按各自的实际记录展示，不互相改写。）",
             ])
             show_info(self, title, detail)
             return
@@ -1958,15 +2449,75 @@ class SwitchSettingsWidget(QWidget):
                 })
         except Exception as exc:
             log_event(CAT_SYSTEM, "手动切换图表标记读取失败", str(exc))
+        route_events = [
+            row for row in events
+            if str(row.get("event_type") or "").lower() != "manual_switch"
+            and str(row.get("channel") or "").lower() in ("official", "private")
+        ]
+        manual_events = [
+            row for row in events
+            if str(row.get("event_type") or "").lower() == "manual_switch"
+        ]
+        def route_basis(row):
+            basis = str(row.get("routing_basis") or "").strip().lower()
+            if not basis and str(row.get("decision_kind") or "").strip().lower() == "amount":
+                basis = "amount"
+            return "amount" if basis == "amount" else "weight"
+
+        weight_route_events = [row for row in route_events if route_basis(row) == "weight"]
+        amount_route_events = [row for row in route_events if route_basis(row) == "amount"]
+        official_weight_total = sum(
+            max(0.0, self._chart_number(row.get("weight_kg")))
+            for row in weight_route_events
+            if str(row.get("channel") or "").lower() == "official"
+        )
+        private_weight_total = sum(
+            max(0.0, self._chart_number(row.get("weight_kg")))
+            for row in weight_route_events
+            if str(row.get("channel") or "").lower() == "private"
+        )
         histogram_metadata = {}
-        for route_event in events:
+        amount_basis_count = 0
+        weight_basis_count = 0
+        for route_event in route_events:
             route_time = DecisionWeightChart._event_time(route_event)
             route_channel = str(route_event.get("channel") or "").lower()
             if route_time is None or route_channel not in ("official", "private"):
                 continue
             slot = min(11, max(0, int((route_time.hour * 60 + route_time.minute) / 120)))
-            bucket = histogram_metadata.setdefault(slot, {"decision_count": 0, "order_count": 0, "revenue": 0.0})
+            bucket = histogram_metadata.setdefault(slot, {"decision_count": 0, "order_count": 0, "revenue": 0.0, "amount_decisions": 0, "weight_decisions": 0, "official_revenue": 0.0})
             bucket["decision_count"] += 1
+            basis = route_basis(route_event)
+            if basis == "amount":
+                bucket["amount_decisions"] += 1
+                amount_basis_count += 1
+            else:
+                bucket["weight_decisions"] += 1
+                weight_basis_count += 1
+        amount_events = []
+        private_amount_total = 0.0
+        official_amount_total = 0.0
+        route_timeline = [
+            (DecisionWeightChart._event_time(row), row)
+            for row in route_events
+            if DecisionWeightChart._event_time(row) is not None
+        ]
+        route_timeline.sort(key=lambda item: item[0])
+        def amount_window_at(when):
+            """Return whether a ledger entry belongs to the active amount window.
+
+            A mode switch is a real boundary.  Revenue before the first route
+            decision or after switching back to weight mode stays in the
+            database, but is deliberately left out of the amount-routing graph
+            so the graph cannot imply that weight-mode revenue was amount-routed.
+            """
+            latest = None
+            for route_time, row in route_timeline:
+                if route_time > when:
+                    break
+                latest = row
+            return latest is not None and route_basis(latest) == "amount"
+
         if db is not None and hasattr(db, "get_sales_by_date"):
             try:
                 for sale in db.get_sales_by_date(selected_date):
@@ -1974,30 +2525,81 @@ class SwitchSettingsWidget(QWidget):
                     if sale_time is None:
                         continue
                     slot = min(11, max(0, int((sale_time.hour * 60 + sale_time.minute) / 120)))
-                    bucket = histogram_metadata.setdefault(slot, {"decision_count": 0, "order_count": 0, "revenue": 0.0})
+                    bucket = histogram_metadata.setdefault(slot, {"decision_count": 0, "order_count": 0, "revenue": 0.0, "amount_decisions": 0, "weight_decisions": 0, "official_revenue": 0.0})
                     if str(sale.get("payment_status") or "PAID").upper() == "PAID":
                         bucket["order_count"] += 1
                         try:
-                            bucket["revenue"] += float(sale.get("total_price") or 0.0)
+                            sale_amount = max(0.0, float(sale.get("total_price") or 0.0))
+                            bucket["revenue"] += sale_amount
+                            if amount_route_events and amount_window_at(sale_time):
+                                private_amount_total += sale_amount
+                                amount_events.append({
+                                    "created_at": sale.get("created_at", ""),
+                                    "channel": "private",
+                                    "amount": sale_amount,
+                                    "source": "private_pos",
+                                    "payment_status": "PAID",
+                                    "order_id": sale.get("order_id", ""),
+                                })
                         except (TypeError, ValueError):
                             pass
             except Exception as exc:
                 log_event(CAT_SYSTEM, "图表时段营业额读取失败", str(exc))
-        self.weight_line_chart.set_events(events)
-        self.weight_histogram_chart.set_events(events)
+        if db is not None and hasattr(db, "get_official_revenue_by_date"):
+            try:
+                for revenue in db.get_official_revenue_by_date(selected_date, selected_date):
+                    revenue_time = DecisionWeightChart._event_time(revenue)
+                    if revenue_time is None:
+                        continue
+                    slot = min(11, max(0, int((revenue_time.hour * 60 + revenue_time.minute) / 120)))
+                    bucket = histogram_metadata.setdefault(slot, {"decision_count": 0, "order_count": 0, "revenue": 0.0, "amount_decisions": 0, "weight_decisions": 0, "official_revenue": 0.0})
+                    official_amount = max(0.0, self._chart_number(revenue.get("amount")))
+                    bucket["official_revenue"] += official_amount
+                    if amount_route_events and amount_window_at(revenue_time):
+                        official_amount_total += official_amount
+                        amount_events.append({
+                            "created_at": revenue.get("created_at", ""),
+                            "channel": "official",
+                            "amount": official_amount,
+                            "source": "official_pos",
+                            "payment_status": "PAID",
+                            "order_id": revenue.get("order_id", ""),
+                            "order_key": revenue.get("order_key", ""),
+                        })
+            except Exception as exc:
+                log_event(CAT_SYSTEM, "图表官方营业额读取失败", str(exc))
+        # 两种依据分别进入各自的图；旧记录没有 routing_basis 时由
+        # route_basis() 按兼容模式视为重量，保证升级前的数据仍可查看。
+        self.weight_line_chart.set_events(weight_route_events + manual_events)
+        self.weight_histogram_chart.set_events(weight_route_events)
         self.weight_histogram_chart.set_histogram_metadata(histogram_metadata)
+        # 没有金额分流记录时不把普通营业额误称为金额分流；发生模式
+        # 切换时，只把处于金额模式窗口内的真实已入账金额送入金额图，
+        # 其余时段保留为空白，而不是用估算值补点。
+        self.amount_chart.set_events(amount_events if amount_route_events else [])
+        self.amount_histogram_chart.set_events(amount_events if amount_route_events else [])
+        self.amount_histogram_chart.set_histogram_metadata(histogram_metadata)
+        if hasattr(self, "lbl_route_basis_summary"):
+            self.lbl_route_basis_summary.setText(
+                u"当前日期：金额分流 %d 笔（官方 ¥%.2f／私域 ¥%.2f）　|　重量分流 %d 笔（官方 %.3f／私域 %.3f kg）　|　空白段表示未使用该依据" %
+                (amount_basis_count, official_amount_total, private_amount_total,
+                 weight_basis_count, official_weight_total, private_weight_total)
+            )
         downtime_gaps = DecisionWeightChart.infer_downtime_gaps(
-            events, startup_times, shutdown_times
+            route_events, startup_times, shutdown_times
         )
         self.weight_line_chart.set_timeline_context(
             selected_date, startup_times, shutdown_times
         )
         self.weight_line_chart.set_downtime_gaps(downtime_gaps)
         self.weight_histogram_chart.set_downtime_gaps([])
+        self.amount_chart.set_timeline_context(selected_date)
 
     def _scroll_charts_to_latest(self):
         for scroll_area in (
             getattr(self, "chart_line_scroll", None),
+            getattr(self, "chart_amount_scroll", None),
+            getattr(self, "chart_amount_hist_scroll", None),
             getattr(self, "chart_hist_scroll", None),
         ):
             if scroll_area is not None:
@@ -2051,6 +2653,14 @@ class SwitchSettingsWidget(QWidget):
             self.section_stack.setFixedHeight(page_height)
         if scroll:
             self.page_scroll.verticalScrollBar().setValue(0)
+
+    def _select_algorithm_third_section(self, section_id):
+        """切换“分流规则 → 算法设置”内部的三级菜单。"""
+        if section_id not in getattr(self, "_algorithm_third_targets", {}):
+            section_id = "control"
+        self.algorithm_third_stack.setCurrentIndex(self._algorithm_third_targets[section_id])
+        for current_id, button in self.algorithm_third_buttons.items():
+            button.setChecked(current_id == section_id)
 
     @staticmethod
     def _parse_log_timestamp(value):

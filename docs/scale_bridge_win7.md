@@ -25,7 +25,7 @@ YGF-POS\
   docs\scale_bridge_troubleshooting.md
 ```
 
-如果部署目录还包含 `ThirdParty\hub4com\hub4com.exe`，打包脚本会一并复制它及批处理示例。hub4com 仅用于技术人员手工诊断/临时多路复用；正式运行时由 `YgfScaleBridge` 独占物理秤并完成仲裁，程序不会自动启动 hub4com，也不会把它当作必需依赖。
+如果部署目录还包含 `ThirdParty\hub4com\hub4com.exe`，打包脚本会一并复制它及批处理示例。hub4com 仅用于技术人员手工诊断/临时多路复用；正式运行时由 `ppposScaleBridge` 独占物理秤并完成仲裁，程序不会自动启动 hub4com，也不会把它当作必需依赖。
 
 `build_exe.py` 会生成上述目录。不能只复制 `驱动.exe`，否则无法安装独立服务或首次安装虚拟串口驱动。
 
@@ -64,9 +64,9 @@ YGF-POS\
    - 复用完全匹配的现有称重配对，只创建缺失配对；
    - 重新执行 `setupc list`，读取并保存真实内部对端；
    - 把本程序新建的配对写入 `data/scale_bridge_installation.json` 所有权清单；
-   - 安装自动启动的 `YgfScaleBridge` Windows 服务；
+   - 安装自动启动的 `ppposScaleBridge` Windows 服务；
     - 启动服务并确认 Windows 服务进入 RUNNING。
-   - 开发机也可以在步骤 3 点击“开发测试：模拟秤并启动服务”：它会使用固定 `0.500 kg` 模拟回包，启动真实 `YgfScaleBridge` 服务，并验证官方 POS、本 POS 两条虚拟通道；测试结束后点击“停止服务”恢复测试前配置。
+   - 开发机也可以在步骤 3 点击“开发测试：模拟秤并启动服务”：它会使用固定 `0.500 kg` 模拟回包，启动真实 `ppposScaleBridge` 服务，并验证官方 POS、本 POS 两条虚拟通道；测试结束后点击“停止服务”恢复测试前配置。
 8. 步骤 4 依次执行“查看服务状态”“检查两组端口配对”“测试官方 POS 秤通道”“测试本 POS 秤通道”。四项都通过才算完成。
 9. 将官方 POS 设置为页面显示的官方 POS 端口。
 10. 到“电子秤设置”，把本 POS 的数据来源设为 `com`，端口填写桥接页显示的本 POS 端口并保存。不要填写实际物理秤端口。
@@ -130,7 +130,7 @@ ScaleBridgeMaintenance.exe --config data\scale_bridge.json remove --yes
 
 ## com0com / hub4com 边界
 
-`com0com` 负责持久化创建 `COMx ↔ CNCBx` 虚拟配对，POS 称桥接页面通过 `setupc.exe list/install/remove` 检查、创建和安全删除；支付配对使用同一驱动，但由独立的收钱吧页面维护。正式运行由 `YgfScaleBridge` 服务完成仲裁和转发，程序不会自动启动 `hub4com`。`hub4com` 的典型手工命令（例如 `hub4com --route=All:All \\.\CNCB0 \\.\CNCB1 \\.\CNCB2`）只适合停服务后的诊断，不能与 `YgfScaleBridge` 同时打开同一个物理 COM 口，否则会产生端口占用和重复转发。
+`com0com` 负责持久化创建 `COMx ↔ CNCBx` 虚拟配对，POS 称桥接页面通过 `setupc.exe list/install/remove` 检查、创建和安全删除；支付配对使用同一驱动，但由独立的收钱吧页面维护。正式运行由 `ppposScaleBridge` 服务完成仲裁和转发，程序不会自动启动 `hub4com`。`hub4com` 的典型手工命令（例如 `hub4com --route=All:All \\.\CNCB0 \\.\CNCB1 \\.\CNCB2`）只适合停服务后的诊断，不能与 `ppposScaleBridge` 同时打开同一个物理 COM 口，否则会产生端口占用和重复转发。
 
 ## Windows 7 x64 安全边界
 

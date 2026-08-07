@@ -4,9 +4,9 @@ PyQt5 + Python 3.8 兼容
 """
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QStackedWidget, QStatusBar, QLabel, QWidget, QHBoxLayout,
-    QPushButton
+    QPushButton, QSizePolicy, QMessageBox
 )
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 from datetime import datetime
 
@@ -24,6 +24,17 @@ from ui.styles import DARK_STYLE, LIGHT_STYLE
 from config import app_logo_path
 
 
+class _ClickableLabel(QLabel):
+    """A QLabel that can expose the full hardware warning on click."""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class MainWindow(QMainWindow):
     """应用主窗口"""
 
@@ -35,6 +46,7 @@ class MainWindow(QMainWindow):
         self._hardware_check_running = False
         self._hardware_check_step = 0
         self._hardware_check_state = {}
+        self._hardware_status_full_text = ""
         self.db = Database()
         self._startup_checkpoint(u"正在准备数据库", u"本地订单账本已打开", 10)
         self.call_mgr = CallNumberManager(config)
@@ -172,10 +184,20 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
 
         self.hardware_status_panel = QWidget()
+        self.hardware_status_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         hardware_status_layout = QHBoxLayout(self.hardware_status_panel)
         hardware_status_layout.setContentsMargins(12, 0, 0, 0)
         hardware_status_layout.setSpacing(4)
-        self.lbl_hw_status = QLabel()
+        self.lbl_hw_status = _ClickableLabel()
+        self.lbl_hw_status.setMinimumWidth(0)
+        # Do not stretch the label to the whole status panel: the recheck
+        # button must follow the actual warning text, not sit at the far edge.
+        # Its maximum width is constrained below so the pair still ends before
+        # the permanent version/clock widgets on narrow screens.
+        self.lbl_hw_status.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self.lbl_hw_status.setCursor(Qt.PointingHandCursor)
+        self.lbl_hw_status.setToolTip(u"点击查看硬件告警详细信息")
+        self.lbl_hw_status.clicked.connect(self._show_hardware_details)
         hardware_status_layout.addWidget(self.lbl_hw_status)
         self.btn_hw_recheck = QPushButton(u"点击重检")
         self.btn_hw_recheck.setCursor(Qt.PointingHandCursor)
@@ -187,8 +209,12 @@ class MainWindow(QMainWindow):
             "background: transparent; }"
             "QPushButton:hover { color: #CBD5E1; text-decoration: underline; }"
         )
+        self.btn_hw_recheck.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         hardware_status_layout.addWidget(self.btn_hw_recheck)
-        self.status.addWidget(self.hardware_status_panel)
+        # Let the hardware text consume only the space left before the
+        # permanent version/clock widgets.  The recheck button therefore stays
+        # at the far right of this panel, immediately before the version.
+        self.status.addWidget(self.hardware_status_panel, 1)
         self.update_hardware_warnings(self.hardware_warnings)
 
         from config import APP_VERSION
@@ -247,7 +273,7 @@ class MainWindow(QMainWindow):
     def update_hardware_warnings(self, warnings: list):
         self.hardware_warnings = list(warnings or [])
         if not warnings:
-            self.lbl_hw_status.setText(u"[√] 硬件设备连接良好")
+            self._set_hardware_status_text(u"[√] 硬件设备连接良好")
             self.lbl_hw_status.setStyleSheet(
                 "QLabel { color: #10B981; font-size: 13px; font-weight: bold; "
                 "padding: 0px; background: transparent; }"
@@ -255,21 +281,93 @@ class MainWindow(QMainWindow):
             self.btn_hw_recheck.show()
         else:
             warn_msg = " | ".join(warnings)
-            self.lbl_hw_status.setText(f"⚠️ 硬件告警: {warn_msg}")
+            self._set_hardware_status_text(f"⚠️ 硬件告警: {warn_msg}")
             self.lbl_hw_status.setStyleSheet(
                 "QLabel { color: #F59E0B; font-size: 13px; font-weight: bold; "
                 "padding: 0px; background: transparent; }"
             )
             self.btn_hw_recheck.show()
 
+    def _set_hardware_status_text(self, text):
+        """Keep the recheck button/version visible by eliding the warning head."""
+        self._hardware_status_full_text = str(text or "")
+        label = getattr(self, "lbl_hw_status", None)
+        if label is None or not hasattr(label, "setText"):
+            return
+        # Test doubles and early-startup placeholders may not expose Qt font
+        # metrics; they still receive the complete text for diagnostics.
+        if not hasattr(label, "fontMetrics"):
+            label.setText(self._hardware_status_full_text)
+            return
+        # Recompute the natural width whenever the message changes; otherwise
+        # a short success message could leave the label too narrow for a later
+        # long warning.
+        self._constrain_hardware_status_label()
+        width = max(0, int(label.width()))
+        if width <= 0:
+            label.setText(self._hardware_status_full_text)
+            return
+        label.setText(label.fontMetrics().elidedText(
+            self._hardware_status_full_text, Qt.ElideLeft, width
+        ))
+
+    def _constrain_hardware_status_label(self):
+        """Reserve only the space before the recheck button/version widgets."""
+        panel = getattr(self, "hardware_status_panel", None)
+        label = getattr(self, "lbl_hw_status", None)
+        button = getattr(self, "btn_hw_recheck", None)
+        if panel is None or label is None or button is None:
+            return
+        layout = panel.layout()
+        if layout is None:
+            return
+        margins = layout.contentsMargins()
+        available = panel.width() - margins.left() - margins.right()
+        available -= layout.spacing() + button.sizeHint().width()
+        available = max(0, available)
+        # Keep short success text compact so the button follows it directly.
+        # Long warnings consume only the space before the permanent version
+        # widget and are elided by _set_hardware_status_text.
+        try:
+            full_text = str(getattr(self, "_hardware_status_full_text", "") or "")
+            natural = int(label.fontMetrics().horizontalAdvance(full_text))
+        except Exception:
+            natural = available
+        label.setFixedWidth(min(available, max(0, natural)))
+
+    def _show_hardware_details(self):
+        """Show the untruncated hardware warning list on demand."""
+        details = list(self.hardware_warnings or [])
+        if details:
+            body = u"当前检测到以下硬件告警：\n\n" + "\n".join(
+                u"• " + str(item) for item in details
+            )
+        else:
+            body = u"当前硬件检查通过，未发现告警。"
+        QMessageBox.information(self, u"硬件检查详情", body)
+
     def _set_hardware_check_status(self, text):
         """Show the current recheck stage in the clickable status control."""
-        self.lbl_hw_status.setText(u"⟳ " + text)
+        self._set_hardware_status_text(u"⟳ " + text)
         self.lbl_hw_status.setStyleSheet(
             "QLabel { color: #38BDF8; font-size: 13px; font-weight: bold; "
             "padding: 0px; background: transparent; }"
         )
         self.btn_hw_recheck.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # QStatusBar lays out its permanent version/clock widgets after the
+        # main window resize event.  A queued refresh therefore uses the final
+        # label width and keeps the recheck button directly before the version.
+        if hasattr(self, "lbl_hw_status"):
+            QTimer.singleShot(0, self._refresh_hardware_status_layout)
+
+    def _refresh_hardware_status_layout(self):
+        self._constrain_hardware_status_label()
+        self._set_hardware_status_text(
+            getattr(self, "_hardware_status_full_text", "")
+        )
 
     def _on_hardware_status_clicked(self):
         """Run the same four hardware checks used at login, one stage at a time."""
@@ -393,7 +491,7 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setText(now)
 
     def _on_page_changed(self, index):
-        page_names = {0: "收银台", 1: "订单查询", 2: "交班报表", 3: "外卖中继", 4: "叫号设置", 5: "切换算法", 6: "系统设置", 7: "日志信息"}
+        page_names = {0: "收银台", 1: "订单查询", 2: "交班报表", 3: "外卖设置", 4: "叫号设置", 5: "分流规则", 6: "系统设置", 7: "日志信息"}
         from core.app_logger import log_event, CAT_USER
         log_event(CAT_USER, f"切换页面: {page_names.get(index, index)}", "")
         self.stack.setCurrentIndex(index)
@@ -412,6 +510,14 @@ class MainWindow(QMainWindow):
         if hasattr(self.sidebar, "set_active_page"):
             self.sidebar.set_active_page(5)
         QTimer.singleShot(0, self.switch_settings_page.focus_weight_chart)
+
+    def open_printer_relay_settings(self):
+        """Open the single source of truth for printer/relay configuration."""
+        self.stack.setCurrentIndex(6)
+        if hasattr(self.sidebar, "set_active_page"):
+            self.sidebar.set_active_page(6)
+        if hasattr(self.settings_page, "_open_settings_page"):
+            self.settings_page._open_settings_page(5)
 
     def open_history_order(self, order_id=None, record=None):
         """Navigate to order details from the cashier's previous-order card."""

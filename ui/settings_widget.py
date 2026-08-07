@@ -6,6 +6,7 @@ import os
 import re
 import hashlib
 import shutil
+import json
 
 from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -27,6 +28,13 @@ from utils.window_utils import (
     apply_official_window_selection,
     find_official_window_info,
     is_official_window_configured,
+)
+from core.takeout_relay import (
+    MODE_COMPATIBILITY,
+    MODE_POLICY_AUTO,
+    MODE_POLICY_FORCE_COMPATIBILITY,
+    mode_label,
+    validate_relay_config,
 )
 
 
@@ -296,7 +304,8 @@ class SettingsWidget(QWidget):
         ("scale", u"⚖️  电子秤设置"),
         ("bridge", u"⇄  POS 称桥接"),
         ("sqb", u"💵  收钱吧插件"),
-        ("printer", u"♨  小票打印机"),
+        ("relay", u"↔  打印机中继"),
+        ("printer", u"♨  打印纸格式"),
         ("danger", u"⚠️  还原与重置"),
     ]
 
@@ -502,9 +511,11 @@ class SettingsWidget(QWidget):
         self.stacked_widget.addWidget(self._build_bridge_page())
         # 5. 收钱吧设置页
         self.stacked_widget.addWidget(self._build_sqb_page())
-        # 6. 打印机设置页
+        # 6. 打印机中继页
+        self.stacked_widget.addWidget(self._build_relay_page())
+        # 7. 打印纸格式页
         self.stacked_widget.addWidget(self._build_printer_page())
-        # 7. 重置与恢复设置页
+        # 8. 重置与恢复设置页
         self.stacked_widget.addWidget(self._build_danger_page())
 
         main_layout.addWidget(self.stacked_widget, stretch=1)
@@ -538,13 +549,124 @@ class SettingsWidget(QWidget):
 
         self._disable_wheel_events()
 
-    def _wrap_in_scroll(self, card_widget):
-        """将卡片包裹在滚动区域中，防止低分辨率挤压"""
+    def _wrap_in_scroll(self, card_widget, menu_items=None):
+        """将卡片包裹在滚动区域中，并提供固定在顶部的三级导航。"""
+        outer = QWidget()
+        outer.setStyleSheet("background: #0B1120;")
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: #0B1120; }")
-        
+
+        # 三级菜单固定在页面顶端，只负责定位，不改变原有配置控件和保存逻辑。
+        if menu_items:
+            menu_frame = QFrame()
+            menu_frame.setObjectName("SettingsThirdLevelMenu")
+            menu_frame.setStyleSheet(
+                "QFrame#SettingsThirdLevelMenu { background: #0F172A; border-bottom: 1px solid #1E293B; }"
+                "QPushButton { background: transparent; color: #94A3B8; border: none; "
+                "border-bottom: 3px solid transparent; border-radius: 0; padding: 10px 16px; "
+                "font-size: 15px; font-weight: 700; }"
+                "QPushButton:hover { background: #1E293B; color: #F8FAFC; }"
+                "QPushButton:checked { background: #172554; color: #7DD3FC; border-bottom-color: #38BDF8; }"
+            )
+            menu_layout = QHBoxLayout(menu_frame)
+            menu_layout.setContentsMargins(20, 10, 20, 10)
+            menu_layout.setSpacing(8)
+            menu_buttons = []
+            visibility_state = {}
+            active_indices = set()
+
+            def first_widget(item):
+                if item is None:
+                    return None
+                widget = item.widget()
+                if widget is not None:
+                    return widget
+                child_layout = item.layout()
+                if child_layout is None:
+                    return None
+                for child_index in range(child_layout.count()):
+                    found = first_widget(child_layout.itemAt(child_index))
+                    if found is not None:
+                        return found
+                return None
+
+            def set_item_visible(item, visible):
+                if item is None:
+                    return
+                widget = item.widget()
+                if widget is not None:
+                    if visible:
+                        widget.setVisible(visibility_state.get(widget, True))
+                    else:
+                        widget.setVisible(False)
+                    return
+                child_layout = item.layout()
+                if child_layout is None:
+                    return
+                for child_index in range(child_layout.count()):
+                    set_item_visible(child_layout.itemAt(child_index), visible)
+
+            def remember_item_visibility(item):
+                if item is None:
+                    return
+                widget = item.widget()
+                if widget is not None:
+                    visibility_state[widget] = not widget.isHidden()
+                    return
+                child_layout = item.layout()
+                if child_layout is not None:
+                    for child_index in range(child_layout.count()):
+                        remember_item_visibility(child_layout.itemAt(child_index))
+
+            def scroll_to(target_indices, button, ensure_visible=True):
+                nonlocal active_indices
+                if isinstance(target_indices, (int, str)):
+                    target_indices = [target_indices]
+                target_indices = {int(index) for index in (target_indices or [])}
+                card_layout = card_widget.layout()
+                target = None
+                if card_layout is not None:
+                    # 保存当前分区内控件自己的可见状态（例如电子秤页面
+                    # 根据数据源动态隐藏 COM 端口），切换菜单时不覆盖它。
+                    for index in active_indices:
+                        if 0 <= index < card_layout.count():
+                            remember_item_visibility(card_layout.itemAt(index))
+                    # 标题和分割线一直保留；正文只显示当前三级菜单分区。
+                    for index in range(2, card_layout.count()):
+                        item = card_layout.itemAt(index)
+                        set_item_visible(item, index in target_indices)
+                        if target is None and index in target_indices:
+                            target = first_widget(item)
+                    active_indices = target_indices
+                if target is not None and ensure_visible:
+                    scroll.ensureWidgetVisible(target, 0, 12)
+                for menu_button in menu_buttons:
+                    menu_button.setChecked(menu_button is button)
+
+            for title, target_indices in menu_items:
+                button = QPushButton(title)
+                button.setCheckable(True)
+                button.setMinimumHeight(44)
+                button.clicked.connect(
+                    lambda checked=False, target=target_indices, btn=button: scroll_to(target, btn)
+                )
+                menu_layout.addWidget(button, 1)
+                menu_buttons.append(button)
+            menu_layout.addStretch()
+            if menu_buttons:
+                card_layout = card_widget.layout()
+                if card_layout is not None:
+                    for index in range(2, card_layout.count()):
+                        remember_item_visibility(card_layout.itemAt(index))
+                scroll_to(menu_items[0][1], menu_buttons[0], ensure_visible=False)
+            outer_layout.addWidget(menu_frame)
+
         wrapper = QWidget()
         wrapper.setStyleSheet("background: transparent;")
         wrapper_layout = QVBoxLayout(wrapper)
@@ -553,7 +675,8 @@ class SettingsWidget(QWidget):
         wrapper_layout.addStretch()
 
         scroll.setWidget(wrapper)
-        return scroll
+        outer_layout.addWidget(scroll, stretch=1)
+        return outer
 
     # ────────────────────────────────────────────────────────────
     # 页面 3: 电子秤数据源设置
@@ -616,6 +739,13 @@ class SettingsWidget(QWidget):
         self.lbl_scale_hint.setStyleSheet("color: #CBD5E1; font-size: 15px; padding: 14px 16px; background: #0F172A; border-radius: 10px; border: 1px solid #1E293B;")
         grid.addWidget(self.lbl_scale_hint, 5, 0, 1, 3)
 
+        # 数据源、COM 端口和官方日志目录所在的三级页面必须直接提供
+        # 保存入口放在“数据源与端口”页；检测页只负责验证状态，避免重复保存。
+        self.btn_save_scale_source = QPushButton(u"💾 保存数据源与端口")
+        self._style_save_btn(self.btn_save_scale_source)
+        self.btn_save_scale_source.clicked.connect(self._on_save_scale)
+        grid.addWidget(self.btn_save_scale_source, 6, 0, 1, 3)
+
         layout.addLayout(grid)
 
         btn_box = QGridLayout()
@@ -638,17 +768,12 @@ class SettingsWidget(QWidget):
         self.btn_go_scale_bridge.clicked.connect(lambda: self._open_settings_page(3))
         btn_box.addWidget(self.btn_go_scale_bridge, 0, 1)
 
-        btn_save_scale = QPushButton(u"💾 保存称重设置")
-        self._style_save_btn(btn_save_scale)
-        btn_save_scale.clicked.connect(self._on_save_scale)
-        btn_box.addWidget(btn_save_scale, 1, 0, 1, 2)
-
         layout.addLayout(btn_box)
 
         # 初始化显示/隐藏
         self._on_scale_source_changed(self.cmb_scale_source.currentIndex())
 
-        return self._wrap_in_scroll(card)
+        return self._wrap_in_scroll(card, [(u"数据源与端口", [2]), (u"检测与状态", [3])])
 
     # ────────────────────────────────────────────────────────────
     # 页面 4: 官方 / 私有 POS 共享电子秤
@@ -867,68 +992,316 @@ class SettingsWidget(QWidget):
         self._load_scale_bridge_form()
         self._refresh_com0com_status()
         self._refresh_scale_bridge_overall_status()
-        return self._wrap_in_scroll(card)
+        return self._wrap_in_scroll(card, [(u"① 选择物理秤", [2, 3, 4]), (u"② 创建端口", [5]), (u"③ 初始化桥接", [6]), (u"④ 验收", [7]), (u"维护", [8])])
 
     # ────────────────────────────────────────────────────────────
-    # 页面 6: 打印机设置
+    # 页面 6: 打印机中继
+    # ────────────────────────────────────────────────────────────
+    def _build_relay_page(self):
+        card, layout = self._create_section_card(
+            u"↔", u"打印机中继", u"统一管理中继端口、Windows 队列、实体输出打印机和识别/测试状态"
+        )
+
+        def step_panel(number, title, description):
+            panel = QFrame()
+            panel.setObjectName("RelayStep%s" % number)
+            panel.setStyleSheet(
+                "QFrame { background: #132235; border: 1px solid #334155; border-radius: 12px; }"
+                "QLabel { border: none; background: transparent; }"
+            )
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(18, 16, 18, 16)
+            panel_layout.setSpacing(12)
+            title_label = QLabel(u"步骤 %s　%s" % (number, title))
+            title_label.setStyleSheet("font-size: 18px; color: #60A5FA; font-weight: 900;")
+            panel_layout.addWidget(title_label)
+            description_label = QLabel(description)
+            description_label.setWordWrap(True)
+            description_label.setStyleSheet("color: #CBD5E1; font-size: 15px;")
+            panel_layout.addWidget(description_label)
+            return panel, panel_layout
+
+        intro = QLabel(
+            u"推荐按页面顺序完成：先配置中继与实体输出，再保存并检查队列，随后打印真实测试单，最后确认识别结果。\n"
+            u"实体打印方式表示中继向实体打印机输出的通道，不是官方 POS 连接中继的方式。"
+            u"兼容/增强模式是全局运行状态，会同时影响打印识别和分流设置；本页只负责中继条件和模式策略。"
+            u"识别不到可靠付款状态时，系统会继续使用兼容模式，不会把打印任务当成结账成功。"
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; border-radius: 10px; padding: 14px;")
+        layout.addWidget(intro)
+        mode_help = QLabel(
+            u"模式说明：兼容模式＝沿用原有连单锁和按重量分流；增强模式＝中继已运行，"
+            u"订单号、金额和明确付款状态均已验证，可按金额参与分流；候选/状态未知/降级＝正在测试或数据不可靠，"
+            u"仍按兼容模式处理。收到打印任务本身不等于已结账。"
+        )
+        mode_help.setWordWrap(True)
+        mode_help.setStyleSheet("color: #E2E8F0; background: #1E293B; border: 1px solid #475569; border-radius: 10px; padding: 12px;")
+        layout.addWidget(mode_help)
+
+        # Step 1: keep all printer/relay choices in one configuration card.
+        step1, step1_layout = step_panel(
+            1,
+            u"配置中继与实体输出",
+            u"填写监听端口、选择官方 POS 要发送到的 Windows 队列，再选择中继转发到的实体打印机。"
+            u"中继队列和实体输出不能是同一个队列，否则会形成循环打印。",
+        )
+        grid = QGridLayout()
+        grid.setSpacing(14)
+        grid.setColumnStretch(1, 1)
+        grid.addWidget(self._make_label(u"中继监听端口："), 0, 0)
+        self.spin_relay_listen_port = QSpinBox()
+        self.spin_relay_listen_port.setRange(1024, 65535)
+        self.spin_relay_listen_port.setValue(int(self.config.get("takeout_proxy_port", 9101) or 9101))
+        grid.addWidget(self.spin_relay_listen_port, 0, 1)
+        grid.addWidget(self._make_label(u"Windows 中继队列："), 1, 0)
+        # Windows 队列不是只能手填：扫描本机已安装的打印队列后可以
+        # 直接选择；保留可编辑模式兼容网络映射队列和旧配置名称。
+        self.cmb_relay_queue = QComboBox()
+        self.cmb_relay_queue.setEditable(True)
+        self.cmb_relay_queue.setInsertPolicy(QComboBox.NoInsert)
+        self.cmb_relay_queue.setPlaceholderText(u"先检测队列，再选择官方 POS 要指向的队列")
+        self.txt_relay_queue = self.cmb_relay_queue  # 旧调用方兼容别名
+        self._refresh_relay_queues()
+        grid.addWidget(self.cmb_relay_queue, 1, 1)
+        self.btn_refresh_relay_queues = QPushButton(u"检测队列")
+        self._style_touch_action_btn(self.btn_refresh_relay_queues, "blue")
+        self.btn_refresh_relay_queues.clicked.connect(lambda: self._refresh_relay_queues(True))
+        grid.addWidget(self.btn_refresh_relay_queues, 1, 2)
+        self.lbl_relay_printer_name = self._make_label(u"实体输出打印机：")
+        grid.addWidget(self.lbl_relay_printer_name, 2, 0)
+        self.cmb_relay_printer_name = QComboBox()
+        self.cmb_relay_printer_name.setEditable(True)
+        self._refresh_relay_printers()
+        grid.addWidget(self.cmb_relay_printer_name, 2, 1)
+        self.btn_refresh_relay_printers = QPushButton(u"刷新打印机")
+        self._style_touch_action_btn(self.btn_refresh_relay_printers)
+        self.btn_refresh_relay_printers.clicked.connect(lambda: self._refresh_relay_printers(True))
+        grid.addWidget(self.btn_refresh_relay_printers, 2, 2)
+        grid.addWidget(self._make_label(u"实体打印方式："), 3, 0)
+        self.cmb_relay_printer_type = QComboBox()
+        self.cmb_relay_printer_type.addItems([
+            "windows - Windows RAW 队列",
+            "network - 网络打印（IP/端口）",
+            "serial - 串口打印（COM）",
+        ])
+        pt = self.config.get("printer_type", "windows")
+        for index in range(self.cmb_relay_printer_type.count()):
+            if self.cmb_relay_printer_type.itemText(index).startswith(pt):
+                self.cmb_relay_printer_type.setCurrentIndex(index)
+                break
+        grid.addWidget(self.cmb_relay_printer_type, 3, 1, 1, 2)
+        self.lbl_relay_ip = self._make_label(u"网络实体打印机 IP：")
+        grid.addWidget(self.lbl_relay_ip, 4, 0)
+        self.txt_relay_ip = QLineEdit(self.config.get("printer_ip", "192.168.1.100"))
+        grid.addWidget(self.txt_relay_ip, 4, 1)
+        self.lbl_relay_printer_port = self._make_label(u"网络端口：")
+        grid.addWidget(self.lbl_relay_printer_port, 5, 0)
+        self.spin_relay_printer_port = QSpinBox()
+        self.spin_relay_printer_port.setRange(1, 65535)
+        self.spin_relay_printer_port.setValue(int(self.config.get("printer_port", 9100) or 9100))
+        grid.addWidget(self.spin_relay_printer_port, 5, 1)
+        self.lbl_relay_serial_port = self._make_label(u"串口：")
+        grid.addWidget(self.lbl_relay_serial_port, 6, 0)
+        self.txt_relay_serial_port = QLineEdit(self.config.get("printer_serial_port", "COM4"))
+        self.txt_relay_serial_port.setPlaceholderText(u"例如：COM4")
+        grid.addWidget(self.txt_relay_serial_port, 6, 1)
+        self.chk_relay_enabled = QCheckBox(u"启用中继监听（取消勾选并保存可停用）")
+        self.chk_relay_enabled.setChecked(bool(self.config.get("takeout_interceptor_enabled", False)))
+        grid.addWidget(self.chk_relay_enabled, 7, 1)
+        self.chk_relay_capture = QCheckBox(u"保存原始打印采样（默认关闭，用于测试分析）")
+        self.chk_relay_capture.setChecked(bool(self.config.get("takeout_capture_enabled", False)))
+        self.chk_relay_capture.setToolTip(u"会保存 .bin 原始打印数据和 .json 识别摘要；可能包含订单信息，请从测试机拷回后妥善保管。")
+        grid.addWidget(self.chk_relay_capture, 8, 1)
+        grid.addWidget(self._make_label(u"最多保留采样条数："), 9, 0)
+        self.spin_relay_capture_max_files = QSpinBox()
+        self.spin_relay_capture_max_files.setRange(1, 10000)
+        self.spin_relay_capture_max_files.setValue(int(self.config.get("takeout_capture_max_files", 20) or 20))
+        self.spin_relay_capture_max_files.setToolTip(u"超过数量后按时间删除最旧的采样，.bin 和 .json 成对删除。")
+        grid.addWidget(self.spin_relay_capture_max_files, 9, 1)
+        self.cmb_relay_mode_policy = QComboBox()
+        self.cmb_relay_mode_policy.addItem(u"自动判断（推荐）", MODE_POLICY_AUTO)
+        self.cmb_relay_mode_policy.addItem(u"强制兼容模式（测试/故障）", MODE_POLICY_FORCE_COMPATIBILITY)
+        policy = self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO)
+        policy_index = self.cmb_relay_mode_policy.findData(policy)
+        self.cmb_relay_mode_policy.setCurrentIndex(policy_index if policy_index >= 0 else 0)
+        self.cmb_relay_mode_policy.setToolTip(u"不会提供强制增强模式；增强模式必须由已验证的官方 POS 数据自动触发。")
+        grid.addWidget(self._make_label(u"模式策略："), 10, 0)
+        grid.addWidget(self.cmb_relay_mode_policy, 10, 1, 1, 2)
+        self.cmb_relay_printer_type.currentIndexChanged.connect(self._on_relay_printer_type_changed)
+        self._on_relay_printer_type_changed(self.cmb_relay_printer_type.currentIndex())
+        step1_layout.addLayout(grid)
+        self.btn_save_relay = QPushButton(u"💾 保存中继配置")
+        self._style_save_btn(self.btn_save_relay)
+        self.btn_save_relay.clicked.connect(self._on_save_relay)
+        step1_layout.addWidget(self.btn_save_relay)
+        layout.addWidget(step1)
+
+        # Step 2: save and verify the transport before asking the operator to
+        # print a real ticket.
+        step2, step2_layout = step_panel(
+            2,
+            u"保存配置并检查连接",
+            u"先保存配置，再检查 Windows 队列和中继监听状态。这里出现异常时不要进入增强模式，系统会继续使用兼容模式。",
+        )
+        self.lbl_relay_config_status = QLabel()
+        self.lbl_relay_config_status.setWordWrap(True)
+        self.lbl_relay_config_status.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 10px; padding: 12px;")
+        step2_layout.addWidget(self.lbl_relay_config_status)
+        self.lbl_relay_runtime_status = QLabel()
+        self.lbl_relay_runtime_status.setWordWrap(True)
+        self.lbl_relay_runtime_status.setStyleSheet("color: #CBD5E1; background: #0F172A; border: 1px solid #334155; border-radius: 10px; padding: 12px;")
+        step2_layout.addWidget(self.lbl_relay_runtime_status)
+
+        action_row = QGridLayout()
+        action_row.setHorizontalSpacing(12)
+        action_row.setVerticalSpacing(12)
+        self.btn_check_relay_queue = QPushButton(u"② 检查 Windows 队列")
+        self._style_touch_action_btn(self.btn_check_relay_queue, "blue")
+        self.btn_check_relay_queue.clicked.connect(self._check_relay_queue)
+        action_row.addWidget(self.btn_check_relay_queue, 0, 0)
+        queue_hint = QLabel(u"队列检查通过后，再进入下一步打印和识别测试。")
+        queue_hint.setWordWrap(True)
+        queue_hint.setStyleSheet("color: #94A3B8; font-size: 14px;")
+        action_row.addWidget(queue_hint, 0, 1)
+        step2_layout.addLayout(action_row)
+        layout.addWidget(step2)
+
+        # Step 3: use a real ticket to validate raw data forwarding and
+        # recognition. The buttons remain separate so a failed parse never
+        # interrupts the original print path.
+        step3, step3_layout = step_panel(
+            3,
+            u"打印测试单并确认识别结果",
+            u"先做中继识别测试，再打印真实测试单，最后刷新状态。只有订单号、最终金额和可靠付款状态都通过校验，才会自动进入增强模式和金额分流。",
+        )
+        action_title = QLabel(
+            u"测试顺序：③ 中继识别测试　→　④ 打印真实测试单　→　⑤ 刷新状态确认。收到打印任务本身不等于已结账。"
+        )
+        action_title.setWordWrap(True)
+        action_title.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 8px; padding: 10px; font-weight: bold;")
+        step3_layout.addWidget(action_title)
+        test_row = QGridLayout()
+        test_row.setHorizontalSpacing(12)
+        test_row.setVerticalSpacing(12)
+        self.btn_test_relay_identification = QPushButton(u"③ 中继识别测试")
+        self._style_touch_action_btn(self.btn_test_relay_identification, "purple")
+        self.btn_test_relay_identification.clicked.connect(self._test_relay_identification)
+        test_row.addWidget(self.btn_test_relay_identification, 0, 0)
+        self.btn_test_relay_print = QPushButton(u"④ 打印真实测试单")
+        self._style_touch_action_btn(self.btn_test_relay_print, "blue")
+        self.btn_test_relay_print.clicked.connect(self._test_relay_print)
+        test_row.addWidget(self.btn_test_relay_print, 0, 1)
+        self.btn_refresh_relay_status = QPushButton(u"⑤ 刷新中继状态")
+        self._style_touch_action_btn(self.btn_refresh_relay_status)
+        self.btn_refresh_relay_status.clicked.connect(self._refresh_relay_status)
+        test_row.addWidget(self.btn_refresh_relay_status, 1, 0, 1, 2)
+        step3_layout.addLayout(test_row)
+        layout.addWidget(step3)
+
+        # Step 4: mapping is an optional recognition aid, not a transport
+        # setting. Keeping it after the test makes the dependency explicit.
+        step4, step4_layout = step_panel(
+            4,
+            u"调整官方 POS 字段识别映射（可选）",
+            u"这里配置“票面文字对应什么字段”，不是直接改订单数据。多个关键词用逗号分隔；留空使用系统默认规则。"
+            u"例如官方模板写“流水号”而不是“订单号”，就在订单号标签中填：订单号,订单编号,流水号。",
+        )
+        mapping = self.config.get("official_pos_field_mapping") or {}
+        mapping_defaults = {
+            "order_id_labels": ["订单号", "订单编号"],
+            "amount_labels": ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"],
+            "paid_keywords": ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"],
+            "cancelled_keywords": ["已取消", "取消订单", "退款成功", "已退款"],
+            "dinein_keywords": ["堂食", "POS点餐", "收银", "消费小票", "结账单", "制作单-堂食"],
+        }
+        mapping_grid = QGridLayout()
+        mapping_grid.setSpacing(10)
+        mapping_grid.setColumnStretch(1, 1)
+        mapping_fields = (
+            ("order_id_labels", u"订单号标签：", u"订单号,订单编号,流水号"),
+            ("amount_labels", u"金额标签：", u"实付,实收,应付,合计"),
+            ("paid_keywords", u"付款成功关键词：", u"支付成功,已支付,已结账"),
+            ("cancelled_keywords", u"取消/退款关键词：", u"已取消,退款成功"),
+            ("dinein_keywords", u"堂食识别关键词：", u"堂食,POS点餐,消费小票"),
+        )
+        self.relay_mapping_fields = {}
+        for row, (key, label, placeholder) in enumerate(mapping_fields):
+            mapping_grid.addWidget(self._make_label(label), row, 0)
+            field = QLineEdit()
+            saved = mapping.get(key, mapping_defaults.get(key, [])) if isinstance(mapping, dict) else mapping_defaults.get(key, [])
+            if isinstance(saved, (list, tuple)):
+                field.setText(",".join(str(item) for item in saved if str(item).strip()))
+            else:
+                field.setText(str(saved or ""))
+            field.setPlaceholderText(placeholder + u"（留空使用默认）")
+            field.setMinimumHeight(50)
+            mapping_grid.addWidget(field, row, 1, 1, 2)
+            self.relay_mapping_fields[key] = field
+        step4_layout.addLayout(mapping_grid)
+        self.btn_save_relay_mapping = QPushButton(u"💾 保存字段映射")
+        self._style_save_btn(self.btn_save_relay_mapping)
+        self.btn_save_relay_mapping.clicked.connect(self._on_save_relay)
+        step4_layout.addWidget(self.btn_save_relay_mapping)
+        layout.addWidget(step4)
+
+        # Step 5: service lifecycle is intentionally last and separated from
+        # the everyday queue/test workflow.
+        step5, step5_layout = step_panel(
+            5,
+            u"独立中继服务维护（可选）",
+            u"只有需要开机自启、私域 POS 未启动时仍能监听时，才使用下面的服务操作。日常配置和测试不需要先安装服务。",
+        )
+        service_title = QLabel(u"服务名：ppposTakeoutRelay。安装/启动需要管理员权限；临时停止不会删除配置。")
+        service_title.setWordWrap(True)
+        service_title.setStyleSheet("color: #DDD6FE; background: #2E1065; border: 1px solid #7C3AED; border-radius: 8px; padding: 10px; font-weight: bold;")
+        step5_layout.addWidget(service_title)
+        service_action_row = QGridLayout()
+        self.btn_install_relay_service = QPushButton(u"安装独立服务")
+        self._style_touch_action_btn(self.btn_install_relay_service, "purple")
+        self.btn_install_relay_service.clicked.connect(self._install_relay_service)
+        service_action_row.addWidget(self.btn_install_relay_service, 0, 0)
+        self.btn_start_relay_service = QPushButton(u"启动独立服务")
+        self._style_touch_action_btn(self.btn_start_relay_service, "blue")
+        self.btn_start_relay_service.clicked.connect(self._start_relay_service)
+        service_action_row.addWidget(self.btn_start_relay_service, 0, 1)
+        self.btn_stop_relay_service = QPushButton(u"临时停止服务")
+        self._style_touch_action_btn(self.btn_stop_relay_service, "danger")
+        self.btn_stop_relay_service.clicked.connect(self._stop_relay_service)
+        service_action_row.addWidget(self.btn_stop_relay_service, 1, 0)
+        self.btn_remove_relay_service = QPushButton(u"卸载独立服务")
+        self._style_touch_action_btn(self.btn_remove_relay_service, "danger")
+        self.btn_remove_relay_service.clicked.connect(self._remove_relay_service)
+        service_action_row.addWidget(self.btn_remove_relay_service, 1, 1)
+        step5_layout.addLayout(service_action_row)
+        service_hint = QLabel(
+            u"安装＝注册 Windows 服务；启动＝运行服务；临时停止＝只停止本次运行；卸载＝删除服务注册。"
+            u"安装后中继可在界面关闭、私域 POS 未启动或机器重启后继续工作；"
+            u"安装/控制需要管理员权限。Windows 服务账号可能看不到用户映射的打印队列，请优先使用本机队列或网络打印并做真实测试。"
+            u"服务操作点击后立即生效，不需要额外保存。"
+        )
+        service_hint.setWordWrap(True)
+        service_hint.setStyleSheet("color: #C4B5FD; background: #2E1065; border: 1px solid #7C3AED; border-radius: 10px; padding: 12px;")
+        step5_layout.addWidget(service_hint)
+        layout.addWidget(step5)
+        self._refresh_relay_status()
+        return self._wrap_in_scroll(card, [(u"① 中继配置", [2, 3, 4]), (u"② 连接检查", [5]), (u"③ 识别测试", [6]), (u"④ 字段映射", [7]), (u"服务维护", [8])])
+
+    # ────────────────────────────────────────────────────────────
+    # 页面 7: 打印纸格式
     # ────────────────────────────────────────────────────────────
     def _build_printer_page(self):
         card, layout = self._create_section_card(
-            u"♨", u"小票打印机设置", u"设置连接的厨打/后厨/前台小票打印机"
+            u"♨", u"打印纸格式", u"只设置纸张、字体、份数和小票内容排版"
         )
-        grid = QGridLayout()
-        grid.setSpacing(18)
-        grid.setColumnStretch(0, 0)
-        grid.setColumnStretch(1, 1)
-
-        grid.addWidget(self._make_label(u"打印方式："), 0, 0)
-        self.cmb_printer_type = QComboBox()
-        self.cmb_printer_type.addItems([
-            "windows - Windows 驱动打印",
-            "network - 网络打印",
-            "serial - 串口打印",
-        ])
-        pt = self.config.get("printer_type", "windows")
-        for i in range(self.cmb_printer_type.count()):
-            if self.cmb_printer_type.itemText(i).startswith(pt):
-                self.cmb_printer_type.setCurrentIndex(i)
-                break
-        grid.addWidget(self.cmb_printer_type, 0, 1, 1, 2)
-
-        grid.addWidget(self._make_label(u"打印机名称："), 1, 0)
-        self.cmb_printer_name = QComboBox()
-        self.cmb_printer_name.setEditable(True)
-        self._refresh_printers()
-        grid.addWidget(self.cmb_printer_name, 1, 1)
-
-        btn_rp = QPushButton(u"🔄 刷新打印机")
-        btn_rp.setCursor(Qt.PointingHandCursor)
-        btn_rp.setStyleSheet("""
-            QPushButton { background: #334155; color: #F8FAFC; border: 1px solid #475569; border-radius: 8px; padding: 10px 18px; font-weight: bold; }
-            QPushButton:hover { background: #38BDF8; color: #0F172A; }
-        """)
-        btn_rp.clicked.connect(lambda: self._refresh_printers(show_toast=True))
-        grid.addWidget(btn_rp, 1, 2)
-
-        grid.addWidget(self._make_label(u"网络 IP："), 2, 0)
-        
-        net_box = QHBoxLayout()
-        net_box.setSpacing(10)
-        self.txt_ip = QLineEdit(self.config.get("printer_ip", "192.168.1.100"))
-        net_box.addWidget(self.txt_ip, stretch=2)
-
-        lbl_port = self._make_label(u"端口：")
-        lbl_port.setStyleSheet("color: #94A3B8; font-size: 14px; font-weight: 600; background: transparent; padding-left: 8px; padding-right: 4px;")
-        net_box.addWidget(lbl_port)
-
-        self.spin_net_port = QSpinBox()
-        self.spin_net_port.setRange(1, 65535)
-        self.spin_net_port.setValue(self.config.get("printer_port", 9100))
-        net_box.addWidget(self.spin_net_port, stretch=1)
-
-        grid.addLayout(net_box, 2, 1, 1, 2)
-
-        layout.addLayout(grid)
+        note = QLabel(
+            u"使用流程：先完成“打印机中继”配置，再在本页分别保存纸张走纸、单据份数和打印模板。\n"
+            u"打印机选择、连接方式、网络端口、Windows 队列、连接状态和测试打印已统一放在“打印机中继”。\n"
+            u"本页只保存打印纸张和票面排版，避免两个页面重复维护同一项连接配置。"
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; border-radius: 10px; padding: 14px;")
+        layout.addWidget(note)
 
         # 说明：旧版打印代码固定使用 48 个半角列（更接近 80mm 纸），
         # 但 58mm 热敏纸通常只有 32 列。这里把纸宽、列数、走纸和切刀
@@ -987,6 +1360,10 @@ class SettingsWidget(QWidget):
         self.chk_printer_cash_drawer = QCheckBox(u"现金收款时发送钱箱开启指令")
         self.chk_printer_cash_drawer.setChecked(bool(self.config.get("printer_cash_drawer_enabled", True)))
         format_grid.addWidget(self.chk_printer_cash_drawer, 5, 1)
+        self.btn_save_printer_paper = QPushButton(u"保存纸张与走纸设置")
+        self._style_touch_action_btn(self.btn_save_printer_paper, "blue")
+        self.btn_save_printer_paper.clicked.connect(self._on_save_printer_paper)
+        format_grid.addWidget(self.btn_save_printer_paper, 6, 1, 1, 2)
         layout.addLayout(format_grid)
 
         layout.addWidget(self._printer_section_title(u"单据开关与打印份数"))
@@ -1033,10 +1410,14 @@ class SettingsWidget(QWidget):
         self.spin_printer_takeout_banner_lines.setRange(0, 8)
         self.spin_printer_takeout_banner_lines.setValue(int(self.config.get("printer_takeout_banner_lines", 3) or 0))
         slips_grid.addWidget(self.spin_printer_takeout_banner_lines, 4, 3)
+        self.btn_save_printer_slips = QPushButton(u"保存单据与份数设置")
+        self._style_touch_action_btn(self.btn_save_printer_slips, "blue")
+        self.btn_save_printer_slips.clicked.connect(self._on_save_printer_slips)
+        slips_grid.addWidget(self.btn_save_printer_slips, 5, 0, 1, 4)
         layout.addLayout(slips_grid)
         takeout_note = QLabel(
-            u"说明：外卖中继的外卖单是否打印、分类排序和外卖份数，继续在“外卖中继”页面单独设置；"
-            u"这里控制的是本 POS 的顾客单、制作单和营业报表。"
+            u"说明：中继端口、队列、实体打印机、连接状态和测试统一在“打印机中继”维护；"
+            u"外卖内容、分类排序和份数在“外卖设置 → 外卖格式”维护；这里仅控制打印内容和纸张排版。"
         )
         takeout_note.setWordWrap(True)
         takeout_note.setStyleSheet("color: #94A3B8; font-size: 14px; background: transparent;")
@@ -1060,8 +1441,8 @@ class SettingsWidget(QWidget):
             u"官方新版参考（80mm）",
             u"自定义模板（以后换版用）",
         ])
-        profile = str(self.config.get("printer_template_profile", "legacy") or "legacy")
-        profile_index = {"legacy": 0, "official_v2": 1, "custom": 2}.get(profile, 0)
+        profile = str(self.config.get("printer_template_profile", "official_v2") or "official_v2")
+        profile_index = {"legacy": 0, "official_v2": 1, "custom": 2}.get(profile, 1)
         self.cmb_printer_template_profile.setCurrentIndex(profile_index)
         profile_grid.addWidget(self.cmb_printer_template_profile, 0, 1)
         layout.addLayout(profile_grid)
@@ -1155,19 +1536,18 @@ class SettingsWidget(QWidget):
         self.txt_printer_operator = QLineEdit(self.config.get("printer_operator", ""))
         self.txt_printer_operator.setPlaceholderText(u"留空则打印“收银员”")
         template_grid.addWidget(self.txt_printer_operator, 8, 1)
+        self.btn_save_printer_template = QPushButton(u"保存打印模板设置")
+        self._style_touch_action_btn(self.btn_save_printer_template, "blue")
+        self.btn_save_printer_template.clicked.connect(self._on_save_printer_template)
+        template_grid.addWidget(self.btn_save_printer_template, 9, 0, 1, 2)
         layout.addLayout(template_grid)
-
-        btn_save_printer = QPushButton(u"💾 保存打印机设置")
-        self._style_save_btn(btn_save_printer)
-        btn_save_printer.clicked.connect(self._on_save_printer)
-        layout.addWidget(btn_save_printer, alignment=Qt.AlignRight)
 
         self.cmb_printer_width.currentIndexChanged.connect(self._on_printer_width_changed)
         self.cmb_printer_template_profile.currentIndexChanged.connect(self._on_printer_template_profile_changed)
         self._on_printer_width_changed()
         self._on_printer_template_profile_changed(self.cmb_printer_template_profile.currentIndex())
 
-        return self._wrap_in_scroll(card)
+        return self._wrap_in_scroll(card, [(u"① 纸张与走纸", [2, 3, 4, 5]), (u"② 单据与份数", [6, 7, 8]), (u"③ 打印模板", [9, 10, 11, 12, 13, 14, 15, 16, 17, 18])])
 
     def _printer_section_title(self, text):
         label = QLabel(text)
@@ -1186,6 +1566,287 @@ class SettingsWidget(QWidget):
         )
         if path:
             self.txt_printer_logo_path.setText(path)
+
+    def _relay_runtime_state(self):
+        parent = self.window()
+        controller = getattr(parent, "takeout_interceptor", None)
+        if controller is None:
+            return {"running": False, "message": "中继控制器未加载"}
+        try:
+            return controller.get_status()
+        except Exception as exc:
+            return {"running": False, "last_error": str(exc)}
+
+    def _relay_service_controller(self):
+        controller = getattr(self.window(), "takeout_interceptor", None)
+        return getattr(controller, "service_controller", None)
+
+    def _relay_service_action(self, action, success_text):
+        from ui.custom_dialog import show_info, show_warning
+        controller = getattr(self.window(), "takeout_interceptor", None)
+        if controller is None:
+            show_warning(self, u"中继服务不可用", u"当前窗口尚未加载外卖中继控制器。")
+            return
+        try:
+            action(controller)
+        except Exception as exc:
+            show_warning(self, u"独立中继服务操作失败", str(exc))
+            self._refresh_relay_status()
+            return
+        self._refresh_relay_status()
+        show_info(self, u"独立中继服务", success_text)
+
+    def _install_relay_service(self):
+        self._relay_service_action(
+            lambda controller: controller.install_service(),
+            u"ppposTakeoutRelay 已安装。请保存并启用中继配置后点击“启动独立服务”。",
+        )
+
+    def _start_relay_service(self):
+        self._relay_service_action(
+            lambda controller: controller.start_service(),
+            u"ppposTakeoutRelay 已启动。请刷新状态并打印真实测试单。",
+        )
+
+    def _stop_relay_service(self):
+        self._relay_service_action(
+            lambda controller: controller.stop_service(),
+            u"ppposTakeoutRelay 已临时停止；若仍勾选启用，中继可能在守护检查时重新启动。",
+        )
+
+    def _remove_relay_service(self):
+        self._relay_service_action(
+            lambda controller: controller.remove_service(),
+            u"ppposTakeoutRelay 已卸载；配置和识别日志均已保留。",
+        )
+
+    def _refresh_relay_printers(self, show_toast=False):
+        if not hasattr(self, "cmb_relay_printer_name"):
+            return
+        self.cmb_relay_printer_name.clear()
+        printers = scan_printers()
+        for name in printers:
+            self.cmb_relay_printer_name.addItem(name)
+        current = str(self.config.get("printer_name", "") or "")
+        if current and current not in printers:
+            self.cmb_relay_printer_name.addItem(current)
+        if current:
+            self.cmb_relay_printer_name.setCurrentText(current)
+        if show_toast:
+            from ui.custom_dialog import show_info, show_warning
+            if printers:
+                show_info(self, u"打印机扫描完成", u"检测到 %d 台 Windows 打印机，请确认实体输出打印机不是中继队列。" % len(printers))
+            else:
+                show_warning(self, u"未检测到实体打印机", u"请检查驱动或选择网络/串口输出方式。")
+
+    def _refresh_relay_queues(self, show_toast=False):
+        """扫描本机 Windows 打印队列，并把已保存名称保留为可选项。"""
+        if not hasattr(self, "cmb_relay_queue"):
+            return
+        current = str(self.config.get("takeout_proxy_queue_name", "") or "").strip()
+        typed = str(self.cmb_relay_queue.currentText() or "").strip()
+        selected = typed or current
+        self.cmb_relay_queue.blockSignals(True)
+        self.cmb_relay_queue.clear()
+        queues = []
+        try:
+            queues = list(scan_printers() or [])
+        except Exception:
+            queues = []
+        seen = set()
+        for name in queues:
+            name = str(name).strip()
+            if name and name not in seen:
+                seen.add(name)
+                self.cmb_relay_queue.addItem(name)
+        if selected and selected not in queues:
+            self.cmb_relay_queue.addItem(selected)
+        if selected:
+            self.cmb_relay_queue.setCurrentText(selected)
+        self.cmb_relay_queue.blockSignals(False)
+        if show_toast:
+            from ui.custom_dialog import show_info, show_warning
+            if queues:
+                show_info(self, u"Windows 队列检测完成", u"检测到 %d 个队列，请选择官方 POS 要指向的中继队列。\n实体输出打印机要选择另一台，避免循环打印。" % len(queues))
+            else:
+                show_warning(self, u"未检测到 Windows 队列", u"请确认打印机驱动已安装；也可以暂时手动输入队列名称后保存。")
+
+    def _relay_config_from_form(self):
+        config = dict(self.config)
+        config["takeout_proxy_port"] = self.spin_relay_listen_port.value()
+        config["takeout_proxy_queue_name"] = self.cmb_relay_queue.currentText().strip()
+        config["takeout_interceptor_enabled"] = self.chk_relay_enabled.isChecked()
+        config["takeout_capture_enabled"] = self.chk_relay_capture.isChecked()
+        config["takeout_capture_max_files"] = self.spin_relay_capture_max_files.value()
+        config["takeout_relay_mode_policy"] = self.cmb_relay_mode_policy.currentData() or MODE_POLICY_AUTO
+        config["printer_name"] = self.cmb_relay_printer_name.currentText().strip()
+        config["printer_type"] = self.cmb_relay_printer_type.currentText().split(" - ")[0].strip()
+        config["printer_ip"] = self.txt_relay_ip.text().strip()
+        config["printer_port"] = self.spin_relay_printer_port.value()
+        config["printer_serial_port"] = self.txt_relay_serial_port.text().strip()
+        config["official_pos_field_mapping"] = {
+            key: [item.strip() for item in field.text().split(",") if item.strip()]
+            for key, field in getattr(self, "relay_mapping_fields", {}).items()
+        }
+        return config
+
+    def _on_relay_printer_type_changed(self, index=None):
+        """只显示当前实体输出方式需要的配置，其他旧值继续保留。"""
+        if not hasattr(self, "cmb_relay_printer_type"):
+            return
+        printer_type = self.cmb_relay_printer_type.currentText().split(" - ")[0].strip().lower()
+        is_windows = printer_type == "windows"
+        is_network = printer_type == "network"
+        is_serial = printer_type == "serial"
+        for widget in (self.lbl_relay_printer_name, self.cmb_relay_printer_name, self.btn_refresh_relay_printers):
+            widget.setVisible(is_windows)
+        for widget in (self.lbl_relay_ip, self.txt_relay_ip, self.lbl_relay_printer_port, self.spin_relay_printer_port):
+            widget.setVisible(is_network)
+        for widget in (self.lbl_relay_serial_port, self.txt_relay_serial_port):
+            widget.setVisible(is_serial)
+
+    def _on_save_relay(self):
+        from ui.custom_dialog import show_info, show_warning
+        candidate = self._relay_config_from_form()
+        report = validate_relay_config(candidate, check_windows=False)
+        if report.get("errors") and candidate.get("takeout_interceptor_enabled"):
+            show_warning(self, u"中继配置异常", "\n".join(report["errors"]))
+            self.config.update(candidate)
+            # 即使启用条件尚未满足，也要保留用户刚填写的配置，避免
+            # 用户修复队列/打印机后重新打开页面时全部恢复成旧值。
+            save_config(self.config)
+            self._refresh_relay_status()
+            return
+        self.config.update(candidate)
+        save_config(self.config)
+        controller = getattr(self.window(), "takeout_interceptor", None)
+        if controller is not None:
+            try:
+                controller.update_config(self.config)
+            except Exception:
+                pass
+        self._refresh_relay_status()
+        if report.get("errors"):
+            show_warning(self, u"配置已保存但尚未完成", u"中继当前停用，已保留配置。启用前请修复：\n" + "\n".join(report["errors"]))
+        else:
+            show_info(self, u"保存成功", u"打印机中继配置已保存。下一步请检查 Windows 队列并打印真实测试单。")
+
+    def _check_relay_queue(self):
+        from ui.custom_dialog import show_info, show_warning
+        candidate = self._relay_config_from_form()
+        report = validate_relay_config(candidate, check_windows=True)
+        self.config["takeout_relay_last_check_at"] = report.get("checked_at", "")
+        self.config["takeout_relay_last_error"] = "; ".join(report.get("errors", []))
+        save_config(self.config)
+        self._refresh_relay_status()
+        if report.get("ok"):
+            queue = report.get("queue_check") or {}
+            show_info(self, u"中继队列检查通过", u"队列：%s\n端口：127.0.0.1:%s\n实体输出：%s" % (
+                report.get("queue"), report.get("relay_port"), report.get("physical_printer") or u"默认打印机"))
+        else:
+            show_warning(self, u"中继配置异常", "\n".join(report.get("errors") or [u"请完成配置后重试"]))
+
+    def _test_relay_identification(self):
+        from core.takeout_interceptor import parse_official_pos_text
+        from ui.custom_dialog import show_info
+        sample = (u"美团外卖\n订单号：TEST-1001\n下单时间：2026-08-07 12:00:00\n"
+                  u"肥牛 x 1 ￥20.00\n原价合计：￥20.00\n实付：￥18.00")
+        source = u"内置示例"
+        capture_root = self.config.get("takeout_capture_dir") or os.path.join(DATA_DIR, "takeout_capture")
+        try:
+            samples = [
+                os.path.join(capture_root, name) for name in os.listdir(capture_root)
+                if name.endswith(".json")
+            ]
+            if samples:
+                latest = max(samples, key=os.path.getmtime)
+                with open(latest, "r", encoding="utf-8") as stream:
+                    metadata = json.load(stream)
+                if str(metadata.get("extracted_text") or "").strip():
+                    sample = metadata["extracted_text"]
+                    source = u"最近一次真实捕获样本"
+        except (OSError, TypeError, ValueError):
+            pass
+        candidate = self._relay_config_from_form()
+        parsed = parse_official_pos_text(sample, {
+            "official_pos_field_mapping": candidate.get("official_pos_field_mapping", {})
+        })
+        self.config["takeout_relay_last_identification"] = (
+            u"来源=%s；票据=%s；订单号=%s；金额=%s；付款状态=%s；证据=%s" % (
+                source,
+                parsed.get("receipt_kind") or u"未知",
+                parsed.get("full_order_id") or parsed.get("order_no") or u"未知",
+                parsed.get("order_amount") if parsed.get("order_amount") is not None else u"未知",
+                parsed.get("payment_status"),
+                parsed.get("payment_status_evidence") or u"无",
+            )
+        )
+        save_config(self.config)
+        self._refresh_relay_status()
+        show_info(self, u"中继识别测试", u"识别完成：\n%s\n\n字段映射只影响解析，不会把未知付款状态强行改成已结账。\n如果字段仍显示未知，请把真实捕获样本和对应票面交给开发分析。" % self.config["takeout_relay_last_identification"])
+
+    def _test_relay_print(self):
+        from ui.custom_dialog import show_info, show_warning
+        config = self._relay_config_from_form()
+        report = validate_relay_config(config, check_windows=False)
+        if report.get("errors"):
+            show_warning(self, u"无法测试打印", "\n".join(report["errors"]))
+            return
+        from core.printer import ReceiptPrinter
+        payload = b"\x1b@\x1ba\x01YGF RELAY TEST\n\x1ba\x00" + u"测试小票\n".encode("gbk", errors="ignore") + b"\x1bd\x04\x1dV\x01"
+        printer = ReceiptPrinter(config)
+        if printer.print_raw(payload):
+            show_info(self, u"测试打印已发送", u"已向实体输出打印机发送测试单，请确认纸面结果。")
+        else:
+            show_warning(self, u"测试打印失败", printer.last_error or u"打印机未返回成功")
+
+    def _refresh_relay_status(self):
+        if not hasattr(self, "lbl_relay_config_status"):
+            return
+        config = self._relay_config_from_form() if hasattr(self, "spin_relay_listen_port") else self.config
+        report = validate_relay_config(config, check_windows=False)
+        printer_type = str(config.get("printer_type", "windows") or "windows").lower()
+        output_target = report.get("physical_printer") or u"默认打印机"
+        if printer_type == "network":
+            output_target = u"网络 %s:%s" % (
+                config.get("printer_ip") or u"未填写",
+                config.get("printer_port") or u"未填写",
+            )
+        elif printer_type == "serial":
+            output_target = u"串口 %s" % (config.get("printer_serial_port") or u"未填写")
+        if report.get("errors"):
+            self.lbl_relay_config_status.setText(u"配置异常：\n" + "\n".join(report["errors"]))
+        else:
+            self.lbl_relay_config_status.setText(
+                u"配置已填写：监听 127.0.0.1:%s；队列：%s；实体输出：%s\n"
+                u"队列与实体打印机已做回环冲突检查。" % (
+                    report.get("relay_port"), report.get("queue") or u"未填写",
+                    output_target))
+        state = self._relay_runtime_state()
+        running = bool(state.get("running"))
+        service_state = None
+        service_controller = self._relay_service_controller()
+        if service_controller is not None:
+            try:
+                service_state = service_controller.query()
+            except Exception:
+                service_state = None
+        mode = state.get("mode") or self.config.get("takeout_relay_mode", MODE_COMPATIBILITY)
+        policy = state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO)
+        mode_reason = state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "") or u"等待验证"
+        mode_changed = state.get("mode_changed_at") or self.config.get("takeout_relay_mode_changed_at", "") or u"暂无"
+        detail = state.get("last_error") or state.get("message") or (u"监听运行中" if running else u"监听未运行")
+        source = state.get("payload_type") or self.config.get("takeout_relay_last_identification") or u"等待真实测试单"
+        identified_at = state.get("last_identified_at") or u"暂无"
+        enhanced_at = state.get("last_enhanced_success_at") or u"暂无"
+        service_detail = u"独立服务：未安装"
+        if service_state is not None and service_state.installed:
+            service_detail = u"独立服务：%s（ppposTakeoutRelay）" % service_state.state
+        policy_label = u"自动判断" if policy == MODE_POLICY_AUTO else u"强制兼容模式"
+        self.lbl_relay_runtime_status.setText(u"当前状态：%s\n工作模式：%s（策略：%s）\n切换原因：%s\n最近模式切换：%s\n数据来源/识别：%s\n最近捕获：%s；最近增强成功：%s\n%s\n%s" % (
+            u"连接/监听正常" if running else u"未运行或已降级", mode_label(mode),
+            policy_label, mode_reason, mode_changed, source, identified_at,
+            enhanced_at, detail, service_detail))
 
     @staticmethod
     def _official_customer_template_text():
@@ -1328,14 +1989,15 @@ class SettingsWidget(QWidget):
         self.spin_special_price.setDecimals(2)
         grid.addWidget(self.spin_special_price, 4, 1, 1, 2)
 
+        # 店铺信息和计价参数属于同一组配置，保存按钮与字段放在同一
+        # 三级页面内，切换页面时不会把保存操作隐藏掉。
+        self.btn_save_biz = QPushButton(u"💾 保存店铺与计价设置")
+        self._style_save_btn(self.btn_save_biz)
+        self.btn_save_biz.clicked.connect(self._on_save_biz)
+        grid.addWidget(self.btn_save_biz, 5, 1, 1, 2)
+
         layout.addLayout(grid)
-
-        btn_save_biz = QPushButton(u"💾 保存店铺与计价设置")
-        self._style_save_btn(btn_save_biz)
-        btn_save_biz.clicked.connect(self._on_save_biz)
-        layout.addWidget(btn_save_biz, alignment=Qt.AlignRight)
-
-        return self._wrap_in_scroll(card)
+        return self._wrap_in_scroll(card, [(u"店铺与计价", [2])])
 
     # ────────────────────────────────────────────────────────────
     # 页面 2: 系统与流转设置
@@ -1643,14 +2305,14 @@ class SettingsWidget(QWidget):
         reminder_layout.addWidget(self.btn_save_reminders, alignment=Qt.AlignRight)
         layout.addWidget(reminder_panel)
 
-        return self._wrap_in_scroll(card)
+        return self._wrap_in_scroll(card, [(u"官方 POS 识别", [2]), (u"运行参数", [3]), (u"Logo 与分类", [4]), (u"提醒设置", [5])])
 
     # ────────────────────────────────────────────────────────────
     # 页面 5: 收钱吧设置
     # ────────────────────────────────────────────────────────────
     def _build_sqb_page(self):
         card, layout = self._create_section_card(
-            u"💵", u"收钱吧 PC 收款助手", u"按“理解两个端口 → 保存参数 → 创建或检查配对 → 测试”的顺序配置"
+            u"💵", u"收钱吧 PC 收款助手", u"按“安装助手 → 保存参数 → 创建或检查配对 → 外部设置”的顺序配置"
         )
 
         intro = QLabel(
@@ -1677,7 +2339,7 @@ class SettingsWidget(QWidget):
         installer_layout = QVBoxLayout(installer_panel)
         installer_layout.setContentsMargins(18, 16, 18, 16)
         installer_layout.setSpacing(10)
-        installer_title = QLabel(u"📦 收钱吧 PC 助手安装包（v4.0.4）")
+        installer_title = QLabel(u"步骤 1　安装 / 检查收钱吧 PC 助手（v4.0.4）")
         installer_title.setStyleSheet("color: #DDD6FE; font-size: 18px; font-weight: 900;")
         installer_layout.addWidget(installer_title)
         self.lbl_sqb_installer_status = QLabel("")
@@ -1698,7 +2360,7 @@ class SettingsWidget(QWidget):
         layout.addWidget(installer_panel)
         self._refresh_sqb_installer_status()
 
-        sqb_step1_title = QLabel(u"步骤 1　选择连接方式并填写两端参数")
+        sqb_step1_title = QLabel(u"步骤 2　选择连接方式并填写两端参数")
         sqb_step1_title.setStyleSheet("font-size: 18px; color: #5EEAD4; font-weight: 900;")
         layout.addWidget(sqb_step1_title)
 
@@ -1833,7 +2495,7 @@ class SettingsWidget(QWidget):
         connection_layout.addLayout(grid)
         layout.addWidget(self.sqb_connection_panel)
 
-        btn_save_sqb = QPushButton(u"① 保存收钱吧设置")
+        btn_save_sqb = QPushButton(u"② 保存收钱吧参数")
         self._style_save_btn(btn_save_sqb)
         btn_save_sqb.clicked.connect(self._on_save_sqb)
         layout.addWidget(btn_save_sqb)
@@ -1851,7 +2513,7 @@ class SettingsWidget(QWidget):
         payment_layout = QVBoxLayout(payment_panel)
         payment_layout.setContentsMargins(18, 16, 18, 16)
         payment_layout.setSpacing(12)
-        payment_title = QLabel(u"步骤 2　创建或检查虚拟串口配对")
+        payment_title = QLabel(u"步骤 3　创建或检查虚拟串口配对")
         payment_title.setStyleSheet("color: #5EEAD4; font-size: 18px; font-weight: 900;")
         payment_layout.addWidget(payment_title)
         self.lbl_sqb_pair_guidance = QLabel("")
@@ -1862,15 +2524,15 @@ class SettingsWidget(QWidget):
         payment_buttons = QGridLayout()
         payment_buttons.setHorizontalSpacing(12)
         payment_buttons.setVerticalSpacing(12)
-        self.btn_initialize_payment_pair = QPushButton(u"② 创建 / 修复虚拟串口")
+        self.btn_initialize_payment_pair = QPushButton(u"③ 创建 / 修复虚拟串口")
         self._style_touch_action_btn(self.btn_initialize_payment_pair, "purple")
         self.btn_initialize_payment_pair.clicked.connect(self._initialize_payment_pair)
         payment_buttons.addWidget(self.btn_initialize_payment_pair, 0, 0)
-        self.btn_check_payment_pair = QPushButton(u"③ 检查这两个端口是否成对")
+        self.btn_check_payment_pair = QPushButton(u"④ 检查这两个端口是否成对")
         self._style_touch_action_btn(self.btn_check_payment_pair, "blue")
         self.btn_check_payment_pair.clicked.connect(self._check_payment_pair)
         payment_buttons.addWidget(self.btn_check_payment_pair, 0, 1)
-        self.btn_test_payment_pair = QPushButton(u"④ 关闭两端软件后双向测试")
+        self.btn_test_payment_pair = QPushButton(u"⑤ 关闭两端软件后双向测试")
         self._style_touch_action_btn(self.btn_test_payment_pair, "blue")
         self.btn_test_payment_pair.clicked.connect(self._test_scale_bridge_payment_pair)
         payment_buttons.addWidget(self.btn_test_payment_pair, 1, 0)
@@ -1887,7 +2549,7 @@ class SettingsWidget(QWidget):
             "QLabel { border: none; background: transparent; }"
         )
         tip_layout = QVBoxLayout(tip_frame)
-        lbl_tip_title = QLabel(u"步骤 3　到收钱吧 PC 助手中完成对应设置")
+        lbl_tip_title = QLabel(u"步骤 4　到收钱吧 PC 助手中完成对应设置")
         lbl_tip_title.setStyleSheet("color: #38BDF8; font-size: 18px; font-weight: 900;")
         tip_layout.addWidget(lbl_tip_title)
         for tip in [
@@ -1905,7 +2567,7 @@ class SettingsWidget(QWidget):
         self.cmb_sqb_pair_mode.currentIndexChanged.connect(self._on_sqb_mode_changed)
         self._on_sqb_mode_changed()
 
-        return self._wrap_in_scroll(card)
+        return self._wrap_in_scroll(card, [(u"① 安装助手", [2, 3]), (u"② 参数配置", [4, 5, 6]), (u"③ 配对测试", [7]), (u"④ 外部设置", [8])])
 
     # ────────────────────────────────────────────────────────────
     # 页面 7: 危险操作与恢复
@@ -2048,7 +2710,7 @@ class SettingsWidget(QWidget):
 
             layout.addWidget(item_box)
 
-        return self._wrap_in_scroll(card)
+        return self._wrap_in_scroll(card, [(u"导入导出", [2]), (u"模块还原", [3, 4]), (u"清空与重置", [5, 6, 7, 8, 9, 10])])
 
     def _disable_wheel_events(self):
         """禁止鼠标滚轮在控件上意外修改数值"""
@@ -2398,40 +3060,11 @@ class SettingsWidget(QWidget):
 
     # ─── 刷新打印机列表 ──────────────────────────────
     def _refresh_printers(self, show_toast=False):
-        self.cmb_printer_name.clear()
-        printers = scan_printers()
-        for name in printers:
-            self.cmb_printer_name.addItem(name)
-        cur = self.config.get("printer_name", "shouyin")
-        if cur and printers:
-            for i in range(self.cmb_printer_name.count()):
-                if self.cmb_printer_name.itemText(i) == cur:
-                    self.cmb_printer_name.setCurrentIndex(i)
-                    break
-
-        if show_toast:
-            from ui.custom_dialog import show_info, show_item_selection
-            if printers:
-                selected_printer, ok = show_item_selection(
-                    self, u"选择小票打印机", 
-                    f"成功检测到 {len(printers)} 台系统已安装打印机！请直接点击选择要使用的打印机：", 
-                    printers, self.cmb_printer_name.currentText()
-                )
-                if ok and selected_printer:
-                    for i in range(self.cmb_printer_name.count()):
-                        if self.cmb_printer_name.itemText(i) == selected_printer:
-                            self.cmb_printer_name.setCurrentIndex(i)
-                            break
-            else:
-                show_info(self, u"打印机扫描提示", u"未检测到任何本地已安装的 Windows 打印机，请检查驱动是否已安装。")
+        """Legacy compatibility alias; the visible selector now lives on relay page."""
+        return self._refresh_relay_printers(show_toast)
 
     # ─── 保存设置 ──────────────────────────────────
-    def _on_save_printer(self):
-        pt_text = self.cmb_printer_type.currentText()
-        self.config["printer_type"] = pt_text.split(" - ")[0].strip()
-        self.config["printer_name"] = self.cmb_printer_name.currentText()
-        self.config["printer_ip"] = self.txt_ip.text()
-        self.config["printer_port"] = self.spin_net_port.value()
+    def _apply_printer_paper_config(self):
         width_index = self.cmb_printer_width.currentIndex()
         if width_index == 0:
             self.config["printer_paper_width_mm"] = 80
@@ -2446,6 +3079,8 @@ class SettingsWidget(QWidget):
         self.config["printer_feed_lines"] = self.spin_printer_feed_lines.value()
         self.config["printer_auto_cut_enabled"] = self.chk_printer_auto_cut.isChecked()
         self.config["printer_cash_drawer_enabled"] = self.chk_printer_cash_drawer.isChecked()
+
+    def _apply_printer_slips_config(self):
         self.config["printer_customer_enabled"] = self.chk_printer_customer.isChecked()
         self.config["printer_customer_copies"] = self.spin_printer_customer_copies.value()
         self.config["printer_kitchen_enabled"] = self.chk_printer_kitchen.isChecked()
@@ -2455,6 +3090,8 @@ class SettingsWidget(QWidget):
         self.config["printer_show_tags"] = self.chk_printer_show_tags.isChecked()
         self.config["printer_takeout_banner_enabled"] = self.chk_printer_takeout_banner.isChecked()
         self.config["printer_takeout_banner_lines"] = self.spin_printer_takeout_banner_lines.value()
+
+    def _apply_printer_template_config(self):
         self.config["printer_customer_title"] = self.txt_printer_customer_title.text()
         self.config["printer_customer_footer"] = self.txt_printer_customer_footer.text()
         self.config["printer_kitchen_title_dinein"] = self.txt_printer_kitchen_title_dinein.text()
@@ -2470,12 +3107,45 @@ class SettingsWidget(QWidget):
             0: "legacy",
             1: "official_v2",
             2: "custom",
-        }.get(self.cmb_printer_template_profile.currentIndex(), "legacy")
+        }.get(self.cmb_printer_template_profile.currentIndex(), "official_v2")
         self.config["printer_customer_template_custom"] = self.txt_printer_customer_template.toPlainText()
         self.config["printer_kitchen_template_custom"] = self.txt_printer_kitchen_template.toPlainText()
+
+    def _save_printer_section(self, apply_config, title, message):
+        apply_config()
         save_config(self.config)
         from ui.custom_dialog import show_info
-        show_info(self, u"保存成功", u"打印机设置已保存！")
+        show_info(self, title, message)
+
+    def _on_save_printer_paper(self):
+        self._save_printer_section(
+            self._apply_printer_paper_config,
+            u"纸张设置已保存",
+            u"纸张宽度、列数、走纸、切纸和钱箱设置已保存。",
+        )
+
+    def _on_save_printer_slips(self):
+        self._save_printer_section(
+            self._apply_printer_slips_config,
+            u"单据设置已保存",
+            u"单据开关、打印份数和外卖标记设置已保存。",
+        )
+
+    def _on_save_printer_template(self):
+        self._save_printer_section(
+            self._apply_printer_template_config,
+            u"打印模板已保存",
+            u"模板方案、正文、Logo 和票面文字设置已保存。",
+        )
+
+    def _on_save_printer(self):
+        """Compatibility entry point: save all three paper-format sections."""
+        self._apply_printer_paper_config()
+        self._apply_printer_slips_config()
+        self._apply_printer_template_config()
+        save_config(self.config)
+        from ui.custom_dialog import show_info
+        show_info(self, u"保存成功", u"全部打印纸格式设置已保存！")
 
     def _on_save_biz(self):
         self.config["shop_name"] = self.txt_shop.text()
@@ -3340,7 +4010,7 @@ class SettingsWidget(QWidget):
         if replace_unowned_service and not show_question(
             self,
             u"高危操作：替换未登记的旧桥接服务",
-            u"开发测试需要重新安装 Windows 服务“YgfScaleBridge”，但当前服务没有本产品所有权记录。\n\n"
+            u"开发测试需要重新安装 Windows 服务“ppposScaleBridge”，但当前服务没有本产品所有权记录。\n\n"
             u"它通常来自旧版本或此前的手工调试。确认后只会停止并替换这一个同名服务；"
             u"不会删除未登记的 COM 虚拟串口、收钱吧配对或 com0com 驱动。\n\n"
             u"如果不确定服务来源，请取消并先在“删除 POS 称桥接”中核对。",
@@ -3637,7 +4307,7 @@ class SettingsWidget(QWidget):
                 show_info(self, u"支付配对正常", message)
             else:
                 next_step = (
-                    u"请点击“② 创建 / 修复虚拟串口”。"
+                    u"请点击“③ 创建 / 修复虚拟串口”。"
                     if self.cmb_sqb_pair_mode.currentIndex() == 0
                     else u"现场填写的两个端口并未成对；请核对原配对，或改选“由本系统创建”。"
                 )
@@ -3938,7 +4608,7 @@ class SettingsWidget(QWidget):
             if not show_question(
                 self,
                 u"高危操作：删除未登记的旧桥接服务",
-                u"检测到 Windows 服务“YgfScaleBridge”，但当前系统没有它的创建记录。\n\n"
+                u"检测到 Windows 服务“ppposScaleBridge”，但当前系统没有它的创建记录。\n\n"
                 u"这通常来自旧版本或早期手工开发测试。确认后会停止并删除这一项同名 Windows 服务，"
                 u"并删除当前称桥接配置；如果它实际由其他软件创建，那个软件将无法继续桥接称重。\n\n"
                 u"不会删除任何未登记的 COM 虚拟串口、收钱吧配对、com0com 驱动或其他 POS 设置。\n\n"
@@ -4363,9 +5033,9 @@ class SettingsWidget(QWidget):
         if not enabled:
             message = u"收钱吧金额推送已关闭。端口参数已保留，未创建或删除任何配对。"
         elif pair_mode == "managed":
-            message = u"参数已保存。下一步请点击“② 创建 / 修复虚拟串口”。"
+            message = u"参数已保存。下一步请点击“③ 创建 / 修复虚拟串口”。"
         else:
-            message = u"参数已保存。下一步请点击“③ 检查这两个端口是否成对”。"
+            message = u"参数已保存。下一步请点击“④ 检查这两个端口是否成对”。"
         show_info(
             self,
             u"保存成功",

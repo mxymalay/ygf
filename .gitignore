@@ -36,6 +36,7 @@ data/scale_bridge_diagnosis.json
 data/takeout_jobs.json
 data/takeout_proxy_status.json
 data/takeout_proxy_control.json
+data/takeout_capture/
 
 # Local deployment dependencies. Keep licensed driver binaries out of Git.
 ThirdParty/**/*.exe

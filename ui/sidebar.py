@@ -121,13 +121,13 @@ class SideNavBar(QWidget):
 
         # 3: 外卖 RAW 打印中继（与叫号、切换等运营功能归为一组）
         # 使用 Win7 字体稳定支持的 BMP 符号，避免彩色 Emoji 在旧系统上变成方框。
-        item_takeout = SideNavItem(u"↔", u"外卖中继", 3)
+        item_takeout = SideNavItem(u"↔", u"外卖设置", 3)
         item_takeout.clicked.connect(lambda: self._select_page(3))
         layout.addWidget(item_takeout)
         self._items.append(item_takeout)
 
-        # 5: 切换算法
-        item_switch = SideNavItem(u"⇄", u"切换算法", 5)
+        # 5: 分流规则（保留旧切换算法页面及兼容逻辑）
+        item_switch = SideNavItem(u"⇄", u"分流规则", 5)
         item_switch.clicked.connect(lambda: self._select_page(5))
         layout.addWidget(item_switch)
         self._items.append(item_switch)
