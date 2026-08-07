@@ -72,17 +72,17 @@ class TakeoutRelayServiceController:
             check=False, creationflags=0,
         )
         if result.returncode:
-            raise RuntimeError(_decode(result).strip() or "外卖中继服务命令失败")
+            raise RuntimeError(_decode(result).strip() or "打印机中继服务命令失败")
         return result
 
     @staticmethod
     def _require_admin():
         if sys.platform != "win32":
-            raise RuntimeError("外卖中继 Windows 服务只能在 Windows 上安装")
+            raise RuntimeError("打印机中继 Windows 服务只能在 Windows 上安装")
         try:
             import ctypes
             if not ctypes.windll.shell32.IsUserAnAdmin():
-                raise PermissionError("安装或控制外卖中继服务需要管理员权限")
+                raise PermissionError("安装或控制打印机中继服务需要管理员权限")
         except AttributeError:
             raise RuntimeError("无法确认 Windows 管理员权限")
 
@@ -96,7 +96,7 @@ class TakeoutRelayServiceController:
                 return state
             time.sleep(0.2)
             state = self.query()
-        raise RuntimeError("等待外卖中继服务状态超时：%s" % state.state)
+        raise RuntimeError("等待打印机中继服务状态超时：%s" % state.state)
 
     def install(self):
         self._require_admin()
@@ -110,7 +110,7 @@ class TakeoutRelayServiceController:
         self._require_admin()
         state = self.query()
         if not state.installed:
-            raise RuntimeError("外卖中继 Windows 服务尚未安装")
+            raise RuntimeError("打印机中继 Windows 服务尚未安装")
         if state.state_code == 4:
             return False
         self._run(["start"])

@@ -620,7 +620,7 @@ class TakeoutSortingWidget(QWidget):
 
     def _check_official_pos_status(self):
         if not self.interceptor:
-            self.on_interceptor_status(u"✕ 外卖中继守护进程未加载")
+            self.on_interceptor_status(u"✕ 打印机中继守护进程未加载")
             self._refresh_relay_guide()
             return
         if hasattr(self.interceptor, "ensure_running"):
@@ -945,7 +945,7 @@ class TakeoutSortingWidget(QWidget):
 
     def _on_reprint_last(self):
         if not self.last_job:
-            show_warning(self, u"没有可重打的外卖单", u"本机还没有保存外卖中继任务。请先拦截一张外卖单。")
+            show_warning(self, u"没有可重打的外卖单", u"本机还没有保存打印机中继任务。请先从官方 POS 接收一张订单。")
             return
         raw_text = self.last_job.get("raw_text", "")
         if not raw_text:

@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
         if self.config.get("takeout_interceptor_enabled", False) and self.config.get("takeout_proxy_queue_name", "").strip():
             self.takeout_interceptor.start()
         self.stack.addWidget(self.takeout_page)
-        self._startup_checkpoint(u"正在加载外卖中继", u"外卖打印模块已准备", 62)
+        self._startup_checkpoint(u"正在加载打印机中继", u"打印机中继模块已准备", 62)
 
         # 页面 4: 叫号设置 (独立叫号避重菜单)
         self.queue_page = QueueWidget(self.config, self.call_mgr)
@@ -391,6 +391,7 @@ class MainWindow(QMainWindow):
             (u"正在检查：官方 POS 窗口", self._check_official_window),
             (u"正在检查：电子秤通信", self._check_scale_connection),
             (u"正在检查：热敏打印机", self._check_printer_connection),
+            (u"正在检查：打印机中继", self._check_printer_relay_connection),
             (u"正在检查：收钱吧通信", self._check_shouqianba_connection),
         )
         if self._hardware_check_step >= len(steps):
@@ -440,6 +441,22 @@ class MainWindow(QMainWindow):
 
         if not scan_printers():
             self.hardware_warnings.append(u"打印机未连接")
+
+    def _check_printer_relay_connection(self):
+        """Check the configured printer-relay queue without starting it."""
+        if not bool(self.config.get("takeout_interceptor_enabled", False)):
+            self._hardware_check_state["printer_relay_ok"] = True
+            return
+        from core.takeout_relay import validate_relay_config
+
+        try:
+            report = validate_relay_config(self.config, check_windows=True)
+        except Exception as exc:
+            report = {"errors": [u"检测异常：%s" % exc]}
+        errors = report.get("errors") or []
+        self._hardware_check_state["printer_relay_ok"] = not bool(errors)
+        if errors:
+            self.hardware_warnings.append(u"打印机中继：%s" % "；".join(errors))
 
     def _check_shouqianba_connection(self):
         from core.shouqianba_sender import test_shouqianba_port

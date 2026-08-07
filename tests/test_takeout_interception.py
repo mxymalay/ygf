@@ -84,6 +84,17 @@ class TakeoutInterceptionTests(unittest.TestCase):
         self.assertEqual(result["payment_status"], "unknown")
         self.assertEqual(result["key_confidence"], "high")
 
+    def test_official_settlement_ticket_implies_paid_for_this_pos_workflow(self):
+        text = ("杨国福(肥西水晶城店)\n取餐号:0044 [POS点餐]\n"
+                "应付 10.60\n人民币 10.60\n"
+                "订单号: 2608072243182670637650044\n"
+                "订单时间:2026-08-07 22:43:51")
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["receipt_kind"], "dinein")
+        self.assertEqual(result["payment_status"], "paid")
+        self.assertEqual(result["payment_status_evidence"], "官方 POS 结账单打印规则")
+        self.assertEqual(result["payment_status_confidence"], "high")
+
     def test_custom_official_pos_field_mapping_can_translate_vendor_labels(self):
         text = "POS点餐\n流水号：VENDOR-7\n应收金额：¥28.00\n状态：已结账\n肥牛 x 1"
         result = parse_official_pos_text(text, {

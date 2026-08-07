@@ -157,7 +157,7 @@ class TakeoutProxyHost:
         self.interceptor = TakeoutPrintInterceptor(self.config, on_order=self._handle_order)
         self.running = False
         self.started_at = _now()
-        self.last_message = "正在启动外卖中继守护进程"
+        self.last_message = "正在启动打印机中继守护进程"
         self.last_error = ""
         self.last_order = ""
         self.current_mode = MODE_COMPATIBILITY
@@ -237,10 +237,10 @@ class TakeoutProxyHost:
         if str(new_config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO)) != MODE_POLICY_AUTO:
             self._set_mode(MODE_COMPATIBILITY, "用户手动锁定兼容模式")
         if not self.interceptor.is_enabled:
-            self.last_message = "配置已停用外卖中继"
+            self.last_message = "配置已停用打印机中继"
             self.running = False
         else:
-            self.last_message = "已应用外卖中继新配置"
+            self.last_message = "已应用打印机中继新配置"
 
     def _handle_order(self, intercepted):
         raw_text = str(intercepted.get("raw_text", ""))
@@ -423,7 +423,7 @@ class TakeoutProxyHost:
             except Exception:
                 pass
         if queue_name and queue_name == physical_name:
-            self.last_error = "真实打印机不能等于外卖中继队列，否则会形成打印回环"
+            self.last_error = "真实打印机不能等于打印机中继队列，否则会形成打印回环"
             self.last_message = "已拦截订单，但已阻止打印回环"
             self.jobs.update_print_result(job.get("id"), False, 0, self.last_error)
             try:
@@ -467,7 +467,7 @@ class TakeoutProxyHost:
     def run(self):
         _clear_stop_request()
         if not self.interceptor.is_enabled:
-            self.last_message = "外卖中继未启用"
+            self.last_message = "打印机中继未启用"
             self.current_mode = MODE_COMPATIBILITY
             self._write_status(False)
             return 0
@@ -565,7 +565,7 @@ class TakeoutProxyController:
             return state
         if state.get("last_error"):
             return state
-        return {"running": False, "port": self.port, "message": "外卖中继守护进程未运行"}
+        return {"running": False, "port": self.port, "message": "打印机中继守护进程未运行"}
 
     def start(self):
         self._temporarily_stopped = False

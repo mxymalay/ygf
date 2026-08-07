@@ -154,6 +154,16 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     amount_labels = _mapping_values(mapping, "amount_labels", ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"])
     paid_keywords = _mapping_values(mapping, "paid_keywords", ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"])
     cancelled_keywords = _mapping_values(mapping, "cancelled_keywords", ["已取消", "取消订单", "退款成功", "已退款"])
+    # Official POS refund/void templates use more specific labels than the
+    # normal customer ticket. Keep these aliases as parser defaults even when
+    # an older saved mapping omits them; they are evidence of a cancellation,
+    # never evidence of a successful payment.
+    for label in ("实付金额", "应退金额", "退款金额"):
+        if label not in amount_labels:
+            amount_labels.append(label)
+    for keyword in ("退单", "退菜单", "退菜", "应退金额", "退款", "已退款"):
+        if keyword not in cancelled_keywords:
+            cancelled_keywords.append(keyword)
 
     raw_text = str(raw_text or "").replace("\r\n", "\n").strip()
     is_meituan = "美团外卖" in raw_text or "美团" in raw_text
@@ -190,11 +200,11 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     # rather than the template variable names.
     amount_label_pattern = "|".join(re.escape(label) for label in amount_labels)
     amount_pattern = re.compile(
-        r"(%s)\s*[:：]?\s*[￥¥]?\s*([0-9]+(?:[.,][0-9]{1,2})?)" % amount_label_pattern
+        r"(%s)\s*[:：]?\s*[￥¥]?\s*([-−－]?\s*[0-9]+(?:[.,][0-9]{1,2})?)" % amount_label_pattern
     )
     for match in amount_pattern.finditer(raw_text):
         try:
-            value = float(match.group(2).replace(",", "."))
+            value = float(match.group(2).replace(",", ".").replace("−", "-").replace("－", "-"))
         except (TypeError, ValueError):
             continue
         amount_matches.append((match.group(1), value))
@@ -221,6 +231,14 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     else:
         payment_status = "unknown"
         payment_status_evidence = ""
+    if payment_status == "cancelled":
+        # Refund templates often contain several negative totals. Prefer the
+        # explicit refund amount over the generic item/order total while
+        # keeping amount_valid=False so it can never enter amount routing.
+        for source, value in amount_matches:
+            if source in ("应退金额", "退款金额", "实付金额"):
+                preferred_amount, amount_source = value, source
+                break
 
     lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
 
@@ -301,7 +319,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     # Discounts commonly produce both original total and paid total.  That is
     # still a valid amount source when the paid value does not exceed the
     # original/amount-due value.  Conflicting duplicate labels remain invalid.
-    for label in ("实付", "实收", "支付金额", "付款金额"):
+    for label in ("实付", "实付金额", "实收", "支付金额", "付款金额"):
         values = [value for source, value in amount_matches if source == label]
         if values and len({round(value, 2) for value in values}) > 1:
             amount_valid = False
@@ -367,6 +385,27 @@ def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
     parsed["receipt_kind"] = receipt_kind
     parsed["platform"] = platform
     parsed["is_official_receipt"] = receipt_kind in ("takeout", "dinein")
+
+    # This store's official POS only emits the customer settlement receipt
+    # after checkout.  Apply that local workflow rule only when the payload
+    # has the recognizable settlement shape; printer self-tests, kitchen
+    # slips, and refunds must remain unknown/cancelled.  A generic receipt
+    # without these markers still requires explicit payment evidence.
+    settlement_print = (
+        receipt_kind == "dinein"
+        and bool(parsed.get("full_order_id"))
+        and parsed.get("order_amount") is not None
+        and parsed.get("amount_valid") is True
+        and "人民币" in compact
+        and "订单时间" in compact
+        and "制作单" not in compact
+        and "后厨" not in compact
+        and parsed.get("payment_status") == "unknown"
+    )
+    if settlement_print:
+        parsed["payment_status"] = "paid"
+        parsed["payment_status_evidence"] = "官方 POS 结账单打印规则"
+        parsed["payment_status_confidence"] = "high"
 
     full_id = str(parsed.get("full_order_id") or "").strip()
     order_no = str(parsed.get("order_no") or "").strip()
@@ -608,4 +647,4 @@ class TakeoutPrintInterceptor(QObject):
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.5)
         self._thread = None
-        self.status_changed.emit("○ 外卖中继已停止")
+        self.status_changed.emit("○ 打印机中继已停止")

@@ -1171,61 +1171,73 @@ class SettingsWidget(QWidget):
         queue_hint.setWordWrap(True)
         queue_hint.setStyleSheet("color: #94A3B8; font-size: 14px;")
         action_row.addWidget(queue_hint, 0, 1)
-        self.btn_start_relay_listener = QPushButton(u"启动临时中继")
-        self._style_touch_action_btn(self.btn_start_relay_listener, "purple")
-        self.btn_start_relay_listener.clicked.connect(self._start_relay_listener)
-        action_row.addWidget(self.btn_start_relay_listener, 1, 0)
-        listener_hint = QLabel(u"官方 POS 显示未连接时，先点击这里启动监听，再回官方 POS 打印。")
-        listener_hint.setWordWrap(True)
-        listener_hint.setStyleSheet("color: #94A3B8; font-size: 14px;")
-        action_row.addWidget(listener_hint, 1, 1)
-        self.btn_stop_relay_listener = QPushButton(u"关闭临时中继")
-        self._style_touch_action_btn(self.btn_stop_relay_listener, "danger")
-        self.btn_stop_relay_listener.clicked.connect(self._stop_relay_listener)
-        action_row.addWidget(self.btn_stop_relay_listener, 2, 0)
-        stop_hint = QLabel(u"只停止本次监听，不清除配置；需要恢复时再次点击“启动临时中继”。")
-        stop_hint.setWordWrap(True)
-        stop_hint.setStyleSheet("color: #94A3B8; font-size: 14px;")
-        action_row.addWidget(stop_hint, 2, 1)
         step2_layout.addLayout(action_row)
         layout.addWidget(step2)
 
-        # Step 3: use a real ticket to validate raw data forwarding and
-        # recognition. The buttons remain separate so a failed parse never
-        # interrupts the original print path.
+        # Step 3: start/stop the temporary listener explicitly.  This is a
+        # runtime action and does not clear the saved relay configuration.
         step3, step3_layout = step_panel(
             3,
-            u"打印测试单并确认识别结果",
-            u"先刷新中继状态确认监听正常，再回官方 POS 打印真实测试单。只有订单号、最终金额和可靠付款状态都通过校验，才会自动进入增强模式和金额分流。",
+            u"启动或关闭临时中继",
+            u"官方 POS 显示收银机未连接时，先启动临时中继。关闭只停止本次监听，不会删除配置；需要恢复时再次启动。",
+        )
+        runtime_action_row = QGridLayout()
+        runtime_action_row.setHorizontalSpacing(12)
+        runtime_action_row.setVerticalSpacing(12)
+        self.btn_start_relay_listener = QPushButton(u"③ 启动临时中继")
+        self._style_touch_action_btn(self.btn_start_relay_listener, "purple")
+        self.btn_start_relay_listener.clicked.connect(self._start_relay_listener)
+        runtime_action_row.addWidget(self.btn_start_relay_listener, 0, 0)
+        self.btn_stop_relay_listener = QPushButton(u"③ 关闭临时中继")
+        self._style_touch_action_btn(self.btn_stop_relay_listener, "danger")
+        self.btn_stop_relay_listener.clicked.connect(self._stop_relay_listener)
+        runtime_action_row.addWidget(self.btn_stop_relay_listener, 0, 1)
+        step3_layout.addLayout(runtime_action_row)
+        layout.addWidget(step3)
+
+        # Step 4: refresh the detached listener/runtime status after starting.
+        step4, step4_layout = step_panel(
+            4,
+            u"刷新中继状态",
+            u"启动临时中继后点击刷新，确认端口正在监听且中继没有自动降级。",
         )
         action_title = QLabel(
-            u"测试顺序：③ 刷新中继状态　→　④ 回官方 POS 准备真实测试单。"
+            u"测试顺序：④ 刷新中继状态　→　⑤ 回官方 POS 准备真实测试单。"
             u"收到打印任务本身不等于已结账。"
         )
         action_title.setWordWrap(True)
         action_title.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 8px; padding: 10px; font-weight: bold;")
-        step3_layout.addWidget(action_title)
         test_row = QGridLayout()
         test_row.setHorizontalSpacing(12)
         test_row.setVerticalSpacing(12)
-        self.btn_refresh_relay_status = QPushButton(u"③ 刷新中继状态")
+        self.btn_refresh_relay_status = QPushButton(u"④ 刷新中继状态")
         self._style_touch_action_btn(self.btn_refresh_relay_status)
         self.btn_refresh_relay_status.clicked.connect(self._on_refresh_relay_status_clicked)
         test_row.addWidget(self.btn_refresh_relay_status, 0, 0)
-        self.btn_test_relay_print = QPushButton(u"④ 准备官方 POS 真实测试")
-        self._style_touch_action_btn(self.btn_test_relay_print, "blue")
-        self.btn_test_relay_print.clicked.connect(self._test_relay_print)
-        test_row.addWidget(self.btn_test_relay_print, 0, 1)
         self.lbl_relay_refresh_result = QLabel(u"尚未手动刷新中继状态")
         self.lbl_relay_refresh_result.setStyleSheet("color: #94A3B8; font-size: 14px;")
         test_row.addWidget(self.lbl_relay_refresh_result, 1, 0, 1, 2)
-        step3_layout.addLayout(test_row)
-        layout.addWidget(step3)
+        step4_layout.addWidget(action_title)
+        step4_layout.addLayout(test_row)
+        layout.addWidget(step4)
 
-        # Step 4: mapping is an optional recognition aid, not a transport
+        # Step 5: ask the operator to print one real ticket from the official
+        # POS.  The button never fabricates a payload or assumes payment.
+        step5, step5_layout = step_panel(
+            5,
+            u"准备官方 POS 真实测试",
+            u"回到官方 POS，选择已配置的 Windows 中继队列打印真实测试单；打印任务本身不等于已结账。",
+        )
+        self.btn_test_relay_print = QPushButton(u"⑤ 准备官方 POS 真实测试")
+        self._style_touch_action_btn(self.btn_test_relay_print, "blue")
+        self.btn_test_relay_print.clicked.connect(self._test_relay_print)
+        step5_layout.addWidget(self.btn_test_relay_print)
+        layout.addWidget(step5)
+
+        # Step 6: mapping is an optional recognition aid, not a transport
         # setting. Keeping it after the test makes the dependency explicit.
-        step4, step4_layout = step_panel(
-            4,
+        step6, step6_layout = step_panel(
+            6,
             u"调整官方 POS 字段识别映射（可选）",
             u"这里配置“票面文字对应什么字段”，不是直接改订单数据。多个关键词用逗号分隔；留空使用系统默认规则。"
             u"例如官方模板写“流水号”而不是“订单号”，就在订单号标签中填：订单号,订单编号,流水号。",
@@ -1261,24 +1273,24 @@ class SettingsWidget(QWidget):
             field.setMinimumHeight(50)
             mapping_grid.addWidget(field, row, 1, 1, 2)
             self.relay_mapping_fields[key] = field
-        step4_layout.addLayout(mapping_grid)
+        step6_layout.addLayout(mapping_grid)
         self.btn_save_relay_mapping = QPushButton(u"💾 保存字段映射")
         self._style_save_btn(self.btn_save_relay_mapping)
         self.btn_save_relay_mapping.clicked.connect(self._on_save_relay)
-        step4_layout.addWidget(self.btn_save_relay_mapping)
-        layout.addWidget(step4)
+        step6_layout.addWidget(self.btn_save_relay_mapping)
+        layout.addWidget(step6)
 
-        # Step 5: service lifecycle is intentionally last and separated from
+        # Step 7: service lifecycle is intentionally last and separated from
         # the everyday queue/test workflow.
-        step5, step5_layout = step_panel(
-            5,
+        step7, step7_layout = step_panel(
+            7,
             u"独立中继服务维护（可选）",
             u"只有需要开机自启、私域 POS 未启动时仍能监听时，才使用下面的服务操作。日常配置和测试不需要先安装服务。",
         )
         service_title = QLabel(u"服务名：ppposTakeoutRelay。安装/启动需要管理员权限；临时停止不会删除配置。")
         service_title.setWordWrap(True)
         service_title.setStyleSheet("color: #DDD6FE; background: #2E1065; border: 1px solid #7C3AED; border-radius: 8px; padding: 10px; font-weight: bold;")
-        step5_layout.addWidget(service_title)
+        step7_layout.addWidget(service_title)
         service_action_row = QGridLayout()
         self.btn_install_relay_service = QPushButton(u"安装独立服务")
         self._style_touch_action_btn(self.btn_install_relay_service, "purple")
@@ -1296,7 +1308,7 @@ class SettingsWidget(QWidget):
         self._style_touch_action_btn(self.btn_remove_relay_service, "danger")
         self.btn_remove_relay_service.clicked.connect(self._remove_relay_service)
         service_action_row.addWidget(self.btn_remove_relay_service, 1, 1)
-        step5_layout.addLayout(service_action_row)
+        step7_layout.addLayout(service_action_row)
         service_hint = QLabel(
             u"安装＝注册 Windows 服务；启动＝运行服务；临时停止＝只停止本次运行；卸载＝删除服务注册。"
             u"安装后中继可在界面关闭、私域 POS 未启动或机器重启后继续工作；"
@@ -1305,10 +1317,18 @@ class SettingsWidget(QWidget):
         )
         service_hint.setWordWrap(True)
         service_hint.setStyleSheet("color: #C4B5FD; background: #2E1065; border: 1px solid #7C3AED; border-radius: 10px; padding: 12px;")
-        step5_layout.addWidget(service_hint)
-        layout.addWidget(step5)
+        step7_layout.addWidget(service_hint)
+        layout.addWidget(step7)
         self._refresh_relay_status()
-        return self._wrap_in_scroll(card, [(u"① 中继配置", [2, 3, 4]), (u"② 连接检查", [5]), (u"③ 识别测试", [6]), (u"④ 字段映射", [7]), (u"服务维护", [8])])
+        return self._wrap_in_scroll(card, [
+            (u"① 中继配置", [2, 3, 4]),
+            (u"② 连接检查", [5]),
+            (u"③ 启动/关闭中继", [6]),
+            (u"④ 状态刷新", [7]),
+            (u"⑤ 真实测试", [8]),
+            (u"⑥ 字段映射", [9]),
+            (u"服务维护", [10]),
+        ])
 
     # ────────────────────────────────────────────────────────────
     # 页面 7: 打印纸格式
@@ -1608,7 +1628,7 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info, show_warning
         controller = getattr(self.window(), "takeout_interceptor", None)
         if controller is None:
-            show_warning(self, u"中继服务不可用", u"当前窗口尚未加载外卖中继控制器。")
+            show_warning(self, u"中继服务不可用", u"当前窗口尚未加载打印机中继控制器。")
             return
         try:
             action(controller)
@@ -2671,7 +2691,7 @@ class SettingsWidget(QWidget):
         lbl_io_title.setStyleSheet("font-size: 15px; font-weight: 900; color: #38BDF8; border: none; background: transparent;")
         io_layout.addWidget(lbl_io_title)
 
-        lbl_io_desc = QLabel(u"将系统设置、外卖中继规则、私域门限及收钱吧等配置导出为 JSON 或 Zip 压缩包，方便快速迁移至其他窗口设备。")
+        lbl_io_desc = QLabel(u"将系统设置、打印机中继规则、私域门限及收钱吧等配置导出为 JSON 或 Zip 压缩包，方便快速迁移至其他窗口设备。")
         lbl_io_desc.setWordWrap(True)
         lbl_io_desc.setStyleSheet("font-size: 13px; color: #94A3B8; border: none; background: transparent;")
         io_layout.addWidget(lbl_io_desc)
@@ -2707,7 +2727,7 @@ class SettingsWidget(QWidget):
                 self._on_reset_sys_config
             ),
             (
-                u"↔", u"还原【外卖中继与排序规则】",
+                u"↔", u"还原【打印机中继与订单识别规则】",
                 u"仅还原外卖分类、菜品关键字、匹配模式及打票字号规则 (takeout.json)。", 
                 u"↔ 还原外卖规则",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
@@ -5170,14 +5190,14 @@ class SettingsWidget(QWidget):
             show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
 
     def _on_reset_takeout_config(self):
-        """还原外卖中继与排序规则 (takeout.json)"""
+        """还原打印机中继与订单识别规则 (takeout.json)"""
         from ui.custom_dialog import show_question, show_info, show_error
-        if not show_question(self, u"还原确认", u"确定要将【外卖中继与排序规则】还原为出厂默认设置吗？"):
+        if not show_question(self, u"还原确认", u"确定要将【打印机中继与订单识别规则】还原为出厂默认设置吗？"):
             return
         try:
             backup_config_bundle("before_reset_takeout")
             self.config = reset_module_config(self.config, "takeout")
-            show_info(self, u"还原成功", u"【外卖中继与排序规则】(data/settings/takeout.json) 已成功还原为出厂默认值！")
+            show_info(self, u"还原成功", u"【打印机中继与订单识别规则】(data/settings/takeout.json) 已成功还原为出厂默认值！")
         except Exception as e:
             show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
 

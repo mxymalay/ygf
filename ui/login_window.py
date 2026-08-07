@@ -12,6 +12,7 @@ from utils.port_scanner import scan_printers
 from config import save_config, app_branding
 from utils.window_utils import find_official_window_handle, is_official_window_configured
 from core.app_logger import log_event, CAT_SYSTEM
+from core.takeout_relay import validate_relay_config
 
 def check_ygf_official_running(config=None) -> bool:
     """检测已配置的官方 POS 窗口是否正在运行。"""
@@ -336,7 +337,7 @@ class LoginWindow(QDialog):
         self.card1, self.lbl_title1, self.lbl_badge1 = self._create_check_card(u"💻  官方 POS 窗口（按配置识别）")
         self.card1_sub, self.lbl_title1_sub, self.lbl_badge1_sub = self._create_check_card(u"⚖️  COM 电子秤串口数据源")
         # 使用 Win7 字体稳定支持的单色符号，避免打印机 Emoji 显示成方框。
-        self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"♨  热敏小票打印机外设")
+        self.card2, self.lbl_title2, self.lbl_badge2 = self._create_check_card(u"♨  热敏打印机与打印机中继")
         self.card3, self.lbl_title3, self.lbl_badge3 = self._create_check_card(u"💳  收钱吧串口通信联动")
 
         check_layout.addWidget(self.card1)
@@ -560,15 +561,35 @@ class LoginWindow(QDialog):
         log_event(CAT_SYSTEM, "登录检测阶段", "执行打印机检测")
         self.progress_bar.setValue(70)
         printers = scan_printers()
-        if printers:
-            self.lbl_badge2.setText(u"✔ 设备就绪")
+        relay_ok, relay_detail = self._check_printer_relay()
+        if printers and relay_ok:
+            self.lbl_badge2.setText(u"✔ 打印机/中继正常")
             self.lbl_badge2.setStyleSheet("color: #34D399; background-color: #064E3B; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;")
+        elif printers:
+            self.lbl_badge2.setText(u"✔ 打印机就绪 · %s" % relay_detail)
+            self.lbl_badge2.setStyleSheet("color: #BAE6FD; background-color: #0C4A6E; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #0284C7;")
         else:
             self.lbl_badge2.setText(u"⚠️ 未连接")
             self.lbl_badge2.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
             self.hardware_warnings.append("打印机未连接")
+        if not relay_ok and bool(self.config.get("takeout_interceptor_enabled", False)):
+            self.hardware_warnings.append(u"打印机中继：%s" % relay_detail)
         
         QTimer.singleShot(250, self._check_shouqianba)
+
+    def _check_printer_relay(self):
+        """Check configured printer-relay transport without starting it."""
+        if not bool(self.config.get("takeout_interceptor_enabled", False)):
+            return True, u"未启用（兼容模式）"
+        try:
+            report = validate_relay_config(self.config, check_windows=True)
+        except Exception as exc:
+            return False, u"检测异常：%s" % exc
+        if report.get("errors"):
+            return False, u"配置异常：%s" % "；".join(report["errors"])
+        if report.get("warnings"):
+            return True, u"已配置（%s）" % "；".join(report["warnings"])
+        return True, u"已配置并通过队列检查"
 
     def _check_shouqianba(self):
         log_event(CAT_SYSTEM, "登录检测阶段", "开始收钱吧检测")
