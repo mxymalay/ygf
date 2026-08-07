@@ -314,6 +314,13 @@ class SettingsWidget(QWidget):
         self.config = config
         self.nav_buttons = []
         self._build_ui()
+        # Keep the relay page live while the operator is preparing the
+        # official POS test.  The poll only reads the small status JSON and
+        # never starts/stops a listener or writes configuration.
+        self._relay_status_timer = QTimer(self)
+        self._relay_status_timer.setInterval(1200)
+        self._relay_status_timer.timeout.connect(self._refresh_relay_status)
+        self._relay_status_timer.start()
 
     def _make_label(self, text):
         """统一生成适合触屏收银机阅读的字段标签。"""
@@ -1174,11 +1181,13 @@ class SettingsWidget(QWidget):
         step2_layout.addLayout(action_row)
         layout.addWidget(step2)
 
-        # Step 3: start/stop the temporary listener explicitly.  This is a
-        # runtime action and does not clear the saved relay configuration.
+        # Steps 3 and 4 are one runtime operation: start/stop the temporary
+        # listener, then refresh the same live state card.  Keeping them
+        # together avoids making the operator jump between two panels while
+        # the official POS is waiting for its queue connection.
         step3, step3_layout = step_panel(
-            3,
-            u"启动或关闭临时中继",
+            u"3-4",
+            u"启动/关闭临时中继并刷新状态",
             u"官方 POS 显示收银机未连接时，先启动临时中继。关闭只停止本次监听，不会删除配置；需要恢复时再次启动。",
         )
         runtime_action_row = QGridLayout()
@@ -1193,17 +1202,9 @@ class SettingsWidget(QWidget):
         self.btn_stop_relay_listener.clicked.connect(self._stop_relay_listener)
         runtime_action_row.addWidget(self.btn_stop_relay_listener, 0, 1)
         step3_layout.addLayout(runtime_action_row)
-        layout.addWidget(step3)
-
-        # Step 4: refresh the detached listener/runtime status after starting.
-        step4, step4_layout = step_panel(
-            4,
-            u"刷新中继状态",
-            u"启动临时中继后点击刷新，确认端口正在监听且中继没有自动降级。",
-        )
         action_title = QLabel(
-            u"测试顺序：④ 刷新中继状态　→　⑤ 回官方 POS 准备真实测试单。"
-            u"收到打印任务本身不等于已结账。"
+            u"下一步：④ 刷新中继状态　→　⑤ 回官方 POS 准备真实测试单。"
+            u"收到打印任务本身不等于已结账；下方会实时显示最近一笔收到的数据。"
         )
         action_title.setWordWrap(True)
         action_title.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 8px; padding: 10px; font-weight: bold;")
@@ -1217,9 +1218,16 @@ class SettingsWidget(QWidget):
         self.lbl_relay_refresh_result = QLabel(u"尚未手动刷新中继状态")
         self.lbl_relay_refresh_result.setStyleSheet("color: #94A3B8; font-size: 14px;")
         test_row.addWidget(self.lbl_relay_refresh_result, 1, 0, 1, 2)
-        step4_layout.addWidget(action_title)
-        step4_layout.addLayout(test_row)
-        layout.addWidget(step4)
+        step3_layout.addWidget(action_title)
+        step3_layout.addLayout(test_row)
+        self.lbl_relay_live_received = QLabel(u"实时监控：等待官方 POS 打印数据")
+        self.lbl_relay_live_received.setWordWrap(True)
+        self.lbl_relay_live_received.setStyleSheet(
+            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 10px; padding: 12px;"
+        )
+        step3_layout.addWidget(self.lbl_relay_live_received)
+        layout.addWidget(step3)
 
         # Step 5: ask the operator to print one real ticket from the official
         # POS.  The button never fabricates a payload or assumes payment.
@@ -1274,7 +1282,17 @@ class SettingsWidget(QWidget):
             mapping_grid.addWidget(field, row, 1, 1, 2)
             self.relay_mapping_fields[key] = field
         step6_layout.addLayout(mapping_grid)
-        self.btn_save_relay_mapping = QPushButton(u"💾 保存字段映射")
+        self.lbl_relay_mapping_preview = QLabel()
+        self.lbl_relay_mapping_preview.setWordWrap(True)
+        self.lbl_relay_mapping_preview.setStyleSheet(
+            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 10px; padding: 12px;"
+        )
+        step6_layout.addWidget(self.lbl_relay_mapping_preview)
+        for field in self.relay_mapping_fields.values():
+            field.textChanged.connect(self._update_relay_mapping_preview)
+        self._update_relay_mapping_preview()
+        self.btn_save_relay_mapping = QPushButton(u"💾 保存映射并刷新状态")
         self._style_save_btn(self.btn_save_relay_mapping)
         self.btn_save_relay_mapping.clicked.connect(self._on_save_relay)
         step6_layout.addWidget(self.btn_save_relay_mapping)
@@ -1323,11 +1341,10 @@ class SettingsWidget(QWidget):
         return self._wrap_in_scroll(card, [
             (u"① 中继配置", [2, 3, 4]),
             (u"② 连接检查", [5]),
-            (u"③ 启动/关闭中继", [6]),
-            (u"④ 状态刷新", [7]),
-            (u"⑤ 真实测试", [8]),
-            (u"⑥ 字段映射", [9]),
-            (u"服务维护", [10]),
+            (u"③-④ 中继控制与状态", [6]),
+            (u"⑤ 真实测试", [7]),
+            (u"⑥ 字段映射", [8]),
+            (u"服务维护", [9]),
         ])
 
     # ────────────────────────────────────────────────────────────
@@ -1794,6 +1811,27 @@ class SettingsWidget(QWidget):
         }
         return config
 
+    def _update_relay_mapping_preview(self):
+        """Explain the current ticket-keyword -> parsed-field relationship."""
+        label_names = (
+            ("order_id_labels", u"票面关键词 → 官方订单号"),
+            ("amount_labels", u"票面关键词 → 订单金额"),
+            ("paid_keywords", u"票面关键词 → 已结账状态"),
+            ("cancelled_keywords", u"票面关键词 → 取消/退款状态"),
+            ("dinein_keywords", u"票面关键词 → 堂食票据类型"),
+        )
+        lines = [u"当前字段对应关系（保存后生效）："]
+        for key, title in label_names:
+            field = getattr(self, "relay_mapping_fields", {}).get(key)
+            values = [item.strip() for item in (field.text() if field else "").split(",") if item.strip()]
+            lines.append(u"• %s：%s" % (title, u"、".join(values) if values else u"使用系统默认关键词"))
+        lines.append(
+            u"说明：这里只决定如何从官方 POS 票面识别字段，不会手动把订单改成已结账。"
+            u"保存后，下一张真实打印单会按新映射自动重新判断；只有订单号、金额和付款状态都验证通过，才会自动进入增强模式。"
+        )
+        if hasattr(self, "lbl_relay_mapping_preview"):
+            self.lbl_relay_mapping_preview.setText("\n".join(lines))
+
     def _on_relay_printer_type_changed(self, index=None):
         """只显示当前实体输出方式需要的配置，其他旧值继续保留。"""
         if not hasattr(self, "cmb_relay_printer_type"):
@@ -1830,10 +1868,18 @@ class SettingsWidget(QWidget):
             except Exception:
                 pass
         self._refresh_relay_status()
+        is_mapping_save = self.sender() is getattr(self, "btn_save_relay_mapping", None)
         if report.get("errors"):
             show_warning(self, u"配置已保存但尚未完成", u"中继当前停用，已保留配置。启用前请修复：\n" + "\n".join(report["errors"]))
         else:
-            show_info(self, u"保存成功", u"打印机中继配置已保存。下一步请检查 Windows 队列并打印真实测试单。")
+            if is_mapping_save:
+                show_info(
+                    self, u"字段映射已保存",
+                    u"已刷新当前中继状态。若当前仍是兼容模式，请回官方 POS 打印一张真实测试单；"
+                    u"系统会根据新映射自动判断，不能仅凭手动刷新把未知数据强制变成增强模式。",
+                )
+            else:
+                show_info(self, u"保存成功", u"打印机中继配置已保存。下一步请检查 Windows 队列并打印真实测试单。")
 
     def _check_relay_queue(self):
         from ui.custom_dialog import show_info, show_warning
@@ -1933,6 +1979,37 @@ class SettingsWidget(QWidget):
             u"连接/监听正常" if running else u"未运行或已降级", mode_label(mode),
             policy_label, mode_reason, mode_changed, source, identified_at,
             enhanced_at, detail, service_detail))
+        received = state.get("last_received") or {}
+        if hasattr(self, "lbl_relay_live_received"):
+            if not received:
+                live_text = u"实时监控：尚未收到官方 POS 打印数据"
+            else:
+                kind_labels = {"dinein": u"堂食", "takeout": u"外卖", "unknown": u"未识别"}
+                status_labels = {
+                    "paid": u"已结账", "cancelled": u"已取消/退款", "unknown": u"状态未知",
+                }
+                amount = received.get("amount")
+                amount_text = u"未知" if amount is None else u"¥%.2f" % float(amount)
+                order_id = received.get("order_id") or u"未提取到订单号"
+                payment = status_labels.get(str(received.get("payment_status") or "unknown"), str(received.get("payment_status")))
+                evidence = received.get("payment_evidence") or u"无付款状态依据"
+                flags = []
+                if received.get("parse_failed"):
+                    flags.append(u"解析失败，已保留原始打印路径")
+                if received.get("duplicate"):
+                    flags.append(u"重复观察，未重复计算")
+                if received.get("conflict_detected"):
+                    flags.append(u"金额/状态冲突，未重复计算")
+                flag_text = u"；".join(flags) if flags else u"本次未发现重复"
+                live_text = (
+                    u"实时监控：最近收到 %s｜类型=%s｜订单号=%s｜金额=%s（%s）｜付款=%s｜商品数=%s\n"
+                    u"依据=%s｜置信度=%s｜数据格式=%s｜%s"
+                    % (received.get("received_at") or u"未知", kind_labels.get(str(received.get("receipt_kind")), u"未识别"),
+                       order_id, amount_text, u"已校验" if received.get("amount_valid") else u"未校验",
+                       payment, received.get("item_count") or 0, evidence,
+                       received.get("confidence") or u"未知", received.get("payload_type") or u"未知", flag_text)
+                )
+            self.lbl_relay_live_received.setText(live_text)
         if hasattr(self, "lbl_relay_refresh_result"):
             self.lbl_relay_refresh_result.setText(
                 u"状态已刷新：%s（%s）" % (

@@ -312,8 +312,11 @@ class MainWindow(QMainWindow):
         if width <= 0:
             label.setText(self._hardware_status_full_text)
             return
+        # Keep the beginning of the warning visible (it tells the operator
+        # which device failed) and trim only the tail when the status bar is
+        # narrow.  ElideLeft made the useful "硬件告警/称" prefix disappear.
         label.setText(label.fontMetrics().elidedText(
-            self._hardware_status_full_text, Qt.ElideLeft, width
+            self._hardware_status_full_text, Qt.ElideRight, width
         ))
 
     def _constrain_hardware_status_label(self):
@@ -390,8 +393,7 @@ class MainWindow(QMainWindow):
         steps = (
             (u"正在检查：官方 POS 窗口", self._check_official_window),
             (u"正在检查：电子秤通信", self._check_scale_connection),
-            (u"正在检查：热敏打印机", self._check_printer_connection),
-            (u"正在检查：打印机中继", self._check_printer_relay_connection),
+            (u"正在检查：热敏打印机与打印机中继", self._check_printer_connection),
             (u"正在检查：收钱吧通信", self._check_shouqianba_connection),
         )
         if self._hardware_check_step >= len(steps):
@@ -422,6 +424,21 @@ class MainWindow(QMainWindow):
     def _check_scale_connection(self):
         if self.config.get("scale_source", "official") != "com":
             return
+        # The live SaleWidget already owns the configured COM port.  Opening
+        # that port a second time during the bottom-bar recheck is expected to
+        # fail with "port occupied" and must not be reported as a hardware
+        # fault.  Reuse the reader's own connection state instead.
+        # ``MainWindow`` test doubles (and very early startup) may not have
+        # completed QObject initialization; direct QObject attribute lookup
+        # can raise before returning the usual default.  Read __dict__ first.
+        sale_page = self.__dict__.get("sale_page")
+        live_reader = getattr(sale_page, "scale", None) if sale_page is not None else None
+        live_connected = bool(getattr(sale_page, "_scale_connected", False))
+        live_serial = getattr(live_reader, "_serial", None)
+        live_serial_open = bool(getattr(live_serial, "is_open", False))
+        self._hardware_check_state["scale_ok"] = bool(live_connected or live_serial_open)
+        if live_connected or live_serial_open:
+            return
         from ui.login_window import probe_dibal_scale_connection
 
         scale_ok, detail = probe_dibal_scale_connection(self.config)
@@ -441,6 +458,9 @@ class MainWindow(QMainWindow):
 
         if not scan_printers():
             self.hardware_warnings.append(u"打印机未连接")
+        # Keep the recheck flow compact while covering both physical output
+        # and the configured printer relay in the same printer stage.
+        self._check_printer_relay_connection()
 
     def _check_printer_relay_connection(self):
         """Check the configured printer-relay queue without starting it."""

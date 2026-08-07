@@ -164,6 +164,10 @@ class TakeoutProxyHost:
         self.last_identified_at = ""
         self.last_enhanced_success_at = str(self.config.get("takeout_relay_last_success_at", "") or "")
         self.last_payload_type = ""
+        # A small, sanitized snapshot for the settings page.  Keep raw
+        # printer bytes/text in the optional capture files only; the runtime
+        # status is safe to poll and show in real time.
+        self.last_received = {}
         self.mode_reason = str(self.config.get("takeout_relay_mode_reason", "") or "")
         self.last_mode_change_at = str(self.config.get("takeout_relay_mode_changed_at", "") or "")
         self._last_status_at = 0
@@ -213,6 +217,7 @@ class TakeoutProxyHost:
             "last_identified_at": self.last_identified_at,
             "last_enhanced_success_at": self.last_enhanced_success_at,
             "payload_type": self.last_payload_type,
+            "last_received": self.last_received,
         })
         self._last_status_at = time.time()
 
@@ -253,6 +258,7 @@ class TakeoutProxyHost:
                 or parsed.get("full_order_id")
             )
         )
+        self._update_last_received(parsed, intercepted, parse_failed=parse_failed)
         if parse_failed:
             # The relay owns the physical output path.  Preserve the original
             # receipt whenever recognition cannot be trusted; parsing must
@@ -269,6 +275,7 @@ class TakeoutProxyHost:
                 self.last_error = "真实打印机不能等于中继队列，已阻止原始转发回环"
                 self.last_message = "解析失败且配置存在回环风险，已降级并阻止转发"
                 self._set_mode(MODE_COMPATIBILITY, "中继队列与实体打印机相同，已阻止打印回环")
+                self._write_status()
                 return
             if raw_payload:
                 printer = ReceiptPrinter(self.config)
@@ -282,6 +289,7 @@ class TakeoutProxyHost:
                 self.last_error = "无法取得原始打印数据"
                 self.last_message = "订单状态未知且无原始数据，已降级到兼容模式"
             self._set_mode(MODE_COMPATIBILITY, self.last_message)
+            self._write_status()
             return
 
         # Dine-in/customer receipts share the relay queue but must keep their
@@ -304,6 +312,7 @@ class TakeoutProxyHost:
                 self.last_error = "官方票据流水入账失败：%s" % exc
             parsed["duplicate"] = not created
             parsed["conflict_detected"] = bool((_row or {}).get("conflict_detected"))
+            self._update_last_received(parsed, intercepted, parse_failed=False)
             self.last_order = "%s %s" % (
                 parsed.get("platform", "官方POS-堂食"),
                 parsed.get("full_order_id") or parsed.get("order_no") or "无订单号",
@@ -347,6 +356,7 @@ class TakeoutProxyHost:
             else:
                 self.last_error = "无法取得堂食原始打印数据"
                 self.last_message = "堂食票据已记录，但没有原始数据可转发"
+            self._write_status()
             return
 
         parsed["raw_text"] = raw_text
@@ -364,6 +374,7 @@ class TakeoutProxyHost:
             self.last_error = "官方票据流水入账失败：%s" % exc
         job, created = self.jobs.create_or_get(parsed, raw_text)
         parsed["duplicate"] = not created
+        self._update_last_received(parsed, intercepted, parse_failed=False)
         try:
             self.official_db.record_takeout_order(
                 job.get("key"), parsed=parsed, job=job,
@@ -409,9 +420,11 @@ class TakeoutProxyHost:
                 self.last_message = "同一订单金额/状态发生变化，未重复计算分流：" + self.last_order
             else:
                 self.last_message = "重复外卖单已拦截，未自动重打：" + self.last_order
+            self._write_status()
             return
         if not self.config.get("takeout_auto_print", True):
             self.last_message = "已保存外卖单，已按设置跳过自动打印：" + self.last_order
+            self._write_status()
             return
 
         queue_name = str(self.config.get("takeout_proxy_queue_name", "")).strip().casefold()
@@ -430,6 +443,7 @@ class TakeoutProxyHost:
                 self.official_db.update_takeout_order_print_result(job.get("key"), False, 0, self.last_error)
             except Exception:
                 pass
+            self._write_status()
             return
 
         kitchen = max(0, int(self.config.get("takeout_kitchen_copies", 1) or 0))
@@ -443,6 +457,7 @@ class TakeoutProxyHost:
                 self.official_db.update_takeout_order_print_result(job.get("key"), False, 0, self.last_error)
             except Exception:
                 pass
+            self._write_status()
             return
 
         raw_ticket = bytearray()
@@ -463,6 +478,36 @@ class TakeoutProxyHost:
         else:
             self.last_error = printer.last_error or "真实打印机未返回成功"
             self.last_message = "已拦截订单，但转发打印失败：" + self.last_order
+        self._write_status()
+
+    def _update_last_received(self, parsed, intercepted, parse_failed=False):
+        """Publish only stable identifiers/results for live relay monitoring."""
+        parsed = parsed if isinstance(parsed, dict) else {}
+        amount = parsed.get("order_amount")
+        try:
+            amount = float(amount) if amount is not None else None
+        except (TypeError, ValueError):
+            amount = None
+        try:
+            item_count = int(parsed.get("item_count") or 0)
+        except (TypeError, ValueError):
+            item_count = 0
+        self.last_received = {
+            "received_at": _now(),
+            "payload_type": self.last_payload_type,
+            "parse_failed": bool(parse_failed),
+            "receipt_kind": str(parsed.get("receipt_kind") or "unknown"),
+            "platform": str(parsed.get("platform") or "官方 POS"),
+            "order_id": str(parsed.get("full_order_id") or parsed.get("order_no") or ""),
+            "amount": amount,
+            "amount_valid": bool(parsed.get("amount_valid")),
+            "payment_status": str(parsed.get("payment_status") or "unknown"),
+            "payment_evidence": str(parsed.get("payment_status_evidence") or ""),
+            "confidence": str(parsed.get("confidence") or "unknown"),
+            "item_count": item_count,
+            "duplicate": bool(parsed.get("duplicate")),
+            "conflict_detected": bool(parsed.get("conflict_detected")),
+        }
 
     def run(self):
         _clear_stop_request()
@@ -565,7 +610,17 @@ class TakeoutProxyController:
             return state
         if state.get("last_error"):
             return state
-        return {"running": False, "port": self.port, "message": "打印机中继守护进程未运行"}
+        # Preserve the last observed ticket/mode when the listener is down;
+        # otherwise the settings page would erase the useful test result as
+        # soon as a temporary relay is stopped or auto-degraded.
+        result = {"running": False, "port": self.port, "message": "打印机中继守护进程未运行"}
+        for key in (
+            "last_received", "last_identified_at", "last_enhanced_success_at",
+            "payload_type", "mode", "mode_policy", "mode_reason", "mode_changed_at",
+        ):
+            if key in state:
+                result[key] = state.get(key)
+        return result
 
     def start(self):
         self._temporarily_stopped = False
