@@ -78,14 +78,49 @@ def _install_complete_message(display_name, target_dir):
 
 
 def _open_installed_app(target_dir):
-    """Start the installed launcher after the completion dialog is closed."""
+    """Start the installed launcher after this one-file installer exits.
+
+    On Win7, launching another PyInstaller one-file executable immediately
+    from this installer makes the child try to remove the installer's still
+    locked ``_MEI`` directory.  Use a tiny detached cmd helper that waits for
+    the parent process to finish before starting the installed POS.
+    """
     launcher = os.path.join(os.path.abspath(target_dir), "启动.exe")
     if not os.path.isfile(launcher):
         return False
+    script = None
     try:
-        subprocess.Popen([launcher], cwd=os.path.dirname(launcher), close_fds=True)
+        if os.name == "nt":
+            script = os.path.join(
+                tempfile.gettempdir(),
+                "ygf_pos_start_%s.cmd" % os.getpid(),
+            )
+            # ping is available on every supported Win7 image and provides a
+            # shell-level delay without keeping the installer process alive.
+            with open(script, "w", encoding="mbcs", errors="replace") as handle:
+                handle.write("@echo off\r\n")
+                handle.write("ping 127.0.0.1 -n 3 >nul\r\n")
+                handle.write('start "" "%s"\r\n' % launcher.replace('"', '""'))
+                handle.write('del "%%~f0"\r\n')
+            flags = (
+                getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+            subprocess.Popen(
+                ["cmd.exe", "/d", "/c", script],
+                cwd=os.path.dirname(launcher),
+                close_fds=True,
+                creationflags=flags,
+            )
+        else:
+            subprocess.Popen([launcher], cwd=os.path.dirname(launcher), close_fds=True)
         return True
     except (OSError, subprocess.SubprocessError):
+        try:
+            if os.path.isfile(script):
+                os.remove(script)
+        except (OSError, UnboundLocalError):
+            pass
         return False
 
 
@@ -603,20 +638,28 @@ def _stop_service(install_dir, remove=False):
         pass
 
 
-TAKEOUT_SERVICE_NAME = "ppposTakeoutRelay"
+PRINTER_RELAY_SERVICE_NAME = "ppposPrinterRelay"
+LEGACY_PRINTER_RELAY_SERVICE_NAME = "ppposTakeoutRelay"
 
 
-def _stop_takeout_service(install_dir, remove=False):
-    service_exe = os.path.join(install_dir, "TakeoutRelayService.exe")
-    try:
-        if os.path.isfile(service_exe):
-            _run_hidden([service_exe, "stop"], timeout=60)
-            if remove:
-                _run_hidden([service_exe, "remove"], timeout=60)
-        elif remove:
-            _run_hidden(["sc.exe", "delete", TAKEOUT_SERVICE_NAME], timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        pass
+def _stop_printer_relay_service(install_dir, remove=False):
+    """Stop both current and legacy relay registrations during upgrade."""
+    for filename in ("PrinterRelayService.exe", "TakeoutRelayService.exe"):
+        service_exe = os.path.join(install_dir, filename)
+        try:
+            if os.path.isfile(service_exe):
+                _run_hidden([service_exe, "stop"], timeout=60)
+                if remove:
+                    _run_hidden([service_exe, "remove"], timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if remove:
+        for service_name in (PRINTER_RELAY_SERVICE_NAME, LEGACY_PRINTER_RELAY_SERVICE_NAME):
+            try:
+                _run_hidden(["sc.exe", "stop", service_name], timeout=30)
+                _run_hidden(["sc.exe", "delete", service_name], timeout=30)
+            except (OSError, subprocess.SubprocessError):
+                pass
 
 
 def _remove_legacy_scale_services():
@@ -669,19 +712,22 @@ def _install(target_dir, display_name, icon_preset="yangguofu"):
     old_display_name = _registry_display_name() or APP_DISPLAY_NAME
     _remove_legacy_scale_services()
     was_running = _service_running()
-    takeout_was_running = False
-    try:
-        result = _run_hidden(["sc.exe", "query", TAKEOUT_SERVICE_NAME], timeout=20)
-        output = ((result.stdout or b"") + (result.stderr or b"")).decode("mbcs", errors="ignore")
-        takeout_was_running = result.returncode == 0 and ("RUNNING" in output.upper() or "运行" in output)
-    except (OSError, UnicodeError, subprocess.SubprocessError):
-        pass
+    printer_relay_was_running = False
+    for service_name in (PRINTER_RELAY_SERVICE_NAME, LEGACY_PRINTER_RELAY_SERVICE_NAME):
+        try:
+            result = _run_hidden(["sc.exe", "query", service_name], timeout=20)
+            output = ((result.stdout or b"") + (result.stderr or b"")).decode("mbcs", errors="ignore")
+            printer_relay_was_running = printer_relay_was_running or (
+                result.returncode == 0 and ("RUNNING" in output.upper() or "运行" in output)
+            )
+        except (OSError, UnicodeError, subprocess.SubprocessError):
+            pass
     if old_dir and _norm(old_dir) != _norm(target_dir):
         _stop_service(old_dir, remove=True)
-        _stop_takeout_service(old_dir, remove=True)
+        _stop_printer_relay_service(old_dir, remove=True)
     else:
         _stop_service(target_dir, remove=False)
-        _stop_takeout_service(target_dir, remove=False)
+        _stop_printer_relay_service(target_dir, remove=False)
     _safe_extract_payload(target_dir)
     _write_runtime_branding(target_dir, icon_preset)
     # Keep the uninstaller beside the launcher.  It is intentionally copied
@@ -708,8 +754,10 @@ def _install(target_dir, display_name, icon_preset="yangguofu"):
     _create_shortcut(uninstall_link, os.path.join(target_dir, "卸载.exe"), target_dir, "卸载 %s" % display_name)
     if was_running and (not old_dir or _norm(old_dir) == _norm(target_dir)):
         _run_hidden([os.path.join(target_dir, "ScaleBridgeService.exe"), "start"], timeout=60)
-    if takeout_was_running and (not old_dir or _norm(old_dir) == _norm(target_dir)):
-        _run_hidden([os.path.join(target_dir, "TakeoutRelayService.exe"), "start"], timeout=60)
+    if printer_relay_was_running and (not old_dir or _norm(old_dir) == _norm(target_dir)):
+        service_exe = os.path.join(target_dir, "PrinterRelayService.exe")
+        if os.path.isfile(service_exe):
+            _run_hidden([service_exe, "start"], timeout=60)
 
 
 def _schedule_remove(install_dir, keep_data):
@@ -762,7 +810,7 @@ def _uninstall(install_dir, root=None):
             return
     display_name = _registry_display_name() or APP_DISPLAY_NAME
     _stop_service(install_dir, remove=True)
-    _stop_takeout_service(install_dir, remove=True)
+    _stop_printer_relay_service(install_dir, remove=True)
     _remove_shortcuts(display_name)
     _remove_uninstall_entry()
     _schedule_remove(install_dir, keep_data)

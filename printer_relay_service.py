@@ -21,15 +21,15 @@ except ImportError:  # Static analysis/non-Windows fallback.
 from core.takeout_proxy_host import TakeoutProxyHost, request_proxy_stop, _clear_stop_request
 
 
-SERVICE_NAME = "ppposTakeoutRelay"
-SERVICE_DISPLAY_NAME = "ppposTakeoutRelay"
+SERVICE_NAME = "ppposPrinterRelay"
+SERVICE_DISPLAY_NAME = "ppposPrinterRelay"
 
 
 if win32serviceutil:
-    class TakeoutRelayWindowsService(win32serviceutil.ServiceFramework):
+    class PrinterRelayWindowsService(win32serviceutil.ServiceFramework):
         _svc_name_ = SERVICE_NAME
         _svc_display_name_ = SERVICE_DISPLAY_NAME
-        _svc_description_ = "Independent RAW printer relay for official POS external orders."
+        _svc_description_ = "Independent RAW printer relay for official POS and order data."
 
         def __init__(self, args):
             win32serviceutil.ServiceFramework.__init__(self, args)
@@ -48,19 +48,19 @@ if win32serviceutil:
             finally:
                 servicemanager.LogInfoMsg("%s stopped" % SERVICE_NAME)
 else:
-    TakeoutRelayWindowsService = None
+    PrinterRelayWindowsService = None
 
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if not win32serviceutil or not TakeoutRelayWindowsService:
+    if not win32serviceutil or not PrinterRelayWindowsService:
         raise RuntimeError("pywin32 is required to install or host the relay service")
     if getattr(sys, "frozen", False) and not args:
         servicemanager.Initialize()
-        servicemanager.PrepareToHostSingle(TakeoutRelayWindowsService)
+        servicemanager.PrepareToHostSingle(PrinterRelayWindowsService)
         servicemanager.StartServiceCtrlDispatcher()
         return 0
-    return int(win32serviceutil.HandleCommandLine(TakeoutRelayWindowsService) or 0)
+    return int(win32serviceutil.HandleCommandLine(PrinterRelayWindowsService) or 0)
 
 
 if __name__ == "__main__":

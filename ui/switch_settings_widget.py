@@ -1643,13 +1643,24 @@ class SwitchSettingsWidget(QWidget):
         lbl_w_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_w_tip)
 
-        self.sp_weekday_max_daily_limit = TouchDoubleSpinBox(500.0, 0.0, 999999.0, 100.0, " 元")
-        lay1.addRow(QLabel(u"周中累计收款上限:"), self.sp_weekday_max_daily_limit)
+        self.sp_mon_thu_max_daily_limit = TouchDoubleSpinBox(500.0, 0.0, 999999.0, 100.0, " 元")
+        lay1.addRow(QLabel(u"周一至周四累计收款上限:"), self.sp_mon_thu_max_daily_limit)
 
-        self.sp_weekend_max_daily_limit = TouchDoubleSpinBox(1000.0, 0.0, 999999.0, 100.0, " 元")
-        lay1.addRow(QLabel(u"周末累计收款上限:"), self.sp_weekend_max_daily_limit)
+        self.sp_friday_max_daily_limit = TouchDoubleSpinBox(500.0, 0.0, 999999.0, 100.0, " 元")
+        lay1.addRow(QLabel(u"周五累计收款上限:"), self.sp_friday_max_daily_limit)
 
-        lbl_limit_tip = QLabel(u"场景说明：周中为周一至周五，周末为周六、周日。当天私域累计收款达到上限后，全自动停止切换为本POS，分配给官方收银；0 元表示不限制。")
+        self.sp_saturday_max_daily_limit = TouchDoubleSpinBox(1000.0, 0.0, 999999.0, 100.0, " 元")
+        lay1.addRow(QLabel(u"周六累计收款上限:"), self.sp_saturday_max_daily_limit)
+
+        self.sp_sunday_max_daily_limit = TouchDoubleSpinBox(1000.0, 0.0, 999999.0, 100.0, " 元")
+        lay1.addRow(QLabel(u"周日累计收款上限:"), self.sp_sunday_max_daily_limit)
+
+        # Source compatibility for older integrations that accessed the two
+        # previous controls directly. The settings UI itself uses four days.
+        self.sp_weekday_max_daily_limit = self.sp_mon_thu_max_daily_limit
+        self.sp_weekend_max_daily_limit = self.sp_saturday_max_daily_limit
+
+        lbl_limit_tip = QLabel(u"场景说明：上限分别适用于周一至周四、周五、周六和周日。当天私域累计收款达到对应上限后，全自动停止切换为本 POS，分配给官方收银；0 元表示不限制。")
         lbl_limit_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_limit_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_limit_tip)
@@ -2953,9 +2964,13 @@ class SwitchSettingsWidget(QWidget):
         self.sp_amount_ratio.setValue(int(self.config.get("private_amount_ratio_percent", weight_ratio)))
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
         legacy_limit = float(self.config.get("max_daily_revenue_limit", 500.0) or 500.0)
-        self.sp_weekday_max_daily_limit.setValue(float(self.config.get("weekday_max_daily_revenue_limit", legacy_limit)))
+        weekday_limit = float(self.config.get("weekday_max_daily_revenue_limit", legacy_limit))
         weekend_default = legacy_limit if "max_daily_revenue_limit" in self.config else 1000.0
-        self.sp_weekend_max_daily_limit.setValue(float(self.config.get("weekend_max_daily_revenue_limit", weekend_default)))
+        weekend_limit = float(self.config.get("weekend_max_daily_revenue_limit", weekend_default))
+        self.sp_mon_thu_max_daily_limit.setValue(float(self.config.get("mon_thu_max_daily_revenue_limit", weekday_limit)))
+        self.sp_friday_max_daily_limit.setValue(float(self.config.get("friday_max_daily_revenue_limit", weekday_limit)))
+        self.sp_saturday_max_daily_limit.setValue(float(self.config.get("saturday_max_daily_revenue_limit", weekend_limit)))
+        self.sp_sunday_max_daily_limit.setValue(float(self.config.get("sunday_max_daily_revenue_limit", weekend_limit)))
         self.sp_min_valid_weight.setValue(float(self.config.get("min_valid_weight_kg", 0.08)))
         self.sp_stable_threshold.setValue(float(self.config.get("stable_threshold", 0.01)))
         
@@ -2999,10 +3014,14 @@ class SwitchSettingsWidget(QWidget):
         self.config["private_ratio_percent"] = self.sp_ratio.value()
         self.config["private_amount_ratio_percent"] = self.sp_amount_ratio.value()
         self.config["min_private_weight_kg"] = self.sp_weight.value()
-        self.config["weekday_max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
-        self.config["weekend_max_daily_revenue_limit"] = self.sp_weekend_max_daily_limit.value()
-        # 供旧版组件读取的兼容值，以周中上限为准。
-        self.config["max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
+        self.config["mon_thu_max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
+        self.config["friday_max_daily_revenue_limit"] = self.sp_friday_max_daily_limit.value()
+        self.config["saturday_max_daily_revenue_limit"] = self.sp_saturday_max_daily_limit.value()
+        self.config["sunday_max_daily_revenue_limit"] = self.sp_sunday_max_daily_limit.value()
+        # Legacy aliases remain written for old integrations.
+        self.config["weekday_max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
+        self.config["weekend_max_daily_revenue_limit"] = self.sp_saturday_max_daily_limit.value()
+        self.config["max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
         self._refresh_runtime(u"总控与智能过滤设置")
 
     def _save_continuity_group(self):
@@ -3025,9 +3044,13 @@ class SwitchSettingsWidget(QWidget):
         self.config["private_ratio_percent"] = self.sp_ratio.value()
         self.config["private_amount_ratio_percent"] = self.sp_amount_ratio.value()
         self.config["min_private_weight_kg"] = self.sp_weight.value()
-        self.config["weekday_max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
-        self.config["weekend_max_daily_revenue_limit"] = self.sp_weekend_max_daily_limit.value()
-        self.config["max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
+        self.config["mon_thu_max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
+        self.config["friday_max_daily_revenue_limit"] = self.sp_friday_max_daily_limit.value()
+        self.config["saturday_max_daily_revenue_limit"] = self.sp_saturday_max_daily_limit.value()
+        self.config["sunday_max_daily_revenue_limit"] = self.sp_sunday_max_daily_limit.value()
+        self.config["weekday_max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
+        self.config["weekend_max_daily_revenue_limit"] = self.sp_saturday_max_daily_limit.value()
+        self.config["max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
         self.config["min_valid_weight_kg"] = self.sp_min_valid_weight.value()
         self.config["stable_threshold"] = self.sp_stable_threshold.value()
         self.config["official_lock_sec"] = self.sp_official_lock.value()

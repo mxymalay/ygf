@@ -119,28 +119,48 @@ class AutoSwitchController(QObject):
         self._hide_timer.timeout.connect(self._on_auto_hide_timeout)
 
     def _load_daily_revenue_limits(self):
-        """读取周中/周末累计收款上限，并兼容旧版单一上限配置。"""
+        """读取四组星期累计收款上限，并兼容旧版配置。"""
         legacy_present = "max_daily_revenue_limit" in self.config
         legacy = max(0.0, _config_float(self.config, "max_daily_revenue_limit", 500.0))
-        self._weekday_max_daily_revenue_limit = max(
-            0.0, _config_float(self.config, "weekday_max_daily_revenue_limit", legacy)
-        )
-        self._weekend_max_daily_revenue_limit = max(
-            0.0, _config_float(
-                self.config, "weekend_max_daily_revenue_limit",
+        weekday = max(0.0, _config_float(self.config, "weekday_max_daily_revenue_limit", legacy))
+        weekend = max(
+            0.0,
+            _config_float(
+                self.config,
+                "weekend_max_daily_revenue_limit",
                 legacy if legacy_present else 1000.0,
-            )
+            ),
         )
+        self._mon_thu_max_daily_revenue_limit = max(
+            0.0, _config_float(self.config, "mon_thu_max_daily_revenue_limit", weekday)
+        )
+        self._friday_max_daily_revenue_limit = max(
+            0.0, _config_float(self.config, "friday_max_daily_revenue_limit", weekday)
+        )
+        self._saturday_max_daily_revenue_limit = max(
+            0.0, _config_float(self.config, "saturday_max_daily_revenue_limit", weekend)
+        )
+        self._sunday_max_daily_revenue_limit = max(
+            0.0, _config_float(self.config, "sunday_max_daily_revenue_limit", weekend)
+        )
+        # Keep the old attributes for integrations that still inspect them.
+        self._weekday_max_daily_revenue_limit = self._mon_thu_max_daily_revenue_limit
+        self._weekend_max_daily_revenue_limit = self._saturday_max_daily_revenue_limit
         self._max_daily_revenue_limit = self._current_daily_revenue_limit()
 
     def _current_daily_revenue_limit(self, today=None):
-        """周六、周日使用周末值，其余日期使用周中值。0 表示不限制。"""
+        """按周一至周四、周五、周六、周日选择上限；0 表示不限制。"""
         current = today or date.today()
-        limit = (
-            self._weekend_max_daily_revenue_limit
-            if current.weekday() >= 5
-            else self._weekday_max_daily_revenue_limit
+        limits = (
+            self._mon_thu_max_daily_revenue_limit,
+            self._mon_thu_max_daily_revenue_limit,
+            self._mon_thu_max_daily_revenue_limit,
+            self._mon_thu_max_daily_revenue_limit,
+            self._friday_max_daily_revenue_limit,
+            self._saturday_max_daily_revenue_limit,
+            self._sunday_max_daily_revenue_limit,
         )
+        limit = limits[min(max(int(current.weekday()), 0), 6)]
         self._max_daily_revenue_limit = max(0.0, float(limit))
         return self._max_daily_revenue_limit
 
@@ -853,7 +873,7 @@ class AutoSwitchController(QObject):
             log_event(CAT_DECISION, "增强模式金额分流 -> 官方 POS", f"重量 {weight_kg:.3f}kg")
             return False
 
-        # 规则 0C：当日累计收款封顶保护。周中/周末使用不同门限。
+        # 规则 0C：当日累计收款封顶保护。按星期分组使用不同门限。
         daily_limit = self._current_daily_revenue_limit()
         if daily_limit > 0:
             try:
@@ -872,7 +892,15 @@ class AutoSwitchController(QObject):
                         self._last_decision_kind = "forced_official"
                         self._last_decision_reason = "私有 POS 达到当日金额上限"
                         self._set_official_continuation_lock(now_ts)
-                        period = "周末" if date.today().weekday() >= 5 else "周中"
+                        period = {
+                            0: "周一至周四",
+                            1: "周一至周四",
+                            2: "周一至周四",
+                            3: "周一至周四",
+                            4: "周五",
+                            5: "周六",
+                            6: "周日",
+                        }.get(date.today().weekday(), "当天")
                         msg = f"今日本POS已收款 ¥{today_amount:.2f} 达到/超过{period}上限 ¥{daily_limit:.2f} -> 自动停止切换本POS，分配给【官方系统】"
                         _safe_console(f"[AutoDecisionEngine] {msg}")
                         log_event(CAT_DECISION, "当日收款封顶 -> 走官方", f"今日已收 ¥{today_amount:.2f} >= {period}门限 ¥{daily_limit:.2f}")

@@ -132,6 +132,22 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 2)), 500.0)
         self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 5)), 1000.0)
 
+    def test_daily_revenue_limit_uses_four_weekday_groups(self):
+        controller = AutoSwitchController(
+            SimpleNamespace(db=None, sale_page=SimpleNamespace(cart_items=[]), floating_ball=None),
+            {
+                "mon_thu_max_daily_revenue_limit": 400,
+                "friday_max_daily_revenue_limit": 500,
+                "saturday_max_daily_revenue_limit": 600,
+                "sunday_max_daily_revenue_limit": 700,
+            },
+        )
+        self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 0)), 400.0)
+        self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 3)), 400.0)
+        self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 4)), 500.0)
+        self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 5)), 600.0)
+        self.assertEqual(controller._current_daily_revenue_limit(SimpleNamespace(weekday=lambda: 6)), 700.0)
+
     def test_daily_revenue_limit_legacy_value_is_used_when_new_keys_missing(self):
         controller = AutoSwitchController(
             SimpleNamespace(db=None, sale_page=SimpleNamespace(cart_items=[]), floating_ball=None),

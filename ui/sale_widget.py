@@ -1563,11 +1563,16 @@ class SaleWidget(QWidget):
         # 分类标签和商品目录由店铺设置维护；没有新配置时 helper 会提供
         # 与旧版完全一致的默认商品，因此升级不会改变现有点菜流程。
         self.menu_category_bar = QHBoxLayout()
-        self.menu_category_bar.setSpacing(6)
+        self.menu_category_bar.setContentsMargins(0, 0, 0, 0)
+        self.menu_category_bar.setSpacing(4)
         right.addLayout(self.menu_category_bar)
         self.menu_group = QGroupBox("")
         self.mg_grid = QGridLayout(self.menu_group)
         self.mg_grid.setSpacing(8)
+        # Keep every filtered view anchored to the same top-left grid as
+        # “全部”.  Without an explicit alignment Qt may center a short
+        # filtered row when only one or two products are visible.
+        self.mg_grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         # 固定四列网格。单独分类只有一个商品时仍保持与正常菜单卡片
         # 相同的卡片宽度，并从第一列开始排列，不会被拉伸到整行或居中。
         for column in range(4):
@@ -1895,13 +1900,16 @@ class SaleWidget(QWidget):
         self._select_menu_category("__all__", all_button)
 
     def _style_menu_category_button(self, button):
-        button.setFixedHeight(32)
-        button.setMinimumWidth(64)
+        # Category tabs are a compact filter bar, not the product buttons.
+        # A fixed height keeps the bar from growing on high-DPI/narrow
+        # screens while retaining a comfortable touch target.
+        button.setFixedHeight(27)
+        button.setMinimumWidth(54)
         button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         button.setCursor(Qt.PointingHandCursor)
         button.setStyleSheet(
             "QPushButton { background: #1E293B; color: #CBD5E1; border: 1px solid #334155; "
-            "border-radius: 6px; padding: 2px 8px; font-size: 13px; font-weight: 800; }"
+            "border-radius: 5px; padding: 1px 6px; font-size: 12px; font-weight: 800; }"
             "QPushButton:hover { background: #334155; color: #FFFFFF; }"
             "QPushButton:checked { background: #0284C7; color: #FFFFFF; border-color: #38BDF8; }"
         )
@@ -2351,6 +2359,17 @@ class SaleWidget(QWidget):
         mode = str(state.get("mode") or self.config.get("takeout_relay_mode", "compatibility") or "compatibility")
         policy = str(state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", "auto") or "auto")
         reason = str(state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "等待中继验证") or "等待中继验证")
+        running = bool(state.get("running"))
+        # ``TakeoutProxyController.get_status`` deliberately keeps the last
+        # observed ticket/mode in the diagnostic panel after a temporary stop.
+        # That historical mode must not be presented as the *current* global
+        # mode: the routing and call-number pages validate the live listener
+        # and correctly fall back to compatibility when it is down.  Gate the
+        # homepage badge by the same live condition so it cannot say
+        # “增强模式” while mode 4 says “兼容模式”.
+        if mode == "enhanced" and not running:
+            mode = "compatibility"
+            reason = u"中继未运行，已自动降级到兼容模式（上次增强状态仅作诊断记录）"
         lock_active = False
         switch_controller = getattr(parent, "switch_controller", None)
         if switch_controller is not None:
@@ -2368,7 +2387,7 @@ class SaleWidget(QWidget):
             "mode": mode,
             "policy": policy,
             "reason": reason,
-            "running": bool(state.get("running")),
+            "running": running,
             "last_identified_at": state.get("last_identified_at") or "暂无",
             "last_enhanced_success_at": state.get("last_enhanced_success_at") or "暂无",
             "compatibility_lock_active": lock_active,

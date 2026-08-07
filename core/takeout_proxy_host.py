@@ -25,7 +25,7 @@ from core.takeout_interceptor import (
     parse_official_pos_text,
 )
 from core.takeout_jobs import TakeoutJobStore
-from core.printer_relay_service import TakeoutRelayServiceController
+from core.printer_relay_service import PrinterRelayServiceController
 from core.takeout_relay import (
     MODE_COMPATIBILITY,
     MODE_ENHANCED,
@@ -660,17 +660,15 @@ class TakeoutProxyHost:
 
         Starting the detached listener used to reset ``current_mode`` to
         compatibility every time, so the UI appeared to switch modes until a
-        new official-POS ticket arrived.  A saved mode is not sufficient by
-        itself: re-check the persisted receipt ledger for a recent, high-
-        confidence paid receipt with a valid amount and stable order id.  If
-        no such evidence exists, remain in compatibility mode and wait for a
-        real ticket as before.
+        new official-POS ticket arrived.  The receipt ledger is the source of
+        truth for this startup check; do not require the mode hint or the
+        last-success setting to already say ``enhanced`` because either value
+        may have been lost during an older packaged upgrade.  A saved database
+        row is still not enough by itself: it must be a high-confidence paid
+        receipt with a valid amount and stable order id.  If no such evidence
+        exists, remain in compatibility mode and wait for a real ticket.
         """
         if str(self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO) != MODE_POLICY_AUTO:
-            return False
-        if str(self.config.get("takeout_relay_mode", MODE_COMPATIBILITY) or MODE_COMPATIBILITY) != MODE_ENHANCED:
-            return False
-        if not str(self.config.get("takeout_relay_last_success_at", "") or "").strip():
             return False
         try:
             rows = self.official_db.get_official_receipts(limit=100)
@@ -695,8 +693,9 @@ class TakeoutProxyHost:
                 self.config, {"running": True}, parsed
             )
             if eligibility.get("eligible"):
-                self.current_mode = MODE_ENHANCED
-                self.mode_reason = "启动自检：恢复最近一次已验证的增强模式"
+                observed_at = str(row.get("observed_at") or "")
+                self.last_enhanced_success_at = observed_at or self.last_enhanced_success_at
+                self._set_mode(MODE_ENHANCED, "启动自检：恢复数据库中最近一次已验证的增强模式")
                 self.last_identified_at = str(row.get("observed_at") or "")
                 self.last_message = "中继守护进程运行中：启动自检已恢复增强模式"
                 return True
@@ -771,7 +770,7 @@ class TakeoutProxyController:
         # The Windows service is opt-in and independently survives GUI exits
         # and reboots.  Until it is installed, retain the existing detached
         # per-user host for backwards compatibility.
-        self.service_controller = TakeoutRelayServiceController()
+        self.service_controller = PrinterRelayServiceController()
 
     def service_state(self):
         try:

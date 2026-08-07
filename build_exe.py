@@ -189,9 +189,9 @@ def main():
         "scale_bridge_service.py"
     ]
 
-    takeout_service_cmd = [
+    printer_relay_service_cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name=TakeoutRelayService",
+        "--name=PrinterRelayService",
         "--noconsole",
         "--onefile",
         "--clean",
@@ -231,8 +231,8 @@ def main():
         print("[*] 正在打包独立 ScaleBridge Windows 服务...")
         res = subprocess.call(service_cmd)
     if res == 0:
-        print("[*] 正在打包独立外卖中继 Windows 服务...")
-        res = subprocess.call(takeout_service_cmd)
+        print("[*] 正在打包独立打印机中继 Windows 服务...")
+        res = subprocess.call(printer_relay_service_cmd)
     if res == 0:
         print("[*] 正在打包 ScaleBridge 命令行维修工具...")
         res = subprocess.call(maintenance_cmd)

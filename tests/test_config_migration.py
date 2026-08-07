@@ -74,6 +74,10 @@ class ModularConfigMigrationTests(unittest.TestCase):
                 loaded = config.load_config()
             self.assertEqual(loaded["weekday_max_daily_revenue_limit"], 123.0)
             self.assertEqual(loaded["weekend_max_daily_revenue_limit"], 123.0)
+            self.assertEqual(loaded["mon_thu_max_daily_revenue_limit"], 123.0)
+            self.assertEqual(loaded["friday_max_daily_revenue_limit"], 123.0)
+            self.assertEqual(loaded["saturday_max_daily_revenue_limit"], 123.0)
+            self.assertEqual(loaded["sunday_max_daily_revenue_limit"], 123.0)
 
     def test_save_does_not_persist_runtime_or_foreign_fields(self):
         with tempfile.TemporaryDirectory() as root:

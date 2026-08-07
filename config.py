@@ -241,8 +241,12 @@ DEFAULT_CONFIG = {
     # defaulting to the legacy weight ratio preserves existing behavior.
     "private_amount_ratio_percent": 30,
     "min_private_weight_kg": 0.25,
-    # 私域 POS 当日累计收款上限。按周中/周末分别设置；保留旧键
-    # max_daily_revenue_limit 作为老配置的兼容别名。
+    # 私域 POS 当日累计收款上限。周一至周四、周五、周六、周日分别设置；
+    # 旧的周中/周末键和 max_daily_revenue_limit 继续作为迁移兼容别名。
+    "mon_thu_max_daily_revenue_limit": 500.0,
+    "friday_max_daily_revenue_limit": 500.0,
+    "saturday_max_daily_revenue_limit": 1000.0,
+    "sunday_max_daily_revenue_limit": 1000.0,
     "weekday_max_daily_revenue_limit": 500.0,
     "weekend_max_daily_revenue_limit": 1000.0,
 
@@ -330,6 +334,10 @@ OPTIONAL_CONFIG_KEYS = {
     "custom_start_no",
     "custom_end_no",
     "max_daily_revenue_limit",
+    "mon_thu_max_daily_revenue_limit",
+    "friday_max_daily_revenue_limit",
+    "saturday_max_daily_revenue_limit",
+    "sunday_max_daily_revenue_limit",
     "weekday_max_daily_revenue_limit",
     "weekend_max_daily_revenue_limit",
     "min_valid_weight_kg",
@@ -392,6 +400,8 @@ MODULAR_KEYS = {
     "algo": lambda k: k in (
         "private_ratio_percent", "private_amount_ratio_percent", "min_private_weight_kg",
         "max_daily_revenue_limit",
+        "mon_thu_max_daily_revenue_limit", "friday_max_daily_revenue_limit",
+        "saturday_max_daily_revenue_limit", "sunday_max_daily_revenue_limit",
         "weekday_max_daily_revenue_limit", "weekend_max_daily_revenue_limit",
     ),
     "shouqianba": lambda k: k.startswith("shouqianba_"),
@@ -645,19 +655,30 @@ def load_config(migration_policy="auto", selected_keys=None) -> dict:
         # Rebuild deliberately ignores both legacy and existing module values.
         pass
 
-    # 老版本只有一个 max_daily_revenue_limit。若来源文件没有新的周中/周末
-    # 字段，就把旧值迁移到两项，避免 DEFAULT_CONFIG 的新默认值悄悄覆盖
-    # 门店原有的限额；全新配置则保留周中 500、周末 1000 的默认值。
+    # 将旧的单一上限或周中/周末上限拆分到新的四个星期分组，避免
+    # DEFAULT_CONFIG 的新默认值悄悄覆盖门店原有的限额。
     source_values = dict(legacy_values)
     source_values.update(module_values)
-    if (
-        "max_daily_revenue_limit" in source_values
-        and "weekday_max_daily_revenue_limit" not in source_values
-        and "weekend_max_daily_revenue_limit" not in source_values
-    ):
-        old_limit = source_values["max_daily_revenue_limit"]
-        merged["weekday_max_daily_revenue_limit"] = old_limit
-        merged["weekend_max_daily_revenue_limit"] = old_limit
+    legacy_single = source_values.get("max_daily_revenue_limit", 500.0)
+    legacy_weekday = source_values.get("weekday_max_daily_revenue_limit", legacy_single)
+    legacy_weekend = source_values.get(
+        "weekend_max_daily_revenue_limit",
+        legacy_single if "max_daily_revenue_limit" in source_values else 1000.0,
+    )
+    legacy_split = {
+        "mon_thu_max_daily_revenue_limit": legacy_weekday,
+        "friday_max_daily_revenue_limit": legacy_weekday,
+        "saturday_max_daily_revenue_limit": legacy_weekend,
+        "sunday_max_daily_revenue_limit": legacy_weekend,
+    }
+    for key, value in legacy_split.items():
+        if key not in source_values:
+            merged[key] = value
+    if "max_daily_revenue_limit" in source_values:
+        if "weekday_max_daily_revenue_limit" not in source_values:
+            merged["weekday_max_daily_revenue_limit"] = legacy_weekday
+        if "weekend_max_daily_revenue_limit" not in source_values:
+            merged["weekend_max_daily_revenue_limit"] = legacy_weekend
 
     # 模拟模式是一次运行的临时状态，绝不能写入正式门店配置。
     for key in TRANSIENT_CONFIG_KEYS:

@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit,
     QTextBrowser, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-    QSizePolicy
+    QAbstractItemView, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence, QDesktopServices, QIcon, QPixmap, QImage, QPainter
@@ -1311,7 +1311,7 @@ class SettingsWidget(QWidget):
             u"独立中继服务维护（可选）",
             u"只有需要开机自启、私域 POS 未启动时仍能监听时，才使用下面的服务操作。日常配置和测试不需要先安装服务。",
         )
-        service_title = QLabel(u"服务名：ppposTakeoutRelay。安装/启动需要管理员权限；临时停止不会删除配置。")
+        service_title = QLabel(u"服务名：ppposPrinterRelay。安装/启动需要管理员权限；临时停止不会删除配置。")
         service_title.setWordWrap(True)
         service_title.setStyleSheet("color: #DDD6FE; background: #2E1065; border: 1px solid #7C3AED; border-radius: 8px; padding: 10px; font-weight: bold;")
         step7_layout.addWidget(service_title)
@@ -1647,31 +1647,59 @@ class SettingsWidget(QWidget):
         controller = getattr(self.window(), "takeout_interceptor", None)
         return getattr(controller, "service_controller", None)
 
-    def _relay_service_action(self, action, success_text):
+    def _relay_service_action(self, action, success_text, title, message, stages):
         from ui.custom_dialog import show_info, show_warning
         controller = getattr(self.window(), "takeout_interceptor", None)
         if controller is None:
             show_warning(self, u"中继服务不可用", u"当前窗口尚未加载打印机中继控制器。")
             return
-        try:
-            action(controller)
-        except Exception as exc:
-            show_warning(self, u"独立中继服务操作失败", str(exc))
+
+        def on_success(_result):
             self._refresh_relay_status()
-            return
-        self._refresh_relay_status()
-        show_info(self, u"独立中继服务", success_text)
+            show_info(self, u"独立打印机中继服务", success_text)
+
+        self._run_maintenance_with_spinner(
+            title,
+            message,
+            lambda: action(controller),
+            on_success,
+            u"独立打印机中继服务操作失败",
+            [
+                self.btn_install_relay_service,
+                self.btn_start_relay_service,
+                self.btn_stop_relay_service,
+                self.btn_remove_relay_service,
+            ],
+            on_failure=self._refresh_relay_status,
+            stages=stages,
+        )
 
     def _install_relay_service(self):
         self._relay_service_action(
             lambda controller: controller.install_service(),
-            u"ppposTakeoutRelay 已安装。请保存并启用中继配置后点击“启动独立服务”。",
+            u"pposPrinterRelay 已安装。请保存并启用中继配置后点击“启动独立服务”。",
+            u"正在安装打印机中继服务",
+            u"正在注册 Windows 服务并检查旧版本服务迁移状态，请稍候。",
+            [
+                u"检查管理员权限和当前服务状态",
+                u"迁移旧版打印机中继服务（如存在）",
+                u"注册 ppposPrinterRelay Windows 服务",
+                u"核对服务安装结果",
+            ],
         )
 
     def _start_relay_service(self):
         self._relay_service_action(
             lambda controller: controller.start_service(),
-            u"ppposTakeoutRelay 已启动。请刷新状态并打印真实测试单。",
+            u"ppposPrinterRelay 已启动。请刷新状态并打印真实测试单。",
+            u"正在启动打印机中继服务",
+            u"正在启动 ppposPrinterRelay，并等待 Windows 返回运行状态。",
+            [
+                u"检查服务是否已安装",
+                u"发送启动请求",
+                u"等待 Windows 服务进入运行状态",
+                u"读取打印机中继监听状态",
+            ],
         )
 
     def _start_relay_listener(self):
@@ -1738,13 +1766,29 @@ class SettingsWidget(QWidget):
     def _stop_relay_service(self):
         self._relay_service_action(
             lambda controller: controller.stop_service(),
-            u"ppposTakeoutRelay 已临时停止；若仍勾选启用，中继可能在守护检查时重新启动。",
+            u"ppposPrinterRelay 已临时停止；若仍勾选启用，中继可能在守护检查时重新启动。",
+            u"正在停止打印机中继服务",
+            u"正在安全停止 ppposPrinterRelay，本次停止不会删除配置。",
+            [
+                u"检查当前服务状态",
+                u"发送停止请求",
+                u"等待 Windows 服务完全停止",
+                u"确认监听端口已释放",
+            ],
         )
 
     def _remove_relay_service(self):
         self._relay_service_action(
             lambda controller: controller.remove_service(),
-            u"ppposTakeoutRelay 已卸载；配置和识别日志均已保留。",
+            u"ppposPrinterRelay 已卸载；配置和识别日志均已保留。",
+            u"正在卸载打印机中继服务",
+            u"正在停止并删除 ppposPrinterRelay 服务注册，配置和识别日志会保留。",
+            [
+                u"核对服务状态和删除范围",
+                u"停止打印机中继服务",
+                u"删除 Windows 服务注册",
+                u"确认服务已卸载并刷新状态",
+            ],
         )
 
     def _refresh_relay_printers(self, show_toast=False):
@@ -1895,7 +1939,7 @@ class SettingsWidget(QWidget):
                 u"当前中继监听未运行。此时官方 POS 会显示收银机未连接，不能把测试打印任务发送到本系统。\n\n"
                 u"请按顺序处理：\n"
                 u"1. 在“中继配置”勾选启用并保存；\n"
-                u"2. 如果使用独立服务，到“服务维护”安装/启动 ppposTakeoutRelay；\n"
+                u"2. 如果使用独立服务，到“服务维护”安装/启动 ppposPrinterRelay；\n"
                 u"3. 点击“刷新中继状态”，确认显示“连接/监听正常”；\n"
                 u"4. 回到官方 POS，选择 Windows 中继队列打印真实测试单。",
             )
@@ -1957,7 +2001,7 @@ class SettingsWidget(QWidget):
         enhanced_at = state.get("last_enhanced_success_at") or u"暂无"
         service_detail = u"独立服务：未安装"
         if service_state is not None and service_state.installed:
-            service_detail = u"独立服务：%s（ppposTakeoutRelay）" % service_state.state
+            service_detail = u"独立服务：%s（ppposPrinterRelay）" % service_state.state
         policy_label = u"自动判断" if policy == MODE_POLICY_AUTO else u"强制兼容模式"
         self.lbl_relay_runtime_status.setText(u"当前状态：%s\n工作模式：%s（策略：%s）\n切换原因：%s\n最近模式切换：%s\n数据来源/识别：%s\n最近捕获：%s；最近增强成功：%s\n%s\n%s" % (
             u"连接/监听正常" if running else u"未运行或已降级", mode_label(mode),
@@ -2395,7 +2439,7 @@ class SettingsWidget(QWidget):
     # ────────────────────────────────────────────────────────────
     def _build_biz_page(self):
         card, layout = self._create_section_card(
-            u"🏪", u"店铺与计价设置", u"设置小票头部标题、分店名称、单价与计价单位"
+            u"🏪", u"店铺与计价设置", u"设置小票头部标题、分店名称和计价单位；商品价格请在“商品与分类”中维护"
         )
         grid = QGridLayout()
         grid.setSpacing(18)
@@ -2421,26 +2465,12 @@ class SettingsWidget(QWidget):
                 break
         grid.addWidget(self.cmb_unit, 2, 1, 1, 2)
 
-        grid.addWidget(self._make_label(u"标准汤底单价："), 3, 0)
-        self.spin_default_price = QDoubleSpinBox()
-        self.spin_default_price.setRange(0.01, 999.99)
-        self.spin_default_price.setValue(self.config.get("unit_price", 47.60))
-        self.spin_default_price.setDecimals(2)
-        grid.addWidget(self.spin_default_price, 3, 1, 1, 2)
-
-        grid.addWidget(self._make_label(u"精品汤底单价："), 4, 0)
-        self.spin_special_price = QDoubleSpinBox()
-        self.spin_special_price.setRange(0.01, 999.99)
-        self.spin_special_price.setValue(self.config.get("special_soup_price", 50.00))
-        self.spin_special_price.setDecimals(2)
-        grid.addWidget(self.spin_special_price, 4, 1, 1, 2)
-
         # 店铺信息和计价参数属于同一组配置，保存按钮与字段放在同一
         # 三级页面内，切换页面时不会把保存操作隐藏掉。
         self.btn_save_biz = QPushButton(u"💾 保存店铺与计价设置")
         self._style_save_btn(self.btn_save_biz)
         self.btn_save_biz.clicked.connect(self._on_save_biz)
-        grid.addWidget(self.btn_save_biz, 5, 1, 1, 2)
+        grid.addWidget(self.btn_save_biz, 3, 1, 1, 2)
 
         layout.addLayout(grid)
         # 商品与分类是“店铺与计价”的兄弟三级页面。它和店铺价格保存
@@ -2459,7 +2489,10 @@ class SettingsWidget(QWidget):
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(16, 14, 16, 14)
         outer.setSpacing(10)
-        title = QLabel(u"🧾 商品与分类")
+        # Avoid the emoji variation selector here: several Win7 fonts render
+        # 🧾 as an empty square.  This monochrome symbol is available in the
+        # bundled/system fonts and keeps the title readable on older clients.
+        title = QLabel(u"▦ 商品与分类")
         title.setStyleSheet("color: #BAE6FD; font-size: 20px; font-weight: 900;")
         outer.addWidget(title)
         hint = QLabel(u"维护点菜区显示的分类、商品名称、价格和顺序。‘全部’仅是主界面的筛选标签，不会单独保存。汤底可选择是否弹出口味设置，其他分类不显示该选项。")
@@ -2502,11 +2535,30 @@ class SettingsWidget(QWidget):
         self.tbl_sku_items = QTableWidget(0, 3)
         self.tbl_sku_items.setHorizontalHeaderLabels([u"商品名称", u"价格（元）", u"顺序"])
         self.tbl_sku_items.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.tbl_sku_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_sku_items.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tbl_sku_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.tbl_sku_items.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        self.tbl_sku_items.setColumnWidth(1, 120)
+        self.tbl_sku_items.setColumnWidth(2, 82)
         self.tbl_sku_items.setMinimumHeight(220)
         self.tbl_sku_items.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tbl_sku_items.setStyleSheet("QTableWidget { background: #111827; color: #E2E8F0; gridline-color: #334155; border: 1px solid #334155; } QHeaderView::section { background: #1E293B; color: #BAE6FD; padding: 8px; border: none; }")
+        self.tbl_sku_items.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tbl_sku_items.setEditTriggers(
+            QAbstractItemView.DoubleClicked
+            | QAbstractItemView.EditKeyPressed
+            | QAbstractItemView.SelectedClicked
+        )
+        self.tbl_sku_items.setAlternatingRowColors(True)
+        self.tbl_sku_items.verticalHeader().setDefaultSectionSize(42)
+        self.tbl_sku_items.setStyleSheet(
+            "QTableWidget { background: #111827; color: #E2E8F0; "
+            "gridline-color: #334155; border: 1px solid #334155; "
+            "outline: none; } "
+            "QTableWidget::item { padding: 6px 8px; border: none; } "
+            "QTableWidget::item:selected { background: #334155; color: #F8FAFC; "
+            "border: none; } "
+            "QHeaderView::section { background: #1E293B; color: #BAE6FD; "
+            "padding: 8px; border: none; }"
+        )
         outer.addWidget(self.tbl_sku_items)
 
         item_buttons = QHBoxLayout()
@@ -2568,8 +2620,12 @@ class SettingsWidget(QWidget):
             price = item.get("price")
             if price is None and category.get("id") == "soup":
                 price = self.config.get("special_soup_price", 50.0) if item.get("special") else self.config.get("unit_price", 47.60)
-            self.tbl_sku_items.setItem(row, 1, QTableWidgetItem("%.2f" % float(price or 0.0)))
-            self.tbl_sku_items.setItem(row, 2, QTableWidgetItem(str(item.get("order", row))))
+            price_item = QTableWidgetItem("%.2f" % float(price or 0.0))
+            price_item.setTextAlignment(Qt.AlignCenter)
+            order_item = QTableWidgetItem(str(item.get("order", row)))
+            order_item.setTextAlignment(Qt.AlignCenter)
+            self.tbl_sku_items.setItem(row, 1, price_item)
+            self.tbl_sku_items.setItem(row, 2, order_item)
 
     def _add_sku_category(self):
         cid = "category_%d" % (len(self._shop_catalog) + 1)
@@ -2601,8 +2657,12 @@ class SettingsWidget(QWidget):
         row = self.tbl_sku_items.rowCount()
         self.tbl_sku_items.insertRow(row)
         self.tbl_sku_items.setItem(row, 0, QTableWidgetItem(u"新商品"))
-        self.tbl_sku_items.setItem(row, 1, QTableWidgetItem("1.00"))
-        self.tbl_sku_items.setItem(row, 2, QTableWidgetItem(str(row)))
+        price_item = QTableWidgetItem("1.00")
+        price_item.setTextAlignment(Qt.AlignCenter)
+        order_item = QTableWidgetItem(str(row))
+        order_item.setTextAlignment(Qt.AlignCenter)
+        self.tbl_sku_items.setItem(row, 1, price_item)
+        self.tbl_sku_items.setItem(row, 2, order_item)
 
     def _delete_sku_item(self):
         row = self.tbl_sku_items.currentRow()
@@ -3801,8 +3861,6 @@ class SettingsWidget(QWidget):
         self.config["shop_subtitle"] = self.txt_sub.text()
         pu_text = self.cmb_unit.currentText()
         self.config["price_unit"] = pu_text.split(" - ")[0].strip()
-        self.config["unit_price"] = self.spin_default_price.value()
-        self.config["special_soup_price"] = self.spin_special_price.value()
         save_config(self.config)
         parent_mw = self.window()
         if hasattr(parent_mw, 'sale_page'):
