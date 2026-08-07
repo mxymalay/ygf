@@ -8,7 +8,7 @@ from datetime import datetime, date
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCalendarWidget, QFrame, QScrollArea, QGridLayout, QMessageBox,
-    QStackedWidget
+    QStackedWidget, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor, QFont, QTextCharFormat
@@ -72,7 +72,12 @@ class ReportWidget(QWidget):
         # 完成订单号/金额/付款状态校验后才会进入总营业额。
         section_sidebar = QFrame()
         section_sidebar.setObjectName("ReportSidebar")
-        section_sidebar.setFixedWidth(180)
+        # Keep enough room for the longest tab on Win7 narrow screens.  The
+        # button font is intentionally smaller than the page title so the
+        # full ``官方 POS 营业额`` label never gets clipped.
+        section_sidebar.setMinimumWidth(178)
+        section_sidebar.setMaximumWidth(220)
+        section_sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         section_sidebar.setStyleSheet(
             "QFrame#ReportSidebar { background-color: #0F172A; border-right: 1px solid #1E293B; }"
             "QLabel { background: transparent; }"
@@ -87,13 +92,13 @@ class ReportWidget(QWidget):
         )
         sidebar_layout.addWidget(sidebar_title)
         self.report_section_buttons = {}
-        for key, title in (("total", u"总营业额"), ("official", u"官方 POS 营业额"), ("private", u"私域 POS 营业额")):
+        for key, title in (("total", u"总营业额"), ("official", u"官方 POS\n营业额"), ("private", u"私域 POS\n营业额")):
             button = QPushButton(title)
             button.setCheckable(True)
-            button.setMinimumHeight(56)
+            button.setMinimumHeight(62 if "\n" in title else 56)
             button.setCursor(Qt.PointingHandCursor)
             button.setStyleSheet(
-                "QPushButton { text-align: left; padding: 12px 14px; font-size: 17px; "
+                "QPushButton { text-align: left; padding: 10px 9px; font-size: 14px; "
                 "font-weight: 600; color: #94A3B8; background-color: transparent; "
                 "border-radius: 10px; border: none; }"
                 "QPushButton:hover { color: #F1F5F9; background-color: #1E293B; }"
@@ -101,6 +106,7 @@ class ReportWidget(QWidget):
                 "font-weight: bold; border-left: 4px solid #38BDF8; }"
             )
             button.clicked.connect(lambda checked=False, section=key: self._select_report_section(section))
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             sidebar_layout.addWidget(button)
             self.report_section_buttons[key] = button
         sidebar_layout.addStretch()
@@ -133,7 +139,13 @@ class ReportWidget(QWidget):
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
-        self.calendar.setMinimumHeight(280)
+        # The calendar's legacy 280px minimum plus the quick buttons caused
+        # the title to be painted into the last calendar row on short/narrow
+        # POS windows.  Let the calendar shrink a little while keeping its
+        # cells usable, and give the title a clear separation from it.
+        self.calendar.setMinimumHeight(235)
+        self.calendar.setMaximumHeight(310)
+        self.calendar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         fix_calendar_header_style(self.calendar)
         self.calendar.selectionChanged.connect(self._on_date_changed)
         self.calendar.currentPageChanged.connect(lambda _year, _month: self._apply_calendar_range_marks())
@@ -166,7 +178,7 @@ class ReportWidget(QWidget):
         point_title = QLabel(u"时间点查看")
         point_title.setStyleSheet(
             "color: #38BDF8; font-size: 17px; font-weight: 900; "
-            "padding: 4px 0 0 2px; border: none;"
+            "padding: 8px 0 2px 2px; border: none;"
         )
         left_col.addWidget(point_title)
         left_col.addLayout(quick_grid)

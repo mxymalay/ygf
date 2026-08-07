@@ -45,7 +45,8 @@ class CallNumberManagerOfficialOffsetTests(unittest.TestCase):
             self.assertTrue(set(range(1, 11)).issubset(context["reusable"]))
             self.assertEqual(min(context["high"]), 50)
             self.assertEqual(max(context["high"]), 80)
-            chosen = manager.get_next_number()
+            with patch.object(manager, "relay_enhanced_available", return_value=True):
+                chosen = manager.get_next_number()
         self.assertTrue(chosen in set(range(1, 11)) | set(range(50, 81)))
 
     def test_previous_day_low_numbers_are_not_recycled_before_today_starts(self):
@@ -72,6 +73,15 @@ class CallNumberManagerOfficialOffsetTests(unittest.TestCase):
             chosen = manager.get_next_number()
         self.assertIsNone(chosen)
         self.assertFalse(manager.official_mode_ready())
+
+    def test_compatibility_mode_cannot_use_official_relative_numbers(self):
+        config = {
+            "call_mode": CallNumberManager.MODE_OFFICIAL_OFFSET,
+            "call_used_numbers": [],
+        }
+        manager = CallNumberManager(config, official_db=_ReceiptDb([self._row(20, 1)]))
+        self.assertFalse(manager.relay_enhanced_available())
+        self.assertIsNone(manager.peek_next_number())
 
 
 if __name__ == "__main__":

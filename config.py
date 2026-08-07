@@ -189,6 +189,9 @@ DEFAULT_CONFIG = {
     "unit_price": 47.60,
     "special_soup_price": 50.00,
     "price_unit": "per_kg",
+    # 店铺点菜区的分类/SKU。空列表表示沿用内置默认目录，首次在
+    # “商品与分类”页面保存后写入自定义目录。
+    "shop_sku_categories": [],
     "shop_name": u"杨国福麻辣烫",
     "shop_subtitle": u"杨国福(测试店)",
     "is_first_run": True,
@@ -331,7 +334,6 @@ OPTIONAL_CONFIG_KEYS = {
     "weekend_max_daily_revenue_limit",
     "min_valid_weight_kg",
     "official_lock_sec",
-    "private_lock_sec",
     "manual_override_lock_sec",
     # Legacy alias used by the first soup-pricing screen.  It is migrated to
     # special_soup_price and is never written back under the old name.

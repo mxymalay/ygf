@@ -149,11 +149,16 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     show_preorder_alert = opts.get("show_preorder_alert", True)
     match_mode = opts.get("takeout_match_mode", "contains")
     custom_categories = opts.get("custom_categories", DEFAULT_CATEGORIES)
-    mapping = opts.get("official_pos_field_mapping") or opts
+    # Takeout recognition has its own mapping.  The generic official-POS
+    # mapping is kept as a compatibility fallback for older configurations,
+    # but changes made on the external-order page no longer alter dine-in
+    # field recognition.
+    mapping = opts.get("takeout_field_mapping") or opts.get("official_pos_field_mapping") or opts
     order_id_labels = _mapping_values(mapping, "order_id_labels", ["订单号", "订单编号"])
     amount_labels = _mapping_values(mapping, "amount_labels", ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"])
     paid_keywords = _mapping_values(mapping, "paid_keywords", ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"])
     cancelled_keywords = _mapping_values(mapping, "cancelled_keywords", ["已取消", "取消订单", "退款成功", "已退款"])
+    takeout_keywords = _mapping_values(mapping, "takeout_keywords", ["外卖", "美团", "饿了么", "制作单"])
     # Official POS refund/void templates use more specific labels than the
     # normal customer ticket. Keep these aliases as parser defaults even when
     # an older saved mapping omits them; they are evidence of a cancellation,
@@ -168,7 +173,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     raw_text = str(raw_text or "").replace("\r\n", "\n").strip()
     is_meituan = "美团外卖" in raw_text or "美团" in raw_text
     is_eleme = "饿了么" in raw_text or "ELE" in raw_text or "饿了么" in raw_text
-    is_waimai = is_meituan or is_eleme or "外卖" in raw_text
+    is_waimai = any(keyword in raw_text for keyword in takeout_keywords) or is_meituan or is_eleme
 
     # 识别是否预订单 / 定时单
     is_preorder = "预订单" in raw_text or "预约" in raw_text or "送达时间" in raw_text

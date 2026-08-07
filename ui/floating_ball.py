@@ -371,7 +371,12 @@ class FloatingBall(QWidget):
                     is_locked = True
                 elif hasattr(self.main_window, 'sale_page') and self.main_window.sale_page:
                     cart_items = getattr(self.main_window.sale_page, 'cart_items', [])
-                    if cart_items and (now_ts - sc._last_private_time < sc._private_lock_sec):
+                    # A non-empty private cart is an unfinished order.  The
+                    # controller deliberately keeps it on the same channel
+                    # even after the configurable grace period, so the lock
+                    # badge must remain visible instead of suggesting that
+                    # automatic switching is safe.
+                    if cart_items:
                         is_locked = True
 
         active_icons = []

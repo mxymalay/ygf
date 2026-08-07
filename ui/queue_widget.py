@@ -219,7 +219,7 @@ class QueueWidget(QWidget):
             u"模式一：智能时段避重 (推荐)",
             u"模式二：自定义范围叫号",
             u"模式三：传统手动模式",
-            u"模式四：官方错峰随机"
+            u"模式四：官方错峰随机（仅增强模式）"
         ])
         self.cmb_mode.setStyleSheet("""
             QComboBox { 
@@ -461,6 +461,9 @@ class QueueWidget(QWidget):
         if label is None:
             return
         try:
+            if hasattr(self.call_mgr, "relay_enhanced_available") and not self.call_mgr.relay_enhanced_available():
+                label.setText(u"当前中继不是增强模式；官方错峰随机叫号只在增强模式可用，兼容模式请切回智能/自定义/手动叫号。")
+                return
             context = self.call_mgr._official_number_context()
             current_max = int(context.get("current_max") or 0)
             old_max = int(context.get("old_max") or 0)
@@ -479,6 +482,17 @@ class QueueWidget(QWidget):
 
     def _load_settings(self):
         mode = self.config.get("call_mode", CallNumberManager.MODE_SMART)
+        if mode == CallNumberManager.MODE_OFFICIAL_OFFSET:
+            try:
+                enhanced_ready = bool(self.call_mgr.relay_enhanced_available())
+            except Exception:
+                enhanced_ready = False
+            if not enhanced_ready:
+                # 模式四没有安全的兼容模式替代算法；启动/打开页面时
+                # 直接回到智能模式，避免界面显示“已选中但实际不产号”。
+                mode = CallNumberManager.MODE_SMART
+                self.config["call_mode"] = mode
+                save_config(self.config)
         if mode == CallNumberManager.MODE_SMART:
             self.cmb_mode.setCurrentIndex(0)
         elif mode == CallNumberManager.MODE_CUSTOM:
@@ -506,6 +520,31 @@ class QueueWidget(QWidget):
             mode = CallNumberManager.MODE_MANUAL
         else:
             mode = CallNumberManager.MODE_OFFICIAL_OFFSET
+
+        # 官方错峰随机依赖增强模式的已验证官方叫号。兼容模式下保存
+        # 它会造成“设置看似成功、实际拿不到号码”的假状态，因此在
+        # 保存入口直接拦截，并恢复到已保存的可用模式。
+        if mode == CallNumberManager.MODE_OFFICIAL_OFFSET:
+            try:
+                ready = bool(self.call_mgr.relay_enhanced_available())
+            except Exception:
+                ready = False
+            if not ready:
+                from ui.custom_dialog import show_warning
+                show_warning(
+                    self,
+                    u"当前为兼容模式，不能保存模式四",
+                    u"模式四需要打印中继处于增强模式，并已捕获可靠的官方叫号。请先完成真实测试并刷新中继状态，再保存模式四。",
+                )
+                fallback = self.config.get("call_mode", CallNumberManager.MODE_SMART)
+                index_map = {
+                    CallNumberManager.MODE_SMART: 0,
+                    CallNumberManager.MODE_CUSTOM: 1,
+                    CallNumberManager.MODE_MANUAL: 2,
+                }
+                self.cmb_mode.setCurrentIndex(index_map.get(fallback, 0))
+                self.stack_mode.setCurrentIndex(self.cmb_mode.currentIndex())
+                return
 
         self.config["call_mode"] = mode
         self.config["custom_start_no"] = self.spin_start.value()

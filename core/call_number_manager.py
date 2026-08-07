@@ -154,12 +154,26 @@ class CallNumberManager:
         return context
 
     def _official_offset_pool(self):
+        if not self.relay_enhanced_available():
+            return set()
         context = self._official_number_context()
         return set(context["reusable"]) | set(context["high"])
 
+    def relay_enhanced_available(self):
+        """Return true only while the live printer relay is enhanced."""
+        try:
+            from core.takeout_proxy_host import read_proxy_status, _is_process_alive
+            state = read_proxy_status() or {}
+            if not state.get("running") or str(state.get("mode") or "") != "enhanced":
+                return False
+            pid = state.get("pid")
+            return not pid or _is_process_alive(pid)
+        except Exception:
+            return False
+
     def official_mode_ready(self):
         """Whether the official-relative mode has a trustworthy high-water mark."""
-        return bool(self._official_number_context().get("current_max"))
+        return self.relay_enhanced_available() and bool(self._official_number_context().get("current_max"))
 
     def _gen_official_offset_number(self):
         """Choose a random official-relative number without breaking legacy mode."""

@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
     QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QStackedWidget, QTextEdit,
-    QScrollArea, QSizePolicy
+    QScrollArea, QSizePolicy, QGridLayout
 )
 from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text, build_takeout_escpos_ticket
 from core.takeout_jobs import TakeoutJobStore
@@ -72,18 +72,21 @@ class TakeoutSortingWidget(QWidget):
         # the page itself responsible for keeping the channel alive.
         self._proxy_status_timer = QTimer(self)
         self._proxy_status_timer.timeout.connect(self._check_official_pos_status)
+        self._proxy_status_timer.timeout.connect(self._refresh_takeout_test_page)
         self._proxy_status_timer.start(1000)
 
     def showEvent(self, event):
         super().showEvent(event)
         # 仅在进入本页面时触发一次官方 POS 检测，无需后台定时循环
         self._check_official_pos_status()
+        self._refresh_takeout_test_page()
 
     def _select_section(self, section_id):
         """切换外卖设置的二级菜单。"""
-        if section_id not in ("initial", "format"):
+        valid_sections = ("initial", "test", "mapping", "format")
+        if section_id not in valid_sections:
             section_id = "initial"
-        index = 0 if section_id == "initial" else 1
+        index = {name: position for position, name in enumerate(valid_sections)}[section_id]
         if hasattr(self, "section_stack"):
             self.section_stack.setCurrentIndex(index)
             # QStackedWidget otherwise keeps the tallest page's size hint.
@@ -94,16 +97,20 @@ class TakeoutSortingWidget(QWidget):
                 self.section_stack.setFixedHeight(page_height)
         for current_id, button in getattr(self, "section_buttons", {}).items():
             active = current_id == section_id
+            parent_active = False
+            is_submenu = False
             button.setChecked(active)
             button.setStyleSheet(
-                "QPushButton { text-align: left; padding: 12px 14px; font-size: 17px; "
+                "QPushButton { text-align: left; padding: %s; font-size: %s; "
                 "background-color: %s; color: %s; font-weight: %s; border-radius: 10px; "
                 "border: none; border-left: %s; }"
                 "QPushButton:hover { color: #F1F5F9; background-color: #1E293B; }" % (
-                    "#1E293B" if active else "transparent",
-                    "#38BDF8" if active else "#94A3B8",
-                    "bold" if active else "600",
-                    "4px solid #38BDF8" if active else "4px solid transparent",
+                    "10px 8px",
+                    "14px",
+                    "#1E293B" if (active or parent_active) else "transparent",
+                    "#38BDF8" if active else ("#BAE6FD" if parent_active else "#94A3B8"),
+                    "bold" if (active or parent_active) else "600",
+                    "4px solid #38BDF8" if active else ("3px solid #0369A1" if parent_active else "4px solid transparent"),
                 )
             )
 
@@ -153,17 +160,15 @@ class TakeoutSortingWidget(QWidget):
         self.lbl_printer.setStyleSheet("font-size: 13px; color: #38BDF8; font-weight: bold; border: none;")
         hc_layout.addWidget(self.lbl_printer)
 
-        main_layout.addWidget(header_card)
-
         proxy_card = QFrame()
         proxy_card.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #0EA5E9; padding: 10px; }")
         proxy_layout = QVBoxLayout(proxy_card)
         proxy_layout.setContentsMargins(16, 16, 16, 16)
         proxy_layout.setSpacing(8)
-        proxy_title = QLabel(u"官方 POS 中继状态与票据识别")
+        proxy_title = QLabel(u"外卖中继状态与订单识别")
         proxy_title.setStyleSheet("font-size: 18px; font-weight: 900; color: #38BDF8; border: none;")
         proxy_layout.addWidget(proxy_title)
-        proxy_hint = QLabel(u"步骤 3：分别打印真实外卖单、堂食单或收款单，检查识别结果，再决定是否启用增强模式和金额分流。\n打印机、端口、Windows 队列和测试操作已统一在“系统设置 → 打印机中继”维护。本页只显示结果，不重复保存配置。")
+        proxy_hint = QLabel(u"外卖流程：启动通用打印中继后，在官方 POS 打印真实外卖制作单，进入左侧“外卖真实测试”检查识别结果，再进入“外卖字段重映射”修正外卖字段。打印机、端口和 Windows 队列仍只在“系统设置 → 打印机中继”维护。")
         proxy_hint.setWordWrap(True)
         proxy_hint.setStyleSheet("font-size: 13px; color: #CBD5E1; border: none;")
         proxy_layout.addWidget(proxy_hint)
@@ -191,10 +196,7 @@ class TakeoutSortingWidget(QWidget):
         self.btn_reprint_last = QPushButton(u"重打最近外卖单")
         self.btn_reprint_last.clicked.connect(self._on_reprint_last)
         proxy_action_row.addWidget(self.btn_reprint_last)
-        self.btn_open_relay_settings = QPushButton(u"前往中继设置（监控/映射）")
-        self.btn_open_relay_settings.clicked.connect(self._open_relay_settings)
-        proxy_action_row.addWidget(self.btn_open_relay_settings)
-        for button in (self.btn_reprint_last, self.btn_open_relay_settings):
+        for button in (self.btn_reprint_last,):
             button.setMinimumHeight(52)
             button.setCursor(Qt.PointingHandCursor)
         proxy_layout.addLayout(proxy_action_row)
@@ -468,6 +470,9 @@ class TakeoutSortingWidget(QWidget):
         initial_layout = QVBoxLayout(initial_panel)
         initial_layout.setContentsMargins(0, 0, 0, 0)
         initial_layout.setSpacing(12)
+        # 状态栏只属于“初始设置”，避免在外卖格式、真实测试和字段
+        # 重映射页面重复占用顶部空间。
+        initial_layout.addWidget(header_card)
         initial_layout.addWidget(proxy_card)
         initial_layout.addStretch()
 
@@ -529,7 +534,6 @@ class TakeoutSortingWidget(QWidget):
         self.section_stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.section_stack.setStyleSheet("QStackedWidget { background: transparent; }")
         self.section_stack.addWidget(initial_panel)
-        self.section_stack.addWidget(format_panel)
         main_layout.addWidget(self.section_stack)
 
         # ── 3. 独立下置大高度【实时小票效果预览】卡片 ──
@@ -552,10 +556,10 @@ class TakeoutSortingWidget(QWidget):
         btn_refresh.clicked.connect(self._update_live_preview)
         pv_hdr.addWidget(btn_refresh)
 
-        btn_test = QPushButton(u"前往中继测试")
+        btn_test = QPushButton(u"查看真实测试")
         btn_test.setCursor(Qt.PointingHandCursor)
         btn_test.setStyleSheet("QPushButton { background: #10B981; color: white; font-weight: bold; font-size: 13px; border-radius: 6px; padding: 6px 16px; border: 1px solid #059669; } QPushButton:hover { background: #059669; }")
-        btn_test.clicked.connect(self._open_relay_settings)
+        btn_test.clicked.connect(lambda: self._select_section("test"))
         pv_hdr.addWidget(btn_test)
 
         pv_lay.addLayout(pv_hdr)
@@ -570,15 +574,112 @@ class TakeoutSortingWidget(QWidget):
         pv_lay.addWidget(self.txt_preview)
 
         format_layout.addWidget(pv_card)
+
+        # 外卖专用真实测试页：只显示 receipt_kind=takeout 的中继数据。
+        test_panel = QWidget()
+        test_layout = QVBoxLayout(test_panel)
+        test_layout.setContentsMargins(0, 0, 0, 0)
+        test_layout.setSpacing(12)
+        test_title = QLabel(u"② 真实测试")
+        test_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #38BDF8;")
+        test_layout.addWidget(test_title)
+        test_hint = QLabel(
+            u"先在系统设置 → 打印机中继启动并确认队列，再回官方 POS 打印一张真实外卖制作单。"
+            u"本页只显示外卖票据；堂食、退款、控制单不会混入。打印任务本身不等于已结账。"
+        )
+        test_hint.setWordWrap(True)
+        test_hint.setStyleSheet("color: #CBD5E1; background: #0F172A; border: 1px solid #334155; border-radius: 8px; padding: 12px;")
+        test_layout.addWidget(test_hint)
+        self.lbl_takeout_test_status = QLabel(u"外卖测试状态：等待刷新")
+        self.lbl_takeout_test_status.setWordWrap(True)
+        self.lbl_takeout_test_status.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 8px; padding: 12px; font-weight: bold;")
+        test_layout.addWidget(self.lbl_takeout_test_status)
+        self.lbl_takeout_test_monitor = QTextEdit()
+        self.lbl_takeout_test_monitor.setReadOnly(True)
+        self.lbl_takeout_test_monitor.setMinimumHeight(260)
+        self.lbl_takeout_test_monitor.setStyleSheet("QTextEdit { background: #0F172A; color: #E0F2FE; border: 1px solid #0369A1; border-radius: 8px; padding: 12px; font-family: Consolas, monospace; font-size: 13px; }")
+        test_layout.addWidget(self.lbl_takeout_test_monitor)
+        test_actions = QHBoxLayout()
+        self.btn_refresh_takeout_test = QPushButton(u"刷新外卖测试结果")
+        self.btn_refresh_takeout_test.setMinimumHeight(52)
+        self.btn_refresh_takeout_test.clicked.connect(self._refresh_takeout_test_page)
+        test_actions.addWidget(self.btn_refresh_takeout_test)
+        self.btn_open_takeout_mapping = QPushButton(u"进入字段重映射")
+        self.btn_open_takeout_mapping.setMinimumHeight(52)
+        self.btn_open_takeout_mapping.clicked.connect(lambda: self._select_section("mapping"))
+        test_actions.addWidget(self.btn_open_takeout_mapping)
+        test_layout.addLayout(test_actions)
+        test_layout.addStretch()
+
+        # 外卖专用字段重映射页，不修改堂食/官方结账单的映射。
+        mapping_panel = QWidget()
+        mapping_layout = QVBoxLayout(mapping_panel)
+        mapping_layout.setContentsMargins(0, 0, 0, 0)
+        mapping_layout.setSpacing(12)
+        mapping_title = QLabel(u"字段重映射")
+        mapping_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #A78BFA;")
+        mapping_layout.addWidget(mapping_title)
+        mapping_hint = QLabel(u"这里只影响外卖票据识别，不改变堂食/官方结账单字段。多个关键词用逗号分隔，保存后下一张外卖票据按新映射解析。")
+        mapping_hint.setWordWrap(True)
+        mapping_hint.setStyleSheet("color: #DDD6FE; background: #2E1065; border: 1px solid #7C3AED; border-radius: 8px; padding: 12px;")
+        mapping_layout.addWidget(mapping_hint)
+        mapping_grid = QGridLayout()
+        mapping_grid.setSpacing(10)
+        mapping_grid.setColumnStretch(1, 1)
+        takeout_mapping = self.config.get("takeout_field_mapping") or self.config.get("takeout_pos_field_mapping") or self.config.get("official_pos_field_mapping") or {}
+        mapping_defaults = {
+            "order_id_labels": ["订单号", "订单编号", "流水号"],
+            "amount_labels": ["实付", "实收", "支付金额", "付款金额", "合计"],
+            "paid_keywords": ["支付成功", "已支付", "已付款", "已结账", "结账成功"],
+            "cancelled_keywords": ["已取消", "退款成功", "已退款", "退单"],
+            "takeout_keywords": ["外卖", "美团", "饿了么", "制作单"],
+        }
+        mapping_fields = (
+            ("order_id_labels", u"外卖订单号标签："),
+            ("amount_labels", u"外卖金额标签："),
+            ("paid_keywords", u"外卖已付款关键词："),
+            ("cancelled_keywords", u"外卖取消/退款关键词："),
+            ("takeout_keywords", u"外卖类型关键词："),
+        )
+        self.takeout_mapping_fields = {}
+        for row, (key, label) in enumerate(mapping_fields):
+            mapping_grid.addWidget(QLabel(label), row, 0)
+            field = QLineEdit()
+            saved = takeout_mapping.get(key, mapping_defaults[key]) if isinstance(takeout_mapping, dict) else mapping_defaults[key]
+            field.setText(",".join(str(item) for item in saved) if isinstance(saved, (list, tuple)) else str(saved or ""))
+            field.setPlaceholderText(",".join(mapping_defaults[key]))
+            field.setMinimumHeight(48)
+            mapping_grid.addWidget(field, row, 1)
+            self.takeout_mapping_fields[key] = field
+        mapping_layout.addLayout(mapping_grid)
+        self.lbl_takeout_mapping_status = QLabel(u"当前映射：使用默认规则")
+        self.lbl_takeout_mapping_status.setWordWrap(True)
+        self.lbl_takeout_mapping_status.setStyleSheet("color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; border-radius: 8px; padding: 10px;")
+        mapping_layout.addWidget(self.lbl_takeout_mapping_status)
+        self.btn_save_takeout_mapping = QPushButton(u"保存外卖映射并刷新测试状态")
+        self.btn_save_takeout_mapping.setMinimumHeight(54)
+        self.btn_save_takeout_mapping.clicked.connect(self._save_takeout_mapping)
+        mapping_layout.addWidget(self.btn_save_takeout_mapping)
+        mapping_layout.addStretch()
+
+        # 页面顺序：①初始设置 → ②真实测试 → 字段重映射 → ③打印格式。
+        self.section_stack.addWidget(test_panel)
+        self.section_stack.addWidget(mapping_panel)
+        self.section_stack.addWidget(format_panel)
+        self._refresh_takeout_test_page()
         self._section_page_heights = {
             "initial": max(1, initial_panel.sizeHint().height()),
             "format": max(1, format_panel.sizeHint().height()),
+            "test": max(1, test_panel.sizeHint().height()),
+            "mapping": max(1, mapping_panel.sizeHint().height()),
         }
 
         # ── 4. 左侧二级菜单 ──
         section_sidebar = QFrame()
         section_sidebar.setObjectName("TakeoutSidebar")
-        section_sidebar.setFixedWidth(180)
+        section_sidebar.setMinimumWidth(180)
+        section_sidebar.setMaximumWidth(230)
+        section_sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         section_sidebar.setStyleSheet(
             "QFrame#TakeoutSidebar { background-color: #0F172A; border-right: 1px solid #1E293B; }"
             "QLabel { background: transparent; }"
@@ -593,7 +694,12 @@ class TakeoutSortingWidget(QWidget):
         )
         sidebar_layout.addWidget(sidebar_title)
         self.section_buttons = {}
-        for section_id, label in (("initial", u"⚙ 初始设置"), ("format", u"♨ 外卖格式")):
+        for section_id, label in (
+            ("initial", u"① 初始设置"),
+            ("test", u"② 真实测试"),
+            ("mapping", u"字段重映射"),
+            ("format", u"③ 打印格式"),
+        ):
             button = QPushButton(label)
             button.setCheckable(True)
             button.setMinimumHeight(56)
@@ -672,20 +778,23 @@ class TakeoutSortingWidget(QWidget):
         self.lbl_relay_guide.setText(text)
 
     def _refresh_relay_observations(self, state):
-        """Show a read-only live summary for both takeout and dine-in tickets."""
+        """Show a read-only live summary for external-order tickets only."""
         label = getattr(self, "lbl_relay_observations", None)
         if label is None:
             return
         records = state.get("recent_received") if isinstance(state, dict) else []
-        records = [row for row in (records or []) if isinstance(row, dict)]
+        records = [
+            row for row in (records or [])
+            if isinstance(row, dict) and str(row.get("receipt_kind") or "").lower() == "takeout"
+        ]
         if not records:
             label.setText(
-                u"实时识别：暂无官方 POS 打印数据。外卖单、堂食结账单和退款/补打单都会进入同一中继识别流水；"
-                u"收到数据后将在这里显示摘要，完整 JSON 请前往打印机中继页面查看。"
+                u"实时识别：暂无外卖 POS 打印数据。堂食、退款和控制单不会显示在此页面；"
+                u"收到外卖单后请进入左侧“外卖真实测试”查看完整字段摘要。"
             )
             return
         kind_labels = {"takeout": u"外卖", "dinein": u"堂食/结账", "unknown": u"未知类型"}
-        lines = [u"最近官方 POS 识别（外卖与堂食共用）："]
+        lines = [u"最近外卖 POS 识别（仅外卖）："]
         for row in records[:5]:
             kind = kind_labels.get(str(row.get("receipt_kind") or "unknown"), u"未知类型")
             order_id = str(row.get("order_id") or row.get("call_no") or "无订单号")
@@ -703,8 +812,83 @@ class TakeoutSortingWidget(QWidget):
             if row is records[0]:
                 fields = row.get("recognized_fields") or []
                 lines.append(u"　识别字段：%s" % (u"、".join(str(item) for item in fields) if fields else u"暂无稳定字段"))
-        lines.append(u"字段标注不正确时，请前往打印机中继的实时监控和字段重映射处理。")
+        lines.append(u"这里只显示外卖单；字段标注不正确时，请进入左侧“外卖真实测试”和“外卖字段重映射”处理。")
         label.setText("\n".join(lines))
+
+    def _refresh_takeout_test_page(self):
+        """Refresh the external-order-only monitor from the relay status file."""
+        if not hasattr(self, "lbl_takeout_test_monitor"):
+            return
+        state = self.interceptor.get_status() if self.interceptor else {}
+        state = state if isinstance(state, dict) else {}
+        running = bool(state.get("running"))
+        mode = mode_label(state.get("mode") or self.config.get("takeout_relay_mode", "compatibility"))
+        error = str(state.get("last_error") or "")
+        status = u"外卖测试状态：%s；当前中继模式：%s" % (u"监听中" if running else u"中继未运行", mode)
+        if error:
+            status += u"\n异常：%s" % error
+        self.lbl_takeout_test_status.setText(status)
+        records = [
+            row for row in (state.get("recent_received") or [])
+            if isinstance(row, dict) and str(row.get("receipt_kind") or "").lower() == "takeout"
+        ]
+        if not records:
+            self.lbl_takeout_test_monitor.setPlainText(
+                u"尚未收到外卖票据。\n\n"
+                u"请启动打印机中继，并在官方 POS 选择已经配置的中继队列打印一张真实外卖制作单。\n"
+                u"堂食、退款和控制单会被本页过滤，不会误显示为外卖测试结果。"
+            )
+            return
+        lines = [u"外卖真实测试最近文件（按收到时间倒序）："]
+        for index, row in enumerate(records[:10], 1):
+            order_id = str(row.get("order_id") or "无订单号")
+            call_no = str(row.get("call_no") or "无叫号")
+            amount = row.get("amount")
+            try:
+                amount_text = u"¥%.2f" % float(amount) if amount is not None else u"未知"
+            except (TypeError, ValueError):
+                amount_text = u"未知"
+            payment = {"paid": u"已结账", "cancelled": u"已取消/退款", "unknown": u"状态未知"}.get(
+                str(row.get("payment_status") or "unknown").lower(), u"状态未知"
+            )
+            lines.append(
+                u"[%d] %s\n    文件：%s / %s\n    系统标注：平台=%s；订单号=%s；叫号=%s；金额=%s；付款=%s；字段=%s" % (
+                    index,
+                    row.get("received_at") or "时间未知",
+                    row.get("capture_file") or "原始文件未记录",
+                    row.get("capture_json_file") or "JSON 未记录",
+                    row.get("platform") or "未知",
+                    order_id,
+                    call_no,
+                    amount_text,
+                    payment,
+                    ",".join(str(item) for item in (row.get("recognized_fields") or [])) or "暂无稳定字段",
+                )
+            )
+        lines.append(u"\n如果系统标注不正确，请进入左侧“④ 外卖字段重映射”修改。")
+        self.lbl_takeout_test_monitor.setPlainText("\n".join(lines))
+
+    def _save_takeout_mapping(self):
+        mapping = {}
+        for key, field in getattr(self, "takeout_mapping_fields", {}).items():
+            mapping[key] = [item.strip() for item in field.text().replace("，", ",").split(",") if item.strip()]
+        self.config["takeout_field_mapping"] = mapping
+        save_config(self.config)
+        if self.interceptor and hasattr(self.interceptor, "update_config"):
+            try:
+                self.interceptor.update_config(self.config)
+            except Exception:
+                pass
+        self.lbl_takeout_mapping_status.setText(
+            u"外卖映射已保存：订单号 %d 项，金额 %d 项，付款 %d 项，取消/退款 %d 项，类型 %d 项。下一张外卖票据生效。" % (
+                len(mapping.get("order_id_labels", [])),
+                len(mapping.get("amount_labels", [])),
+                len(mapping.get("paid_keywords", [])),
+                len(mapping.get("cancelled_keywords", [])),
+                len(mapping.get("takeout_keywords", [])),
+            )
+        )
+        self._refresh_takeout_test_page()
 
     def _open_relay_settings(self):
         parent = self.window()
@@ -871,6 +1055,7 @@ class TakeoutSortingWidget(QWidget):
         self.txt_preview.setPlainText(parsed.get("sorted_text", ""))
 
     def _parse_text(self, raw_text):
+        takeout_mapping = self.config.get("takeout_field_mapping") or self.config.get("takeout_pos_field_mapping") or self.config.get("official_pos_field_mapping", {})
         opts = {
             "mark_multi_qty_star": self.chk_star.isChecked(),
             "show_prices": self.chk_prices.isChecked(),
@@ -880,6 +1065,7 @@ class TakeoutSortingWidget(QWidget):
             "show_preorder_alert": self.chk_preorder.isChecked(),
             "custom_categories": self.categories,
             "takeout_match_mode": "contains" if self.cmb_match_mode.currentIndex() == 0 else "exact",
+            "takeout_field_mapping": takeout_mapping,
         }
         return parse_and_sort_takeout_text(raw_text, opts)
 

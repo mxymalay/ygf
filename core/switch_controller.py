@@ -57,7 +57,6 @@ class AutoSwitchController(QObject):
         )
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
-        self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
         self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
         self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
         self._load_daily_revenue_limits()
@@ -88,7 +87,6 @@ class AutoSwitchController(QObject):
         self._daily_first_channel_override = None
         self._zero_start_time = 0.0  # 记录归零起始时间戳
         self._last_popped_weight = 0.0  # 记录本称重周期最终用于分流的稳定重量
-        self._last_private_time = 0.0  # 记录上一次私域动作的时间戳 (用于私域购物车死锁超时)
         self._current_is_private = False
         self._last_decision_kind = ""
         self._last_decision_reason = ""
@@ -756,7 +754,6 @@ class AutoSwitchController(QObject):
         self._update_switch_cycle_progress()
 
         if is_private_turn:
-            self._last_private_time = time.time()
             bring_our_pos_to_front(self.main_window)
             private_reason = self._last_decision_reason or "智能算法选择: 本单走私域"
             self._update_floating_ball_status(is_private=True, reason=private_reason, show_checkmark=True)
@@ -783,34 +780,21 @@ class AutoSwitchController(QObject):
         if official_available is None:
             official_available = self._official_available()
 
-        # 规则 0A：私域多碗/连续开单保护 (如果购物车已有未结账项目，保持私域 POS 连续开单)
-        now_ts = time.time()
+        # 规则 0A：未结账购物车保护。只要购物车仍有项目，就继续在
+        # 私域 POS 完成这张订单；结账或清空购物车后立即解除。过去的
+        # “保护时长”并没有实际解除锁，容易让用户误以为超时会自动
+        # 切换，因此改为明确的订单状态锁，不再需要计时配置。
         if hasattr(self.main_window, 'sale_page') and self.main_window.sale_page:
             cart_items = getattr(self.main_window.sale_page, 'cart_items', [])
             if cart_items:
-                if now_ts - self._last_private_time < self._private_lock_sec:
-                    self._last_private_time = now_ts  # 刷新私域连单锁定期
-                    self._record_inherited_decision(weight_kg, True)
-                    self._last_decision_kind = "inherited_private"
-                    self._last_decision_reason = "私有 POS 连单继承"
-                    _safe_console(f"[AutoDecisionEngine] 检测到私域 POS 购物车已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
-                    log_event(CAT_DECISION, "私域连单继承 -> 保持私域 POS", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
-                    return True
-                else:
-                    # A timeout must never erase an unfinished customer order.
-                    # Preserve the basket/draft and keep the POS on this order
-                    # until the cashier explicitly clears or checks out.
-                    self._last_private_time = now_ts
-                    self._record_inherited_decision(weight_kg, True)
-                    self._last_decision_kind = "inherited_private"
-                    self._last_decision_reason = "私有 POS 未结订单保护"
-                    log_event(
-                        CAT_DECISION,
-                        "私域未结订单保护",
-                        f"购物车超过 {self._private_lock_sec}s 未结账，已保留订单并暂停自动切换",
-                    )
-                    return True
+                self._record_inherited_decision(weight_kg, True)
+                self._last_decision_kind = "inherited_private"
+                self._last_decision_reason = "私域未结订单保护"
+                _safe_console(f"[AutoDecisionEngine] 检测到私域 POS 购物车已有 {len(cart_items)} 项商品，保持【私域 POS】连续开单")
+                log_event(CAT_DECISION, "私域未结订单保护", f"购物车已有 {len(cart_items)} 项 | 本次称重 {weight_kg:.3f}kg")
+                return True
 
+        now_ts = time.time()
         # Establish the day's baseline before amount/weight balancing. A
         # successful official POS first order gives the call-number relay a
         # reliable starting point; a deliberate pre-order manual switch to
@@ -1179,7 +1163,6 @@ class AutoSwitchController(QObject):
         )
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
-        self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
         self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
         self._manual_override_lock_sec = max(0.0, _config_float(self.config, "manual_override_lock_sec", 30.0))
         self._load_daily_revenue_limits()

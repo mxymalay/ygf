@@ -98,7 +98,10 @@ class OrderCard(QFrame):
         # 结账方式标签
         pm = r.get("payment_method", "")
         pm_colors = {"shouqianba": "#F97316", "scan": "#059669", "cash": "#2563EB", "qr": "#7C3AED", "mixed": "#D97706"}
-        pm_text = payment_display_label(pm, r.get("payment_breakdown_json", ""))
+        breakdown = r.get("payment_breakdown_json", "")
+        pm_text = payment_display_label(pm, breakdown)
+        if not pm_text and breakdown:
+            pm_text = payment_display_label("mixed", breakdown)
         if pm == "mixed":
             pm_text = "混合支付"
         pm_color = pm_colors.get(pm, "#6B7280")
@@ -772,8 +775,8 @@ class HistoryWidget(QWidget):
             "remark": u"官方 POS｜%s" % platform,
             "created_at": str(row.get("created_at", "") or ""),
             "payment_status": str(row.get("payment_status", "PAID") or "PAID"),
-            "payment_method": "",
-            "payment_breakdown_json": "",
+            "payment_method": str(row.get("payment_method", "") or ""),
+            "payment_breakdown_json": str(row.get("payment_breakdown_json", "") or ""),
             "total_price": amount,
             "weight_kg": 0.0,
             "cart_items_json": "[]",
@@ -910,9 +913,13 @@ class HistoryWidget(QWidget):
 
         # 退单只允许对已支付订单执行一次；空列表或已退订单保持禁用。
         if hasattr(self, "btn_refund"):
+            is_official = self._record_source(record or {}) == "official"
             self.btn_refund.setEnabled(
-                bool(record) and record.get("payment_status", "PAID") != REFUNDED
+                bool(record) and not is_official and record.get("payment_status", "PAID") != REFUNDED
             )
+            # 官方 POS 的退款必须由官方 POS 打印退款单并由中继关联，
+            # 本地订单页不提供容易误操作的“退单”入口。
+            self.btn_refund.setVisible(bool(record) and not is_official)
 
         # 高亮选中的卡片
         for i in range(self.order_list_layout.count()):
@@ -949,11 +956,14 @@ class HistoryWidget(QWidget):
         # 结账方式
         pm = record.get("payment_method", "")
         payment_state = record.get("payment_status", "PAID")
+        breakdown = record.get("payment_breakdown_json", "")
+        payment_label = payment_display_label(pm, breakdown)
+        if not payment_label and breakdown:
+            payment_label = payment_display_label("mixed", breakdown)
+        if not payment_label and self._record_source(record) == "official" and payment_state == "PAID":
+            payment_label = u"官方 POS 已结账（票面未提供方式）"
         self.lbl_payment_method.setText(
-            u"结账方式：%s" % payment_display_label(
-                pm, record.get("payment_breakdown_json", "")
-            )
-            if pm else u"结账方式：未记录"
+            u"结账方式：%s" % (payment_label or u"未记录")
         )
         if payment_state == REFUNDED:
             self.lbl_remark_info.setText(

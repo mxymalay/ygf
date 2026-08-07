@@ -1044,6 +1044,7 @@ class DecisionAmountChart(QWidget):
 
     OFFICIAL_COLOR = QColor("#38BDF8")
     PRIVATE_COLOR = QColor("#22C55E")
+    MANUAL_COLOR = QColor("#A855F7")
     GRID_COLOR = QColor("#26364D")
     TEXT_COLOR = QColor("#CBD5E1")
     point_clicked = pyqtSignal(object)
@@ -1053,6 +1054,7 @@ class DecisionAmountChart(QWidget):
         self.events = []
         self.timeline_start = None
         self.timeline_end = None
+        self.app_sessions = []
         self._hit_targets = []
         self.horizontal_scale = 1.0
         self.setMinimumHeight(520)
@@ -1079,16 +1081,35 @@ class DecisionAmountChart(QWidget):
         self.setMinimumWidth(max(720, min(30000, 110 + max(1, len(incoming)) * 84)))
         self.update()
 
-    def set_timeline_context(self, day_value, *args, **kwargs):
-        del args, kwargs
+    def set_timeline_context(self, day_value, startup_times=None, shutdown_times=None):
         try:
             day_start = datetime.strptime(str(day_value)[:10], "%Y-%m-%d")
         except (TypeError, ValueError):
             self.timeline_start = None
             self.timeline_end = None
+            self.app_sessions = []
         else:
+            day_end = day_start + timedelta(days=1)
+
+            def parse_times(values, include_before_day=False):
+                parsed = []
+                for value in values or []:
+                    when = self._event_time({"created_at": value})
+                    if when is not None and ((day_start <= when <= day_end) or (include_before_day and when < day_start)):
+                        parsed.append(when)
+                return sorted(set(parsed))
+
+            starts = parse_times(startup_times)
+            stops = parse_times(shutdown_times, include_before_day=True)
+            sessions = []
+            for started_at in starts:
+                following_stops = [value for value in stops if value > started_at]
+                ended_at = following_stops[0] if following_stops else day_end
+                if ended_at > started_at:
+                    sessions.append((started_at, min(ended_at, day_end)))
             self.timeline_start = day_start
-            self.timeline_end = day_start + timedelta(days=1)
+            self.timeline_end = day_end
+            self.app_sessions = sessions
         self.update()
 
     def zoom_in_horizontal(self):
@@ -1129,22 +1150,30 @@ class DecisionAmountChart(QWidget):
         painter.drawRoundedRect(outer, 10, 10)
 
         points = []
+        manual_points = []
         for event_row in self.events:
             when = self._event_time(event_row)
             channel = str(event_row.get("channel") or "").lower()
+            event_type = str(event_row.get("event_type") or "").lower()
+            if when is not None and (event_type == "manual_switch" or channel == "manual"):
+                manual_points.append((when, event_row))
+                continue
             amount = self._amount(event_row)
             if when is not None and channel in ("official", "private") and amount > 0:
                 points.append((when, amount, channel, event_row))
         points.sort(key=lambda item: item[0])
-        if not points:
+        manual_points.sort(key=lambda item: item[0])
+        if not points and not manual_points and not self.app_sessions:
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(QFont("Microsoft YaHei", 13))
             painter.drawText(outer, Qt.AlignCenter, u"今日暂无已入账金额记录（金额图不使用估算金额）")
             painter.end()
             return
 
-        start_time = self.timeline_start or (points[0][0] - timedelta(minutes=5))
-        end_time = self.timeline_end or (points[-1][0] + timedelta(minutes=5))
+        all_times = [item[0] for item in points] + [item[0] for item in manual_points]
+        all_times.extend(boundary for session in self.app_sessions for boundary in session)
+        start_time = self.timeline_start or (min(all_times) - timedelta(minutes=5))
+        end_time = self.timeline_end or (max(all_times) + timedelta(minutes=5))
         total_seconds = max(1.0, (end_time - start_time).total_seconds())
         width = float(self.width())
         plot = QRectF(84, 58, max(120.0, width - 108), max(320.0, float(self.height()) - 124.0))
@@ -1168,6 +1197,12 @@ class DecisionAmountChart(QWidget):
         painter.drawText(QPointF(440.0, 32.0), u"■ 官方")
         painter.setPen(self.PRIVATE_COLOR)
         painter.drawText(QPointF(520.0, 32.0), u"■ 私域")
+        painter.setPen(self.MANUAL_COLOR)
+        painter.drawText(QPointF(590.0, 32.0), u"● 手动")
+        painter.setPen(QColor("#F59E0B"))
+        painter.drawText(QPointF(665.0, 32.0), u"○ 开启")
+        painter.setPen(QColor("#EF4444"))
+        painter.drawText(QPointF(740.0, 32.0), u"□ 关闭")
 
         painter.setFont(QFont("Microsoft YaHei", 9))
         for index in range(5):
@@ -1206,6 +1241,54 @@ class DecisionAmountChart(QWidget):
                     "cumulative_amount": total,
                 })
                 previous = current
+
+        # A manual switch is a routing boundary, not revenue.  Keep it on
+        # the amount chart nevertheless, so the operator can understand why
+        # the amount series has a blank/changed segment after switching.
+        for when, row in manual_points:
+            cumulative_at = {channel: 0.0 for channel in ("official", "private")}
+            for point_when, _amount, channel, _event in points:
+                if point_when > when:
+                    break
+                cumulative_at[channel] += _amount
+            marker_value = max(cumulative_at.values() or [0.0])
+            marker_point = point_for(when, marker_value)
+            painter.setPen(QPen(QColor("#0F172A"), 1))
+            painter.setBrush(self.MANUAL_COLOR)
+            painter.drawEllipse(marker_point, 5.5, 5.5)
+            painter.setPen(self.MANUAL_COLOR)
+            painter.setFont(QFont("Microsoft YaHei", 9))
+            self._hit_targets.append({
+                "kind": "manual_switch",
+                "point": marker_point,
+                "when": when,
+                "event": dict(row or {}),
+                "channel": "manual",
+            })
+
+        # 与重量图一致地标出程序启动/关闭节点。它们只是状态边界，
+        # 不属于营业额，因此不在点旁边绘制文字，避免窄屏重叠。
+        def cumulative_at(when):
+            totals = {"official": 0.0, "private": 0.0}
+            for point_when, _amount, channel, _event in points:
+                if point_when > when:
+                    break
+                totals[channel] += _amount
+            return max(totals.values() or [0.0])
+
+        for started_at, ended_at in self.app_sessions:
+            for when, marker_kind in ((started_at, "app_start"), (ended_at, "app_shutdown")):
+                if marker_kind == "app_shutdown" and when >= self.timeline_end:
+                    continue
+                marker_point = point_for(when, cumulative_at(when))
+                marker_color = QColor("#F59E0B" if marker_kind == "app_start" else "#EF4444")
+                painter.setPen(QPen(QColor("#0F172A"), 1))
+                painter.setBrush(marker_color)
+                if marker_kind == "app_start":
+                    painter.drawEllipse(marker_point, 6.0, 6.0)
+                else:
+                    painter.drawRect(QRectF(marker_point.x() - 5.0, marker_point.y() - 5.0, 10.0, 10.0))
+                self._hit_targets.append({"kind": marker_kind, "point": marker_point, "when": when})
 
         painter.setPen(QPen(QColor("#64748B"), 1))
         painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
@@ -1422,6 +1505,7 @@ class SwitchSettingsWidget(QWidget):
         """Refresh only the currently visible, data-heavy subpage."""
         if not self.isVisible():
             return
+        self._refresh_mode_scope_labels()
         current_index = self.section_stack.currentIndex() if getattr(self, "section_stack", None) else -1
         if current_index == getattr(self, "_section_targets", {}).get("chart"):
             self._refresh_weight_chart()
@@ -1531,9 +1615,9 @@ class SwitchSettingsWidget(QWidget):
         lay1.addRow(QLabel(), lbl_enabled_tip)
         
         self.sp_ratio = TouchSpinBox(30, 0, 100, 5, " %")
-        lay1.addRow(QLabel(u"目标私域重量占比:"), self.sp_ratio)
+        lay1.addRow(QLabel(u"目标私域重量占比（仅限兼容模式）:"), self.sp_ratio)
 
-        lbl_ratio_tip = QLabel(u"算法按称重重量控制目标比例，不是按订单次数，也不是官方实际营业额。官方金额无法读取时，重量是最可靠的可观测代理。")
+        lbl_ratio_tip = QLabel(u"为什么仅限兼容模式：兼容模式无法可靠取得官方已结账金额，只能用稳定称重重量控制私域比例；增强模式改用已验证的官方/私域金额比例，不使用本项。")
         lbl_ratio_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_ratio_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_ratio_tip)
@@ -1542,9 +1626,10 @@ class SwitchSettingsWidget(QWidget):
         # target instead of silently reusing the compatibility-mode weight
         # ratio.  The default follows the legacy ratio for old installations.
         self.sp_amount_ratio = TouchSpinBox(30, 0, 100, 5, " %")
-        lay1.addRow(QLabel(u"目标私域金额占比（增强模式）:"), self.sp_amount_ratio)
+        self.lbl_amount_ratio_title = QLabel()
+        lay1.addRow(self.lbl_amount_ratio_title, self.sp_amount_ratio)
         lbl_amount_ratio_tip = QLabel(
-            u"只有中继处于增强模式且官方金额、付款状态均已验证时使用；兼容模式忽略此项，继续按上面的重量占比。"
+            u"为什么仅限增强模式：金额分流必须依赖中继识别到唯一订单、最终金额和可靠的付款状态。兼容模式无法确认官方是否已结账，因此本项不会参与决策，系统继续按重量分流。"
         )
         lbl_amount_ratio_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_amount_ratio_tip.setWordWrap(True)
@@ -1578,8 +1663,9 @@ class SwitchSettingsWidget(QWidget):
         lay2.setSpacing(16)
         
         self.sp_official_lock = TouchSpinBox(60, 0, 300, 5, " 秒")
-        lay2.addRow(QLabel(u"官方界面连单保护:"), self.sp_official_lock)
-        lbl_o_tip = QLabel(u"场景说明：一单刚分配给官方，此时间内就算来了大单也继续走官方，防止弹窗打断店员。")
+        self.lbl_official_lock_title = QLabel()
+        lay2.addRow(self.lbl_official_lock_title, self.sp_official_lock)
+        lbl_o_tip = QLabel(u"为什么仅限兼容模式：兼容模式无法从官方 POS 得到可靠的结账状态，只能用这段连单保护时间避免连续开单时频繁切屏。增强模式有已验证的订单和付款状态，按金额分流时不依赖这把时间锁。")
         lbl_o_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_o_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_o_tip)
@@ -1589,12 +1675,6 @@ class SwitchSettingsWidget(QWidget):
         lbl_z_tip.setWordWrap(True)
         lay2.addRow(QLabel(), lbl_z_tip)
 
-        self.sp_private_lock = TouchSpinBox(300, 10, 3600, 10, " 秒")
-        lay2.addRow(QLabel(u"私域连单判定时长:"), self.sp_private_lock)
-        lbl_p_tip = QLabel(u"场景说明：此时长内的新碗视为同一笔私域连单；超过后若购物车仍有商品，系统继续保留订单，不会自动清空。")
-        lbl_p_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
-        lbl_p_tip.setWordWrap(True)
-        lay2.addRow(QLabel(), lbl_p_tip)
         lay2.addRow(QLabel(), self._group_save_button(u"保存连续收银设置", self._save_continuity_group))
         form_vlayout.addWidget(grp2)
 
@@ -1630,7 +1710,7 @@ class SwitchSettingsWidget(QWidget):
         # Win7 触屏窗口通常比开发机窄。说明文字必须在字段列内收缩
         # 换行，不能用长文本的 sizeHint 把整个页面横向撑出可视区域。
         for tip in (lbl_enabled_tip, lbl_ratio_tip, lbl_amount_ratio_tip, lbl_w_tip, lbl_limit_tip,
-                    lbl_o_tip, lbl_z_tip, lbl_p_tip,
+                    lbl_o_tip, lbl_z_tip,
                     lbl_stable_tip, lbl_m_tip):
             tip.setMinimumWidth(0)
             tip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -2609,7 +2689,10 @@ class SwitchSettingsWidget(QWidget):
         # 没有金额分流记录时不把普通营业额误称为金额分流；发生模式
         # 切换时，只把处于金额模式窗口内的真实已入账金额送入金额图，
         # 其余时段保留为空白，而不是用估算值补点。
-        self.amount_chart.set_events(amount_events if amount_route_events else [])
+        # Manual switches are not amounts, but they are important context on
+        # the amount chart.  Keep them as purple boundary markers even when
+        # the surrounding amount window is empty.
+        self.amount_chart.set_events((amount_events if amount_route_events else []) + manual_events)
         self.amount_histogram_chart.set_events(amount_events if amount_route_events else [])
         self.amount_histogram_chart.set_histogram_metadata(histogram_metadata)
         if hasattr(self, "lbl_route_basis_summary"):
@@ -2626,7 +2709,7 @@ class SwitchSettingsWidget(QWidget):
         )
         self.weight_line_chart.set_downtime_gaps(downtime_gaps)
         self.weight_histogram_chart.set_downtime_gaps([])
-        self.amount_chart.set_timeline_context(selected_date)
+        self.amount_chart.set_timeline_context(selected_date, startup_times, shutdown_times)
 
     def _scroll_charts_to_latest(self):
         for scroll_area in (
@@ -2877,9 +2960,17 @@ class SwitchSettingsWidget(QWidget):
         self.sp_stable_threshold.setValue(float(self.config.get("stable_threshold", 0.01)))
         
         self.sp_official_lock.setValue(int(self.config.get("official_lock_sec", 60)))
-        self.sp_private_lock.setValue(int(self.config.get("private_lock_sec", 300)))
         self.sp_manual_override_lock.setValue(int(self.config.get("manual_override_lock_sec", 30)))
         self.sp_delay.setValue(int(self.config.get("auto_hide_delay_sec", 10)))
+        self._refresh_mode_scope_labels()
+
+    def _refresh_mode_scope_labels(self):
+        if hasattr(self, "lbl_amount_ratio_title"):
+            self.lbl_amount_ratio_title.setText(u"目标私域金额占比（仅限增强模式）：")
+            self.lbl_amount_ratio_title.setToolTip(u"仅增强模式使用；兼容模式因无法确认官方付款状态而按重量分流。")
+        if hasattr(self, "lbl_official_lock_title"):
+            self.lbl_official_lock_title.setText(u"官方界面连单保护（仅限兼容模式）：")
+            self.lbl_official_lock_title.setToolTip(u"仅兼容模式使用；增强模式依据已验证的订单和付款状态重新判断分流。")
 
     def _refresh_runtime(self, title, restart_scale=False):
         """持久化当前配置，并让运行中的控制器/称重线程及时读取新值。"""
@@ -2916,7 +3007,6 @@ class SwitchSettingsWidget(QWidget):
 
     def _save_continuity_group(self):
         self.config["official_lock_sec"] = self.sp_official_lock.value()
-        self.config["private_lock_sec"] = self.sp_private_lock.value()
         self._refresh_runtime(u"连续收银防打断设置")
 
     def _save_scale_group(self):
@@ -2941,7 +3031,6 @@ class SwitchSettingsWidget(QWidget):
         self.config["min_valid_weight_kg"] = self.sp_min_valid_weight.value()
         self.config["stable_threshold"] = self.sp_stable_threshold.value()
         self.config["official_lock_sec"] = self.sp_official_lock.value()
-        self.config["private_lock_sec"] = self.sp_private_lock.value()
         self.config["manual_override_lock_sec"] = self.sp_manual_override_lock.value()
         self.config["auto_hide_delay_sec"] = self.sp_delay.value()
         self._refresh_runtime(u"全部分流算法设置", restart_scale=True)

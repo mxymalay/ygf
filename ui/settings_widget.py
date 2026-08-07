@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit,
-    QTextBrowser, QTabWidget,
+    QTextBrowser, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QSizePolicy
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
@@ -38,6 +38,7 @@ from core.takeout_relay import (
     mode_label,
     validate_relay_config,
 )
+from core.shop_catalog import get_shop_categories, save_shop_categories
 
 
 SQB_INSTALLER_NAME = u"PC收款安装包v4.0.4.exe"
@@ -2442,7 +2443,210 @@ class SettingsWidget(QWidget):
         grid.addWidget(self.btn_save_biz, 5, 1, 1, 2)
 
         layout.addLayout(grid)
-        return self._wrap_in_scroll(card, [(u"店铺与计价", [2])])
+        # 商品与分类是“店铺与计价”的兄弟三级页面。它和店铺价格保存
+        # 分开，避免修改一个商品时覆盖店铺基础信息。
+        sku_panel = self._build_sku_catalog_panel()
+        layout.addWidget(sku_panel)
+        return self._wrap_in_scroll(card, [(u"店铺与计价", [2]), (u"商品与分类", [3])])
+
+    def _build_sku_catalog_panel(self):
+        """编辑主界面的分类和 SKU；数据仍保存在普通 config 中。"""
+        panel = QFrame()
+        panel.setStyleSheet(
+            "QFrame { background: #0F172A; border: 1px solid #334155; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(16, 14, 16, 14)
+        outer.setSpacing(10)
+        title = QLabel(u"🧾 商品与分类")
+        title.setStyleSheet("color: #BAE6FD; font-size: 20px; font-weight: 900;")
+        outer.addWidget(title)
+        hint = QLabel(u"维护点菜区显示的分类、商品名称、价格和顺序。‘全部’仅是主界面的筛选标签，不会单独保存。汤底可选择是否弹出口味设置，其他分类不显示该选项。")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #94A3B8; font-size: 13px;")
+        outer.addWidget(hint)
+
+        self._shop_catalog = get_shop_categories(self.config)
+        row = QHBoxLayout()
+        row.addWidget(self._make_label(u"分类："))
+        self.cmb_sku_category = QComboBox()
+        self.cmb_sku_category.setMinimumWidth(180)
+        row.addWidget(self.cmb_sku_category, 1)
+        self.btn_add_sku_category = QPushButton(u"＋新增分类")
+        self._style_touch_action_btn(self.btn_add_sku_category, "blue")
+        self.btn_add_sku_category.clicked.connect(self._add_sku_category)
+        row.addWidget(self.btn_add_sku_category)
+        self.btn_delete_sku_category = QPushButton(u"删除分类")
+        self._style_touch_action_btn(self.btn_delete_sku_category, "danger")
+        self.btn_delete_sku_category.clicked.connect(self._delete_sku_category)
+        row.addWidget(self.btn_delete_sku_category)
+        outer.addLayout(row)
+
+        cat_grid = QGridLayout()
+        cat_grid.setHorizontalSpacing(12)
+        cat_grid.setVerticalSpacing(8)
+        cat_grid.addWidget(self._make_label(u"分类名称："), 0, 0)
+        self.txt_sku_category_name = QLineEdit()
+        cat_grid.addWidget(self.txt_sku_category_name, 0, 1)
+        cat_grid.addWidget(self._make_label(u"显示顺序："), 0, 2)
+        self.spin_sku_category_order = QSpinBox()
+        self.spin_sku_category_order.setRange(0, 999)
+        cat_grid.addWidget(self.spin_sku_category_order, 0, 3)
+        cat_grid.addWidget(self._make_label(u"口味设置："), 1, 0)
+        self.chk_sku_show_flavor = QCheckBox(u"汤底显示口味选择")
+        self.chk_sku_show_flavor.setToolTip(u"只有汤底分类可以启用；关闭后点汤底不会弹出口味窗口。")
+        cat_grid.addWidget(self.chk_sku_show_flavor, 1, 1, 1, 3)
+        outer.addLayout(cat_grid)
+
+        self.tbl_sku_items = QTableWidget(0, 3)
+        self.tbl_sku_items.setHorizontalHeaderLabels([u"商品名称", u"价格（元）", u"顺序"])
+        self.tbl_sku_items.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tbl_sku_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tbl_sku_items.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tbl_sku_items.setMinimumHeight(220)
+        self.tbl_sku_items.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tbl_sku_items.setStyleSheet("QTableWidget { background: #111827; color: #E2E8F0; gridline-color: #334155; border: 1px solid #334155; } QHeaderView::section { background: #1E293B; color: #BAE6FD; padding: 8px; border: none; }")
+        outer.addWidget(self.tbl_sku_items)
+
+        item_buttons = QHBoxLayout()
+        self.btn_add_sku_item = QPushButton(u"＋新增商品")
+        self._style_touch_action_btn(self.btn_add_sku_item, "blue")
+        self.btn_add_sku_item.clicked.connect(self._add_sku_item)
+        item_buttons.addWidget(self.btn_add_sku_item)
+        self.btn_delete_sku_item = QPushButton(u"删除选中商品")
+        self._style_touch_action_btn(self.btn_delete_sku_item, "danger")
+        self.btn_delete_sku_item.clicked.connect(self._delete_sku_item)
+        item_buttons.addWidget(self.btn_delete_sku_item)
+        item_buttons.addStretch()
+        self.btn_save_sku_catalog = QPushButton(u"💾 保存商品与分类")
+        self._style_save_btn(self.btn_save_sku_catalog)
+        self.btn_save_sku_catalog.clicked.connect(self._on_save_sku_catalog)
+        item_buttons.addWidget(self.btn_save_sku_catalog)
+        outer.addLayout(item_buttons)
+
+        self.cmb_sku_category.currentIndexChanged.connect(self._load_sku_category_editor)
+        self._refresh_sku_category_combo()
+        return panel
+
+    def _refresh_sku_category_combo(self, select_id=None):
+        if not hasattr(self, "cmb_sku_category"):
+            return
+        self.cmb_sku_category.blockSignals(True)
+        self.cmb_sku_category.clear()
+        selected = -1
+        for index, category in enumerate(self._shop_catalog):
+            self.cmb_sku_category.addItem(u"%d  %s" % (index + 1, category.get("name", "")), category.get("id"))
+            if category.get("id") == select_id:
+                selected = index
+        if selected < 0 and self._shop_catalog:
+            selected = 0
+        if selected >= 0:
+            self.cmb_sku_category.setCurrentIndex(selected)
+        self.cmb_sku_category.blockSignals(False)
+        self._load_sku_category_editor(selected)
+
+    def _current_sku_category(self):
+        index = self.cmb_sku_category.currentIndex()
+        return self._shop_catalog[index] if 0 <= index < len(self._shop_catalog) else None
+
+    def _load_sku_category_editor(self, index):
+        category = self._current_sku_category()
+        if category is None:
+            return
+        self.txt_sku_category_name.setText(category.get("name", ""))
+        self.spin_sku_category_order.setValue(int(category.get("order", 0)))
+        self.chk_sku_show_flavor.setChecked(bool(category.get("show_flavor", False)))
+        self.chk_sku_show_flavor.setEnabled(category.get("id") == "soup")
+        if category.get("id") != "soup":
+            self.chk_sku_show_flavor.setChecked(False)
+        self.tbl_sku_items.setRowCount(0)
+        for item in category.get("items", []):
+            row = self.tbl_sku_items.rowCount()
+            self.tbl_sku_items.insertRow(row)
+            self.tbl_sku_items.setItem(row, 0, QTableWidgetItem(str(item.get("name", ""))))
+            price = item.get("price")
+            if price is None and category.get("id") == "soup":
+                price = self.config.get("special_soup_price", 50.0) if item.get("special") else self.config.get("unit_price", 47.60)
+            self.tbl_sku_items.setItem(row, 1, QTableWidgetItem("%.2f" % float(price or 0.0)))
+            self.tbl_sku_items.setItem(row, 2, QTableWidgetItem(str(item.get("order", row))))
+
+    def _add_sku_category(self):
+        cid = "category_%d" % (len(self._shop_catalog) + 1)
+        self._shop_catalog.append({"id": cid, "name": u"新分类", "order": len(self._shop_catalog), "show_flavor": False, "default": False, "items": []})
+        self._refresh_sku_category_combo(cid)
+
+    def _delete_sku_category(self):
+        category = self._current_sku_category()
+        if category is None:
+            return
+        from ui.custom_dialog import show_question, show_warning
+        if len(self._shop_catalog) <= 1:
+            show_warning(self, u"无法删除", u"至少保留一个商品分类。")
+            return
+        if category.get("default"):
+            for step in range(1, 4):
+                if not show_question(self, u"删除默认分类（第%d/3次确认）" % step, u"确定删除默认分类‘%s’及其商品吗？删除后可重新新增，但不会恢复原有商品。" % category.get("name", "")):
+                    return
+        elif not show_question(self, u"删除分类", u"确定删除分类‘%s’及其商品吗？" % category.get("name", "")):
+            return
+        cid = category.get("id")
+        self._shop_catalog = [item for item in self._shop_catalog if item.get("id") != cid]
+        self._refresh_sku_category_combo()
+
+    def _add_sku_item(self):
+        category = self._current_sku_category()
+        if category is None:
+            return
+        row = self.tbl_sku_items.rowCount()
+        self.tbl_sku_items.insertRow(row)
+        self.tbl_sku_items.setItem(row, 0, QTableWidgetItem(u"新商品"))
+        self.tbl_sku_items.setItem(row, 1, QTableWidgetItem("1.00"))
+        self.tbl_sku_items.setItem(row, 2, QTableWidgetItem(str(row)))
+
+    def _delete_sku_item(self):
+        row = self.tbl_sku_items.currentRow()
+        if row >= 0:
+            self.tbl_sku_items.removeRow(row)
+
+    def _on_save_sku_catalog(self):
+        category = self._current_sku_category()
+        if category is None:
+            return
+        category["name"] = self.txt_sku_category_name.text().strip() or category.get("id", u"分类")
+        category["order"] = self.spin_sku_category_order.value()
+        category["show_flavor"] = bool(self.chk_sku_show_flavor.isChecked()) if category.get("id") == "soup" else False
+        old_items = list(category.get("items", []))
+        items = []
+        for row in range(self.tbl_sku_items.rowCount()):
+            name = self.tbl_sku_items.item(row, 0).text().strip() if self.tbl_sku_items.item(row, 0) else u"新商品"
+            try:
+                price = float(self.tbl_sku_items.item(row, 1).text()) if self.tbl_sku_items.item(row, 1) else 0.0
+            except (TypeError, ValueError):
+                price = 0.0
+            try:
+                order = int(float(self.tbl_sku_items.item(row, 2).text())) if self.tbl_sku_items.item(row, 2) else row
+            except (TypeError, ValueError):
+                order = row
+            previous = old_items[row] if row < len(old_items) else {}
+            is_soup = category.get("id") == "soup"
+            if is_soup:
+                # 与店铺基础单价相同表示“跟随基础单价”，不固化成 SKU
+                # 覆盖值；只有不同价格才作为该汤底的独立价格保存。
+                base = self.config.get("special_soup_price", 50.0) if previous.get("special", False) else self.config.get("unit_price", 47.60)
+                stored_price = None if abs(price - float(base or 0.0)) < 0.0001 else price
+            else:
+                stored_price = price
+            items.append({"id": previous.get("id") or "%s_item_%d" % (category.get("id"), row), "name": name, "price": stored_price, "order": order, "kind": previous.get("kind") or ("soup" if is_soup else "item"), "special": bool(previous.get("special", False))})
+        category["items"] = items
+        save_shop_categories(self.config, self._shop_catalog)
+        save_config(self.config)
+        parent_mw = self.window()
+        if hasattr(parent_mw, "sale_page") and hasattr(parent_mw.sale_page, "reload_sku_catalog"):
+            parent_mw.sale_page.reload_sku_catalog()
+        self._refresh_sku_category_combo(category.get("id"))
+        from ui.custom_dialog import show_info
+        show_info(self, u"商品与分类已保存", u"主界面的分类标签和商品按钮已更新。")
 
     # ────────────────────────────────────────────────────────────
     # 页面 2: 系统与流转设置

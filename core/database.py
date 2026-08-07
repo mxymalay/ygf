@@ -166,6 +166,8 @@ class Database:
                     order_no        TEXT DEFAULT '',
                     amount          REAL NOT NULL,
                     payment_status  TEXT NOT NULL DEFAULT 'PAID',
+                    payment_method  TEXT DEFAULT '',
+                    payment_breakdown_json TEXT DEFAULT '',
                     source          TEXT DEFAULT 'takeout_relay',
                     created_at      TEXT NOT NULL,
                     refunded_at     TEXT DEFAULT '',
@@ -211,6 +213,8 @@ class Database:
                     amount                     REAL,
                     amount_valid               INTEGER NOT NULL DEFAULT 0,
                     payment_status            TEXT NOT NULL DEFAULT 'unknown',
+                    payment_method             TEXT DEFAULT '',
+                    payment_breakdown_json     TEXT DEFAULT '',
                     payment_status_confidence TEXT DEFAULT 'unknown',
                     key_confidence             TEXT DEFAULT 'low',
                     payload_type               TEXT DEFAULT '',
@@ -291,11 +295,18 @@ class Database:
             self._ensure_column(conn, "conflict_detected", "INTEGER NOT NULL DEFAULT 0", table="official_pos_receipts")
             for name, definition in {
                 "order_no": "TEXT DEFAULT ''",
+                "payment_method": "TEXT DEFAULT ''",
+                "payment_breakdown_json": "TEXT DEFAULT ''",
                 "refunded_at": "TEXT DEFAULT ''",
                 "refund_amount": "REAL NOT NULL DEFAULT 0",
                 "refund_receipt_key": "TEXT DEFAULT ''",
             }.items():
                 self._ensure_column(conn, name, definition, table="official_pos_revenue")
+            for name, definition in {
+                "payment_method": "TEXT DEFAULT ''",
+                "payment_breakdown_json": "TEXT DEFAULT ''",
+            }.items():
+                self._ensure_column(conn, name, definition, table="official_pos_receipts")
 
             # Do not create indexes until after the column migration.  An old
             # store can have a valid ``sales`` table without ``order_id``;
@@ -594,7 +605,8 @@ class Database:
 
     def record_official_revenue(self, order_key, platform, order_id, amount,
                                 payment_status="PAID", source="takeout_relay",
-                                created_at=None, order_no=""):
+                                created_at=None, order_no="", payment_method="",
+                                payment_breakdown_json=""):
         """Persist one verified official-POS amount, once per stable order key."""
         key = str(order_key or "").strip()
         try:
@@ -607,10 +619,12 @@ class Database:
         try:
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO official_pos_revenue
-                   (order_key, platform, order_id, order_no, amount, payment_status, source, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (order_key, platform, order_id, order_no, amount, payment_status,
+                    payment_method, payment_breakdown_json, source, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (key, str(platform or ""), str(order_id or ""), str(order_no or ""), round(value, 2),
-                 PAID, str(source or "takeout_relay"), str(created_at or _now_text())),
+                 PAID, str(payment_method or ""), str(payment_breakdown_json or ""),
+                 str(source or "takeout_relay"), str(created_at or _now_text())),
             )
             conn.commit()
             return bool(cursor.rowcount)
@@ -725,10 +739,10 @@ class Database:
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO official_pos_receipts
                    (receipt_key, receipt_kind, platform, order_id, order_no,
-                    amount, amount_valid, payment_status,
-                    payment_status_confidence, key_confidence, payload_type,
-                    capture_path, observed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    amount, amount_valid, payment_status, payment_method,
+                    payment_breakdown_json, payment_status_confidence,
+                    key_confidence, payload_type, capture_path, observed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key,
                     str(parsed.get("receipt_kind", "unknown") or "unknown"),
@@ -738,6 +752,8 @@ class Database:
                     amount,
                     1 if parsed.get("amount_valid") is True else 0,
                     str(parsed.get("payment_status", "unknown") or "unknown"),
+                    str(parsed.get("payment_method", "") or ""),
+                    str(parsed.get("payment_breakdown_json", "") or ""),
                     str(parsed.get("payment_status_confidence", "unknown") or "unknown"),
                     str(parsed.get("key_confidence", "low") or "low"),
                     str(payload_type or parsed.get("payload_type", "") or ""),
@@ -748,7 +764,7 @@ class Database:
             created = bool(cursor.rowcount)
             if not created:
                 existing = conn.execute(
-                    "SELECT amount, payment_status FROM official_pos_receipts WHERE receipt_key=?",
+                    "SELECT amount, payment_status, payment_method, payment_breakdown_json FROM official_pos_receipts WHERE receipt_key=?",
                     (key,),
                 ).fetchone()
                 conflict = False
@@ -768,6 +784,8 @@ class Database:
                            amount=CASE WHEN amount IS NULL THEN ? ELSE amount END,
                            amount_valid=CASE WHEN amount_valid=0 AND ? THEN 1 ELSE amount_valid END,
                            payment_status=CASE WHEN payment_status='unknown' AND ? <> 'unknown' THEN ? ELSE payment_status END,
+                           payment_method=CASE WHEN payment_method='' AND ? <> '' THEN ? ELSE payment_method END,
+                           payment_breakdown_json=CASE WHEN payment_breakdown_json='' AND ? <> '' THEN ? ELSE payment_breakdown_json END,
                            payment_status_confidence=CASE WHEN payment_status='unknown' AND ? <> 'unknown' THEN ? ELSE payment_status_confidence END,
                            payload_type=COALESCE(NULLIF(?, ''), payload_type),
                            capture_path=COALESCE(NULLIF(?, ''), capture_path)
@@ -777,6 +795,10 @@ class Database:
                         1 if parsed.get("amount_valid") is True else 0,
                         str(parsed.get("payment_status", "unknown") or "unknown").lower(),
                         str(parsed.get("payment_status", "unknown") or "unknown"),
+                        str(parsed.get("payment_method", "") or ""),
+                        str(parsed.get("payment_method", "") or ""),
+                        str(parsed.get("payment_breakdown_json", "") or ""),
+                        str(parsed.get("payment_breakdown_json", "") or ""),
                         str(parsed.get("payment_status", "unknown") or "unknown").lower(),
                         str(parsed.get("payment_status_confidence", "unknown") or "unknown"),
                         str(payload_type or ""), str(capture_path or ""), key,
@@ -871,9 +893,13 @@ class Database:
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                """SELECT * FROM official_pos_revenue
-                   WHERE DATE(created_at) BETWEEN ? AND ? AND payment_status=?
-                   ORDER BY created_at ASC""",
+                """SELECT v.*,
+                          COALESCE(NULLIF(v.payment_method, ''), r.payment_method, '') AS payment_method,
+                          COALESCE(NULLIF(v.payment_breakdown_json, ''), r.payment_breakdown_json, '') AS payment_breakdown_json
+                   FROM official_pos_revenue v
+                   LEFT JOIN official_pos_receipts r ON r.receipt_key=v.order_key
+                   WHERE DATE(v.created_at) BETWEEN ? AND ? AND v.payment_status=?
+                   ORDER BY v.created_at ASC""",
                 (s_str, e_str, PAID),
             ).fetchall()
             return [dict(row) for row in rows]

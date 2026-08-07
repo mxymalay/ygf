@@ -26,6 +26,7 @@ from core.call_number_manager import CallNumberManager
 from core.order_draft import clear_draft, load_draft, save_draft
 from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
 from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER, CAT_SYSTEM
+from core.shop_catalog import get_shop_categories
 
 
 # Official Yang Guo Fu receipts use a long numeric merchant order number
@@ -654,7 +655,7 @@ class MenuGridButton(QPushButton):
     右侧菜单卡片按钮 — 深浅主题自适应 (分类支持汤底、打包盒、精品串与饮料)
     """
 
-    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_skewer=False, is_dark_mode=True, parent=None):
+    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_skewer=False, is_dark_mode=True, parent=None, show_flavor=False, category_id=""):
         super().__init__(parent)
         self.key_id = key_id
         self.title_str = title
@@ -664,6 +665,8 @@ class MenuGridButton(QPushButton):
         self.is_soup = is_soup
         self.is_box = is_box
         self.is_skewer = is_skewer
+        self.show_flavor = bool(show_flavor)
+        self.category_id = category_id
         self.is_dark_mode = is_dark_mode
         self.count = 0
 
@@ -897,6 +900,10 @@ class SaleWidget(QWidget):
         self.selected_item_index = -1
         self.cart_page = 0
         self.menu_buttons = {}
+        self._menu_button_categories = {}
+        self._shop_categories = []
+        self._active_menu_category = "__all__"
+        self.menu_category_buttons = []
 
         self.temp_order_no = self._gen_temp_order_no()
         self.current_order_id = generate_order_id()
@@ -988,7 +995,7 @@ class SaleWidget(QWidget):
         """响应主题切换事件"""
         self.is_dark_mode = is_dark_mode
         for btn in self.menu_buttons.values():
-            btn.update_theme(is_dark_mode)
+            btn.set_dark_mode(is_dark_mode)
 
         if hasattr(self, 'lbl_call_title'):
             c_text = "#9CA3AF" if is_dark_mode else "#111827"
@@ -1553,69 +1560,20 @@ class SaleWidget(QWidget):
         right = QVBoxLayout()
         right.setSpacing(12)
 
-        menu_group = QGroupBox("")
-        mg_grid = QGridLayout(menu_group)
-        mg_grid.setSpacing(8)
-
-        unit_price = self.config.get("unit_price", 47.60)
-        price_unit = self.config.get("price_unit", "per_jin")
-        pu_lbl = price_unit_label(price_unit)
-
-        special_soup_price = self.config.get("special_soup_price", self.config.get("soup_price_4", 25.00 if price_unit == "per_jin" else 50.00))
-
-        # 菜单配置：
-        # 第 0 行：标准汤底类 (骨汤, 番茄汤, 麻辣拌)
-        # 第 1 行：精品汤底类 (菌汤, 金汤)
-        # 第 2 行：打包盒
-        # 第 3-4 行：精品串类 (1元, 2元, 3元, 4元, 5元, 6元)
-        # 第 5-7 行：1-10元饮料
-        menu_items_config = [
-            # 第 0 行：标准汤底类 (橙暖色)
-            (0, 0, "soup_1", u"经典草本骨汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
-            (0, 1, "soup_2", u"酸甜番茄汤", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
-            (0, 2, "soup_3", u"石磨醇香麻辣拌", f"¥ {unit_price:.2f}/{pu_lbl}", unit_price, True, False, False),
-
-            # 第 1 行：精品汤底类 (菌汤/金汤)
-            (1, 0, "soup_4", u"草本穹顶菌汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
-            (1, 1, "soup_5", u"草本酸辣金汤", f"¥ {special_soup_price:.2f}/{pu_lbl}", special_soup_price, True, False, False),
-
-            # 第 2 行：打包盒
-            (2, 0, "item_box", u"打包盒", "¥ 1.00", 1.0, False, True, False),
-
-            # 第 3 行：精品串类 (1-4元，典雅紫罗兰色)
-            (3, 0, "item_skewer_1", u"精品串 1元", "", 1.0, False, False, True),
-            (3, 1, "item_skewer_2", u"精品串 2元", "", 2.0, False, False, True),
-            (3, 2, "item_skewer_3", u"精品串 3元", "", 3.0, False, False, True),
-            (3, 3, "item_skewer_4", u"精品串 4元", "", 4.0, False, False, True),
-
-            # 第 4 行：精品串类 (5-6元，典雅紫罗兰色)
-            (4, 0, "item_skewer_5", u"精品串 5元", "", 5.0, False, False, True),
-            (4, 1, "item_skewer_6", u"精品串 6元", "", 6.0, False, False, True),
-
-            # 第 5 行：1-4元饮料
-            (5, 0, "item_1", u"1元饮料", "", 1.0, False, False, False),
-            (5, 1, "item_2", u"2元饮料", "", 2.0, False, False, False),
-            (5, 2, "item_3", u"3元饮料", "", 3.0, False, False, False),
-            (5, 3, "item_4", u"4元饮料", "", 4.0, False, False, False),
-
-            # 第 6 行：5-8元饮料
-            (6, 0, "item_5", u"5元饮料", "", 5.0, False, False, False),
-            (6, 1, "item_6", u"6元饮料", "", 6.0, False, False, False),
-            (6, 2, "item_7", u"7元饮料", "", 7.0, False, False, False),
-            (6, 3, "item_8", u"8元饮料", "", 8.0, False, False, False),
-
-            # 第 7 行：9-10元饮料
-            (7, 0, "item_9", u"9元饮料", "", 9.0, False, False, False),
-            (7, 1, "item_10", u"10元饮料", "", 10.0, False, False, False),
-        ]
-
-        for r, c, key_id, title, sub, price, is_soup, is_box, is_skewer in menu_items_config:
-            btn = MenuGridButton(key_id, title, sub, price, is_soup, is_box, is_skewer, self.is_dark_mode)
-            btn.clicked.connect(lambda checked, b=btn: self._on_menu_click(b))
-            mg_grid.addWidget(btn, r, c)
-            self.menu_buttons[key_id] = btn
-
-        right.addWidget(menu_group)
+        # 分类标签和商品目录由店铺设置维护；没有新配置时 helper 会提供
+        # 与旧版完全一致的默认商品，因此升级不会改变现有点菜流程。
+        self.menu_category_bar = QHBoxLayout()
+        self.menu_category_bar.setSpacing(6)
+        right.addLayout(self.menu_category_bar)
+        self.menu_group = QGroupBox("")
+        self.mg_grid = QGridLayout(self.menu_group)
+        self.mg_grid.setSpacing(8)
+        # 固定四列网格。单独分类只有一个商品时仍保持与正常菜单卡片
+        # 相同的卡片宽度，并从第一列开始排列，不会被拉伸到整行或居中。
+        for column in range(4):
+            self.mg_grid.setColumnStretch(column, 1)
+        right.addWidget(self.menu_group)
+        self._build_shop_menu_from_catalog()
 
         # 底部核心按键
         btn_box = QHBoxLayout()
@@ -1876,6 +1834,112 @@ class SaleWidget(QWidget):
         self._last_scale_gate_hint_monotonic = now
         self._show_toast(message)
 
+    def _build_shop_menu_from_catalog(self, restore_counts=None):
+        """Build category tabs and menu buttons from the configurable SKU list."""
+        restore_counts = restore_counts or {}
+        self._shop_categories = get_shop_categories(self.config)
+        self.menu_buttons.clear()
+        self._menu_button_categories.clear()
+        while self.menu_category_bar.count():
+            item = self.menu_category_bar.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        while self.mg_grid.count():
+            item = self.mg_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.menu_category_buttons = []
+        all_button = QPushButton(u"全部")
+        all_button.setCheckable(True)
+        self._style_menu_category_button(all_button)
+        all_button.clicked.connect(lambda checked=False: self._select_menu_category("__all__", all_button))
+        self.menu_category_bar.addWidget(all_button)
+        self.menu_category_buttons.append(all_button)
+
+        unit_price = float(self.config.get("unit_price", 47.60) or 47.60)
+        price_unit = self.config.get("price_unit", "per_jin")
+        pu_lbl = price_unit_label(price_unit)
+        for category in self._shop_categories:
+            cid = category.get("id")
+            tab = QPushButton(str(category.get("name", cid)))
+            tab.setCheckable(True)
+            self._style_menu_category_button(tab)
+            tab.clicked.connect(lambda checked=False, category_id=cid, button=tab: self._select_menu_category(category_id, button))
+            self.menu_category_bar.addWidget(tab)
+            self.menu_category_buttons.append(tab)
+            for item in category.get("items", []):
+                iid = str(item.get("id"))
+                kind = item.get("kind", "item")
+                is_soup = kind == "soup"
+                is_box = kind == "box"
+                is_skewer = kind == "skewer"
+                price = item.get("price")
+                if is_soup:
+                    price = float(item.get("price") if item.get("price") is not None else (self.config.get("special_soup_price", 50.0) if item.get("special") else unit_price))
+                    subtitle = u"¥ %.2f/%s" % (price, pu_lbl)
+                else:
+                    price = float(price or 0.0)
+                    subtitle = u"¥ %.2f" % price
+                btn = MenuGridButton(
+                    iid, item.get("name", iid), subtitle, price,
+                    is_soup, is_box, is_skewer, self.is_dark_mode,
+                    show_flavor=bool(category.get("show_flavor", False)) if is_soup else False,
+                    category_id=cid,
+                )
+                btn.clicked.connect(lambda checked=False, b=btn: self._on_menu_click(b))
+                btn.set_count(int(restore_counts.get(iid, 0) or 0))
+                self.menu_buttons[iid] = btn
+                self._menu_button_categories[iid] = cid
+        self._select_menu_category("__all__", all_button)
+
+    def _style_menu_category_button(self, button):
+        button.setFixedHeight(32)
+        button.setMinimumWidth(64)
+        button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setStyleSheet(
+            "QPushButton { background: #1E293B; color: #CBD5E1; border: 1px solid #334155; "
+            "border-radius: 6px; padding: 2px 8px; font-size: 13px; font-weight: 800; }"
+            "QPushButton:hover { background: #334155; color: #FFFFFF; }"
+            "QPushButton:checked { background: #0284C7; color: #FFFFFF; border-color: #38BDF8; }"
+        )
+
+    def _select_menu_category(self, category_id, selected_button=None):
+        self._active_menu_category = category_id
+        for button in self.menu_category_buttons:
+            button.setChecked(button is selected_button or (selected_button is None and button.text() == u"全部" and category_id == "__all__"))
+        while self.mg_grid.count():
+            item = self.mg_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                # 从 QGridLayout 移出后仍然是可见子控件；必须显式隐藏，
+                # 否则旧分类按钮会和新分类按钮重叠在网格中。
+                widget.hide()
+                widget.setParent(self.menu_group)
+        row = 0
+        for category in self._shop_categories:
+            if category_id != "__all__" and category.get("id") != category_id:
+                continue
+            visible = []
+            for item in category.get("items", []):
+                btn = self.menu_buttons.get(item.get("id"))
+                if btn is not None:
+                    visible.append(btn)
+            for index, btn in enumerate(visible):
+                self.mg_grid.addWidget(btn, row + index // 4, index % 4)
+                btn.show()
+            if visible and category_id == "__all__":
+                # “全部”视图保留分类之间的空白行，避免汤底、打包、
+                # 精品串和饮料在视觉上混成一个长列表。
+                row += (len(visible) + 3) // 4 + 1
+
+    def reload_sku_catalog(self):
+        """Reload settings changes without clearing the current basket."""
+        counts = {key: getattr(btn, "count", 0) for key, btn in self.menu_buttons.items()}
+        self._build_shop_menu_from_catalog(counts)
+
     def _on_menu_click(self, btn: MenuGridButton):
         """点击右侧菜单按钮"""
         unit_price = self.config.get("unit_price", 47.60)
@@ -1944,7 +2008,9 @@ class SaleWidget(QWidget):
             soup_clean_name = btn.title_str.replace("\n", " ")
             dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
             
-            skip_flavor_popup = ("骨汤" not in soup_clean_name)
+            # 汤底分类的“显示口味”开关由店铺设置控制；不再根据商品
+            # 名称硬编码，改名后仍能保持正确行为。
+            skip_flavor_popup = not bool(getattr(btn, "show_flavor", False))
             
             w = self.current_weight
             soup_unit_price = btn.price if (btn.price > 0) else unit_price
@@ -2285,6 +2351,19 @@ class SaleWidget(QWidget):
         mode = str(state.get("mode") or self.config.get("takeout_relay_mode", "compatibility") or "compatibility")
         policy = str(state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", "auto") or "auto")
         reason = str(state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "等待中继验证") or "等待中继验证")
+        lock_active = False
+        switch_controller = getattr(parent, "switch_controller", None)
+        if switch_controller is not None:
+            try:
+                now_ts = time.time()
+                lock_active = bool(
+                    (float(getattr(switch_controller, "_last_official_time", 0.0) or 0.0) > 0
+                     and now_ts - float(getattr(switch_controller, "_last_official_time", 0.0) or 0.0)
+                     < float(getattr(switch_controller, "_official_lock_sec", 0.0) or 0.0))
+                    or getattr(self, "cart_items", None)
+                )
+            except Exception:
+                lock_active = False
         return {
             "mode": mode,
             "policy": policy,
@@ -2292,6 +2371,7 @@ class SaleWidget(QWidget):
             "running": bool(state.get("running")),
             "last_identified_at": state.get("last_identified_at") or "暂无",
             "last_enhanced_success_at": state.get("last_enhanced_success_at") or "暂无",
+            "compatibility_lock_active": lock_active,
         }
 
     def _refresh_global_relay_mode(self):
@@ -2307,6 +2387,10 @@ class SaleWidget(QWidget):
         }
         label = labels.get(mode, u"兼容模式")
         reason = state["reason"]
+        lock_hint = (
+            u"\n兼容模式连单保护锁：已启用"
+            if mode != "enhanced" and state.get("compatibility_lock_active") else ""
+        )
         monitor_hint = ""
         if mode in ("degraded", "compatibility") and any(
             marker in reason for marker in (u"未知", u"解析", u"无法识别", u"无法确认", u"状态未知")
@@ -2314,7 +2398,7 @@ class SaleWidget(QWidget):
             monitor_hint = u"\n检测到未知单子类型，请到打印机中继的④真实测试/⑤字段重映射实时监控查看。"
         self.btn_global_relay_mode.setText(label)
         self.btn_global_relay_mode.setToolTip(
-            u"当前%s\n原因：%s%s\n点击查看两种模式区别并进入打印机中继设置。" % (label, reason, monitor_hint)
+            u"当前%s\n原因：%s%s%s\n点击查看两种模式区别并进入打印机中继设置。" % (label, reason, lock_hint, monitor_hint)
         )
         if mode == "enhanced":
             color = ("#064E3B", "#6EE7B7", "#10B981")
@@ -2340,16 +2424,22 @@ class SaleWidget(QWidget):
             "degraded": u"已降级到兼容模式",
         }
         current = labels.get(mode, u"兼容模式")
+        lock_detail = (
+            u"已启用（当前未结账购物车或官方连单窗口仍在保护期内）"
+            if mode != "enhanced" and state.get("compatibility_lock_active")
+            else (u"增强模式不使用兼容模式连单锁" if mode == "enhanced" else u"当前未锁定，下一次兼容模式分流仍会按规则建立")
+        )
         detail = (
             u"当前全局模式：%s\n\n"
             u"兼容模式：保留原有连单锁和按重量分流；打印中继未配置、异常或付款状态未知时使用。\n\n"
             u"增强模式：只有中继正常、订单唯一、金额已验证且有可靠付款状态时才自动启用，可按金额分流。\n\n"
             u"每日首单：默认先走官方 POS 建立当天基线；如果店员在首单前手动切到私域，则尊重该选择。\n\n"
             u"当前原因：%s\n"
+            u"兼容模式连单保护锁：%s\n"
             u"最近识别：%s\n"
             u"最近增强成功：%s\n\n"
             u"这里不提供强制打开增强模式。可在打印机中继设置中检查队列、识别测试，或锁定兼容模式。"
-        ) % (current, state["reason"], state["last_identified_at"], state["last_enhanced_success_at"])
+        ) % (current, state["reason"], lock_detail, state["last_identified_at"], state["last_enhanced_success_at"])
         if show_question(
             self, u"全局分流工作模式", detail,
             confirm_text=u"前往打印机中继设置", cancel_text=u"关闭",
@@ -2546,7 +2636,14 @@ class SaleWidget(QWidget):
         mode = self.call_mgr.get_mode()
         if mode == CallNumberManager.MODE_OFFICIAL_OFFSET and next_num is None:
             self.lbl_next_call_no.setText("# --")
-            self.lbl_mode_tip.setText(u"模式：官方错峰随机 [等待官方 POS 订单号]")
+            enhanced = (
+                not hasattr(self.call_mgr, "relay_enhanced_available")
+                or self.call_mgr.relay_enhanced_available()
+            )
+            self.lbl_mode_tip.setText(
+                u"模式：官方错峰随机 [%s]" %
+                (u"等待官方 POS 订单号" if enhanced else u"仅增强模式可用")
+            )
             return
         self.lbl_next_call_no.setText("# %d" % next_num)
 
@@ -3141,6 +3238,19 @@ class SaleWidget(QWidget):
             return
         if not self.cart_items:
             show_warning(self, u"提示", u"没有加入任何东西，<span style='font-size: 22px; font-weight: 900; color: #EF4444;'>0元</span> 无法结账")
+            return
+
+        if (
+            self.call_mgr.get_mode() == CallNumberManager.MODE_OFFICIAL_OFFSET
+            and hasattr(self.call_mgr, "relay_enhanced_available")
+            and not self.call_mgr.relay_enhanced_available()
+        ):
+            show_warning(
+                self,
+                u"官方错峰叫号仅支持增强模式",
+                u"当前打印中继处于兼容模式。该叫号模式依赖已验证的官方 POS 数据，"
+                u"请先让中继进入增强模式，或切回智能、自定义、手动叫号模式。",
+            )
             return
 
         if (

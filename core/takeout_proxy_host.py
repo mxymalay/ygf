@@ -133,6 +133,11 @@ def _config_signature():
 
 
 def _takeout_options(config):
+    takeout_mapping = (
+        config.get("takeout_field_mapping")
+        or config.get("takeout_pos_field_mapping")
+        or config.get("official_pos_field_mapping", {})
+    )
     options = {
         "mark_multi_qty_star": bool(config.get("takeout_mark_star", True)),
         "show_prices": bool(config.get("takeout_show_prices", False)),
@@ -141,6 +146,9 @@ def _takeout_options(config):
         "show_full_order_id": bool(config.get("takeout_show_full_id", False)),
         "show_preorder_alert": bool(config.get("takeout_show_preorder", True)),
         "takeout_match_mode": config.get("takeout_match_mode", "contains"),
+        # Used by parse_and_sort_takeout_text only.  Keep the generic mapping
+        # separately so dine-in/official recognition remains independent.
+        "takeout_field_mapping": takeout_mapping,
         "official_pos_field_mapping": config.get("official_pos_field_mapping", {}),
     }
     categories = config.get("takeout_categories")
@@ -389,6 +397,8 @@ class TakeoutProxyHost:
                         source="official_pos_relay",
                         created_at=self.last_identified_at,
                         order_no=parsed.get("order_no", ""),
+                        payment_method=parsed.get("payment_method", ""),
+                        payment_breakdown_json=parsed.get("payment_breakdown_json", ""),
                     )
                 except Exception as exc:
                     self.last_error = "官方营业额入账失败：%s" % exc
@@ -472,6 +482,8 @@ class TakeoutProxyHost:
                         source="takeout_relay",
                         created_at=self.last_identified_at,
                         order_no=job.get("order_no", parsed.get("order_no", "")),
+                        payment_method=parsed.get("payment_method", ""),
+                        payment_breakdown_json=parsed.get("payment_breakdown_json", ""),
                     )
                 except Exception as exc:
                     # A reporting ledger failure must never interrupt the
