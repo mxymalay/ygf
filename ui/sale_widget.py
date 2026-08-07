@@ -1585,7 +1585,10 @@ class SaleWidget(QWidget):
         # 分类标签和商品目录由店铺设置维护；没有新配置时 helper 会提供
         # 与旧版完全一致的默认商品，因此升级不会改变现有点菜流程。
         self.menu_category_bar = QHBoxLayout()
-        self.menu_category_bar.setContentsMargins(0, 0, 0, 0)
+        # Keep the category strip visually centered between the page top and
+        # the first SKU row.  The right-layout gap below is the same 6px, so
+        # the effective top/bottom breathing room is symmetrical.
+        self.menu_category_bar.setContentsMargins(0, 6, 0, 6)
         self.menu_category_bar.setSpacing(4)
         right.addLayout(self.menu_category_bar)
         self.menu_group = QGroupBox("")
