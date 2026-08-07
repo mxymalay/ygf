@@ -4,8 +4,8 @@
 自动切换组件。这个过程在 Win7 设备上可能有短暂空档，使用独立的
 无边框提示避免用户看到空白桌面而误以为程序没有启动。
 """
-from PyQt5.QtWidgets import QDialog, QFrame, QLabel, QProgressBar, QVBoxLayout, QApplication
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QDialog, QFrame, QLabel, QProgressBar, QVBoxLayout, QApplication, QWidget
+from PyQt5.QtCore import Qt, QTimer, QEvent
 
 
 class StartupLoadingDialog(QDialog):
@@ -19,10 +19,12 @@ class StartupLoadingDialog(QDialog):
         self.setFixedSize(500, 230)
         self._message = u"检测完成，正在加载收银系统"
         self._dots = 0
+        self._drag_offset = None
 
         panel = QFrame(self)
         panel.setObjectName("StartupLoadingPanel")
         panel.setGeometry(0, 0, 500, 230)
+        panel.setCursor(Qt.OpenHandCursor)
         panel.setStyleSheet(
             "QFrame#StartupLoadingPanel { background: #172235; border: 2px solid #334155; "
             "border-radius: 18px; }"
@@ -64,6 +66,13 @@ class StartupLoadingDialog(QDialog):
         self.lbl_detail.setStyleSheet("color: #94A3B8; font-size: 13px;")
         layout.addWidget(self.lbl_detail)
 
+        # The dialog is intentionally frameless, so there is no native title
+        # bar to grab.  Install one lightweight event filter on the panel and
+        # its children so the whole loading card can be moved out of the way
+        # while the main window is still being constructed.
+        for widget in [panel] + panel.findChildren(QWidget):
+            widget.installEventFilter(self)
+
         self._timer = QTimer(self)
         self._timer.setInterval(450)
         self._timer.timeout.connect(self._animate)
@@ -81,6 +90,20 @@ class StartupLoadingDialog(QDialog):
         self._timer.stop()
         self._progress_timer.stop()
         super().closeEvent(event)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self._drag_offset = event.globalPos() - self.frameGeometry().topLeft()
+            self.setCursor(Qt.ClosedHandCursor)
+            return True
+        if event.type() == QEvent.MouseMove and self._drag_offset is not None:
+            self.move(event.globalPos() - self._drag_offset)
+            return True
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            self._drag_offset = None
+            self.setCursor(Qt.OpenHandCursor)
+            return True
+        return super().eventFilter(watched, event)
 
     def _center_on_screen(self):
         screen = QApplication.primaryScreen()
