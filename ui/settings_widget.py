@@ -1056,7 +1056,8 @@ class SettingsWidget(QWidget):
         mode_help = QLabel(
             u"模式说明：兼容模式＝沿用原有连单锁和按重量分流；增强模式＝中继已运行，"
             u"订单号、金额和明确付款状态均已验证，可按金额参与分流；候选/状态未知/降级＝正在测试或数据不可靠，"
-            u"仍按兼容模式处理。收到打印任务本身不等于已结账。"
+            u"仍按兼容模式处理。收到打印任务本身不等于已结账。每天第一笔自动分流默认先走官方 POS；"
+            u"首单前店员手动切到私域时，系统尊重手动选择。"
         )
         mode_help.setWordWrap(True)
         mode_help.setStyleSheet("color: #E2E8F0; background: #1E293B; border: 1px solid #475569; border-radius: 10px; padding: 12px;")
@@ -1175,6 +1176,14 @@ class SettingsWidget(QWidget):
         self.lbl_relay_runtime_status.setWordWrap(True)
         self.lbl_relay_runtime_status.setStyleSheet("color: #CBD5E1; background: #0F172A; border: 1px solid #334155; border-radius: 10px; padding: 12px;")
         step2_layout.addWidget(self.lbl_relay_runtime_status)
+        self.lbl_relay_degrade_hint = QLabel()
+        self.lbl_relay_degrade_hint.setWordWrap(True)
+        self.lbl_relay_degrade_hint.setStyleSheet(
+            "color: #FDE68A; background: #422006; border: 1px solid #A16207; "
+            "border-radius: 10px; padding: 12px; font-weight: 700;"
+        )
+        self.lbl_relay_degrade_hint.setVisible(False)
+        step2_layout.addWidget(self.lbl_relay_degrade_hint)
 
         action_row = QGridLayout()
         action_row.setHorizontalSpacing(12)
@@ -1959,6 +1968,40 @@ class SettingsWidget(QWidget):
         # saved JSON gets its own tab and remains visible until retention
         # cleanup removes that file.
         capture_records = self._load_relay_capture_records(config, state)
+        # Keep this as an inline, persistent reminder instead of a modal
+        # dialog.  A parse failure/unknown ticket is actionable: the operator
+        # needs to inspect the corresponding saved JSON in the live monitor,
+        # not just be told that the relay is in compatibility mode.  A normal
+        # not-configured/not-running fallback gets a separate, less alarming
+        # explanation.
+        received = state.get("last_received") if isinstance(state, dict) else {}
+        received = received if isinstance(received, dict) else {}
+        # Do not infer the reason from an old capture file: historical samples
+        # are displayed for investigation, but they must not create a fresh
+        # downgrade warning on their own.
+        unknown_job = bool(received.get("parse_failed"))
+        reason_text = u"%s %s" % (mode_reason, detail)
+        unknown_job = unknown_job or any(
+            marker in reason_text for marker in (u"未知", u"解析", u"无法识别", u"无法确认", u"状态未知")
+        )
+        degraded_mode = str(mode or "") in (MODE_COMPATIBILITY, "degraded")
+        if hasattr(self, "lbl_relay_degrade_hint"):
+            if degraded_mode and unknown_job:
+                self.lbl_relay_degrade_hint.setText(
+                    u"降级提醒：系统刚看到一张未知单子类型的官方 POS 打印单（暂时无法确认类型），"
+                    u"已尝试保留原始打印路径并切回兼容模式。请打开“④ 真实测试”或“⑤ 字段重映射”"
+                    u"中的实时监控，切换对应 JSON 标签查看识别结果；如标注不正确，请前往⑤字段重映射进行调整。"
+                )
+                self.lbl_relay_degrade_hint.setVisible(True)
+            elif degraded_mode and (not running or report.get("errors")):
+                self.lbl_relay_degrade_hint.setText(
+                    u"兼容模式提示：中继当前未运行或配置尚未完成，系统继续使用原有连单锁和按重量分流。"
+                    u"原因：%s" % (detail or mode_reason)
+                )
+                self.lbl_relay_degrade_hint.setVisible(True)
+            else:
+                self.lbl_relay_degrade_hint.clear()
+                self.lbl_relay_degrade_hint.setVisible(False)
         signature = json.dumps(capture_records, ensure_ascii=False, sort_keys=True)
         if signature != self._relay_live_records_signature:
             self._relay_live_records_signature = signature

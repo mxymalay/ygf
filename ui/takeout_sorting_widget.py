@@ -178,20 +178,27 @@ class TakeoutSortingWidget(QWidget):
         self.lbl_relay_guide.setWordWrap(True)
         self.lbl_relay_guide.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 8px; padding: 10px;")
         proxy_layout.addWidget(self.lbl_relay_guide)
+        self.lbl_relay_observations = QLabel()
+        self.lbl_relay_observations.setWordWrap(True)
+        self.lbl_relay_observations.setStyleSheet(
+            "color: #E0F2FE; background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 8px; padding: 10px; font-size: 13px;"
+        )
+        proxy_layout.addWidget(self.lbl_relay_observations)
         # Stack the two actions vertically: on Win7 high-DPI/narrow displays
         # two wide buttons in one row force the right one outside the page.
         proxy_action_row = QVBoxLayout()
         self.btn_reprint_last = QPushButton(u"重打最近外卖单")
         self.btn_reprint_last.clicked.connect(self._on_reprint_last)
         proxy_action_row.addWidget(self.btn_reprint_last)
-        self.btn_open_relay_settings = QPushButton(u"前往打印机中继设置")
+        self.btn_open_relay_settings = QPushButton(u"前往中继设置（监控/映射）")
         self.btn_open_relay_settings.clicked.connect(self._open_relay_settings)
         proxy_action_row.addWidget(self.btn_open_relay_settings)
         for button in (self.btn_reprint_last, self.btn_open_relay_settings):
             button.setMinimumHeight(52)
             button.setCursor(Qt.PointingHandCursor)
         proxy_layout.addLayout(proxy_action_row)
-        self.lbl_last_job = QLabel(u"最近任务：无")
+        self.lbl_last_job = QLabel(u"最近官方 POS 单：无")
         self.lbl_last_job.setStyleSheet("color: #94A3B8; font-size: 13px; border: none;")
         proxy_layout.addWidget(self.lbl_last_job)
         self._refresh_relay_guide()
@@ -630,7 +637,7 @@ class TakeoutSortingWidget(QWidget):
             self.on_interceptor_status(u"● 守护中继运行中：127.0.0.1:%d" % self.interceptor.port)
             last_order = state.get("last_order", "")
             if last_order:
-                self.lbl_last_job.setText(u"守护中继最新：%s" % last_order)
+                self.lbl_last_job.setText(u"守护中继最新官方 POS 单：%s" % last_order)
             self._refresh_relay_guide(state)
             return
         if state.get("last_error"):
@@ -644,6 +651,7 @@ class TakeoutSortingWidget(QWidget):
         if not hasattr(self, "lbl_relay_guide"):
             return
         state = state or (self.interceptor.get_status() if self.interceptor else {})
+        self._refresh_relay_observations(state)
         queue = str(self.config.get("takeout_proxy_queue_name", "") or "").strip()
         physical = str(self.config.get("printer_name", "") or "").strip() if str(self.config.get("printer_type", "windows")).lower() == "windows" else ""
         if not queue:
@@ -662,6 +670,41 @@ class TakeoutSortingWidget(QWidget):
         else:
             text = u"中继配置已填写但监听未运行。当前使用兼容模式，请前往设置启动并完成真实测试单。"
         self.lbl_relay_guide.setText(text)
+
+    def _refresh_relay_observations(self, state):
+        """Show a read-only live summary for both takeout and dine-in tickets."""
+        label = getattr(self, "lbl_relay_observations", None)
+        if label is None:
+            return
+        records = state.get("recent_received") if isinstance(state, dict) else []
+        records = [row for row in (records or []) if isinstance(row, dict)]
+        if not records:
+            label.setText(
+                u"实时识别：暂无官方 POS 打印数据。外卖单、堂食结账单和退款/补打单都会进入同一中继识别流水；"
+                u"收到数据后将在这里显示摘要，完整 JSON 请前往打印机中继页面查看。"
+            )
+            return
+        kind_labels = {"takeout": u"外卖", "dinein": u"堂食/结账", "unknown": u"未知类型"}
+        lines = [u"最近官方 POS 识别（外卖与堂食共用）："]
+        for row in records[:5]:
+            kind = kind_labels.get(str(row.get("receipt_kind") or "unknown"), u"未知类型")
+            order_id = str(row.get("order_id") or row.get("call_no") or "无订单号")
+            amount = row.get("amount")
+            try:
+                amount_text = u"¥%.2f" % float(amount) if amount is not None else u"金额未知"
+            except (TypeError, ValueError):
+                amount_text = u"金额未知"
+            payment = str(row.get("payment_status") or "unknown")
+            payment_text = {"paid": u"已结账", "cancelled": u"已取消/退款", "unknown": u"状态未知"}.get(payment, payment)
+            parse_text = u"解析失败" if row.get("parse_failed") else u"已识别"
+            lines.append(u"• %s｜订单/叫号：%s｜金额：%s｜付款：%s｜%s" % (
+                kind, order_id, amount_text, payment_text, parse_text
+            ))
+            if row is records[0]:
+                fields = row.get("recognized_fields") or []
+                lines.append(u"　识别字段：%s" % (u"、".join(str(item) for item in fields) if fields else u"暂无稳定字段"))
+        lines.append(u"字段标注不正确时，请前往打印机中继的实时监控和字段重映射处理。")
+        label.setText("\n".join(lines))
 
     def _open_relay_settings(self):
         parent = self.window()

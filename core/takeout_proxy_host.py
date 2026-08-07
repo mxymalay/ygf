@@ -451,7 +451,14 @@ class TakeoutProxyHost:
             {"running": self.running and self.interceptor._running},
             parsed,
         )
-        self._set_mode(eligibility["mode"], "；".join(eligibility.get("reasons") or []) or "官方外卖票据已验证")
+        preserve_verified_mode = (
+            self.current_mode == MODE_ENHANCED
+            and self._is_control_or_auxiliary_print(intercepted, parsed, raw_text)
+        )
+        if preserve_verified_mode:
+            self._set_mode(MODE_ENHANCED, "控制/辅助打印不改变当前增强模式")
+        else:
+            self._set_mode(eligibility["mode"], "；".join(eligibility.get("reasons") or []) or "官方外卖票据已验证")
         if eligibility.get("eligible"):
             self.last_enhanced_success_at = self.last_identified_at
             if not job.get("conflict_detected"):
@@ -636,6 +643,53 @@ class TakeoutProxyHost:
         self.recent_received = [record] + previous
         del self.recent_received[20:]
 
+    def _restore_verified_mode_after_startup(self):
+        """Restore a previously verified enhanced mode after a clean start.
+
+        Starting the detached listener used to reset ``current_mode`` to
+        compatibility every time, so the UI appeared to switch modes until a
+        new official-POS ticket arrived.  A saved mode is not sufficient by
+        itself: re-check the persisted receipt ledger for a recent, high-
+        confidence paid receipt with a valid amount and stable order id.  If
+        no such evidence exists, remain in compatibility mode and wait for a
+        real ticket as before.
+        """
+        if str(self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO) != MODE_POLICY_AUTO:
+            return False
+        if str(self.config.get("takeout_relay_mode", MODE_COMPATIBILITY) or MODE_COMPATIBILITY) != MODE_ENHANCED:
+            return False
+        if not str(self.config.get("takeout_relay_last_success_at", "") or "").strip():
+            return False
+        try:
+            rows = self.official_db.get_official_receipts(limit=100)
+        except Exception:
+            return False
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("payment_status") or "").lower() != "paid":
+                continue
+            parsed = {
+                "receipt_kind": str(row.get("receipt_kind") or "unknown"),
+                "full_order_id": str(row.get("order_id") or ""),
+                "order_amount": row.get("amount"),
+                "amount_valid": bool(row.get("amount_valid")),
+                "payment_status": "paid",
+                "payment_status_evidence": "persisted_paid_receipt",
+                "key_confidence": str(row.get("key_confidence") or "low"),
+                "conflict_detected": bool(row.get("conflict_detected")),
+            }
+            eligibility = enhanced_mode_eligibility(
+                self.config, {"running": True}, parsed
+            )
+            if eligibility.get("eligible"):
+                self.current_mode = MODE_ENHANCED
+                self.mode_reason = "启动自检：恢复最近一次已验证的增强模式"
+                self.last_identified_at = str(row.get("observed_at") or "")
+                self.last_message = "中继守护进程运行中：启动自检已恢复增强模式"
+                return True
+        return False
+
     def run(self):
         _clear_stop_request()
         if not self.interceptor.is_enabled:
@@ -658,7 +712,11 @@ class TakeoutProxyHost:
             self._write_status(False)
             return 3
 
-        self.last_message = "中继守护进程运行中：127.0.0.1:%d" % self.interceptor.port
+        restored_enhanced = self._restore_verified_mode_after_startup()
+        if not restored_enhanced:
+            if str(self.config.get("takeout_relay_mode", MODE_COMPATIBILITY) or MODE_COMPATIBILITY) == MODE_ENHANCED:
+                self.mode_reason = "启动自检未找到可复用的已验证官方订单，等待实时验证"
+            self.last_message = "中继守护进程运行中：127.0.0.1:%d" % self.interceptor.port
         self._write_status(True)
         try:
             while self.running:

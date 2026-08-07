@@ -46,6 +46,15 @@ class AutoSwitchController(QObject):
         self._auto_switch_enabled = self.config.get("auto_switch_enabled", True)
         self._auto_hide_delay_sec = max(0, _config_int(self.config, "auto_hide_delay_sec", 10))
         self._target_private_ratio = min(100.0, max(0.0, _config_float(self.config, "private_ratio_percent", 30)))
+        amount_ratio_default = _config_float(self.config, "private_ratio_percent", 30)
+        self._target_private_amount_ratio = min(
+            100.0,
+            max(0.0, _config_float(
+                self.config,
+                "private_amount_ratio_percent",
+                amount_ratio_default,
+            )),
+        )
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
         self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))
@@ -74,6 +83,9 @@ class AutoSwitchController(QObject):
         # 记录上一次判定为官方 POS 的时间戳 (用于官方连单保护)。值可由
         # `_load_persisted_quota_state` 在冷启动时恢复。
         self._manual_override_until = 0.0  # 店员手动干预锁定期 (防止称重自动抢抓焦点)
+        # Daily first-order baseline. None means no manual override: the first
+        # automatic decision prefers the official POS when it is available.
+        self._daily_first_channel_override = None
         self._zero_start_time = 0.0  # 记录归零起始时间戳
         self._last_popped_weight = 0.0  # 记录本称重周期最终用于分流的稳定重量
         self._last_private_time = 0.0  # 记录上一次私域动作的时间戳 (用于私域购物车死锁超时)
@@ -148,11 +160,17 @@ class AutoSwitchController(QObject):
         except Exception:
             return False
 
-    def notify_manual_switch(self, duration_sec: float = -1.0):
+    def notify_manual_switch(self, duration_sec: float = -1.0, is_private=None):
         """店员手动点击悬浮球/快捷键触发：锁定指定秒数内不被称重自动抢抓覆盖"""
         if duration_sec < 0:
             duration_sec = self._manual_override_lock_sec
         self._manual_override_until = time.time() + duration_sec
+        # If this is before today's first routed order, remember the explicit
+        # operator choice.  It is the only supported way to make the first
+        # automatic order start on private POS; otherwise official is the
+        # daily baseline.
+        if self._total_evaluated_orders == 0 and is_private is not None:
+            self._daily_first_channel_override = bool(is_private)
         # A successful manual channel choice must take ownership from every
         # pending automatic action.  Stopping only the floating-ball animation
         # left the real auto-hide timer alive and it could switch windows back
@@ -250,6 +268,7 @@ class AutoSwitchController(QObject):
         self._switch_cycle_is_private = None
         self._switch_cycle_start_total_weight = 0.0
         self._switch_cycle_start_private_weight = 0.0
+        self._daily_first_channel_override = None
         self._load_persisted_quota_state()
 
     def _current_private_order_id(self):
@@ -356,9 +375,16 @@ class AutoSwitchController(QObject):
         amount in a printed ticket cannot switch the routing algorithm.
         """
         try:
-            from core.takeout_proxy_host import read_proxy_status
+            from core.takeout_proxy_host import read_proxy_status, _is_process_alive
             state = read_proxy_status()
             if not state.get("running") or state.get("mode") != "enhanced":
+                return 0.0, False
+            # The status file is atomically written but can outlive a crashed
+            # detached host.  Never keep using amount routing from a stale
+            # ``running=true`` snapshot; the next decision must fall back to
+            # the compatibility/weight path.
+            pid = state.get("pid")
+            if pid and not _is_process_alive(pid):
                 return 0.0, False
             from datetime import date
             if hasattr(self.main_window, "db") and self.main_window.db:
@@ -392,7 +418,7 @@ class AutoSwitchController(QObject):
             private_revenue = max(0.0, float(db.get_today_summary().get("total_amount", 0.0) or 0.0))
             unit_price = max(0.0, float(self.config.get("unit_price", 0.0) or 0.0))
             estimated_amount = max(0.0, float(weight_kg or 0.0)) * unit_price
-            target = min(1.0, max(0.0, self._target_private_ratio / 100.0))
+            target = min(1.0, max(0.0, self._target_private_amount_ratio / 100.0))
             total_after_private = private_revenue + verified_external + estimated_amount
             if total_after_private <= 0.0:
                 return True
@@ -401,6 +427,74 @@ class AutoSwitchController(QObject):
         except Exception as exc:
             _safe_console(f"[AutoDecisionEngine] 金额分流估算失败，继续兼容模式: {exc}")
             return None
+
+    def _amount_switch_progress(self):
+        """Return the enhanced-mode switch hint in currency, if available."""
+        verified_official, ready = self._verified_official_amount_state()
+        if not ready:
+            return None
+        if not self._switch_cycle_initialized or self._switch_cycle_is_private is None:
+            return (0.0, None, "", self._target_private_amount_ratio)
+        db = getattr(self.main_window, "db", None)
+        if not db or not hasattr(db, "get_today_summary"):
+            return None
+        try:
+            private_amount = max(0.0, float(db.get_today_summary().get("total_amount", 0.0) or 0.0))
+            official_amount = max(0.0, float(verified_official or 0.0))
+            total = private_amount + official_amount
+            target = min(1.0, max(0.0, self._target_private_amount_ratio / 100.0))
+            if self._switch_cycle_is_private:
+                next_channel = "官方 POS"
+                if target >= 1.0:
+                    return (0.0, None, next_channel, self._target_private_amount_ratio)
+                remaining = (target * total - private_amount) / (1.0 - target)
+            else:
+                next_channel = "私域 POS"
+                if target <= 0.0:
+                    return (0.0, None, next_channel, self._target_private_amount_ratio)
+                remaining = private_amount / target - total
+            return (0.0, max(0.0, remaining), next_channel, self._target_private_amount_ratio)
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+    def _switch_progress_snapshot(self):
+        amount = self._amount_switch_progress()
+        if amount is not None:
+            progress, remaining, next_channel, target = amount
+            return {
+                "basis": "amount",
+                "progress": progress,
+                "remaining_kg": None,
+                "remaining_amount": remaining,
+                "next_channel": next_channel,
+                "target": target,
+            }
+        progress, remaining, next_channel = self.get_switch_progress_status()
+        return {
+            "basis": "weight",
+            "progress": progress,
+            "remaining_kg": remaining,
+            "remaining_amount": None,
+            "next_channel": next_channel,
+            "target": self._target_private_ratio,
+        }
+
+    @staticmethod
+    def _apply_switch_progress(floating_ball, is_private, snapshot):
+        if not floating_ball or not hasattr(floating_ball, "set_switch_progress"):
+            return
+        has_remaining = (
+            snapshot["remaining_kg"] is not None
+            or snapshot["remaining_amount"] is not None
+        )
+        floating_ball.set_switch_progress(
+            snapshot["progress"],
+            bool(is_private),
+            next_is_private=(snapshot["next_channel"] == "私有 POS") if has_remaining else None,
+            remaining_kg=snapshot["remaining_kg"],
+            next_channel=snapshot["next_channel"],
+            remaining_amount=snapshot["remaining_amount"],
+        )
 
     def _fallback_to_private_after_official_failure(self, weight_kg):
         """Undo an official decision if the window disappeared in the race."""
@@ -669,8 +763,9 @@ class AutoSwitchController(QObject):
             msg = f"智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 ({private_reason}) ({self._quota_status_text()})"
             log_event(CAT_DECISION, "决策: 走私域 POS", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
         else:
-            self._update_floating_ball_status(is_private=False, reason="智能算法选择: 本单走官方", show_checkmark=True)
-            msg = f"智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 ({self._quota_status_text()})"
+            official_reason = self._last_decision_reason or "智能算法选择: 本单走官方"
+            self._update_floating_ball_status(is_private=False, reason=official_reason, show_checkmark=True)
+            msg = f"智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 ({official_reason}) ({self._quota_status_text()})"
             log_event(CAT_DECISION, "决策: 走官方系统", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
         if hasattr(self.main_window, 'status'):
             self.main_window.status.showMessage(msg, 5000)
@@ -715,6 +810,28 @@ class AutoSwitchController(QObject):
                         f"购物车超过 {self._private_lock_sec}s 未结账，已保留订单并暂停自动切换",
                     )
                     return True
+
+        # Establish the day's baseline before amount/weight balancing. A
+        # successful official POS first order gives the call-number relay a
+        # reliable starting point; a deliberate pre-order manual switch to
+        # private POS is respected instead.
+        if self._total_evaluated_orders == 0 and self._total_weight_kg <= 0.000001:
+            first_override = self._daily_first_channel_override
+            if first_override is True:
+                self._daily_first_channel_override = None
+                self._record_quota_decision(weight_kg, True)
+                self._last_decision_kind = "first_private_manual"
+                self._last_decision_reason = "店员首单前手动选择私域 POS"
+                log_event(CAT_DECISION, "每日首单手动选择私域", f"重量 {weight_kg:.3f}kg")
+                return True
+            if official_available:
+                self._daily_first_channel_override = None
+                self._record_quota_decision(weight_kg, False, forced_official=True)
+                self._last_decision_kind = "first_official_baseline"
+                self._last_decision_reason = "每日首单默认建立官方 POS 基线"
+                self._set_official_continuation_lock(now_ts)
+                log_event(CAT_DECISION, "每日首单默认走官方", f"重量 {weight_kg:.3f}kg | 建立官方叫号基线")
+                return False
 
         # 规则 0B：官方多碗/连续开单保护。只有中继已进入增强模式、并
         # 且订单金额与结账状态都已验证时，才允许金额分流替代这一把锁。
@@ -890,16 +1007,12 @@ class AutoSwitchController(QObject):
 
     def _update_switch_cycle_progress(self):
         """Refresh the per-cycle progress bar after a stable weighing decision."""
-        progress, remaining, next_channel = self.get_switch_progress_status()
         fb = getattr(self.main_window, "floating_ball", None)
-        if fb and hasattr(fb, "set_switch_progress"):
-            fb.set_switch_progress(
-                progress,
-                bool(self._switch_cycle_is_private),
-                next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
-                remaining_kg=remaining,
-                next_channel=next_channel,
-            )
+        self._apply_switch_progress(
+            fb,
+            bool(self._switch_cycle_is_private),
+            self._switch_progress_snapshot(),
+        )
 
     def reset_switch_cycle_for_manual(self, is_private):
         """Start a fresh visual/forecast cycle after a manual channel switch.
@@ -915,15 +1028,9 @@ class AutoSwitchController(QObject):
         self._switch_cycle_start_private_weight = self._private_weight_kg
         self._current_is_private = bool(is_private)
         fb = getattr(self.main_window, "floating_ball", None)
-        if fb and hasattr(fb, "set_switch_progress"):
-            _progress, remaining, next_channel = self.get_switch_progress_status()
-            fb.set_switch_progress(
-                0.0,
-                bool(is_private),
-                next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
-                remaining_kg=remaining,
-                next_channel=next_channel,
-            )
+        snapshot = self._switch_progress_snapshot()
+        snapshot["progress"] = 0.0
+        self._apply_switch_progress(fb, bool(is_private), snapshot)
         log_event(
             CAT_SWITCH,
             "手动切换后重置本轮切换进度",
@@ -994,24 +1101,29 @@ class AutoSwitchController(QObject):
             fb.is_our_pos_active = is_private
             weight_pct = self.get_actual_private_weight_ratio()
             count_pct = self.get_actual_private_ratio()
-            progress, remaining_kg, next_channel = self.get_switch_progress_status()
-            if hasattr(fb, "set_switch_progress"):
-                fb.set_switch_progress(
-                    progress,
-                    is_private,
-                    next_is_private=(next_channel == "私有 POS") if remaining_kg is not None else None,
-                    remaining_kg=remaining_kg,
-                    next_channel=next_channel,
-                )
+            snapshot = self._switch_progress_snapshot()
+            self._apply_switch_progress(fb, is_private, snapshot)
             if not is_private and self._private_daily_limit_reached():
                 switch_text = "当日私域收款已封顶 | 保持官方 POS"
-            elif remaining_kg is None:
+            elif snapshot["basis"] == "amount" and snapshot["remaining_amount"] is not None:
+                switch_text = (
+                    "金额分流：当前通道再收约 ¥%.2f 后切到%s"
+                    % (snapshot["remaining_amount"], snapshot["next_channel"] or "下一通道")
+                )
+            elif snapshot["basis"] == "amount":
+                switch_text = "金额分流：按目标私域金额占比自动切换"
+            elif snapshot["remaining_kg"] is None:
                 switch_text = "按配置不会自动切换"
             else:
-                switch_text = f"切换进度: {progress * 100:.0f}% | 当前通道再称约 {remaining_kg:.3f}kg 后切到{next_channel}"
+                switch_text = f"切换进度: {snapshot['progress'] * 100:.0f}% | 当前通道再称约 {snapshot['remaining_kg']:.3f}kg 后切到{snapshot['next_channel']}"
+            ratio_text = (
+                f"目标私域金额占比: {snapshot['target']:.1f}%"
+                if snapshot["basis"] == "amount"
+                else f"当日累计私域重量占比: {weight_pct:.1f}% / 目标 {self._target_private_ratio:.1f}% | 次数: {count_pct:.1f}%"
+            )
             fb.setToolTip(
                 f"自动决策系统 | 本轮{switch_text}\n"
-                f"当日累计私域重量占比: {weight_pct:.1f}% / 目标 {self._target_private_ratio:.1f}% | 次数: {count_pct:.1f}%\n"
+                f"{ratio_text}\n"
                 f"{reason}\n轻触: 手动切换 | 长按/三连击: 紧急避险销毁"
             )
             if show_checkmark:
@@ -1045,14 +1157,7 @@ class AutoSwitchController(QObject):
             self._switch_cycle_start_total_weight = self._total_weight_kg
             self._switch_cycle_start_private_weight = self._private_weight_kg
             self._current_is_private = bool(is_private)
-        progress, remaining, next_channel = self.get_switch_progress_status()
-        fb.set_switch_progress(
-            progress,
-            bool(is_private),
-            next_is_private=(next_channel == "私有 POS") if remaining is not None else None,
-            remaining_kg=remaining,
-            next_channel=next_channel,
-        )
+        self._apply_switch_progress(fb, bool(is_private), self._switch_progress_snapshot())
 
     def update_config(self, config: dict):
         """更新配置参数"""
@@ -1063,6 +1168,15 @@ class AutoSwitchController(QObject):
             self._cancel_pending_auto_hide()
         self._auto_hide_delay_sec = max(0, _config_int(self.config, "auto_hide_delay_sec", 10))
         self._target_private_ratio = min(100.0, max(0.0, _config_float(self.config, "private_ratio_percent", 30)))
+        amount_ratio_default = _config_float(self.config, "private_ratio_percent", 30)
+        self._target_private_amount_ratio = min(
+            100.0,
+            max(0.0, _config_float(
+                self.config,
+                "private_amount_ratio_percent",
+                amount_ratio_default,
+            )),
+        )
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
         self._private_lock_sec = max(0.0, _config_float(self.config, "private_lock_sec", 300.0))

@@ -218,7 +218,8 @@ class QueueWidget(QWidget):
         self.cmb_mode.addItems([
             u"模式一：智能时段避重 (推荐)",
             u"模式二：自定义范围叫号",
-            u"模式三：传统手动模式"
+            u"模式三：传统手动模式",
+            u"模式四：官方错峰随机"
         ])
         self.cmb_mode.setStyleSheet("""
             QComboBox { 
@@ -356,6 +357,29 @@ class QueueWidget(QWidget):
 
         self.stack_mode.addWidget(card_manual)
 
+        # ── 模式四：官方错峰随机 ──
+        card_official = QFrame()
+        card_official.setStyleSheet("QFrame { background: #0F172A; border-radius: 10px; border: 1px solid #334155; }")
+        co_layout = QVBoxLayout(card_official)
+        co_layout.setContentsMargins(12, 8, 12, 8)
+        co_layout.setSpacing(8)
+        lbl_o_desc = QLabel(
+            u"💡 机制说明：官方 POS 订单号从 1 开始递增，私域叫号优先从官方最近号的 +30～+60 号池随机抽取；\n"
+            u"  • 已经超过 4 小时的官方号可回收到 1～旧官方最大号的低号池（例如旧号 10，可随机使用 1～10）。\n"
+            u"  • 两个号池都会避开当前 4 小时内的官方号和本地已用号；中继尚无官方数据时不会猜号，需先使用旧模式或完成一笔官方 POS 测试。"
+        )
+        lbl_o_desc.setWordWrap(True)
+        lbl_o_desc.setStyleSheet("color: #94A3B8; font-size: 13px; border: none; background: transparent; line-height: 1.6;")
+        co_layout.addWidget(lbl_o_desc)
+        self.lbl_official_pool_status = QLabel()
+        self.lbl_official_pool_status.setWordWrap(True)
+        self.lbl_official_pool_status.setStyleSheet(
+            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 8px; padding: 8px; font-size: 12px;"
+        )
+        co_layout.addWidget(self.lbl_official_pool_status)
+        self.stack_mode.addWidget(card_official)
+
         # 按钮已移至顶部
 
         layout.addWidget(mode_box)
@@ -413,6 +437,7 @@ class QueueWidget(QWidget):
         self.refresh_pool_display()
 
     def refresh_pool_display(self):
+        self._refresh_official_pool_status()
         # 清空已有球球控件
         while self.pool_flow_layout.count() > 0:
             item = self.pool_flow_layout.takeAt(0)
@@ -431,14 +456,39 @@ class QueueWidget(QWidget):
                 ball = NumberBall(num)
                 self.pool_flow_layout.addWidget(ball)
 
+    def _refresh_official_pool_status(self):
+        label = getattr(self, "lbl_official_pool_status", None)
+        if label is None:
+            return
+        try:
+            context = self.call_mgr._official_number_context()
+            current_max = int(context.get("current_max") or 0)
+            old_max = int(context.get("old_max") or 0)
+            high = sorted(context.get("high") or [])
+            if current_max and high:
+                high_text = "%d～%d" % (high[0], high[-1])
+                old_text = ("1～%d" % old_max) if old_max else "暂无"
+                label.setText(
+                    u"当前已识别官方最大号：#%d；可回收旧号：%s；错峰号池：%s（随机、防重）"
+                    % (current_max, old_text, high_text)
+                )
+            else:
+                label.setText(u"尚未捕获可用的官方 POS 叫号；为避免官方新一天从 #1 开始时撞号，本模式暂不生成号码，请先完成官方 POS 测试或切回其他叫号模式。")
+        except Exception:
+            label.setText(u"官方叫号池暂不可读取，本模式暂不生成号码，请先检查打印中继或切回其他叫号模式。")
+
     def _load_settings(self):
         mode = self.config.get("call_mode", CallNumberManager.MODE_SMART)
         if mode == CallNumberManager.MODE_SMART:
             self.cmb_mode.setCurrentIndex(0)
         elif mode == CallNumberManager.MODE_CUSTOM:
             self.cmb_mode.setCurrentIndex(1)
-        else:
+        elif mode == CallNumberManager.MODE_MANUAL:
             self.cmb_mode.setCurrentIndex(2)
+        elif mode == CallNumberManager.MODE_OFFICIAL_OFFSET:
+            self.cmb_mode.setCurrentIndex(3)
+        else:
+            self.cmb_mode.setCurrentIndex(0)
 
         self.stack_mode.setCurrentIndex(self.cmb_mode.currentIndex())
 
@@ -452,8 +502,10 @@ class QueueWidget(QWidget):
             mode = CallNumberManager.MODE_SMART
         elif idx == 1:
             mode = CallNumberManager.MODE_CUSTOM
-        else:
+        elif idx == 2:
             mode = CallNumberManager.MODE_MANUAL
+        else:
+            mode = CallNumberManager.MODE_OFFICIAL_OFFSET
 
         self.config["call_mode"] = mode
         self.config["custom_start_no"] = self.spin_start.value()

@@ -77,6 +77,29 @@ class WeighingCycleTests(unittest.TestCase):
             self.assertFalse(controller._receipt_hide_pending)
         controller._hide_timer.stop()
 
+    def test_first_daily_order_defaults_to_official_baseline(self):
+        controller = self._controller()
+        with patch("core.switch_controller.log_event"), patch(
+            "core.switch_controller.is_official_pos_available", return_value=True
+        ), patch("core.switch_controller.bring_official_to_front", return_value=True) as bring_official:
+            controller.on_weighing_cycle_started(0.5)
+        self.assertFalse(controller._current_is_private)
+        self.assertEqual(controller._last_decision_kind, "first_official_baseline")
+        bring_official.assert_called_once()
+        controller._hide_timer.stop()
+
+    def test_manual_private_choice_can_override_first_daily_baseline(self):
+        controller = self._controller()
+        controller.notify_manual_switch(is_private=True)
+        controller._manual_override_until = 0.0
+        with patch("core.switch_controller.log_event"), patch(
+            "core.switch_controller.is_official_pos_available", return_value=True
+        ), patch("core.switch_controller.bring_our_pos_to_front", return_value=True):
+            controller.on_weighing_cycle_started(0.5)
+        self.assertTrue(controller._current_is_private)
+        self.assertEqual(controller._last_decision_kind, "first_private_manual")
+        controller._hide_timer.stop()
+
     def test_raw_frames_never_route(self):
         controller = self._controller()
         controller.on_weight_changed(0.5)

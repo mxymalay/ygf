@@ -49,7 +49,10 @@ class MainWindow(QMainWindow):
         self._hardware_status_full_text = ""
         self.db = Database()
         self._startup_checkpoint(u"正在准备数据库", u"本地订单账本已打开", 10)
-        self.call_mgr = CallNumberManager(config)
+        # The official-relative call-number mode reads the shared receipt
+        # ledger; legacy modes remain fully independent when no database is
+        # supplied by integrations/tests.
+        self.call_mgr = CallNumberManager(config, official_db=self.db)
         self.is_dark_mode = True
 
         self._init_window()
@@ -138,7 +141,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.report_page)
         self._startup_checkpoint(u"正在加载报表", u"营业统计模块已准备", 53)
 
-        # 页面 3: 外卖 RAW 打印中继与排序
+        # 页面 3: 官方 POS 打印识别与外卖格式
         from ui.takeout_sorting_widget import TakeoutSortingWidget
         from core.takeout_proxy_host import TakeoutProxyController
         # This object only controls a detached per-user proxy host.  It does

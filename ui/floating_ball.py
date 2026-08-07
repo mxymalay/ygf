@@ -77,13 +77,14 @@ class FloatingBall(QWidget):
         self._checkmark_timer.timeout.connect(self._hide_checkmark)
 
         # 分流配额可视化：当前累计进度与上一份累计进度同时保留。
-        # 进度的分母是“目标私域重量占比”，达到 100% 表示已经到达目标。
+        # 兼容模式按重量，增强模式按金额；两者都达到目标时表示已到达切换水位。
         self._quota_progress = 0.0
         self._quota_previous_progress = 0.0
         self._quota_is_private = True
         self._quota_previous_is_private = True
         self._next_switch_is_private = None
         self._switch_remaining_kg = None
+        self._switch_remaining_amount = None
         self._switch_next_channel = ""
         self._progress_hint_pressed = False
 
@@ -109,8 +110,13 @@ class FloatingBall(QWidget):
         self.update()
 
     def set_switch_progress(self, progress, is_private, next_is_private=None,
-                            remaining_kg=None, next_channel=None):
-        """设置“距离下一次自动切换”的本轮进度和剩余重量。"""
+                            remaining_kg=None, next_channel=None,
+                            remaining_amount=None):
+        """设置距离下一次自动切换的进度。
+
+        ``remaining_kg`` 保留给兼容模式；增强模式可传入
+        ``remaining_amount``，悬浮球会显示人民币金额。
+        """
         try:
             progress = max(0.0, min(1.0, float(progress or 0.0)))
         except (TypeError, ValueError):
@@ -123,11 +129,18 @@ class FloatingBall(QWidget):
             )
         except (TypeError, ValueError):
             normalized_remaining = None
+        try:
+            normalized_amount = (
+                None if remaining_amount is None else max(0.0, float(remaining_amount))
+            )
+        except (TypeError, ValueError):
+            normalized_amount = None
         if (
             abs(progress - self._quota_progress) < 0.0001
             and mode == self._quota_is_private
             and next_mode == self._next_switch_is_private
             and normalized_remaining == getattr(self, "_switch_remaining_kg", None)
+            and normalized_amount == getattr(self, "_switch_remaining_amount", None)
             and str(next_channel or "") == getattr(self, "_switch_next_channel", "")
         ):
             return
@@ -137,6 +150,7 @@ class FloatingBall(QWidget):
         self._quota_is_private = mode
         self._next_switch_is_private = next_mode
         self._switch_remaining_kg = normalized_remaining
+        self._switch_remaining_amount = normalized_amount
         self._switch_next_channel = str(next_channel or "")
         self.update()
 
@@ -152,8 +166,20 @@ class FloatingBall(QWidget):
 
     def _switch_hint_text(self):
         """Return the compact text shown above the floating capsule."""
-        if self._switch_remaining_kg is None:
+        remaining_amount = getattr(self, "_switch_remaining_amount", None)
+        if self._switch_remaining_kg is None and remaining_amount is None:
             return ""
+        if remaining_amount is not None:
+            remaining = float(remaining_amount)
+            if remaining <= 0.005:
+                next_channel = self._switch_next_channel.strip()
+                if not next_channel:
+                    next_is_private = self._next_switch_is_private
+                    if next_is_private is None:
+                        next_is_private = not self.is_our_pos_active
+                    next_channel = "私域 POS" if next_is_private else "官方 POS"
+                return u"下次切%s" % next_channel
+            return u"还需 ¥%.2f" % remaining
         remaining = float(self._switch_remaining_kg)
         if remaining <= 0.0005:
             next_channel = self._switch_next_channel.strip()
@@ -307,8 +333,8 @@ class FloatingBall(QWidget):
         rect_title = QRect(6, 21, 82, 40) # 扩大标题矩形，使其完全居中
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
-        # 下一次切换剩余重量：放在胶囊上方的黑底白字小标签中。
-        # 这是“本轮还差多少重量”的提示，不与结账倒计时混在一起。
+        # 下一次切换剩余重量/金额：放在胶囊上方的黑底白字小标签中。
+        # 这是“本轮还差多少”的提示，不与结账倒计时混在一起。
         switch_hint = self._switch_hint_text()
         if switch_hint:
             hint_width = self._switch_hint_width()
@@ -473,7 +499,7 @@ class FloatingBall(QWidget):
             # invalidate the current route record or take ownership from an
             # auto-hide timer.
             if controller and hasattr(controller, "notify_manual_switch"):
-                controller.notify_manual_switch()
+                controller.notify_manual_switch(is_private=False)
             if controller and hasattr(controller, "reset_switch_cycle_for_manual"):
                 controller.reset_switch_cycle_for_manual(False)
             elif controller and hasattr(controller, "refresh_floating_ball_progress"):
@@ -484,7 +510,7 @@ class FloatingBall(QWidget):
             self.is_our_pos_active = True
             controller = getattr(self.main_window, "switch_controller", None)
             if controller and hasattr(controller, "notify_manual_switch"):
-                controller.notify_manual_switch()
+                controller.notify_manual_switch(is_private=True)
             if controller and hasattr(controller, "reset_switch_cycle_for_manual"):
                 controller.reset_switch_cycle_for_manual(True)
             elif controller and hasattr(controller, "refresh_floating_ball_progress"):

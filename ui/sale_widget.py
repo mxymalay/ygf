@@ -1180,7 +1180,7 @@ class SaleWidget(QWidget):
         self.btn_toggle_detail.clicked.connect(self._toggle_call_detail)
         call_header.addWidget(self.btn_toggle_detail)
 
-        self.btn_global_relay_mode = QPushButton(u"模式：兼容模式")
+        self.btn_global_relay_mode = QPushButton(u"兼容模式")
         self.btn_global_relay_mode.setCursor(Qt.PointingHandCursor)
         self.btn_global_relay_mode.setToolTip(u"点击查看兼容模式/增强模式区别，并进入打印机中继设置")
         self.btn_global_relay_mode.clicked.connect(self._show_global_relay_mode_dialog)
@@ -2306,9 +2306,15 @@ class SaleWidget(QWidget):
             "degraded": u"已降级·兼容模式",
         }
         label = labels.get(mode, u"兼容模式")
-        self.btn_global_relay_mode.setText(u"模式：%s" % label)
+        reason = state["reason"]
+        monitor_hint = ""
+        if mode in ("degraded", "compatibility") and any(
+            marker in reason for marker in (u"未知", u"解析", u"无法识别", u"无法确认", u"状态未知")
+        ):
+            monitor_hint = u"\n检测到未知单子类型，请到打印机中继的④真实测试/⑤字段重映射实时监控查看。"
+        self.btn_global_relay_mode.setText(label)
         self.btn_global_relay_mode.setToolTip(
-            u"当前%s\n原因：%s\n点击查看两种模式区别并进入打印机中继设置。" % (label, state["reason"])
+            u"当前%s\n原因：%s%s\n点击查看两种模式区别并进入打印机中继设置。" % (label, reason, monitor_hint)
         )
         if mode == "enhanced":
             color = ("#064E3B", "#6EE7B7", "#10B981")
@@ -2338,6 +2344,7 @@ class SaleWidget(QWidget):
             u"当前全局模式：%s\n\n"
             u"兼容模式：保留原有连单锁和按重量分流；打印中继未配置、异常或付款状态未知时使用。\n\n"
             u"增强模式：只有中继正常、订单唯一、金额已验证且有可靠付款状态时才自动启用，可按金额分流。\n\n"
+            u"每日首单：默认先走官方 POS 建立当天基线；如果店员在首单前手动切到私域，则尊重该选择。\n\n"
             u"当前原因：%s\n"
             u"最近识别：%s\n"
             u"最近增强成功：%s\n\n"
@@ -2536,20 +2543,29 @@ class SaleWidget(QWidget):
 
     def refresh_call_number_display(self):
         next_num = self.call_mgr.peek_next_number()
+        mode = self.call_mgr.get_mode()
+        if mode == CallNumberManager.MODE_OFFICIAL_OFFSET and next_num is None:
+            self.lbl_next_call_no.setText("# --")
+            self.lbl_mode_tip.setText(u"模式：官方错峰随机 [等待官方 POS 订单号]")
+            return
         self.lbl_next_call_no.setText("# %d" % next_num)
 
-        mode = self.call_mgr.get_mode()
         if mode == CallNumberManager.MODE_SMART:
             slot = self.call_mgr._get_current_time_slot()
             slot_name = u"上午 (50-100)" if slot == "morning" else (u"下午 (100-200)" if slot == "afternoon" else u"晚上 (200-300)")
             self.lbl_mode_tip.setText(u"模式：智能避重 [%s]" % slot_name)
         elif mode == CallNumberManager.MODE_CUSTOM:
             self.lbl_mode_tip.setText(u"模式：自定义范围避重")
+        elif mode == CallNumberManager.MODE_OFFICIAL_OFFSET:
+            self.lbl_mode_tip.setText(u"模式：官方错峰随机 [+30～+60 / 四小时旧号池]")
         else:
             self.lbl_mode_tip.setText(u"模式：手动指定")
 
     def _manual_adjust_call_no(self):
         curr = self.call_mgr.peek_next_number()
+        if curr is None:
+            show_warning(self, u"暂时无法生成叫号", u"官方错峰模式尚未收到官方 POS 订单号。请先完成一笔官方 POS 测试，或切回其他叫号模式。")
+            return
         val, ok = get_int_input(self, u"微调叫号", u"请输入本次叫号牌号码：", curr, 1, 9999)
         if ok:
             self.call_mgr.set_manual_number(val)
@@ -3125,6 +3141,19 @@ class SaleWidget(QWidget):
             return
         if not self.cart_items:
             show_warning(self, u"提示", u"没有加入任何东西，<span style='font-size: 22px; font-weight: 900; color: #EF4444;'>0元</span> 无法结账")
+            return
+
+        if (
+            self.call_mgr.get_mode() == CallNumberManager.MODE_OFFICIAL_OFFSET
+            and hasattr(self.call_mgr, "official_mode_ready")
+            and not self.call_mgr.official_mode_ready()
+        ):
+            show_warning(
+                self,
+                u"官方错峰叫号暂不可用",
+                u"尚未收到可用的官方 POS 订单号。为避免官方新一天从 #1 开始时发生撞号，"
+                u"本模式不会猜测号码。请先完成一笔官方 POS 测试，或在“叫号设置”切回其他模式。",
+            )
             return
 
         unit_price = self.config.get("unit_price", 47.60)

@@ -1537,6 +1537,18 @@ class SwitchSettingsWidget(QWidget):
         lbl_ratio_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_ratio_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_ratio_tip)
+
+        # Enhanced mode balances verified revenue, so it needs an independent
+        # target instead of silently reusing the compatibility-mode weight
+        # ratio.  The default follows the legacy ratio for old installations.
+        self.sp_amount_ratio = TouchSpinBox(30, 0, 100, 5, " %")
+        lay1.addRow(QLabel(u"目标私域金额占比（增强模式）:"), self.sp_amount_ratio)
+        lbl_amount_ratio_tip = QLabel(
+            u"只有中继处于增强模式且官方金额、付款状态均已验证时使用；兼容模式忽略此项，继续按上面的重量占比。"
+        )
+        lbl_amount_ratio_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_amount_ratio_tip.setWordWrap(True)
+        lay1.addRow(QLabel(), lbl_amount_ratio_tip)
         
         self.sp_weight = TouchDoubleSpinBox(0.25, 0.00, 5.00, 0.05, " kg")
         lay1.addRow(QLabel(u"轻量小单切回门限:"), self.sp_weight)
@@ -1617,7 +1629,7 @@ class SwitchSettingsWidget(QWidget):
 
         # Win7 触屏窗口通常比开发机窄。说明文字必须在字段列内收缩
         # 换行，不能用长文本的 sizeHint 把整个页面横向撑出可视区域。
-        for tip in (lbl_enabled_tip, lbl_ratio_tip, lbl_w_tip, lbl_limit_tip,
+        for tip in (lbl_enabled_tip, lbl_ratio_tip, lbl_amount_ratio_tip, lbl_w_tip, lbl_limit_tip,
                     lbl_o_tip, lbl_z_tip, lbl_p_tip,
                     lbl_stable_tip, lbl_m_tip):
             tip.setMinimumWidth(0)
@@ -2853,7 +2865,9 @@ class SwitchSettingsWidget(QWidget):
 
     def _load_config(self):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
-        self.sp_ratio.setValue(int(self.config.get("private_ratio_percent", 30)))
+        weight_ratio = int(self.config.get("private_ratio_percent", 30))
+        self.sp_ratio.setValue(weight_ratio)
+        self.sp_amount_ratio.setValue(int(self.config.get("private_amount_ratio_percent", weight_ratio)))
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
         legacy_limit = float(self.config.get("max_daily_revenue_limit", 500.0) or 500.0)
         self.sp_weekday_max_daily_limit.setValue(float(self.config.get("weekday_max_daily_revenue_limit", legacy_limit)))
@@ -2892,6 +2906,7 @@ class SwitchSettingsWidget(QWidget):
     def _save_control_group(self):
         self.config["auto_switch_enabled"] = self.chk_enabled.isChecked()
         self.config["private_ratio_percent"] = self.sp_ratio.value()
+        self.config["private_amount_ratio_percent"] = self.sp_amount_ratio.value()
         self.config["min_private_weight_kg"] = self.sp_weight.value()
         self.config["weekday_max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
         self.config["weekend_max_daily_revenue_limit"] = self.sp_weekend_max_daily_limit.value()
@@ -2918,6 +2933,7 @@ class SwitchSettingsWidget(QWidget):
         """保留页面底部的“保存全部”入口，兼容旧操作习惯。"""
         self.config["auto_switch_enabled"] = self.chk_enabled.isChecked()
         self.config["private_ratio_percent"] = self.sp_ratio.value()
+        self.config["private_amount_ratio_percent"] = self.sp_amount_ratio.value()
         self.config["min_private_weight_kg"] = self.sp_weight.value()
         self.config["weekday_max_daily_revenue_limit"] = self.sp_weekday_max_daily_limit.value()
         self.config["weekend_max_daily_revenue_limit"] = self.sp_weekend_max_daily_limit.value()

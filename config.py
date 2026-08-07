@@ -234,6 +234,9 @@ DEFAULT_CONFIG = {
 
     # 2. 切换算法配置 (algo.json)
     "private_ratio_percent": 30,
+    # Enhanced mode uses verified revenue and keeps an independent target;
+    # defaulting to the legacy weight ratio preserves existing behavior.
+    "private_amount_ratio_percent": 30,
     "min_private_weight_kg": 0.25,
     # 私域 POS 当日累计收款上限。按周中/周末分别设置；保留旧键
     # max_daily_revenue_limit 作为老配置的兼容别名。
@@ -385,7 +388,7 @@ MODULAR_KEYS = {
     # order-only settings anymore.
     "takeout": lambda k: k.startswith("takeout_") or k.startswith("printer_relay_"),
     "algo": lambda k: k in (
-        "private_ratio_percent", "min_private_weight_kg",
+        "private_ratio_percent", "private_amount_ratio_percent", "min_private_weight_kg",
         "max_daily_revenue_limit",
         "weekday_max_daily_revenue_limit", "weekend_max_daily_revenue_limit",
     ),
