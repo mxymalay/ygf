@@ -1176,7 +1176,8 @@ class SettingsWidget(QWidget):
             u"先做中继识别测试，再打印真实测试单，最后刷新状态。只有订单号、最终金额和可靠付款状态都通过校验，才会自动进入增强模式和金额分流。",
         )
         action_title = QLabel(
-            u"测试顺序：③ 中继识别测试　→　④ 打印真实测试单　→　⑤ 刷新状态确认。收到打印任务本身不等于已结账。"
+            u"测试顺序：③ 离线解析样本（不连接官方 POS）　→　④ 启动中继后回官方 POS 打印真实测试单　→　⑤ 刷新状态确认。"
+            u"收到打印任务本身不等于已结账。"
         )
         action_title.setWordWrap(True)
         action_title.setStyleSheet("color: #FDE68A; background: #422006; border: 1px solid #A16207; border-radius: 8px; padding: 10px; font-weight: bold;")
@@ -1184,11 +1185,11 @@ class SettingsWidget(QWidget):
         test_row = QGridLayout()
         test_row.setHorizontalSpacing(12)
         test_row.setVerticalSpacing(12)
-        self.btn_test_relay_identification = QPushButton(u"③ 中继识别测试")
+        self.btn_test_relay_identification = QPushButton(u"③ 离线解析样本")
         self._style_touch_action_btn(self.btn_test_relay_identification, "purple")
         self.btn_test_relay_identification.clicked.connect(self._test_relay_identification)
         test_row.addWidget(self.btn_test_relay_identification, 0, 0)
-        self.btn_test_relay_print = QPushButton(u"④ 打印真实测试单")
+        self.btn_test_relay_print = QPushButton(u"④ 准备官方 POS 真实测试")
         self._style_touch_action_btn(self.btn_test_relay_print, "blue")
         self.btn_test_relay_print.clicked.connect(self._test_relay_print)
         test_row.addWidget(self.btn_test_relay_print, 0, 1)
@@ -1783,22 +1784,36 @@ class SettingsWidget(QWidget):
         )
         save_config(self.config)
         self._refresh_relay_status()
-        show_info(self, u"中继识别测试", u"识别完成：\n%s\n\n字段映射只影响解析，不会把未知付款状态强行改成已结账。\n如果字段仍显示未知，请把真实捕获样本和对应票面交给开发分析。" % self.config["takeout_relay_last_identification"])
+        show_info(self, u"离线解析样本完成", u"这一步只检查解析规则，不连接官方 POS，也不会让官方 POS 产生打印任务。\n\n识别结果：\n%s\n\n字段映射只影响解析，不会把未知付款状态强行改成已结账。收到真实数据后，请再打印官方 POS 测试单并刷新状态。" % self.config["takeout_relay_last_identification"])
 
     def _test_relay_print(self):
         from ui.custom_dialog import show_info, show_warning
         config = self._relay_config_from_form()
         report = validate_relay_config(config, check_windows=False)
         if report.get("errors"):
-            show_warning(self, u"无法测试打印", "\n".join(report["errors"]))
+            show_warning(self, u"无法开始官方 POS 测试", "\n".join(report["errors"]) + u"\n\n请先完成中继配置并保存。")
             return
-        from core.printer import ReceiptPrinter
-        payload = b"\x1b@\x1ba\x01YGF RELAY TEST\n\x1ba\x00" + u"测试小票\n".encode("gbk", errors="ignore") + b"\x1bd\x04\x1dV\x01"
-        printer = ReceiptPrinter(config)
-        if printer.print_raw(payload):
-            show_info(self, u"测试打印已发送", u"已向实体输出打印机发送测试单，请确认纸面结果。")
-        else:
-            show_warning(self, u"测试打印失败", printer.last_error or u"打印机未返回成功")
+        state = self._relay_runtime_state()
+        if not state.get("running"):
+            show_warning(
+                self,
+                u"中继未启动，无法接收官方 POS 数据",
+                u"当前中继监听未运行。此时官方 POS 会显示收银机未连接，不能把测试打印任务发送到本系统。\n\n"
+                u"请按顺序处理：\n"
+                u"1. 在“中继配置”勾选启用并保存；\n"
+                u"2. 如果使用独立服务，到“服务维护”安装/启动 ppposTakeoutRelay；\n"
+                u"3. 点击“刷新中继状态”，确认显示“连接/监听正常”；\n"
+                u"4. 回到官方 POS，选择 Windows 中继队列打印真实测试单。",
+            )
+            return
+        show_info(
+            self,
+            u"中继已就绪，请从官方 POS 打印",
+            u"监听地址：127.0.0.1:%s\n\n"
+            u"本按钮不会伪造官方 POS 数据，也不会代替官方 POS 出单。请现在回到官方 POS，"
+            u"选择已配置的 Windows 中继队列，打印一张真实测试单；打印完成后回到本页点击“刷新中继状态”。"
+            % (state.get("port") or config.get("takeout_proxy_port") or 9101),
+        )
 
     def _refresh_relay_status(self):
         if not hasattr(self, "lbl_relay_config_status"):
