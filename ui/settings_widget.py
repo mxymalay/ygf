@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit,
-    QTextBrowser,
+    QTextBrowser, QTabWidget,
     QSizePolicy
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
@@ -315,6 +315,13 @@ class SettingsWidget(QWidget):
         super().__init__(parent)
         self.config = config
         self.nav_buttons = []
+        # Keep the last rendered batch while the relay status file is being
+        # atomically replaced.  A 1.2s poll can briefly read an empty file;
+        # that transient must not make the monitor flash back to "no data".
+        self._relay_live_html_cache = ""
+        self._relay_live_started_at = ""
+        self._relay_live_records_cache = []
+        self._relay_live_records_signature = ""
         self._build_ui()
         # Keep the relay page live while the operator is preparing the
         # official POS test.  The poll only reads the small status JSON and
@@ -1125,10 +1132,10 @@ class SettingsWidget(QWidget):
         self.chk_relay_enabled = QCheckBox(u"启用中继监听（取消勾选并保存可停用）")
         self.chk_relay_enabled.setChecked(bool(self.config.get("takeout_interceptor_enabled", False)))
         grid.addWidget(self.chk_relay_enabled, 7, 1)
-        self.chk_relay_capture = QCheckBox(u"保存原始打印采样（默认关闭，用于测试分析）")
-        self.chk_relay_capture.setChecked(bool(self.config.get("takeout_capture_enabled", False)))
-        self.chk_relay_capture.setToolTip(u"会保存 .bin 原始打印数据和 .json 识别摘要；可能包含订单信息，请从测试机拷回后妥善保管。")
-        grid.addWidget(self.chk_relay_capture, 8, 1)
+        capture_hint = QLabel(u"原始 .bin/.json 会自动保存，实时监控直接读取这些文件；保留数量不能为 0，否则实时监控没有文件可显示。数量越大占用磁盘越多。")
+        capture_hint.setWordWrap(True)
+        capture_hint.setStyleSheet("color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; border-radius: 8px; padding: 8px;")
+        grid.addWidget(capture_hint, 8, 1, 1, 2)
         grid.addWidget(self._make_label(u"最多保留采样条数："), 9, 0)
         self.spin_relay_capture_max_files = QSpinBox()
         self.spin_relay_capture_max_files.setRange(1, 10000)
@@ -1786,7 +1793,6 @@ class SettingsWidget(QWidget):
         config["takeout_proxy_port"] = self.spin_relay_listen_port.value()
         config["takeout_proxy_queue_name"] = self.cmb_relay_queue.currentText().strip()
         config["takeout_interceptor_enabled"] = self.chk_relay_enabled.isChecked()
-        config["takeout_capture_enabled"] = self.chk_relay_capture.isChecked()
         config["takeout_capture_max_files"] = self.spin_relay_capture_max_files.value()
         config["takeout_relay_mode_policy"] = self.cmb_relay_mode_policy.currentData() or MODE_POLICY_AUTO
         config["printer_name"] = self.cmb_relay_printer_name.currentText().strip()
@@ -1947,11 +1953,22 @@ class SettingsWidget(QWidget):
             u"连接/监听正常" if running else u"未运行或已降级", mode_label(mode),
             policy_label, mode_reason, mode_changed, source, identified_at,
             enhanced_at, detail, service_detail))
-        live_html = self._relay_live_monitor_html(state)
+        # The capture sidecar is the source for the monitor.  The relay status
+        # file is only a lightweight runtime signal and can be momentarily
+        # empty while it is atomically replaced.  Scan sidecars so every
+        # saved JSON gets its own tab and remains visible until retention
+        # cleanup removes that file.
+        capture_records = self._load_relay_capture_records(config, state)
+        signature = json.dumps(capture_records, ensure_ascii=False, sort_keys=True)
+        if signature != self._relay_live_records_signature:
+            self._relay_live_records_signature = signature
+            self._relay_live_records_cache = capture_records
         for attr in ("lbl_relay_live_test", "lbl_relay_live_mapping"):
             monitor = getattr(self, attr, None)
             if monitor is not None:
-                monitor.setHtml(live_html)
+                if getattr(monitor, "_relay_rendered_signature", "") != self._relay_live_records_signature:
+                    self._set_relay_monitor_tabs(monitor, self._relay_live_records_cache)
+                    monitor._relay_rendered_signature = self._relay_live_records_signature
         if hasattr(self, "lbl_relay_refresh_result"):
             self.lbl_relay_refresh_result.setText(
                 u"状态已刷新：%s（%s）" % (
@@ -1961,20 +1978,138 @@ class SettingsWidget(QWidget):
             )
 
     @staticmethod
-    def _make_relay_live_monitor():
-        """Create a scrollable rich-text monitor for all recent JSON jobs."""
-        monitor = QTextBrowser()
-        monitor.setReadOnly(True)
-        monitor.setOpenExternalLinks(False)
-        monitor.setOpenLinks(False)
-        monitor.setMinimumHeight(210)
-        monitor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        monitor.setStyleSheet(
+    def _make_relay_live_browser():
+        browser = QTextBrowser()
+        browser.setReadOnly(True)
+        browser.setOpenExternalLinks(False)
+        browser.setOpenLinks(False)
+        browser.setStyleSheet(
             "QTextBrowser { color: #E0F2FE; background: #082F49; "
             "border: 1px solid #0369A1; border-radius: 10px; padding: 8px; "
             "font-size: 14px; }"
         )
+        return browser
+
+    @classmethod
+    def _make_relay_live_monitor(cls):
+        """Create a large tabbed monitor; one tab is one saved JSON sidecar."""
+        monitor = QTabWidget()
+        monitor.setMinimumHeight(460)
+        monitor.setMaximumHeight(900)
+        monitor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        monitor.setDocumentMode(False)
+        monitor.setStyleSheet(
+            "QTabWidget::pane { background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 10px; }"
+            "QTabBar::tab { background: #1E293B; color: #CBD5E1; padding: 10px 14px; "
+            "font-size: 13px; min-width: 120px; }"
+            "QTabBar::tab:selected { background: #0369A1; color: #FFFFFF; font-weight: 900; }"
+        )
+        monitor.addTab(cls._make_relay_live_browser(), u"等待 JSON")
         return monitor
+
+    @staticmethod
+    def _load_relay_capture_records(config, state):
+        """Read saved JSON sidecars and merge live-only duplicate/link flags."""
+        root = str(config.get("takeout_capture_dir") or os.path.join(DATA_DIR, "printer_relay_capture"))
+        try:
+            limit = max(1, int(config.get("takeout_capture_max_files", 20) or 20))
+        except (TypeError, ValueError):
+            limit = 20
+        try:
+            names = [name for name in os.listdir(root) if name.lower().endswith(".json")]
+            names.sort(key=lambda name: os.path.getmtime(os.path.join(root, name)), reverse=True)
+        except OSError:
+            names = []
+        live_records = {}
+        if isinstance(state, dict):
+            for record in state.get("recent_received") or []:
+                if isinstance(record, dict) and record.get("capture_json_file"):
+                    live_records[record.get("capture_json_file")] = record
+        records = []
+        for name in names[:limit]:
+            path = os.path.join(root, name)
+            try:
+                with open(path, "r", encoding="utf-8") as stream:
+                    metadata = json.load(stream)
+            except (OSError, TypeError, ValueError):
+                continue
+            if not isinstance(metadata, dict):
+                continue
+            stem = os.path.splitext(name)[0]
+            extracted_text = str(metadata.get("extracted_text", "") or "")
+            payment_method = str(metadata.get("payment_method", "") or "")
+            if not payment_method:
+                methods = []
+                for method in re.findall(r"人民币|微信支付|支付宝支付|扫码支付|微信|支付宝|银行卡|刷卡", extracted_text):
+                    if method not in methods:
+                        methods.append(method)
+                payment_method = "+".join(methods)
+            recognized_fields = []
+            if metadata.get("full_order_id"):
+                recognized_fields.append("order_id")
+            if metadata.get("order_no") and str(metadata.get("order_no")) != "#---":
+                recognized_fields.append("call_no")
+            if metadata.get("order_amount") is not None and metadata.get("amount_valid"):
+                recognized_fields.append("amount")
+            if str(metadata.get("payment_status") or "unknown") != "unknown":
+                recognized_fields.append("payment_status")
+            if payment_method:
+                recognized_fields.append("payment_method")
+            if metadata.get("item_count"):
+                recognized_fields.append("items")
+            record = {
+                "received_at": metadata.get("captured_at", ""),
+                "payload_type": metadata.get("payload_type", "binary_or_unknown"),
+                "parse_failed": bool(metadata.get("parse_failed")),
+                "receipt_kind": metadata.get("receipt_kind", "unknown"),
+                "platform": metadata.get("platform", "官方 POS"),
+                "order_id": metadata.get("full_order_id", ""),
+                "call_no": metadata.get("order_no", ""),
+                "amount": metadata.get("order_amount"),
+                "amount_valid": bool(metadata.get("amount_valid")),
+                "payment_status": metadata.get("payment_status", "unknown"),
+                "payment_evidence": metadata.get("payment_status_evidence", ""),
+                "payment_method": payment_method,
+                "confidence": metadata.get("payment_status_confidence", "unknown"),
+                "key_confidence": metadata.get("key_confidence", "low"),
+                "item_count": int(metadata.get("item_count", 0) or 0),
+                "capture_file": stem + ".bin",
+                "capture_json_file": name,
+                "payload_size": int(metadata.get("payload_size", 0) or 0),
+                "order_time": metadata.get("order_time", ""),
+                "amount_source": metadata.get("amount_source", ""),
+                "recognized_fields": recognized_fields,
+                "extracted_text_preview": extracted_text[:500],
+            }
+            record.update({key: value for key, value in live_records.get(name, {}).items()
+                           if key in ("duplicate", "conflict_detected", "refund_linked",
+                                      "refund_match_status", "refund_match_reason",
+                                      "refund_original_order_key", "refund_original_order_id")})
+            records.append(record)
+        return records
+
+    @staticmethod
+    def _set_relay_monitor_tabs(monitor, records):
+        selected = monitor.currentIndex()
+        monitor.blockSignals(True)
+        try:
+            monitor.clear()
+            if not records:
+                monitor.addTab(SettingsWidget._make_relay_live_browser(), u"等待 JSON")
+                monitor.widget(0).setHtml(SettingsWidget._relay_live_monitor_html({}))
+                return
+            total = len(records)
+            for index, record in enumerate(records, 1):
+                browser = SettingsWidget._make_relay_live_browser()
+                browser.setHtml(SettingsWidget._relay_live_monitor_html({"recent_received": [record]}))
+                filename = str(record.get("capture_json_file") or (u"任务%d" % index))
+                tab_title = filename if len(filename) <= 24 else filename[:21] + "..."
+                monitor.addTab(browser, u"%d %s" % (index, tab_title))
+                monitor.setTabToolTip(monitor.count() - 1, filename)
+            monitor.setCurrentIndex(min(max(0, selected), monitor.count() - 1))
+        finally:
+            monitor.blockSignals(False)
 
     @staticmethod
     def _relay_live_monitor_html(state):
@@ -2007,7 +2142,7 @@ class SettingsWidget(QWidget):
         ]
         for index, record in enumerate(records, 1):
             record = record if isinstance(record, dict) else {}
-            filename = record.get("capture_json_file") or record.get("capture_file") or u"未启用样本保存"
+            filename = record.get("capture_json_file") or record.get("capture_file") or u"未生成 JSON 文件"
             kind = kind_labels.get(str(record.get("receipt_kind") or "unknown"), u"未识别")
             payment, payment_color = status_labels.get(
                 str(record.get("payment_status") or "unknown"),

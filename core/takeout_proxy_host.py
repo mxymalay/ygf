@@ -28,6 +28,7 @@ from core.takeout_jobs import TakeoutJobStore
 from core.printer_relay_service import TakeoutRelayServiceController
 from core.takeout_relay import (
     MODE_COMPATIBILITY,
+    MODE_ENHANCED,
     MODE_POLICY_AUTO,
     enhanced_mode_eligibility,
     validate_relay_config,
@@ -254,6 +255,23 @@ class TakeoutProxyHost:
         else:
             self.last_message = "已应用打印机中继新配置"
 
+    @staticmethod
+    def _is_control_or_auxiliary_print(intercepted, parsed, raw_text):
+        """Return True for POS control noise or an auxiliary kitchen slip.
+
+        These jobs are still captured and forwarded, but they are not a new
+        payment observation and must not undo a previously verified mode.
+        """
+        text = str(raw_text or "")
+        compact = "".join(text.split())
+        try:
+            size = int((intercepted or {}).get("payload_size") or len((intercepted or {}).get("raw_payload") or b""))
+        except (TypeError, ValueError):
+            size = 0
+        if not parsed.get("is_official_receipt") and size <= 64 and len(compact) <= 32:
+            return True
+        return any(marker in compact for marker in ("制作单", "后厨", "厨房打印", "出餐单"))
+
     def _handle_order(self, intercepted):
         raw_text = str(intercepted.get("raw_text", ""))
         parsed = parse_official_pos_text(raw_text, _takeout_options(self.config))
@@ -267,6 +285,10 @@ class TakeoutProxyHost:
         )
         self._update_last_received(parsed, intercepted, parse_failed=parse_failed)
         if parse_failed:
+            preserve_verified_mode = (
+                self.current_mode == MODE_ENHANCED
+                and self._is_control_or_auxiliary_print(intercepted, parsed, raw_text)
+            )
             # The relay owns the physical output path.  Preserve the original
             # receipt whenever recognition cannot be trusted; parsing must
             # never turn into a silent print loss.
@@ -295,7 +317,10 @@ class TakeoutProxyHost:
             else:
                 self.last_error = "无法取得原始打印数据"
                 self.last_message = "订单状态未知且无原始数据，已降级到兼容模式"
-            self._set_mode(MODE_COMPATIBILITY, self.last_message)
+            if preserve_verified_mode:
+                self.last_message = "已保留原始打印；控制/辅助打印不改变当前增强模式"
+            else:
+                self._set_mode(MODE_COMPATIBILITY, self.last_message)
             self._write_status()
             return
 
@@ -346,7 +371,12 @@ class TakeoutProxyHost:
                 {"running": self.running and self.interceptor._running},
                 parsed,
             )
-            self._set_mode(eligibility["mode"], "；".join(eligibility.get("reasons") or []) or "官方堂食票据已验证")
+            if parsed.get("payment_status") == "cancelled" and parsed.get("refund_linked") and self.current_mode == MODE_ENHANCED:
+                # A linked refund changes the order's financial state, not the
+                # relay's ability to identify future paid receipts.
+                self._set_mode(MODE_ENHANCED, "退款已关联原结账单，保持增强模式")
+            else:
+                self._set_mode(eligibility["mode"], "；".join(eligibility.get("reasons") or []) or "官方堂食票据已验证")
             if eligibility.get("eligible") and not parsed.get("conflict_detected"):
                 self.last_enhanced_success_at = self.last_identified_at
                 try:

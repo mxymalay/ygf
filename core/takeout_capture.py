@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Bounded raw-print capture for investigating official POS printer output.
+"""Bounded raw-print capture for the official POS relay monitor.
 
-Capture is intentionally separate from the order ledger.  A sample contains
-the original binary payload and extracted text, so it can include order data;
-the operator can disable it after the test-machine collection run.
+Every received job is retained as a ``.bin``/``.json`` pair. The retention
+limit is configurable; capture is not optional because the live monitor and
+field-remapping workflow read these sidecars directly.
 """
 import hashlib
 import json
@@ -23,13 +23,11 @@ def _now_text():
 def capture_print_payload(payload, parsed=None, config=None, capture_dir=None):
     """Persist one raw payload and a compact metadata sidecar.
 
-    Returns the binary sample path, or an empty string when capture is
-    disabled/failed.  Capture failures never belong on the printing critical
-    path and are therefore swallowed by design.
+    Returns the binary sample path, or an empty string when capture fails.
+    Capture failures never belong on the printing critical path and are
+    therefore swallowed by design.
     """
     config = config or {}
-    if not bool(config.get("takeout_capture_enabled", False)):
-        return ""
     data = bytes(payload or b"")
     if not data:
         return ""

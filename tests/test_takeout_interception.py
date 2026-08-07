@@ -60,6 +60,17 @@ class TakeoutInterceptionTests(unittest.TestCase):
                 metadata = __import__("json").load(stream)
             self.assertEqual(metadata["payload_type"], "raw_escpos")
             self.assertEqual(metadata["payload_size"], os.path.getsize(path))
+
+    def test_raw_print_capture_is_on_without_legacy_enable_flag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = capture_print_payload(
+                b"\x1b@POS#001",
+                {"payload_type": "raw_escpos", "payment_status": "unknown"},
+                {"takeout_capture_max_files": 2},
+                capture_dir=directory,
+            )
+            self.assertTrue(path.endswith(".bin"))
+            self.assertTrue(os.path.exists(path[:-4] + ".json"))
     def test_amount_is_available_but_payment_without_explicit_evidence_is_unknown(self):
         result = parse_and_sort_takeout_text(SAMPLE)
         self.assertEqual(result["order_amount"], 34.50)
