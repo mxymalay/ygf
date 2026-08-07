@@ -1159,7 +1159,11 @@ class SaleWidget(QWidget):
 
     def _build_ui(self):
         layout = QHBoxLayout(self)
-        layout.setSpacing(14)
+        # Keep the three columns usable on narrow Win7 displays.  The
+        # separator and the quick-operation bar already consume a fixed
+        # amount of space, so a large inter-column gap makes the product
+        # panel (and its checkout buttons) needlessly squeeze.
+        layout.setSpacing(10)
         layout.setContentsMargins(12, 12, 12, 12)
 
         # ── 左侧：开单面板 ──
@@ -1554,7 +1558,11 @@ class SaleWidget(QWidget):
 
         mid_layout.addStretch()
 
-        layout.addWidget(left_card, stretch=5)
+        # The order/weight panel needs less width than the product catalogue.
+        # A 4:8 ratio leaves enough room for the four-column menu and the five
+        # checkout actions while retaining a comfortable minimum for the
+        # order summary and weight display.
+        layout.addWidget(left_card, stretch=4)
         layout.addWidget(mid_bar, stretch=0)
 
         # ── 右侧：4x4 网格菜单 ──
@@ -1583,6 +1591,7 @@ class SaleWidget(QWidget):
 
         # 底部核心按键
         btn_box = QHBoxLayout()
+        btn_box.setSpacing(8)
         
         clear_box = QHBoxLayout()
         clear_box.setSpacing(10)
@@ -1617,12 +1626,16 @@ class SaleWidget(QWidget):
 
         self.btn_cash = QPushButton(u"去现金")
         self.btn_cash.setObjectName("btn_cash")
+        self.btn_cash.setMinimumWidth(88)
+        self.btn_cash.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_cash.setCursor(Qt.PointingHandCursor)
         self.btn_cash.clicked.connect(self._on_cash_checkout)
         btn_box.addWidget(self.btn_cash, stretch=1)
 
         self.btn_print = QPushButton(u"去扫码")
         self.btn_print.setObjectName("btn_print")
+        self.btn_print.setMinimumWidth(88)
+        self.btn_print.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_print.setCursor(Qt.PointingHandCursor)
         self.btn_print.clicked.connect(self._on_print)
         btn_box.addWidget(self.btn_print, stretch=1)
@@ -1650,7 +1663,7 @@ class SaleWidget(QWidget):
         self.lbl_mixed_hint.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.lbl_mixed_hint.hide()
 
-        layout.addLayout(right, stretch=7)
+        layout.addLayout(right, stretch=8)
 
         self._update_price_display()
 
