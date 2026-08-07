@@ -1593,6 +1593,10 @@ class SaleWidget(QWidget):
         self.menu_group.setStyleSheet(
             "QGroupBox#SaleMenuGroup { margin-top: 0px; padding-top: 0px; }"
         )
+        # Do not let the catalogue container absorb the unused vertical space
+        # between the last SKU row and the checkout buttons.  Keeping it at
+        # its content height makes the top and bottom padding symmetrical.
+        self.menu_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.mg_grid = QGridLayout(self.menu_group)
         self.mg_grid.setSpacing(8)
         # Keep every filtered view anchored to the same top-left grid as
@@ -1603,7 +1607,7 @@ class SaleWidget(QWidget):
         # 相同的卡片宽度，并从第一列开始排列，不会被拉伸到整行或居中。
         for column in range(4):
             self.mg_grid.setColumnStretch(column, 1)
-        right.addWidget(self.menu_group)
+        right.addWidget(self.menu_group, stretch=0, alignment=Qt.AlignTop)
         self._build_shop_menu_from_catalog()
 
         # 底部核心按键
