@@ -120,6 +120,34 @@ def _is_process_alive(pid):
         return False
 
 
+def is_proxy_status_live(state, expected_port=9101, max_age_seconds=6):
+    """Check the relay using its heartbeat, with a Win7-safe PID fallback.
+
+    ``os.kill(pid, 0)`` is not reliable for a PyInstaller/Windows-service
+    process on some Win7 machines: it can report a live service PID as
+    inaccessible.  The detached relay writes ``updated_at`` every second, so
+    a fresh heartbeat is stronger evidence than a PID probe and keeps the
+    home badge and mode-four gate consistent.
+    """
+    if not isinstance(state, dict) or not state.get("running"):
+        return False
+    try:
+        if int(state.get("port") or 0) != int(expected_port or 9101):
+            return False
+    except (TypeError, ValueError):
+        return False
+    updated = str(state.get("updated_at") or "").strip()
+    if updated:
+        try:
+            age = (datetime.now() - datetime.strptime(updated, "%Y-%m-%d %H:%M:%S")).total_seconds()
+            if 0 <= age <= float(max_age_seconds):
+                return True
+        except (TypeError, ValueError):
+            pass
+    pid = state.get("pid")
+    return bool(pid and _is_process_alive(pid))
+
+
 def _config_signature():
     result = []
     for key in ("sys", "takeout"):
@@ -791,29 +819,30 @@ class TakeoutProxyController:
 
     @property
     def _running(self):
-        service_state = self.service_state()
-        if service_state and service_state.installed:
-            status = read_proxy_status()
-            return bool(service_state.state_code == 4 and status.get("running") and status.get("port") == self.port)
         state = read_proxy_status()
-        return bool(
-            state.get("running") and state.get("port") == self.port and _is_process_alive(state.get("pid"))
-        )
+        # Use the relay heartbeat as the primary liveness signal.  This also
+        # avoids a false negative when Win7 cannot probe a service PID owned by
+        # another account.  An old heartbeat still falls back to the PID
+        # check inside ``is_proxy_status_live``.
+        return is_proxy_status_live(state, self.port)
 
     def get_status(self):
         state = read_proxy_status()
-        if self._running:
-            return state
-        if state.get("last_error"):
+        running = self._running
+        if running:
             return state
         # Preserve the last observed ticket/mode when the listener is down;
         # otherwise the settings page would erase the useful test result as
-        # soon as a temporary relay is stopped or auto-degraded.
+        # soon as a temporary relay is stopped or auto-degraded.  The
+        # diagnostic fields are historical, but ``running`` must always be
+        # false here.  Returning a stale ``running: true`` when last_error is
+        # present made the home badge claim enhanced mode while mode 4 (which
+        # checks the live process) correctly rejected it.
         result = {"running": False, "port": self.port, "message": "打印机中继守护进程未运行"}
         for key in (
             "last_received", "last_identified_at", "last_enhanced_success_at",
             "payload_type", "mode", "mode_policy", "mode_reason", "mode_changed_at",
-            "recent_received",
+            "recent_received", "last_error",
         ):
             if key in state:
                 result[key] = state.get(key)
