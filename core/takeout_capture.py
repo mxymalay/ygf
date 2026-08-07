@@ -13,7 +13,7 @@ from datetime import datetime
 from config import DATA_DIR
 
 
-DEFAULT_CAPTURE_DIR = os.path.join(DATA_DIR, "takeout_capture")
+DEFAULT_CAPTURE_DIR = os.path.join(DATA_DIR, "printer_relay_capture")
 
 
 def _now_text():
@@ -45,7 +45,7 @@ def capture_print_payload(payload, parsed=None, config=None, capture_dir=None):
     os.makedirs(root, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     digest = hashlib.sha256(data).hexdigest()[:12]
-    stem = "takeout_%s_%s" % (stamp, digest)
+    stem = "printer_relay_%s_%s" % (stamp, digest)
     bin_path = os.path.join(root, stem + ".bin")
     meta_path = os.path.join(root, stem + ".json")
     temporary_bin = bin_path + ".tmp"

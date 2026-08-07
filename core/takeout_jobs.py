@@ -7,7 +7,7 @@ from datetime import datetime
 from config import DATA_DIR
 
 
-JOB_PATH = os.path.join(DATA_DIR, "takeout_jobs.json")
+JOB_PATH = os.path.join(DATA_DIR, "printer_relay_jobs.json")
 
 
 def _now():

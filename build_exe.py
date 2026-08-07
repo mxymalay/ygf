@@ -196,7 +196,7 @@ def main():
         "--onefile",
         "--clean",
         "--distpath=%s" % package_dir,
-        "--workpath=%s" % os.path.join("build", "takeout_relay_service"),
+        "--workpath=%s" % os.path.join("build", "printer_relay_service"),
         "--specpath=%s" % os.path.join("build", "spec"),
         "--hidden-import=servicemanager",
         "--hidden-import=win32service",
@@ -204,7 +204,7 @@ def main():
         "--hidden-import=win32event",
         "--hidden-import=win32timezone",
     ] + common_hidden + [
-        "takeout_relay_service.py"
+        "printer_relay_service.py"
     ]
 
     maintenance_cmd = [

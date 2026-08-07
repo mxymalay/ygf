@@ -24,7 +24,7 @@ from core.takeout_interceptor import (
     parse_official_pos_text,
 )
 from core.takeout_jobs import TakeoutJobStore
-from core.takeout_relay_service import TakeoutRelayServiceController
+from core.printer_relay_service import TakeoutRelayServiceController
 from core.takeout_relay import (
     MODE_COMPATIBILITY,
     MODE_POLICY_AUTO,
@@ -33,8 +33,8 @@ from core.takeout_relay import (
 )
 
 
-STATUS_PATH = os.path.join(DATA_DIR, "takeout_proxy_status.json")
-CONTROL_PATH = os.path.join(DATA_DIR, "takeout_proxy_control.json")
+STATUS_PATH = os.path.join(DATA_DIR, "printer_relay_status.json")
+CONTROL_PATH = os.path.join(DATA_DIR, "printer_relay_control.json")
 
 
 def _now():
@@ -498,7 +498,8 @@ class TakeoutProxyHost:
             "parse_failed": bool(parse_failed),
             "receipt_kind": str(parsed.get("receipt_kind") or "unknown"),
             "platform": str(parsed.get("platform") or "官方 POS"),
-            "order_id": str(parsed.get("full_order_id") or parsed.get("order_no") or ""),
+            "order_id": str(parsed.get("full_order_id") or ""),
+            "call_no": str(parsed.get("order_no") or ""),
             "amount": amount,
             "amount_valid": bool(parsed.get("amount_valid")),
             "payment_status": str(parsed.get("payment_status") or "unknown"),

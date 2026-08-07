@@ -16,12 +16,9 @@
   "printer_feed_lines": 4,
   "printer_cash_drawer_enabled": true,
   "printer_show_tags": true,
-  "printer_takeout_banner_enabled": true,
-  "printer_takeout_banner_lines": 3,
   "printer_separator_char": "-",
   "printer_customer_title": "POS点餐 堂食",
   "printer_kitchen_title_dinein": "制作单-堂食",
-  "printer_kitchen_title_takeout": "制作单-打包",
   "printer_customer_footer": "打印时间：{time}",
   "printer_kitchen_footer": "打印时间：{time}",
   "printer_report_title": "营业汇总报表",
@@ -138,5 +135,8 @@
   "min_valid_weight_kg": 0.08,
   "official_lock_sec": 60,
   "private_lock_sec": 300,
-  "manual_override_lock_sec": 30
+  "manual_override_lock_sec": 30,
+  "printer_packaging_banner_enabled": true,
+  "printer_packaging_banner_lines": 3,
+  "printer_kitchen_title_packaging": "制作单-打包"
 }

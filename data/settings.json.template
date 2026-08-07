@@ -16,12 +16,12 @@
   "printer_feed_lines": 4,
   "printer_cash_drawer_enabled": true,
   "printer_show_tags": true,
-  "printer_takeout_banner_enabled": true,
-  "printer_takeout_banner_lines": 3,
+  "printer_packaging_banner_enabled": true,
+  "printer_packaging_banner_lines": 3,
   "printer_separator_char": "-",
   "printer_customer_title": "POS点餐 堂食",
   "printer_kitchen_title_dinein": "制作单-堂食",
-  "printer_kitchen_title_takeout": "制作单-打包",
+  "printer_kitchen_title_packaging": "制作单-打包",
   "printer_customer_footer": "打印时间：{time}",
   "printer_kitchen_footer": "打印时间：{time}",
   "printer_report_title": "营业汇总报表",
@@ -67,70 +67,144 @@
   "shouqianba_baudrate": 2400,
   "shouqianba_format": "QA",
   "shouqianba_hotkey": "Shift+Q",
-  "takeout_interceptor_enabled": false,
-  "takeout_proxy_port": 9101,
-  "takeout_proxy_queue_name": "",
-  "takeout_proxy_mode_version": 1,
-  "takeout_relay_mode": "compatibility",
-  "takeout_relay_mode_policy": "auto",
-  "takeout_relay_last_check_at": "",
-  "takeout_relay_last_success_at": "",
-  "takeout_relay_last_error": "",
-  "takeout_relay_last_identification": "",
-  "takeout_relay_payment_required": true,
+  "printer_relay_enabled": false,
+  "printer_relay_port": 9101,
+  "printer_relay_queue_name": "",
+  "printer_relay_mode_version": 1,
+  "printer_relay_mode": "compatibility",
+  "printer_relay_mode_policy": "auto",
+  "printer_relay_last_check_at": "",
+  "printer_relay_last_success_at": "",
+  "printer_relay_last_error": "",
+  "printer_relay_last_identification": "",
+  "printer_relay_payment_required": true,
   "official_pos_field_mapping": {
-    "order_id_labels": ["订单号", "订单编号"],
-    "amount_labels": ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"],
-    "paid_keywords": ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"],
-    "cancelled_keywords": ["已取消", "取消订单", "退款成功", "已退款"],
-    "dinein_keywords": ["堂食", "POS点餐", "收银", "消费小票", "结账单", "制作单-堂食"]
+    "order_id_labels": [
+      "订单号",
+      "订单编号"
+    ],
+    "amount_labels": [
+      "实付",
+      "实收",
+      "支付金额",
+      "付款金额",
+      "应付",
+      "应收",
+      "合计",
+      "总计",
+      "原价合计"
+    ],
+    "paid_keywords": [
+      "支付成功",
+      "付款成功",
+      "收款成功",
+      "交易成功",
+      "已支付",
+      "已付款",
+      "已结账",
+      "结账成功",
+      "支付状态:成功"
+    ],
+    "cancelled_keywords": [
+      "已取消",
+      "取消订单",
+      "退款成功",
+      "已退款"
+    ],
+    "dinein_keywords": [
+      "堂食",
+      "POS点餐",
+      "收银",
+      "消费小票",
+      "结账单",
+      "制作单-堂食"
+    ]
   },
-  "takeout_capture_enabled": false,
-  "takeout_capture_max_files": 20,
-  "takeout_capture_max_bytes": 2097152,
-  "takeout_auto_print": true,
-  "takeout_categories": [
+  "printer_relay_capture_enabled": false,
+  "printer_relay_capture_max_files": 20,
+  "printer_relay_capture_max_bytes": 2097152,
+  "printer_relay_auto_print": true,
+  "printer_relay_categories": [
     {
       "id": "cat_1",
       "name": "主食类",
-      "keywords": ["面", "米饭", "粉丝", "年糕", "方便面"]
+      "keywords": [
+        "面",
+        "米饭",
+        "粉丝",
+        "年糕",
+        "方便面"
+      ]
     },
     {
       "id": "cat_2",
       "name": "肉类",
-      "keywords": ["牛肉", "肥牛", "羊肉", "鸡肉", "培根", "火腿", "肉丸"]
+      "keywords": [
+        "牛肉",
+        "肥牛",
+        "羊肉",
+        "鸡肉",
+        "培根",
+        "火腿",
+        "肉丸"
+      ]
     },
     {
       "id": "cat_3",
       "name": "海鲜类",
-      "keywords": ["虾", "蟹棒", "鱼丸", "鱿鱼", "巴沙鱼"]
+      "keywords": [
+        "虾",
+        "蟹棒",
+        "鱼丸",
+        "鱿鱼",
+        "巴沙鱼"
+      ]
     },
     {
       "id": "cat_4",
       "name": "蔬菜类",
-      "keywords": ["白菜", "菠菜", "金针菇", "土豆", "藕片", "生菜", "西兰花"]
+      "keywords": [
+        "白菜",
+        "菠菜",
+        "金针菇",
+        "土豆",
+        "藕片",
+        "生菜",
+        "西兰花"
+      ]
     },
     {
       "id": "cat_5",
       "name": "豆制品类",
-      "keywords": ["豆腐", "腐竹", "豆皮", "豆干"]
+      "keywords": [
+        "豆腐",
+        "腐竹",
+        "豆皮",
+        "豆干"
+      ]
     },
     {
       "id": "cat_6",
       "name": "饮料酒水",
-      "keywords": ["可乐", "雪碧", "王老吉", "酸梅汤", "矿泉水"]
+      "keywords": [
+        "可乐",
+        "雪碧",
+        "王老吉",
+        "酸梅汤",
+        "矿泉水"
+      ]
     }
   ],
-  "takeout_match_mode": "contains",
-  "takeout_font_hdr": 1,
-  "takeout_font_cat": 1,
-  "takeout_font_item": 1,
-  "takeout_mark_star": true,
-  "takeout_show_prices": false,
-  "takeout_kitchen_copies": 1,
-  "takeout_cust_copies": 0,
-  "takeout_show_address": true,
-  "takeout_show_time": true,
-  "takeout_show_full_id": false,
-  "takeout_show_preorder": true
+  "printer_relay_match_mode": "contains",
+  "printer_relay_font_hdr": 1,
+  "printer_relay_font_cat": 1,
+  "printer_relay_font_item": 1,
+  "printer_relay_mark_star": true,
+  "printer_relay_show_prices": false,
+  "printer_relay_kitchen_copies": 1,
+  "printer_relay_cust_copies": 0,
+  "printer_relay_show_address": true,
+  "printer_relay_show_time": true,
+  "printer_relay_show_full_id": false,
+  "printer_relay_show_preorder": true
 }

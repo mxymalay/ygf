@@ -1186,8 +1186,8 @@ class SettingsWidget(QWidget):
         # together avoids making the operator jump between two panels while
         # the official POS is waiting for its queue connection.
         step3, step3_layout = step_panel(
-            u"3-4",
-            u"启动/关闭临时中继并刷新状态",
+            3,
+            u"中继控制",
             u"官方 POS 显示收银机未连接时，先启动临时中继。关闭只停止本次监听，不会删除配置；需要恢复时再次启动。",
         )
         runtime_action_row = QGridLayout()
@@ -1203,7 +1203,7 @@ class SettingsWidget(QWidget):
         runtime_action_row.addWidget(self.btn_stop_relay_listener, 0, 1)
         step3_layout.addLayout(runtime_action_row)
         action_title = QLabel(
-            u"下一步：④ 刷新中继状态　→　⑤ 回官方 POS 准备真实测试单。"
+            u"下一步：刷新中继状态　→　④ 回官方 POS 准备真实测试单。"
             u"收到打印任务本身不等于已结账；下方会实时显示最近一笔收到的数据。"
         )
         action_title.setWordWrap(True)
@@ -1220,33 +1220,33 @@ class SettingsWidget(QWidget):
         test_row.addWidget(self.lbl_relay_refresh_result, 1, 0, 1, 2)
         step3_layout.addWidget(action_title)
         step3_layout.addLayout(test_row)
-        self.lbl_relay_live_received = QLabel(u"实时监控：等待官方 POS 打印数据")
-        self.lbl_relay_live_received.setWordWrap(True)
-        self.lbl_relay_live_received.setStyleSheet(
-            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
-            "border-radius: 10px; padding: 12px;"
-        )
-        step3_layout.addWidget(self.lbl_relay_live_received)
         layout.addWidget(step3)
 
-        # Step 5: ask the operator to print one real ticket from the official
+        # Step 4: ask the operator to print one real ticket from the official
         # POS.  The button never fabricates a payload or assumes payment.
         step5, step5_layout = step_panel(
-            5,
+            4,
             u"准备官方 POS 真实测试",
             u"回到官方 POS，选择已配置的 Windows 中继队列打印真实测试单；打印任务本身不等于已结账。",
         )
-        self.btn_test_relay_print = QPushButton(u"⑤ 准备官方 POS 真实测试")
+        self.btn_test_relay_print = QPushButton(u"④ 准备官方 POS 真实测试")
         self._style_touch_action_btn(self.btn_test_relay_print, "blue")
         self.btn_test_relay_print.clicked.connect(self._test_relay_print)
         step5_layout.addWidget(self.btn_test_relay_print)
+        self.lbl_relay_live_test = QLabel(u"实时监控：等待官方 POS 打印数据")
+        self.lbl_relay_live_test.setWordWrap(True)
+        self.lbl_relay_live_test.setStyleSheet(
+            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 10px; padding: 12px;"
+        )
+        step5_layout.addWidget(self.lbl_relay_live_test)
         layout.addWidget(step5)
 
-        # Step 6: mapping is an optional recognition aid, not a transport
+        # Step 5: mapping is an optional recognition aid, not a transport
         # setting. Keeping it after the test makes the dependency explicit.
         step6, step6_layout = step_panel(
-            6,
-            u"调整官方 POS 字段识别映射（可选）",
+            5,
+            u"字段重映射",
             u"这里配置“票面文字对应什么字段”，不是直接改订单数据。多个关键词用逗号分隔；留空使用系统默认规则。"
             u"例如官方模板写“流水号”而不是“订单号”，就在订单号标签中填：订单号,订单编号,流水号。",
         )
@@ -1292,16 +1292,23 @@ class SettingsWidget(QWidget):
         for field in self.relay_mapping_fields.values():
             field.textChanged.connect(self._update_relay_mapping_preview)
         self._update_relay_mapping_preview()
-        self.btn_save_relay_mapping = QPushButton(u"💾 保存映射并刷新状态")
+        self.lbl_relay_live_mapping = QLabel(u"实时监控：等待官方 POS 打印数据")
+        self.lbl_relay_live_mapping.setWordWrap(True)
+        self.lbl_relay_live_mapping.setStyleSheet(
+            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 10px; padding: 12px;"
+        )
+        step6_layout.addWidget(self.lbl_relay_live_mapping)
+        self.btn_save_relay_mapping = QPushButton(u"⑤ 保存映射并刷新状态")
         self._style_save_btn(self.btn_save_relay_mapping)
         self.btn_save_relay_mapping.clicked.connect(self._on_save_relay)
         step6_layout.addWidget(self.btn_save_relay_mapping)
         layout.addWidget(step6)
 
-        # Step 7: service lifecycle is intentionally last and separated from
+        # Step 6: service lifecycle is intentionally last and separated from
         # the everyday queue/test workflow.
         step7, step7_layout = step_panel(
-            7,
+            6,
             u"独立中继服务维护（可选）",
             u"只有需要开机自启、私域 POS 未启动时仍能监听时，才使用下面的服务操作。日常配置和测试不需要先安装服务。",
         )
@@ -1341,9 +1348,9 @@ class SettingsWidget(QWidget):
         return self._wrap_in_scroll(card, [
             (u"① 中继配置", [2, 3, 4]),
             (u"② 连接检查", [5]),
-            (u"③-④ 中继控制与状态", [6]),
-            (u"⑤ 真实测试", [7]),
-            (u"⑥ 字段映射", [8]),
+            (u"③ 中继控制", [6]),
+            (u"④ 真实测试", [7]),
+            (u"⑤ 字段重映射", [8]),
             (u"服务维护", [9]),
         ])
 
@@ -1980,7 +1987,12 @@ class SettingsWidget(QWidget):
             policy_label, mode_reason, mode_changed, source, identified_at,
             enhanced_at, detail, service_detail))
         received = state.get("last_received") or {}
-        if hasattr(self, "lbl_relay_live_received"):
+        live_labels = [
+            getattr(self, attr, None)
+            for attr in ("lbl_relay_live_test", "lbl_relay_live_mapping")
+        ]
+        live_labels = [label for label in live_labels if label is not None]
+        if live_labels:
             if not received:
                 live_text = u"实时监控：尚未收到官方 POS 打印数据"
             else:
@@ -1991,6 +2003,7 @@ class SettingsWidget(QWidget):
                 amount = received.get("amount")
                 amount_text = u"未知" if amount is None else u"¥%.2f" % float(amount)
                 order_id = received.get("order_id") or u"未提取到订单号"
+                call_no = received.get("call_no") or u"未提取到叫号"
                 payment = status_labels.get(str(received.get("payment_status") or "unknown"), str(received.get("payment_status")))
                 evidence = received.get("payment_evidence") or u"无付款状态依据"
                 flags = []
@@ -2002,14 +2015,16 @@ class SettingsWidget(QWidget):
                     flags.append(u"金额/状态冲突，未重复计算")
                 flag_text = u"；".join(flags) if flags else u"本次未发现重复"
                 live_text = (
-                    u"实时监控：最近收到 %s｜类型=%s｜订单号=%s｜金额=%s（%s）｜付款=%s｜商品数=%s\n"
-                    u"依据=%s｜置信度=%s｜数据格式=%s｜%s"
+                    u"实时监控：最近收到 %s｜内置算法标注：类型=%s｜订单号=%s｜订单叫号=%s｜金额=%s（%s）｜付款=%s｜商品数=%s\n"
+                    u"依据=%s｜置信度=%s｜数据格式=%s｜%s\n"
+                    u"如系统标注不正确，请前往⑤字段重映射进行设置。"
                     % (received.get("received_at") or u"未知", kind_labels.get(str(received.get("receipt_kind")), u"未识别"),
-                       order_id, amount_text, u"已校验" if received.get("amount_valid") else u"未校验",
+                       order_id, call_no, amount_text, u"已校验" if received.get("amount_valid") else u"未校验",
                        payment, received.get("item_count") or 0, evidence,
                        received.get("confidence") or u"未知", received.get("payload_type") or u"未知", flag_text)
                 )
-            self.lbl_relay_live_received.setText(live_text)
+            for label in live_labels:
+                label.setText(live_text)
         if hasattr(self, "lbl_relay_refresh_result"):
             self.lbl_relay_refresh_result.setText(
                 u"状态已刷新：%s（%s）" % (
@@ -2805,7 +2820,7 @@ class SettingsWidget(QWidget):
             ),
             (
                 u"↔", u"还原【打印机中继与订单识别规则】",
-                u"仅还原外卖分类、菜品关键字、匹配模式及打票字号规则 (takeout.json)。", 
+                u"仅还原打印中继的订单识别、分类、匹配模式及打票字号规则。",
                 u"↔ 还原外卖规则",
                 "background-color: #334155; color: #F8FAFC; font-size: 14px; font-weight: bold; padding: 10px 18px; border-radius: 8px; border: 1px solid #475569;",
                 self._on_reset_takeout_config
@@ -5267,14 +5282,14 @@ class SettingsWidget(QWidget):
             show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
 
     def _on_reset_takeout_config(self):
-        """还原打印机中继与订单识别规则 (takeout.json)"""
+        """还原打印机中继与订单识别规则"""
         from ui.custom_dialog import show_question, show_info, show_error
         if not show_question(self, u"还原确认", u"确定要将【打印机中继与订单识别规则】还原为出厂默认设置吗？"):
             return
         try:
             backup_config_bundle("before_reset_takeout")
             self.config = reset_module_config(self.config, "takeout")
-            show_info(self, u"还原成功", u"【打印机中继与订单识别规则】(data/settings/takeout.json) 已成功还原为出厂默认值！")
+            show_info(self, u"还原成功", u"【打印机中继与订单识别规则】已成功还原为出厂默认值！")
         except Exception as e:
             show_error(self, u"操作异常", f"还原配置时发生异常: {e}")
 

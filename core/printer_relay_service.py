@@ -50,7 +50,7 @@ class TakeoutRelayServiceController:
         pythonw = os.path.join(os.path.dirname(os.path.abspath(interpreter)), "pythonw.exe")
         if sys.platform == "win32" and os.path.isfile(pythonw):
             interpreter = pythonw
-        return [interpreter, os.path.join(_application_root(), "takeout_relay_service.py")]
+        return [interpreter, os.path.join(_application_root(), "printer_relay_service.py")]
 
     def query(self):
         result = self.runner(

@@ -131,10 +131,11 @@ TEMPLATE_FILE = os.path.join(DATA_DIR, "settings.json.template")
 # 模块化 JSON 文件路径
 MODULE_FILES = {
     "sys": os.path.join(SETTINGS_DIR, "base.json"),
-    "takeout": os.path.join(SETTINGS_DIR, "takeout.json"),
+    "takeout": os.path.join(SETTINGS_DIR, "printer_relay.json"),
     "algo": os.path.join(SETTINGS_DIR, "algo.json"),
     "shouqianba": os.path.join(SETTINGS_DIR, "shouqianba.json"),
 }
+LEGACY_RELAY_MODULE_FILE = os.path.join(SETTINGS_DIR, "takeout.json")
 
 # ─── 默认配置 ────────────────────────────────────────
 DEFAULT_CONFIG = {
@@ -253,8 +254,8 @@ DEFAULT_CONFIG = {
     # 可填写 smskv3 根目录或具体 v版本目录；留空时运行期自动扫描。
     "shouqianba_install_dir": "",
 
-    # 4. 外卖 RAW 打印中继与排序配置 (takeout.json)
-    # 默认关闭：必须先把官方 POS 的外卖打印机改为本机 TCP 中继队列后才启用。
+    # 4. 官方 POS 打印中继与订单识别配置 (printer_relay.json)
+    # 默认关闭：必须先把官方 POS 打印机改为本机 TCP 中继队列后才启用。
     "takeout_interceptor_enabled": False,
     "takeout_proxy_port": 9101,
     "takeout_proxy_queue_name": "",
@@ -335,11 +336,54 @@ OPTIONAL_CONFIG_KEYS = {
 }
 
 TRANSIENT_CONFIG_KEYS = {"simulation_mode", "is_mock_mode"}
-KNOWN_CONFIG_KEYS = frozenset(DEFAULT_CONFIG).union(OPTIONAL_CONFIG_KEYS)
+
+# The first implementation called the whole module ``takeout`` because it
+# started as an external-order formatter.  It now also receives official POS
+# dine-in receipts, so persisted configuration uses the neutral
+# ``printer_relay_*`` namespace.  Runtime callers still receive the legacy
+# names below for compatibility with old plugins and test integrations.
+CONFIG_KEY_RENAMES = {
+    "takeout_interceptor_enabled": "printer_relay_enabled",
+    "takeout_proxy_port": "printer_relay_port",
+    "takeout_proxy_queue_name": "printer_relay_queue_name",
+    "takeout_proxy_mode_version": "printer_relay_mode_version",
+    "takeout_relay_mode": "printer_relay_mode",
+    "takeout_relay_mode_policy": "printer_relay_mode_policy",
+    "takeout_relay_last_check_at": "printer_relay_last_check_at",
+    "takeout_relay_last_success_at": "printer_relay_last_success_at",
+    "takeout_relay_last_error": "printer_relay_last_error",
+    "takeout_relay_last_identification": "printer_relay_last_identification",
+    "takeout_relay_payment_required": "printer_relay_payment_required",
+    "printer_takeout_banner_enabled": "printer_packaging_banner_enabled",
+    "printer_takeout_banner_lines": "printer_packaging_banner_lines",
+    "printer_kitchen_title_takeout": "printer_kitchen_title_packaging",
+}
+for _key in tuple(DEFAULT_CONFIG):
+    if _key.startswith("takeout_"):
+        CONFIG_KEY_RENAMES.setdefault(_key, "printer_relay_" + _key[len("takeout_"):])
+CONFIG_KEY_RENAMES_REVERSE = {value: key for key, value in CONFIG_KEY_RENAMES.items()}
+
+
+def canonical_config_key(key):
+    """Return the neutral persisted name for a legacy config key."""
+    return CONFIG_KEY_RENAMES.get(str(key), str(key))
+
+
+def legacy_config_key(key):
+    """Return the in-memory compatibility name for a persisted key."""
+    return CONFIG_KEY_RENAMES_REVERSE.get(str(key), str(key))
+
+
+KNOWN_CONFIG_KEYS = frozenset(DEFAULT_CONFIG).union(OPTIONAL_CONFIG_KEYS).union(
+    CONFIG_KEY_RENAMES_REVERSE
+)
 
 # Key 属于哪个模块文件的映射规则
 MODULAR_KEYS = {
-    "takeout": lambda k: k.startswith("takeout_"),
+    # Keep the module id ``takeout`` for import/reset compatibility; the
+    # persisted fields themselves are printer_relay_* and are not external-
+    # order-only settings anymore.
+    "takeout": lambda k: k.startswith("takeout_") or k.startswith("printer_relay_"),
     "algo": lambda k: k in (
         "private_ratio_percent", "min_private_weight_kg",
         "max_daily_revenue_limit",
@@ -359,11 +403,21 @@ def _known_config_only(value):
     """Return a shallow copy containing only supported persisted settings."""
     if not isinstance(value, dict):
         return {}
-    cleaned = {
-        key: item
-        for key, item in value.items()
-        if key in KNOWN_CONFIG_KEYS and key not in TRANSIENT_CONFIG_KEYS
-    }
+    cleaned = {}
+    # Read both generations.  If a file accidentally contains both names,
+    # the new canonical key wins; this makes the migration deterministic.
+    canonical_items = {}
+    legacy_items = {}
+    for key, item in value.items():
+        if key in TRANSIENT_CONFIG_KEYS:
+            continue
+        if key in CONFIG_KEY_RENAMES_REVERSE:
+            canonical_items[key] = item
+        elif key in KNOWN_CONFIG_KEYS:
+            legacy_items[key] = item
+    cleaned.update(legacy_items)
+    for key, item in canonical_items.items():
+        cleaned[legacy_config_key(key)] = item
     if "soup_price_4" in cleaned:
         cleaned.setdefault("special_soup_price", cleaned["soup_price_4"])
         cleaned.pop("soup_price_4", None)
@@ -455,7 +509,10 @@ def _backup_paths(paths, reason="config"):
 
 def backup_config_bundle(reason="manual"):
     """Create a recoverable snapshot before import or reset."""
-    return _backup_paths(list(MODULE_FILES.values()) + [CONFIG_FILE], reason)
+    paths = list(MODULE_FILES.values()) + [CONFIG_FILE]
+    if os.path.exists(LEGACY_RELAY_MODULE_FILE):
+        paths.append(LEGACY_RELAY_MODULE_FILE)
+    return _backup_paths(paths, reason)
 
 
 def detect_legacy_config():
@@ -480,7 +537,10 @@ def detect_legacy_config():
 
 
 def _remove_config_files():
-    for path in [CONFIG_FILE] + list(MODULE_FILES.values()):
+    paths = [CONFIG_FILE] + list(MODULE_FILES.values())
+    if LEGACY_RELAY_MODULE_FILE not in paths:
+        paths.append(LEGACY_RELAY_MODULE_FILE)
+    for path in paths:
         try:
             os.remove(path)
         except FileNotFoundError:
@@ -557,8 +617,14 @@ def load_config(migration_policy="auto", selected_keys=None) -> dict:
     # 3. 读取拆分后的 data/settings/*.json (模块化文件覆盖)
     module_values = {}
     for mod, path in MODULE_FILES.items():
-        if os.path.exists(path):
-            mod_data = _load_json_object(path, mod)
+        source_path = path
+        # One-time compatibility for installations that have not run the
+        # migration script yet.  The canonical file always wins when both
+        # exist; save_config writes only printer_relay.json afterwards.
+        if mod == "takeout" and not os.path.exists(path) and os.path.exists(LEGACY_RELAY_MODULE_FILE):
+            source_path = LEGACY_RELAY_MODULE_FILE
+        if os.path.exists(source_path):
+            mod_data = _load_json_object(source_path, mod)
             if mod_data:
                 module_values.update(_known_config_only(mod_data))
     if migration_policy == "auto":
@@ -649,11 +715,21 @@ def save_config(cfg: dict):
             cfg.pop(key, None)
     cfg.update(transient_values)
     cfg["config_schema_version"] = CONFIG_SCHEMA_VERSION
-    persisted = {
-        key: value
-        for key, value in cfg.items()
-        if key in KNOWN_CONFIG_KEYS and key not in TRANSIENT_CONFIG_KEYS
-    }
+    # Persist only the neutral generation.  Keep legacy names in the live
+    # dictionary so existing runtime code/plugins continue to work in this
+    # process; they are never written back to JSON.
+    persisted = {}
+    # First accept canonical-only callers, then let a legacy key in the same
+    # live dictionary win because existing UI code mutates that key in-place.
+    for key, value in cfg.items():
+        if key not in KNOWN_CONFIG_KEYS or key in TRANSIENT_CONFIG_KEYS:
+            continue
+        if key in CONFIG_KEY_RENAMES:
+            continue
+        persisted[canonical_config_key(key)] = value
+    for key, value in cfg.items():
+        if key in CONFIG_KEY_RENAMES and key in KNOWN_CONFIG_KEYS:
+            persisted[CONFIG_KEY_RENAMES[key]] = value
     # ``soup_price_4`` was removed from the live dictionary above; keep this
     # guard for callers that pass a mapping with unusual iteration behavior.
     persisted.pop("soup_price_4", None)
@@ -707,6 +783,7 @@ def import_config_bundle(file_path: str) -> dict:
         with zipfile.ZipFile(file_path, 'r') as zipf:
             allowed = {
                 "settings/base.json": "sys",
+                "settings/printer_relay.json": "takeout",
                 "settings/takeout.json": "takeout",
                 "settings/algo.json": "algo",
                 "settings/shouqianba.json": "shouqianba",
