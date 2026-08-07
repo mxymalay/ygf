@@ -1561,7 +1561,7 @@ class SaleWidget(QWidget):
         mid_layout.addStretch()
 
         # The order/weight panel needs less width than the product catalogue.
-        # A 4:8 ratio leaves enough room for the four-column menu and the five
+        # A 4:9 ratio leaves enough room for the four-column menu and the five
         # checkout actions while retaining a comfortable minimum for the
         # order summary and weight display.
         layout.addWidget(left_card, stretch=4)
@@ -1674,7 +1674,7 @@ class SaleWidget(QWidget):
         self.lbl_mixed_hint.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.lbl_mixed_hint.hide()
 
-        layout.addLayout(right, stretch=8)
+        layout.addLayout(right, stretch=9)
 
         self._update_price_display()
 
