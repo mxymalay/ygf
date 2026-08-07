@@ -1170,7 +1170,13 @@ class SaleWidget(QWidget):
 
         # ── 左侧：开单面板 ──
         left_card = QFrame()
+        self._sale_left_card = left_card
         left_card.setObjectName("left_card_frame")
+        # The stretch ratio alone cannot shrink this panel when one of its
+        # child labels reports a large size hint.  Keep a responsive cap so
+        # the product catalogue remains the dominant area on narrow screens;
+        # resizeEvent refines it as the window changes size.
+        left_card.setMaximumWidth(520)
         left_layout = QVBoxLayout(left_card)
         left_layout.setContentsMargins(12, 12, 12, 12)
         left_layout.setSpacing(10)
@@ -2536,6 +2542,13 @@ class SaleWidget(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        left_card = getattr(self, "_sale_left_card", None)
+        if left_card is not None:
+            # At the current narrow-screen width this is just under 40% of
+            # the page; on wider windows it stops growing at 520px.
+            target_width = max(360, min(520, int(self.width() * 0.39)))
+            if left_card.maximumWidth() != target_width:
+                left_card.setMaximumWidth(target_width)
         if self._resize_timer is not None:
             self.killTimer(self._resize_timer)
         self._resize_timer = self.startTimer(80)
