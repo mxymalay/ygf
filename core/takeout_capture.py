@@ -66,8 +66,13 @@ def capture_print_payload(payload, parsed=None, config=None, capture_dir=None):
         "order_no": parsed.get("order_no", ""),
         "full_order_id": parsed.get("full_order_id", ""),
         "order_amount": parsed.get("order_amount"),
+        "amount_source": parsed.get("amount_source", ""),
         "amount_valid": bool(parsed.get("amount_valid")),
         "payment_status": parsed.get("payment_status", "unknown"),
+        "payment_status_evidence": parsed.get("payment_status_evidence", ""),
+        "payment_status_confidence": parsed.get("payment_status_confidence", "unknown"),
+        "payment_method": parsed.get("payment_method", ""),
+        "order_time": parsed.get("order_time", ""),
         "item_count": int(parsed.get("item_count", 0) or 0),
         # Text extraction is useful for template comparison.  The binary file
         # remains the source of truth for reproducing parser behavior.

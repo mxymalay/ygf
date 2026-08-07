@@ -5,6 +5,7 @@
 """
 import os
 import json
+import re
 import shutil
 import sqlite3
 from datetime import date, datetime
@@ -22,6 +23,16 @@ PRINT_FAILED = "FAILED"
 
 def _now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def normalize_official_call_no(value):
+    """Normalize POS call numbers so ``#0001`` and ``POS#001`` match."""
+    text = str(value or "").strip()
+    match = re.search(r"(\d+)$", text)
+    if not match:
+        return text.casefold()
+    digits = match.group(1).lstrip("0")
+    return digits or "0"
 
 
 def archive_database_files(db_path=DB_PATH, reason="manual_reset"):
@@ -152,10 +163,14 @@ class Database:
                     order_key       TEXT UNIQUE NOT NULL,
                     platform        TEXT DEFAULT '',
                     order_id        TEXT DEFAULT '',
+                    order_no        TEXT DEFAULT '',
                     amount          REAL NOT NULL,
                     payment_status  TEXT NOT NULL DEFAULT 'PAID',
                     source          TEXT DEFAULT 'takeout_relay',
-                    created_at      TEXT NOT NULL
+                    created_at      TEXT NOT NULL,
+                    refunded_at     TEXT DEFAULT '',
+                    refund_amount   REAL NOT NULL DEFAULT 0,
+                    refund_receipt_key TEXT DEFAULT ''
                 );
 
                 -- Parsed external-order history is separate from both POS
@@ -216,6 +231,22 @@ class Database:
                     reason        TEXT DEFAULT '',
                     created_at    TEXT NOT NULL
                 );
+
+                -- Refunds are append-only observations.  When the official
+                -- POS omits the long order id, the relay links this row to a
+                -- paid revenue row by normalized call number and amount.
+                CREATE TABLE IF NOT EXISTS official_pos_refunds (
+                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    refund_key          TEXT UNIQUE NOT NULL,
+                    refund_receipt_key  TEXT DEFAULT '',
+                    refund_order_no     TEXT DEFAULT '',
+                    refund_amount       REAL NOT NULL DEFAULT 0,
+                    original_order_key  TEXT DEFAULT '',
+                    original_order_id   TEXT DEFAULT '',
+                    status              TEXT NOT NULL DEFAULT 'UNMATCHED',
+                    match_reason        TEXT DEFAULT '',
+                    created_at          TEXT NOT NULL
+                );
                 """
             )
 
@@ -258,6 +289,13 @@ class Database:
             for name, definition in route_upgrades.items():
                 self._ensure_column(conn, name, definition, table="weighing_route_events")
             self._ensure_column(conn, "conflict_detected", "INTEGER NOT NULL DEFAULT 0", table="official_pos_receipts")
+            for name, definition in {
+                "order_no": "TEXT DEFAULT ''",
+                "refunded_at": "TEXT DEFAULT ''",
+                "refund_amount": "REAL NOT NULL DEFAULT 0",
+                "refund_receipt_key": "TEXT DEFAULT ''",
+            }.items():
+                self._ensure_column(conn, name, definition, table="official_pos_revenue")
 
             # Do not create indexes until after the column migration.  An old
             # store can have a valid ``sales`` table without ``order_id``;
@@ -556,7 +594,7 @@ class Database:
 
     def record_official_revenue(self, order_key, platform, order_id, amount,
                                 payment_status="PAID", source="takeout_relay",
-                                created_at=None):
+                                created_at=None, order_no=""):
         """Persist one verified official-POS amount, once per stable order key."""
         key = str(order_key or "").strip()
         try:
@@ -569,13 +607,98 @@ class Database:
         try:
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO official_pos_revenue
-                   (order_key, platform, order_id, amount, payment_status, source, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (key, str(platform or ""), str(order_id or ""), round(value, 2),
+                   (order_key, platform, order_id, order_no, amount, payment_status, source, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (key, str(platform or ""), str(order_id or ""), str(order_no or ""), round(value, 2),
                  PAID, str(source or "takeout_relay"), str(created_at or _now_text())),
             )
             conn.commit()
             return bool(cursor.rowcount)
+        finally:
+            conn.close()
+
+    def record_official_refund(self, refund_key, refund_receipt_key, order_no,
+                               amount, order_id="", observed_at=None):
+        """Record a refund and link it to the original official revenue row.
+
+        Refund slips from this POS often contain only ``POS#001`` instead of
+        the long order id.  Matching therefore requires both normalized call
+        number and absolute amount; ambiguous or missing matches remain in the
+        refund ledger as UNMATCHED and never alter revenue silently.
+        """
+        key = str(refund_key or "").strip()
+        if not key:
+            return {"linked": False, "status": "UNMATCHED", "reason": "退款缺少稳定票据键"}
+        try:
+            refund_amount = abs(float(amount))
+        except (TypeError, ValueError):
+            refund_amount = 0.0
+        refund_amount = round(refund_amount, 2)
+        now = str(observed_at or _now_text())
+        normalized_call = normalize_official_call_no(order_no)
+        conn = self._get_conn()
+        try:
+            existing = conn.execute(
+                "SELECT * FROM official_pos_refunds WHERE refund_key=?", (key,)
+            ).fetchone()
+            if existing is not None:
+                return {
+                    "linked": existing["status"] == "LINKED",
+                    "status": existing["status"],
+                    "original_order_key": existing["original_order_key"],
+                    "reason": existing["match_reason"],
+                }
+
+            candidates = []
+            rows = conn.execute(
+                """SELECT v.*, COALESCE(NULLIF(v.order_no, ''), r.order_no, '')
+                          AS match_order_no
+                   FROM official_pos_revenue v
+                   LEFT JOIN official_pos_receipts r ON r.receipt_key=v.order_key
+                   WHERE v.payment_status=?""",
+                (PAID,),
+            ).fetchall()
+            for row in rows:
+                row_call = normalize_official_call_no(row["match_order_no"])
+                call_matches = bool(normalized_call and row_call and normalized_call == row_call)
+                id_matches = bool(order_id and row["order_id"] and str(order_id) == str(row["order_id"]))
+                amount_matches = abs(float(row["amount"] or 0) - refund_amount) <= 0.01
+                if (id_matches or call_matches) and amount_matches:
+                    candidates.append(row)
+
+            linked = len(candidates) == 1
+            status = "LINKED" if linked else "UNMATCHED"
+            reason = (
+                "完整订单号+金额匹配" if linked and order_id and candidates[0]["order_id"] == str(order_id)
+                else ("规范化叫号+金额匹配" if linked else "未找到唯一的已结账原单")
+            )
+            original = candidates[0] if linked else None
+            conn.execute(
+                """INSERT INTO official_pos_refunds
+                   (refund_key, refund_receipt_key, refund_order_no, refund_amount,
+                    original_order_key, original_order_id, status, match_reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (key, str(refund_receipt_key or ""), str(order_no or ""), refund_amount,
+                 str(original["order_key"] if original else ""),
+                 str(original["order_id"] if original else ""), status, reason, now),
+            )
+            if linked:
+                conn.execute(
+                    """UPDATE official_pos_revenue
+                       SET payment_status='REFUNDED', refunded_at=?,
+                           refund_amount=?, refund_receipt_key=?
+                       WHERE order_key=? AND payment_status=?""",
+                    (now, refund_amount, str(refund_receipt_key or ""),
+                     original["order_key"], PAID),
+                )
+            conn.commit()
+            return {
+                "linked": linked,
+                "status": status,
+                "original_order_key": str(original["order_key"] if original else ""),
+                "original_order_id": str(original["order_id"] if original else ""),
+                "reason": reason,
+            }
         finally:
             conn.close()
 

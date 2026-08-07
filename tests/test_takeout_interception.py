@@ -95,6 +95,32 @@ class TakeoutInterceptionTests(unittest.TestCase):
         self.assertEqual(result["payment_status_evidence"], "官方 POS 结账单打印规则")
         self.assertEqual(result["payment_status_confidence"], "high")
 
+    def test_official_qr_settlement_does_not_require_rmb_label(self):
+        text = ("杨国福(肥西水晶城店)\n取餐号:0045 [POS点餐]\n"
+                "合计 18.00\n应付 18.00\n"
+                "订单号: 2608072243182670637650045\n"
+                "订单时间:2026-08-07 22:44:01")
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["payment_status"], "paid")
+        self.assertEqual(result["payment_status_evidence"], "官方 POS 结账单打印规则")
+
+    def test_qr_settlement_records_payment_method(self):
+        text = ("POS点餐\n取餐号:0046\n支付宝\n合计 12.00\n应付 12.00\n"
+                "订单号: QR-46\n订单时间:2026-08-07 22:45:01")
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["payment_method"], "支付宝")
+        self.assertEqual(result["payment_status"], "paid")
+        self.assertIn("支付宝", result["payment_status_evidence"])
+
+    def test_mixed_settlement_keeps_all_payment_methods(self):
+        text = ("POS点餐\n取餐号:0047\n人民币 5.00\n微信 7.00\n"
+                "合计 12.00\n应付 12.00\n订单号: MIX-47\n"
+                "订单时间:2026-08-07 22:46:01")
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["payment_method"], "人民币+微信")
+        self.assertEqual(result["payment_status"], "paid")
+        self.assertIn("人民币+微信", result["payment_status_evidence"])
+
     def test_custom_official_pos_field_mapping_can_translate_vendor_labels(self):
         text = "POS点餐\n流水号：VENDOR-7\n应收金额：¥28.00\n状态：已结账\n肥牛 x 1"
         result = parse_official_pos_text(text, {

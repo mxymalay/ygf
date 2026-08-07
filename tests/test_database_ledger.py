@@ -50,6 +50,29 @@ class DatabaseLedgerTests(unittest.TestCase):
         self.assertEqual(stats["amount_sum"], 28.5)
         self.assertEqual(self.db.get_stats_by_date("2026-08-07")["count"], 0)
 
+    def test_official_call_number_is_saved_and_refund_links_by_normalized_call(self):
+        self.assertTrue(self.db.record_official_revenue(
+            "official:LONG-1", "官方POS-堂食", "2608080015202670637650001", 2.0,
+            created_at="2026-08-08 00:16:28", order_no="#0001",
+        ))
+        result = self.db.record_official_refund(
+            "official:dinein:#001", "official:dinein:#001", "#001", -2.0,
+            observed_at="2026-08-08 00:18:14",
+        )
+        self.assertTrue(result["linked"])
+        self.assertEqual(result["original_order_id"], "2608080015202670637650001")
+        self.assertEqual(self.db.get_official_stats_by_date("2026-08-08")["count"], 0)
+        conn = self.db._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT order_no, payment_status, refund_amount FROM official_pos_revenue"
+            ).fetchone()
+            self.assertEqual(row["order_no"], "#0001")
+            self.assertEqual(row["payment_status"], "REFUNDED")
+            self.assertAlmostEqual(row["refund_amount"], 2.0, places=2)
+        finally:
+            conn.close()
+
     def test_generic_official_receipt_tracks_reprints_without_recounting(self):
         parsed = {
             "receipt_kind": "dinein",

@@ -7,6 +7,7 @@ unavailable.  This module runs the listener as a separate per-user process so
 it can still use the operator's Windows printer connections.
 """
 import json
+import hashlib
 import os
 import socket
 import subprocess
@@ -168,6 +169,11 @@ class TakeoutProxyHost:
         # printer bytes/text in the optional capture files only; the runtime
         # status is safe to poll and show in real time.
         self.last_received = {}
+        # Keep a bounded batch for the test/mapping pages.  A single official
+        # checkout commonly produces a customer receipt, a kitchen slip and
+        # a short control/noise job.  Showing only ``last_received`` made it
+        # impossible to tell which JSON file the parser was using.
+        self.recent_received = []
         self.mode_reason = str(self.config.get("takeout_relay_mode_reason", "") or "")
         self.last_mode_change_at = str(self.config.get("takeout_relay_mode_changed_at", "") or "")
         self._last_status_at = 0
@@ -218,6 +224,7 @@ class TakeoutProxyHost:
             "last_enhanced_success_at": self.last_enhanced_success_at,
             "payload_type": self.last_payload_type,
             "last_received": self.last_received,
+            "recent_received": self.recent_received,
         })
         self._last_status_at = time.time()
 
@@ -312,6 +319,23 @@ class TakeoutProxyHost:
                 self.last_error = "官方票据流水入账失败：%s" % exc
             parsed["duplicate"] = not created
             parsed["conflict_detected"] = bool((_row or {}).get("conflict_detected"))
+            if parsed.get("payment_status") == "cancelled":
+                try:
+                    refund_result = self.official_db.record_official_refund(
+                        refund_key=parsed.get("receipt_key"),
+                        refund_receipt_key=parsed.get("receipt_key"),
+                        order_no=parsed.get("order_no"),
+                        amount=parsed.get("order_amount"),
+                        order_id=parsed.get("full_order_id"),
+                        observed_at=self.last_identified_at,
+                    )
+                except Exception as exc:
+                    refund_result = {"linked": False, "status": "UNMATCHED", "reason": str(exc)}
+                parsed["refund_linked"] = bool(refund_result.get("linked"))
+                parsed["refund_match_status"] = str(refund_result.get("status") or "UNMATCHED")
+                parsed["refund_match_reason"] = str(refund_result.get("reason") or "")
+                parsed["refund_original_order_key"] = str(refund_result.get("original_order_key") or "")
+                parsed["refund_original_order_id"] = str(refund_result.get("original_order_id") or "")
             self._update_last_received(parsed, intercepted, parse_failed=False)
             self.last_order = "%s %s" % (
                 parsed.get("platform", "官方POS-堂食"),
@@ -334,6 +358,7 @@ class TakeoutProxyHost:
                         payment_status="PAID",
                         source="official_pos_relay",
                         created_at=self.last_identified_at,
+                        order_no=parsed.get("order_no", ""),
                     )
                 except Exception as exc:
                     self.last_error = "官方营业额入账失败：%s" % exc
@@ -346,10 +371,17 @@ class TakeoutProxyHost:
                 printer = ReceiptPrinter(self.config)
                 if printer.print_raw(raw_payload):
                     self.last_error = ""
-                    self.last_message = (
-                        "堂食票据已原样转发并记录：%s" %
-                        ("重复观察" if parsed.get("duplicate") else "已保存")
-                    )
+                    if parsed.get("payment_status") == "cancelled":
+                        refund_text = (
+                            "已关联原结账单" if parsed.get("refund_linked")
+                            else "未找到唯一原结账单，已保留待核对"
+                        )
+                        self.last_message = "堂食退款已原样转发并记录：%s" % refund_text
+                    else:
+                        self.last_message = (
+                            "堂食票据已原样转发并记录：%s" %
+                            ("重复观察" if parsed.get("duplicate") else "已保存")
+                        )
                 else:
                     self.last_error = printer.last_error or "堂食原始小票转发失败"
                     self.last_message = "堂食票据已记录，但原始转发失败"
@@ -402,6 +434,7 @@ class TakeoutProxyHost:
                         payment_status="PAID",
                         source="takeout_relay",
                         created_at=self.last_identified_at,
+                        order_no=job.get("order_no", parsed.get("order_no", "")),
                     )
                 except Exception as exc:
                     # A reporting ledger failure must never interrupt the
@@ -492,8 +525,42 @@ class TakeoutProxyHost:
             item_count = int(parsed.get("item_count") or 0)
         except (TypeError, ValueError):
             item_count = 0
-        self.last_received = {
-            "received_at": _now(),
+        received_at = _now()
+        capture_path = str((intercepted or {}).get("capture_path") or "")
+        capture_file = os.path.basename(capture_path) if capture_path else ""
+        capture_json = os.path.splitext(capture_file)[0] + ".json" if capture_file else ""
+        raw_payload = (intercepted or {}).get("raw_payload") or b""
+        if isinstance(raw_payload, str):
+            raw_payload = raw_payload.encode("utf-8", "ignore")
+        digest = str((intercepted or {}).get("sha256") or "")
+        if not digest and raw_payload:
+            try:
+                digest = hashlib.sha256(bytes(raw_payload)).hexdigest()
+            except Exception:
+                digest = ""
+        extracted = str(parsed.get("raw_text") or "")
+        # The capture sidecar remains the complete source of truth.  Status
+        # only carries a short preview so polling the UI does not duplicate
+        # sensitive receipt text into the status file.
+        preview = extracted[:500]
+        if len(extracted) > 500:
+            preview += "…"
+        payment_status = str(parsed.get("payment_status") or "unknown")
+        recognized_fields = []
+        if parsed.get("full_order_id"):
+            recognized_fields.append("order_id")
+        if parsed.get("order_no") and str(parsed.get("order_no")) != "#---":
+            recognized_fields.append("call_no")
+        if amount is not None and bool(parsed.get("amount_valid")):
+            recognized_fields.append("amount")
+        if payment_status != "unknown":
+            recognized_fields.append("payment_status")
+        if parsed.get("payment_method"):
+            recognized_fields.append("payment_method")
+        if item_count:
+            recognized_fields.append("items")
+        record = {
+            "received_at": received_at,
             "payload_type": self.last_payload_type,
             "parse_failed": bool(parse_failed),
             "receipt_kind": str(parsed.get("receipt_kind") or "unknown"),
@@ -502,13 +569,42 @@ class TakeoutProxyHost:
             "call_no": str(parsed.get("order_no") or ""),
             "amount": amount,
             "amount_valid": bool(parsed.get("amount_valid")),
-            "payment_status": str(parsed.get("payment_status") or "unknown"),
+            "payment_status": payment_status,
             "payment_evidence": str(parsed.get("payment_status_evidence") or ""),
-            "confidence": str(parsed.get("confidence") or "unknown"),
+            "payment_method": str(parsed.get("payment_method") or ""),
+            "confidence": str(parsed.get("payment_status_confidence") or parsed.get("confidence") or "unknown"),
+            "key_confidence": str(parsed.get("key_confidence") or "unknown"),
             "item_count": item_count,
             "duplicate": bool(parsed.get("duplicate")),
             "conflict_detected": bool(parsed.get("conflict_detected")),
+            "refund_linked": bool(parsed.get("refund_linked")),
+            "refund_match_status": str(parsed.get("refund_match_status") or ""),
+            "refund_match_reason": str(parsed.get("refund_match_reason") or ""),
+            "refund_original_order_key": str(parsed.get("refund_original_order_key") or ""),
+            "refund_original_order_id": str(parsed.get("refund_original_order_id") or ""),
+            "capture_file": capture_file,
+            "capture_json_file": capture_json,
+            "sha256": digest,
+            "payload_size": int((intercepted or {}).get("payload_size") or len(raw_payload) or 0),
+            "order_time": str(parsed.get("order_time") or ""),
+            "amount_source": str(parsed.get("amount_source") or ""),
+            "recognized_fields": recognized_fields,
+            "extracted_text_preview": preview,
         }
+        self.last_received = record
+        # Replace the first observation of a job when the handler later adds
+        # duplicate/conflict/forwarding results.  A capture basename is the
+        # strongest identity; hash/field tuple handles capture-disabled mode.
+        identity = capture_file or digest or "%s|%s|%s" % (
+            record.get("received_at"), record.get("payload_size"), record.get("call_no"))
+        previous = []
+        for item in self.recent_received:
+            item_identity = item.get("capture_file") or item.get("sha256") or "%s|%s|%s" % (
+                item.get("received_at"), item.get("payload_size"), item.get("call_no"))
+            if item_identity != identity:
+                previous.append(item)
+        self.recent_received = [record] + previous
+        del self.recent_received[20:]
 
     def run(self):
         _clear_stop_request()
@@ -618,6 +714,7 @@ class TakeoutProxyController:
         for key in (
             "last_received", "last_identified_at", "last_enhanced_success_at",
             "payload_type", "mode", "mode_policy", "mode_reason", "mode_changed_at",
+            "recent_received",
         ):
             if key in state:
                 result[key] = state.get(key)

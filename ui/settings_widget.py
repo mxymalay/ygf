@@ -7,12 +7,14 @@ import re
 import hashlib
 import shutil
 import json
+import html
 
 from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit,
+    QTextBrowser,
     QSizePolicy
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
@@ -1233,12 +1235,7 @@ class SettingsWidget(QWidget):
         self._style_touch_action_btn(self.btn_test_relay_print, "blue")
         self.btn_test_relay_print.clicked.connect(self._test_relay_print)
         step5_layout.addWidget(self.btn_test_relay_print)
-        self.lbl_relay_live_test = QLabel(u"实时监控：等待官方 POS 打印数据")
-        self.lbl_relay_live_test.setWordWrap(True)
-        self.lbl_relay_live_test.setStyleSheet(
-            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
-            "border-radius: 10px; padding: 12px;"
-        )
+        self.lbl_relay_live_test = self._make_relay_live_monitor()
         step5_layout.addWidget(self.lbl_relay_live_test)
         layout.addWidget(step5)
 
@@ -1282,22 +1279,7 @@ class SettingsWidget(QWidget):
             mapping_grid.addWidget(field, row, 1, 1, 2)
             self.relay_mapping_fields[key] = field
         step6_layout.addLayout(mapping_grid)
-        self.lbl_relay_mapping_preview = QLabel()
-        self.lbl_relay_mapping_preview.setWordWrap(True)
-        self.lbl_relay_mapping_preview.setStyleSheet(
-            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
-            "border-radius: 10px; padding: 12px;"
-        )
-        step6_layout.addWidget(self.lbl_relay_mapping_preview)
-        for field in self.relay_mapping_fields.values():
-            field.textChanged.connect(self._update_relay_mapping_preview)
-        self._update_relay_mapping_preview()
-        self.lbl_relay_live_mapping = QLabel(u"实时监控：等待官方 POS 打印数据")
-        self.lbl_relay_live_mapping.setWordWrap(True)
-        self.lbl_relay_live_mapping.setStyleSheet(
-            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
-            "border-radius: 10px; padding: 12px;"
-        )
+        self.lbl_relay_live_mapping = self._make_relay_live_monitor()
         step6_layout.addWidget(self.lbl_relay_live_mapping)
         self.btn_save_relay_mapping = QPushButton(u"⑤ 保存映射并刷新状态")
         self._style_save_btn(self.btn_save_relay_mapping)
@@ -1818,27 +1800,6 @@ class SettingsWidget(QWidget):
         }
         return config
 
-    def _update_relay_mapping_preview(self):
-        """Explain the current ticket-keyword -> parsed-field relationship."""
-        label_names = (
-            ("order_id_labels", u"票面关键词 → 官方订单号"),
-            ("amount_labels", u"票面关键词 → 订单金额"),
-            ("paid_keywords", u"票面关键词 → 已结账状态"),
-            ("cancelled_keywords", u"票面关键词 → 取消/退款状态"),
-            ("dinein_keywords", u"票面关键词 → 堂食票据类型"),
-        )
-        lines = [u"当前字段对应关系（保存后生效）："]
-        for key, title in label_names:
-            field = getattr(self, "relay_mapping_fields", {}).get(key)
-            values = [item.strip() for item in (field.text() if field else "").split(",") if item.strip()]
-            lines.append(u"• %s：%s" % (title, u"、".join(values) if values else u"使用系统默认关键词"))
-        lines.append(
-            u"说明：这里只决定如何从官方 POS 票面识别字段，不会手动把订单改成已结账。"
-            u"保存后，下一张真实打印单会按新映射自动重新判断；只有订单号、金额和付款状态都验证通过，才会自动进入增强模式。"
-        )
-        if hasattr(self, "lbl_relay_mapping_preview"):
-            self.lbl_relay_mapping_preview.setText("\n".join(lines))
-
     def _on_relay_printer_type_changed(self, index=None):
         """只显示当前实体输出方式需要的配置，其他旧值继续保留。"""
         if not hasattr(self, "cmb_relay_printer_type"):
@@ -1986,45 +1947,11 @@ class SettingsWidget(QWidget):
             u"连接/监听正常" if running else u"未运行或已降级", mode_label(mode),
             policy_label, mode_reason, mode_changed, source, identified_at,
             enhanced_at, detail, service_detail))
-        received = state.get("last_received") or {}
-        live_labels = [
-            getattr(self, attr, None)
-            for attr in ("lbl_relay_live_test", "lbl_relay_live_mapping")
-        ]
-        live_labels = [label for label in live_labels if label is not None]
-        if live_labels:
-            if not received:
-                live_text = u"实时监控：尚未收到官方 POS 打印数据"
-            else:
-                kind_labels = {"dinein": u"堂食", "takeout": u"外卖", "unknown": u"未识别"}
-                status_labels = {
-                    "paid": u"已结账", "cancelled": u"已取消/退款", "unknown": u"状态未知",
-                }
-                amount = received.get("amount")
-                amount_text = u"未知" if amount is None else u"¥%.2f" % float(amount)
-                order_id = received.get("order_id") or u"未提取到订单号"
-                call_no = received.get("call_no") or u"未提取到叫号"
-                payment = status_labels.get(str(received.get("payment_status") or "unknown"), str(received.get("payment_status")))
-                evidence = received.get("payment_evidence") or u"无付款状态依据"
-                flags = []
-                if received.get("parse_failed"):
-                    flags.append(u"解析失败，已保留原始打印路径")
-                if received.get("duplicate"):
-                    flags.append(u"重复观察，未重复计算")
-                if received.get("conflict_detected"):
-                    flags.append(u"金额/状态冲突，未重复计算")
-                flag_text = u"；".join(flags) if flags else u"本次未发现重复"
-                live_text = (
-                    u"实时监控：最近收到 %s｜内置算法标注：类型=%s｜订单号=%s｜订单叫号=%s｜金额=%s（%s）｜付款=%s｜商品数=%s\n"
-                    u"依据=%s｜置信度=%s｜数据格式=%s｜%s\n"
-                    u"如系统标注不正确，请前往⑤字段重映射进行设置。"
-                    % (received.get("received_at") or u"未知", kind_labels.get(str(received.get("receipt_kind")), u"未识别"),
-                       order_id, call_no, amount_text, u"已校验" if received.get("amount_valid") else u"未校验",
-                       payment, received.get("item_count") or 0, evidence,
-                       received.get("confidence") or u"未知", received.get("payload_type") or u"未知", flag_text)
-                )
-            for label in live_labels:
-                label.setText(live_text)
+        live_html = self._relay_live_monitor_html(state)
+        for attr in ("lbl_relay_live_test", "lbl_relay_live_mapping"):
+            monitor = getattr(self, attr, None)
+            if monitor is not None:
+                monitor.setHtml(live_html)
         if hasattr(self, "lbl_relay_refresh_result"):
             self.lbl_relay_refresh_result.setText(
                 u"状态已刷新：%s（%s）" % (
@@ -2032,6 +1959,157 @@ class SettingsWidget(QWidget):
                     u"监听正常" if running else u"未运行或已降级",
                 )
             )
+
+    @staticmethod
+    def _make_relay_live_monitor():
+        """Create a scrollable rich-text monitor for all recent JSON jobs."""
+        monitor = QTextBrowser()
+        monitor.setReadOnly(True)
+        monitor.setOpenExternalLinks(False)
+        monitor.setOpenLinks(False)
+        monitor.setMinimumHeight(210)
+        monitor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        monitor.setStyleSheet(
+            "QTextBrowser { color: #E0F2FE; background: #082F49; "
+            "border: 1px solid #0369A1; border-radius: 10px; padding: 8px; "
+            "font-size: 14px; }"
+        )
+        return monitor
+
+    @staticmethod
+    def _relay_live_monitor_html(state):
+        """Render the bounded capture batch with highlighted recognized fields."""
+        records = state.get("recent_received") if isinstance(state, dict) else None
+        if not isinstance(records, list) or not records:
+            received = state.get("last_received") if isinstance(state, dict) else None
+            records = [received] if isinstance(received, dict) and received else []
+        if not records:
+            return (
+                u"<div style='font-size:16px;color:#BAE6FD;font-weight:700'>"
+                u"实时监控：尚未收到官方 POS 打印数据</div>"
+                u"<div style='color:#94A3B8;margin-top:6px'>启动中继后，官方 POS 每个打印任务都会在这里单独显示；"
+                u"解析失败的任务也会保留，便于字段重映射。</div>"
+            )
+
+        kind_labels = {"dinein": u"堂食/顾客结账单", "takeout": u"外卖", "unknown": u"未识别"}
+        status_labels = {
+            "paid": (u"已结账", "#86EFAC"),
+            "cancelled": (u"已取消/退款", "#FCA5A5"),
+            "unknown": (u"状态未知", "#FDE68A"),
+        }
+        cards = [
+            u"<div style='font-size:16px;color:#7DD3FC;font-weight:900;margin-bottom:8px'>"
+            u"实时监控：本次捕获的全部打印任务（%d 条）</div>" % len(records)
+            + u"<div style='color:#CBD5E1;font-size:12px;margin-bottom:6px'>"
+            u"颜色说明：<span style='color:#F9A8D4;font-weight:900'>粉色字段=内置算法已提取</span>　"
+            u"<span style='color:#86EFAC;font-weight:900'>绿色=已结账/金额已校验</span>　"
+            u"<span style='color:#FDE68A;font-weight:900'>黄色=状态未知或解析失败</span></div>"
+        ]
+        for index, record in enumerate(records, 1):
+            record = record if isinstance(record, dict) else {}
+            filename = record.get("capture_json_file") or record.get("capture_file") or u"未启用样本保存"
+            kind = kind_labels.get(str(record.get("receipt_kind") or "unknown"), u"未识别")
+            payment, payment_color = status_labels.get(
+                str(record.get("payment_status") or "unknown"),
+                (str(record.get("payment_status") or u"状态未知"), "#FDE68A"),
+            )
+            amount = record.get("amount")
+            try:
+                amount_text = u"¥%.2f" % float(amount) if amount is not None else u"未知"
+            except (TypeError, ValueError):
+                amount_text = u"未知"
+            amount_color = "#86EFAC" if record.get("amount_valid") else "#FDE68A"
+            order_id = record.get("order_id") or u"票面未提供"
+            call_no = record.get("call_no") or u"未识别"
+            parse_failed = bool(record.get("parse_failed"))
+            border = "#F59E0B" if parse_failed else ("#22C55E" if payment == u"已结账" else "#0EA5E9")
+            flags = []
+            if parse_failed:
+                flags.append(u"解析失败，已保留原始打印路径")
+            if record.get("duplicate"):
+                flags.append(u"重复观察，未重复计算")
+            if record.get("conflict_detected"):
+                flags.append(u"金额/状态冲突，未重复计算")
+            flag_text = u"；".join(flags) if flags else u"本条可作为一次独立观察"
+            evidence = record.get("payment_evidence") or u"无付款状态依据"
+            recognized = record.get("recognized_fields") or []
+            if not isinstance(recognized, list):
+                recognized = [recognized]
+            recognized_text = u"、".join(str(item) for item in recognized) or u"无（需重映射/人工核对）"
+            refund_text = u""
+            if str(record.get("payment_status") or "") == "cancelled":
+                if record.get("refund_linked"):
+                    refund_text = u"退款已关联原结账单：%s" % (record.get("refund_original_order_id") or record.get("refund_original_order_key") or u"已匹配")
+                else:
+                    refund_text = u"退款暂未关联原结账单：%s" % (record.get("refund_match_reason") or u"需要人工核对")
+            preview = str(record.get("extracted_text_preview") or "").strip()
+            if len(preview) > 360:
+                preview = preview[:360] + "…"
+            # The JSON-like line intentionally keeps field names visible so a
+            # user can compare them with the raw capture while the colored
+            # values show exactly what the built-in parser recognized.
+            json_line = (
+                u'{"receipt_kind":"%s", "platform":"%s", "full_order_id":"%s", "call_no":"%s", '
+                u'"amount":%s, "payment_status":"%s", "payment_method":"%s", "item_count":%s}'
+                % (html.escape(str(record.get("receipt_kind") or "unknown")),
+                   html.escape(str(record.get("platform") or "官方 POS")),
+                   html.escape(str(order_id)), html.escape(str(call_no)),
+                   html.escape("null" if amount is None else str(amount)),
+                   html.escape(str(record.get("payment_status") or "unknown")),
+                   html.escape(str(record.get("payment_method") or "未知")),
+                   html.escape(str(record.get("item_count") or 0)))
+            )
+            card = (
+                u"<div style='border:1px solid %s;border-left:6px solid %s;"
+                u"border-radius:8px;padding:8px;margin:5px 0;background:#0F2740'>"
+                u"<div style='color:#BAE6FD;font-weight:900;font-family:Consolas,monospace'>"
+                u"[%d] %s</div>"
+                u"<div style='color:#94A3B8;font-size:12px'>收到=%s｜格式=%s｜大小=%s bytes｜平台=%s｜类型=%s</div>"
+                u"<div style='font-family:Consolas,monospace;font-size:13px;margin-top:4px'>"
+                u"<span style='color:#A78BFA'>内置 JSON：</span>%s</div>"
+                u"<div style='margin-top:4px'>"
+                u"<span style='color:#CBD5E1'>识别：</span>"
+                u"<span style='color:#F9A8D4;font-weight:900'>完整订单号=%s</span>　"
+                u"<span style='color:#F9A8D4;font-weight:900'>POS订单号/叫号=%s</span>　"
+                u"<span style='color:%s;font-weight:900'>金额=%s（%s）</span>　"
+                u"<span style='color:%s;font-weight:900'>付款=%s</span>　"
+                u"<span style='color:#C4B5FD;font-weight:900'>方式=%s</span>　"
+                u"<span style='color:#93C5FD'>票据=%s</span>"
+                u"</div>"
+                u"<div style='color:#CBD5E1;font-size:12px'>依据=%s｜置信度=%s/%s｜%s</div>"
+                u"<div style='color:#C4B5FD;font-size:12px'>已识别字段：%s｜金额来源：%s｜订单时间：%s</div>"
+                u"<div style='color:#FCA5A5;font-size:12px'>%s</div>"
+                % (border, border, index, html.escape(str(filename)),
+                   html.escape(str(record.get("received_at") or u"未知")),
+                   html.escape(str(record.get("payload_type") or u"未知")),
+                   html.escape(str(record.get("payload_size") or 0)),
+                   html.escape(str(record.get("platform") or u"官方 POS")), html.escape(kind),
+                   json_line, html.escape(str(order_id)), html.escape(str(call_no)),
+                   amount_color, html.escape(amount_text),
+                   u"已校验" if record.get("amount_valid") else u"未校验",
+                   payment_color, html.escape(payment),
+                   html.escape(str(record.get("payment_method") or u"未知")), html.escape(kind),
+                   html.escape(str(evidence)),
+                   html.escape(str(record.get("confidence") or u"未知")),
+                   html.escape(str(record.get("key_confidence") or u"未知")),
+                   html.escape(flag_text), html.escape(recognized_text),
+                   html.escape(str(record.get("amount_source") or u"未标注")),
+                   html.escape(str(record.get("order_time") or u"未识别")),
+                   html.escape(refund_text))
+            )
+            if preview:
+                card += (
+                    u"<pre style='white-space:pre-wrap;color:#94A3B8;font-size:11px;"
+                    u"margin:5px 0 0 0'>原始文本摘要：%s</pre>" % html.escape(preview)
+                )
+            card += u"</div>"
+            cards.append(card)
+        cards.append(
+            u"<div style='color:#FDE68A;margin-top:8px;font-weight:700'>"
+            u"系统只把“官方 POS 结账单”按规则识别为已结账；打印制作单、控制数据或解析失败数据不会计入金额分流。"
+            u"如系统标注不正确，请前往⑤字段重映射进行设置。</div>"
+        )
+        return "".join(cards)
 
     def _on_refresh_relay_status_clicked(self):
         """Refresh the runtime state and leave visible feedback in step 3."""

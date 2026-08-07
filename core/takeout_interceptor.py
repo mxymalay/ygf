@@ -231,6 +231,16 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     else:
         payment_status = "unknown"
         payment_status_evidence = ""
+    payment_method_matches = re.findall(
+        r"人民币|微信支付|支付宝支付|扫码支付|微信|支付宝|银行卡|刷卡",
+        raw_text,
+        flags=re.IGNORECASE,
+    )
+    payment_methods = []
+    for method in payment_method_matches:
+        if method not in payment_methods:
+            payment_methods.append(method)
+    payment_method = "+".join(payment_methods)
     if payment_status == "cancelled":
         # Refund templates often contain several negative totals. Prefer the
         # explicit refund amount over the generic item/order total while
@@ -345,6 +355,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
         "payment_status": payment_status,
         "payment_status_evidence": payment_status_evidence,
         "payment_status_confidence": "high" if payment_status in ("paid", "cancelled") else "unknown",
+        "payment_method": payment_method,
         "key_confidence": "high" if full_order_id else "low",
         "item_count": item_count,
         "item_names": item_names,
@@ -359,8 +370,11 @@ def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
     The existing takeout parser remains the source of the external-order
     sorting text.  This wrapper adds a conservative receipt classification and
     a stable deduplication key for dine-in/customer receipts, which are passed
-    through unchanged by the relay.  A print job alone never becomes paid:
-    payment status still comes only from explicit status evidence.
+    through unchanged by the relay.  A generic print job alone never becomes
+    paid.  This store's recognizable customer settlement receipt is the one
+    workflow exception: its settlement shape is recorded as high-confidence
+    paid evidence because the POS emits it only after checkout.  Kitchen,
+    control and refund templates remain unknown/cancelled.
     """
     parsed = parse_and_sort_takeout_text(raw_text, options)
     mapping = (options or {}).get("official_pos_field_mapping") if isinstance(options, dict) else None
@@ -391,20 +405,32 @@ def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
     # has the recognizable settlement shape; printer self-tests, kitchen
     # slips, and refunds must remain unknown/cancelled.  A generic receipt
     # without these markers still requires explicit payment evidence.
+    # Payment-method text is not stable across this POS: cash receipts may
+    # show “人民币”, while QR/card receipts can show a different method or
+    # omit the method entirely.  The stable part is the customer settlement
+    # shape (final amount + order id + order time), not the cash label.
+    has_settlement_time = "订单时间" in compact or "下单时间" in compact
+    has_final_amount_label = bool(parsed.get("amount_source")) or any(
+        label in compact for label in ("应付", "实付", "实收", "合计", "总计")
+    )
     settlement_print = (
         receipt_kind == "dinein"
         and bool(parsed.get("full_order_id"))
         and parsed.get("order_amount") is not None
         and parsed.get("amount_valid") is True
-        and "人民币" in compact
-        and "订单时间" in compact
+        and has_settlement_time
+        and has_final_amount_label
         and "制作单" not in compact
         and "后厨" not in compact
         and parsed.get("payment_status") == "unknown"
     )
     if settlement_print:
         parsed["payment_status"] = "paid"
-        parsed["payment_status_evidence"] = "官方 POS 结账单打印规则"
+        parsed["payment_status_evidence"] = (
+            "官方 POS 结账单打印规则（付款方式：%s）" % parsed.get("payment_method")
+            if parsed.get("payment_method") and parsed.get("payment_method") != "人民币"
+            else "官方 POS 结账单打印规则"
+        )
         parsed["payment_status_confidence"] = "high"
 
     full_id = str(parsed.get("full_order_id") or "").strip()
