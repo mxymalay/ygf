@@ -1567,7 +1567,12 @@ class SaleWidget(QWidget):
 
         # ── 右侧：4x4 网格菜单 ──
         right = QVBoxLayout()
-        right.setSpacing(12)
+        # Keep the category strip close to the product grid.  The global
+        # stylesheet gives ordinary group boxes generous vertical breathing
+        # room, which is useful for settings cards but leaves the cashier
+        # menu looking vertically crowded on a short screen.
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(6)
 
         # 分类标签和商品目录由店铺设置维护；没有新配置时 helper 会提供
         # 与旧版完全一致的默认商品，因此升级不会改变现有点菜流程。
@@ -1576,6 +1581,10 @@ class SaleWidget(QWidget):
         self.menu_category_bar.setSpacing(4)
         right.addLayout(self.menu_category_bar)
         self.menu_group = QGroupBox("")
+        self.menu_group.setObjectName("SaleMenuGroup")
+        self.menu_group.setStyleSheet(
+            "QGroupBox#SaleMenuGroup { margin-top: 0px; padding-top: 0px; }"
+        )
         self.mg_grid = QGridLayout(self.menu_group)
         self.mg_grid.setSpacing(8)
         # Keep every filtered view anchored to the same top-left grid as
