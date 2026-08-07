@@ -1196,10 +1196,10 @@ class SettingsWidget(QWidget):
         step3, step3_layout = step_panel(
             3,
             u"打印测试单并确认识别结果",
-            u"先做中继识别测试，再打印真实测试单，最后刷新状态。只有订单号、最终金额和可靠付款状态都通过校验，才会自动进入增强模式和金额分流。",
+            u"先刷新中继状态确认监听正常，再回官方 POS 打印真实测试单。只有订单号、最终金额和可靠付款状态都通过校验，才会自动进入增强模式和金额分流。",
         )
         action_title = QLabel(
-            u"测试顺序：③ 离线解析样本（不连接官方 POS）　→　④ 启动中继后回官方 POS 打印真实测试单　→　⑤ 刷新状态确认。"
+            u"测试顺序：③ 刷新中继状态　→　④ 回官方 POS 准备真实测试单。"
             u"收到打印任务本身不等于已结账。"
         )
         action_title.setWordWrap(True)
@@ -1208,18 +1208,17 @@ class SettingsWidget(QWidget):
         test_row = QGridLayout()
         test_row.setHorizontalSpacing(12)
         test_row.setVerticalSpacing(12)
-        self.btn_test_relay_identification = QPushButton(u"③ 离线解析样本")
-        self._style_touch_action_btn(self.btn_test_relay_identification, "purple")
-        self.btn_test_relay_identification.clicked.connect(self._test_relay_identification)
-        test_row.addWidget(self.btn_test_relay_identification, 0, 0)
+        self.btn_refresh_relay_status = QPushButton(u"③ 刷新中继状态")
+        self._style_touch_action_btn(self.btn_refresh_relay_status)
+        self.btn_refresh_relay_status.clicked.connect(self._on_refresh_relay_status_clicked)
+        test_row.addWidget(self.btn_refresh_relay_status, 0, 0)
         self.btn_test_relay_print = QPushButton(u"④ 准备官方 POS 真实测试")
         self._style_touch_action_btn(self.btn_test_relay_print, "blue")
         self.btn_test_relay_print.clicked.connect(self._test_relay_print)
         test_row.addWidget(self.btn_test_relay_print, 0, 1)
-        self.btn_refresh_relay_status = QPushButton(u"⑤ 刷新中继状态")
-        self._style_touch_action_btn(self.btn_refresh_relay_status)
-        self.btn_refresh_relay_status.clicked.connect(self._refresh_relay_status)
-        test_row.addWidget(self.btn_refresh_relay_status, 1, 0, 1, 2)
+        self.lbl_relay_refresh_result = QLabel(u"尚未手动刷新中继状态")
+        self.lbl_relay_refresh_result.setStyleSheet("color: #94A3B8; font-size: 14px;")
+        test_row.addWidget(self.lbl_relay_refresh_result, 1, 0, 1, 2)
         step3_layout.addLayout(test_row)
         layout.addWidget(step3)
 
@@ -1831,45 +1830,6 @@ class SettingsWidget(QWidget):
         else:
             show_warning(self, u"中继配置异常", "\n".join(report.get("errors") or [u"请完成配置后重试"]))
 
-    def _test_relay_identification(self):
-        from core.takeout_interceptor import parse_official_pos_text
-        from ui.custom_dialog import show_info
-        sample = (u"美团外卖\n订单号：TEST-1001\n下单时间：2026-08-07 12:00:00\n"
-                  u"肥牛 x 1 ￥20.00\n原价合计：￥20.00\n实付：￥18.00")
-        source = u"内置示例"
-        capture_root = self.config.get("takeout_capture_dir") or os.path.join(DATA_DIR, "takeout_capture")
-        try:
-            samples = [
-                os.path.join(capture_root, name) for name in os.listdir(capture_root)
-                if name.endswith(".json")
-            ]
-            if samples:
-                latest = max(samples, key=os.path.getmtime)
-                with open(latest, "r", encoding="utf-8") as stream:
-                    metadata = json.load(stream)
-                if str(metadata.get("extracted_text") or "").strip():
-                    sample = metadata["extracted_text"]
-                    source = u"最近一次真实捕获样本"
-        except (OSError, TypeError, ValueError):
-            pass
-        candidate = self._relay_config_from_form()
-        parsed = parse_official_pos_text(sample, {
-            "official_pos_field_mapping": candidate.get("official_pos_field_mapping", {})
-        })
-        self.config["takeout_relay_last_identification"] = (
-            u"来源=%s；票据=%s；订单号=%s；金额=%s；付款状态=%s；证据=%s" % (
-                source,
-                parsed.get("receipt_kind") or u"未知",
-                parsed.get("full_order_id") or parsed.get("order_no") or u"未知",
-                parsed.get("order_amount") if parsed.get("order_amount") is not None else u"未知",
-                parsed.get("payment_status"),
-                parsed.get("payment_status_evidence") or u"无",
-            )
-        )
-        save_config(self.config)
-        self._refresh_relay_status()
-        show_info(self, u"离线解析样本完成", u"这一步只检查解析规则，不连接官方 POS，也不会让官方 POS 产生打印任务。\n\n识别结果：\n%s\n\n字段映射只影响解析，不会把未知付款状态强行改成已结账。收到真实数据后，请再打印官方 POS 测试单并刷新状态。" % self.config["takeout_relay_last_identification"])
-
     def _test_relay_print(self):
         from ui.custom_dialog import show_info, show_warning
         config = self._relay_config_from_form()
@@ -1939,7 +1899,10 @@ class SettingsWidget(QWidget):
         detail = state.get("last_error") or state.get("message") or (u"监听运行中" if running else u"监听未运行")
         if temporarily_stopped and not running:
             detail = u"已由用户临时关闭监听；配置未清除，点击“启动临时中继”可恢复"
-        source = state.get("payload_type") or self.config.get("takeout_relay_last_identification") or u"等待真实测试单"
+        # Only show data observed by the running relay.  A former offline
+        # parser result is not evidence that the official POS sent anything
+        # and must not make the page look successfully identified.
+        source = state.get("payload_type") or u"等待官方 POS 真实测试单"
         identified_at = state.get("last_identified_at") or u"暂无"
         enhanced_at = state.get("last_enhanced_success_at") or u"暂无"
         service_detail = u"独立服务：未安装"
@@ -1950,6 +1913,17 @@ class SettingsWidget(QWidget):
             u"连接/监听正常" if running else u"未运行或已降级", mode_label(mode),
             policy_label, mode_reason, mode_changed, source, identified_at,
             enhanced_at, detail, service_detail))
+        if hasattr(self, "lbl_relay_refresh_result"):
+            self.lbl_relay_refresh_result.setText(
+                u"状态已刷新：%s（%s）" % (
+                    QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss"),
+                    u"监听正常" if running else u"未运行或已降级",
+                )
+            )
+
+    def _on_refresh_relay_status_clicked(self):
+        """Refresh the runtime state and leave visible feedback in step 3."""
+        self._refresh_relay_status()
 
     @staticmethod
     def _official_customer_template_text():
