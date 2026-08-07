@@ -42,9 +42,9 @@ class FloatingBall(QWidget):
         # “还需约 xxx kg”提示，底部继续保留暂停/锁定/对勾状态栏。
         self.setFixedSize(160, 84)
 
-        # 默认放在点菜区的分类栏上方/中部：允许遮住分类标签，但不压住
-        # 第一行汤底商品卡片。分类按钮由 SaleWidget 创建完成后即可取到，
-        # 比固定写死 y=110 更适合不同分辨率和缩放比例。
+        # 默认放在右侧商品区的第一排卡片下方，不遮住左侧重量区；
+        # 分类按钮/商品按钮由 SaleWidget 创建完成后即可取到，
+        # 比固定写死坐标更适合不同分辨率和缩放比例。
         self._move_to_default_position()
 
         self._drag_pos = QPoint()
@@ -87,13 +87,13 @@ class FloatingBall(QWidget):
         self._switch_remaining_amount = None
         self._switch_next_channel = ""
         self._progress_hint_pressed = False
-        # The first layout pass may not have assigned the category button's
+        # The first layout pass may not have assigned the product button's
         # final global geometry yet; repeat once after the main window is
-        # shown so the default aligns with the real category row.
+        # shown so the default aligns with the real product row.
         QTimer.singleShot(0, self._move_to_default_position)
 
     def _move_to_default_position(self):
-        """Place the first-run ball over the menu category bar."""
+        """Place the first-run ball at the top-right of the product area."""
         from PyQt5.QtWidgets import QApplication
 
         screen = QApplication.primaryScreen()
@@ -104,14 +104,15 @@ class FloatingBall(QWidget):
         y = screen_geo.top() + 28
 
         sale_page = getattr(self.main_window, "sale_page", None)
-        category_buttons = getattr(sale_page, "menu_category_buttons", None) or []
-        if category_buttons:
+        menu_buttons = getattr(sale_page, "menu_buttons", None) or {}
+        first_menu_button = next(iter(menu_buttons.values()), None)
+        if first_menu_button is not None:
             try:
-                category_top = category_buttons[0].mapToGlobal(QPoint(0, 0)).y()
+                first_top = first_menu_button.mapToGlobal(QPoint(0, 0)).y()
                 # The capsule is drawn 17 px below the floating window's top.
-                # Align its top with the category bar instead of the product
-                # grid below it.
-                y = category_top - 17
+                # Put it just below the first product row, matching the
+                # operator's preferred position in the product area.
+                y = first_top + first_menu_button.height() + 3
             except (AttributeError, RuntimeError):
                 pass
 
