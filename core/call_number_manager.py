@@ -162,10 +162,10 @@ class CallNumberManager:
     def relay_enhanced_available(self):
         """Return true only while the live printer relay is enhanced."""
         try:
-            from core.takeout_proxy_host import read_proxy_status, is_proxy_status_live
+            from core.printer_relay_host import read_proxy_status, is_proxy_status_live
             state = read_proxy_status() or {}
             try:
-                relay_port = int(self.config.get("takeout_proxy_port", 9101) or 9101)
+                relay_port = int(self.config.get("printer_relay_port", 9101) or 9101)
             except (TypeError, ValueError):
                 relay_port = 9101
             if str(state.get("mode") or "") != "enhanced":

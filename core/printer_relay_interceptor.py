@@ -9,7 +9,7 @@ import threading
 import socket
 import hashlib
 from PyQt5.QtCore import QObject, pyqtSignal
-from core.takeout_capture import capture_print_payload
+from core.printer_relay_capture import capture_print_payload
 
 
 # 默认菜品分类关键词规则
@@ -147,13 +147,13 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
     show_order_time = opts.get("show_order_time", True)
     show_full_order_id = opts.get("show_full_order_id", False)
     show_preorder_alert = opts.get("show_preorder_alert", True)
-    match_mode = opts.get("takeout_match_mode", "contains")
+    match_mode = opts.get("printer_relay_match_mode", "contains")
     custom_categories = opts.get("custom_categories", DEFAULT_CATEGORIES)
     # Takeout recognition has its own mapping.  The generic official-POS
     # mapping is kept as a compatibility fallback for older configurations,
     # but changes made on the external-order page no longer alter dine-in
     # field recognition.
-    mapping = opts.get("takeout_field_mapping") or opts.get("official_pos_field_mapping") or opts
+    mapping = opts.get("printer_relay_field_mapping") or opts.get("official_pos_field_mapping") or opts
     order_id_labels = _mapping_values(mapping, "order_id_labels", ["订单号", "订单编号"])
     amount_labels = _mapping_values(mapping, "amount_labels", ["实付", "实收", "支付金额", "付款金额", "应付", "应收", "合计", "总计", "原价合计"])
     paid_keywords = _mapping_values(mapping, "paid_keywords", ["支付成功", "付款成功", "收款成功", "交易成功", "已支付", "已付款", "已结账", "结账成功", "支付状态:成功"])
@@ -508,9 +508,9 @@ def classify_print_payload(payload: bytes, extracted_text: str = "") -> str:
 def build_takeout_escpos_ticket(sorted_text: str, config: dict, ticket_kind="kitchen") -> bytes:
     """Render a sorted takeout order with the configured ESC/POS emphasis."""
     config = config or {}
-    header_size = (0x00, 0x20, 0x30)[min(2, max(0, int(config.get("takeout_font_hdr", 1))))]
-    category_size = (0x00, 0x08, 0x10)[min(2, max(0, int(config.get("takeout_font_cat", 1))))]
-    item_size = (0x00, 0x10, 0x30)[min(2, max(0, int(config.get("takeout_font_item", 1))))]
+    header_size = (0x00, 0x20, 0x30)[min(2, max(0, int(config.get("printer_relay_font_hdr", 1))))]
+    category_size = (0x00, 0x08, 0x10)[min(2, max(0, int(config.get("printer_relay_font_cat", 1))))]
+    item_size = (0x00, 0x10, 0x30)[min(2, max(0, int(config.get("printer_relay_font_item", 1))))]
     label = "制作联" if ticket_kind == "kitchen" else "存根联"
     data = bytearray(b"\x1b@\x1ba\x01\x1b!" + bytes([header_size]))
     data += ("【外卖%s】\n" % label).encode("gbk", errors="ignore")
@@ -534,7 +534,7 @@ def build_takeout_escpos_ticket(sorted_text: str, config: dict, ticket_kind="kit
     return bytes(data)
 
 
-class TakeoutPrintInterceptor(QObject):
+class PrinterRelayInterceptor(QObject):
     """A local RAW TCP proxy for an official-POS takeout printer queue.
 
     Windows cannot reliably intercept and rewrite a job that has already been
@@ -553,7 +553,7 @@ class TakeoutPrintInterceptor(QObject):
         # deliberately no Qt event loop.  A regular Python callback keeps the
         # essential forwarding path independent from the POS window.
         self.on_order = on_order
-        self.is_enabled = bool(self.config.get("takeout_interceptor_enabled", False))
+        self.is_enabled = bool(self.config.get("printer_relay_enabled", False))
         self._listener = None
         self._thread = None
         self._running = False
@@ -562,7 +562,7 @@ class TakeoutPrintInterceptor(QObject):
     @property
     def port(self):
         try:
-            return int(self.config.get("takeout_proxy_port", 9101))
+            return int(self.config.get("printer_relay_port", 9101))
         except (TypeError, ValueError):
             return 9101
 
@@ -576,7 +576,7 @@ class TakeoutPrintInterceptor(QObject):
     def update_config(self, config):
         old_port = self.port
         self.config = config or {}
-        self.is_enabled = bool(self.config.get("takeout_interceptor_enabled", False))
+        self.is_enabled = bool(self.config.get("printer_relay_enabled", False))
         if self._running and (not self.is_enabled or self.port != old_port):
             self.stop()
         if self.is_enabled and not self._running:
@@ -594,7 +594,7 @@ class TakeoutPrintInterceptor(QObject):
             self._listener = listener
             self._running = True
             self.last_error = ""
-            self._thread = threading.Thread(target=self._serve, name="TakeoutRawProxy", daemon=True)
+            self._thread = threading.Thread(target=self._serve, name="PrinterRelayRawProxy", daemon=True)
             self._thread.start()
             self.status_changed.emit("● 中继运行中：127.0.0.1:%d" % self.port)
             return True

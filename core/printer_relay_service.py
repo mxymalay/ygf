@@ -11,7 +11,6 @@ import time
 
 SERVICE_NAME = "ppposPrinterRelay"
 SERVICE_DISPLAY_NAME = "ppposPrinterRelay"
-LEGACY_SERVICE_NAME = "ppposTakeoutRelay"
 
 
 def _application_root():
@@ -34,7 +33,6 @@ class RelayServiceState:
     state: str = "NOT_INSTALLED"
     detail: str = ""
     service_name: str = SERVICE_NAME
-    legacy: bool = False
 
 
 class PrinterRelayServiceController:
@@ -47,11 +45,8 @@ class PrinterRelayServiceController:
     @staticmethod
     def _default_command_prefix():
         if getattr(sys, "frozen", False):
-            for filename in ("PrinterRelayService.exe", "TakeoutRelayService.exe"):
-                executable = os.path.join(_application_root(), filename)
-                if os.path.isfile(executable):
-                    return [executable]
-            return []
+            executable = os.path.join(_application_root(), "PrinterRelayService.exe")
+            return [executable] if os.path.isfile(executable) else []
         interpreter = sys.executable
         pythonw = os.path.join(os.path.dirname(os.path.abspath(interpreter)), "pythonw.exe")
         if sys.platform == "win32" and os.path.isfile(pythonw):
@@ -68,17 +63,10 @@ class PrinterRelayServiceController:
             return RelayServiceState(False, detail=detail)
         match = re.search(r"(?:STATE|状态)\s*:\s*([1-7])", detail, re.IGNORECASE)
         code = int(match.group(1)) if match else 0
-        return RelayServiceState(True, code, self._STATES.get(code, "UNKNOWN"), detail, name, name == LEGACY_SERVICE_NAME)
+        return RelayServiceState(True, code, self._STATES.get(code, "UNKNOWN"), detail, name)
 
     def query(self):
-        state = self._query_name(SERVICE_NAME)
-        if state.installed:
-            return state
-        legacy = self._query_name(LEGACY_SERVICE_NAME)
-        if legacy.installed:
-            legacy.detail = "发现旧服务 %s；安装新服务时会自动迁移。\n%s" % (LEGACY_SERVICE_NAME, legacy.detail)
-            return legacy
-        return state
+        return self._query_name(SERVICE_NAME)
 
     def _run(self, args, timeout=30):
         if not self.command_prefix:
@@ -114,31 +102,11 @@ class PrinterRelayServiceController:
             state = self.query()
         raise RuntimeError("等待打印机中继服务状态超时：%s" % state.state)
 
-    def _remove_legacy_service(self):
-        legacy = self._query_name(LEGACY_SERVICE_NAME)
-        if not legacy.installed:
-            return False
-        if legacy.state_code != 1:
-            self.runner(["sc.exe", "stop", LEGACY_SERVICE_NAME], capture_output=True,
-                        timeout=30, check=False,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.runner(["sc.exe", "delete", LEGACY_SERVICE_NAME], capture_output=True,
-                    timeout=30, check=False,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if not self._query_name(LEGACY_SERVICE_NAME).installed:
-                return True
-            time.sleep(0.2)
-        raise RuntimeError("旧打印机中继服务 %s 未能删除" % LEGACY_SERVICE_NAME)
-
     def install(self):
         self._require_admin()
         state = self.query()
-        if state.installed and not state.legacy:
+        if state.installed:
             return False
-        if state.legacy:
-            self._remove_legacy_service()
         self._run(["--startup", "auto", "install"], timeout=60)
         self._wait_for(1)
         return True
@@ -146,9 +114,6 @@ class PrinterRelayServiceController:
     def start(self):
         self._require_admin()
         state = self.query()
-        if state.legacy:
-            self.install()
-            state = self.query()
         if not state.installed:
             raise RuntimeError("打印机中继 Windows 服务尚未安装")
         if state.state_code == 4:
@@ -162,11 +127,6 @@ class PrinterRelayServiceController:
         state = self.query()
         if not state.installed or state.state_code == 1:
             return False
-        if state.legacy:
-            self.runner(["sc.exe", "stop", LEGACY_SERVICE_NAME], capture_output=True,
-                        timeout=30, check=False,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            return True
         self._run(["stop"])
         self._wait_for(1)
         return True
@@ -176,14 +136,7 @@ class PrinterRelayServiceController:
         state = self.query()
         if not state.installed:
             return False
-        if state.legacy:
-            return self._remove_legacy_service()
         self.stop()
         self._run(["remove"])
         self._wait_for(None)
         return True
-
-
-# Source compatibility for older plugins/imports. The Windows service itself
-# is now registered as ppposPrinterRelay; this alias is not a service name.
-TakeoutRelayServiceController = PrinterRelayServiceController

@@ -10,9 +10,9 @@ from PyQt5.QtWidgets import (
     QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QStackedWidget, QTextEdit,
     QScrollArea, QSizePolicy, QGridLayout
 )
-from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text, build_takeout_escpos_ticket
-from core.takeout_jobs import TakeoutJobStore
-from core.takeout_relay import mode_label
+from core.printer_relay_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text, build_takeout_escpos_ticket
+from core.printer_relay_jobs import PrinterRelayJobStore
+from core.printer_relay_mode import mode_label
 from config import save_config
 from ui.custom_dialog import show_info, show_warning, show_question
 
@@ -36,7 +36,7 @@ SAMPLE_RAW_TAKEOUT = """美团外卖  #18存根联
 订单号：100088921831920"""
 
 
-class TakeoutSortingWidget(QWidget):
+class PrinterRelayWidget(QWidget):
     """外卖小票排序与排版预览面板 (支持触屏滚动)。"""
 
     def __init__(self, config=None, printer=None, interceptor=None, parent=None):
@@ -44,10 +44,10 @@ class TakeoutSortingWidget(QWidget):
         self.config = config or {}
         self.printer = printer
         self.interceptor = interceptor
-        self.job_store = TakeoutJobStore()
+        self.job_store = PrinterRelayJobStore()
         self.last_job = None
 
-        saved_cats = self.config.get("takeout_categories")
+        saved_cats = self.config.get("printer_relay_categories")
         if saved_cats and isinstance(saved_cats, list) and len(saved_cats) > 0:
             self.categories = saved_cats
         else:
@@ -236,7 +236,7 @@ class TakeoutSortingWidget(QWidget):
             u"包含匹配 (推荐)",
             u"精准全字匹配"
         ])
-        saved_mode = self.config.get("takeout_match_mode", "contains")
+        saved_mode = self.config.get("printer_relay_match_mode", "contains")
         self.cmb_match_mode.setCurrentIndex(0 if saved_mode == "contains" else 1)
         self.cmb_match_mode.setStyleSheet("QComboBox { background: #0F172A; color: #38BDF8; font-weight: bold; border: 1px solid #334155; padding: 5px; border-radius: 4px; }")
         self.cmb_match_mode.currentIndexChanged.connect(self._auto_save_categories)
@@ -370,13 +370,13 @@ class TakeoutSortingWidget(QWidget):
 
         row_f2 = QHBoxLayout()
         self.chk_star = QCheckBox(u"多份菜品 (≥2) 自动加 ⭐ 标记")
-        self.chk_star.setChecked(self.config.get("takeout_mark_star", True))
+        self.chk_star.setChecked(self.config.get("printer_relay_mark_star", True))
         self.chk_star.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold;")
         self.chk_star.stateChanged.connect(self._auto_save_format_settings)
         row_f2.addWidget(self.chk_star)
 
         self.chk_prices = QCheckBox(u"制作联显示价格")
-        self.chk_prices.setChecked(self.config.get("takeout_show_prices", False))
+        self.chk_prices.setChecked(self.config.get("printer_relay_show_prices", False))
         self.chk_prices.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: bold;")
         self.chk_prices.stateChanged.connect(self._auto_save_format_settings)
         row_f2.addWidget(self.chk_prices)
@@ -388,7 +388,7 @@ class TakeoutSortingWidget(QWidget):
         lbl_k_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.spn_kitchen_copies = QSpinBox()
         self.spn_kitchen_copies.setRange(0, 5)
-        self.spn_kitchen_copies.setValue(self.config.get("takeout_kitchen_copies", 1))
+        self.spn_kitchen_copies.setValue(self.config.get("printer_relay_kitchen_copies", 1))
         self.spn_kitchen_copies.setStyleSheet("QSpinBox { background: #1E293B; color: #10B981; font-weight: bold; padding: 4px; }")
         self.spn_kitchen_copies.valueChanged.connect(self._auto_save_format_settings)
 
@@ -396,7 +396,7 @@ class TakeoutSortingWidget(QWidget):
         lbl_c_cnt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.spn_cust_copies = QSpinBox()
         self.spn_cust_copies.setRange(0, 5)
-        self.spn_cust_copies.setValue(self.config.get("takeout_cust_copies", 0))
+        self.spn_cust_copies.setValue(self.config.get("printer_relay_cust_copies", 0))
         self.spn_cust_copies.setStyleSheet("QSpinBox { background: #1E293B; color: #38BDF8; font-weight: bold; padding: 4px; }")
         self.spn_cust_copies.valueChanged.connect(self._auto_save_format_settings)
 
@@ -427,31 +427,31 @@ class TakeoutSortingWidget(QWidget):
         hc_box.addWidget(lbl_hc_title)
 
         self.chk_address = QCheckBox(u"显示送餐地址")
-        self.chk_address.setChecked(self.config.get("takeout_show_address", True))
+        self.chk_address.setChecked(self.config.get("printer_relay_show_address", True))
         self.chk_address.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.chk_address.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_address)
 
         self.chk_time = QCheckBox(u"显示下单时间")
-        self.chk_time.setChecked(self.config.get("takeout_show_time", True))
+        self.chk_time.setChecked(self.config.get("printer_relay_show_time", True))
         self.chk_time.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.chk_time.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_time)
 
         self.chk_full_id = QCheckBox(u"显示平台完整订单号")
-        self.chk_full_id.setChecked(self.config.get("takeout_show_full_id", False))
+        self.chk_full_id.setChecked(self.config.get("printer_relay_show_full_id", False))
         self.chk_full_id.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: bold;")
         self.chk_full_id.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_full_id)
 
         self.chk_preorder = QCheckBox(u"⏰ 预订单醒目提醒")
-        self.chk_preorder.setChecked(self.config.get("takeout_show_preorder", True))
+        self.chk_preorder.setChecked(self.config.get("printer_relay_show_preorder", True))
         self.chk_preorder.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold;")
         self.chk_preorder.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_preorder)
 
         self.chk_auto_print = QCheckBox(u"识别成功后自动打印重排制作单")
-        self.chk_auto_print.setChecked(self.config.get("takeout_auto_print", True))
+        self.chk_auto_print.setChecked(self.config.get("printer_relay_auto_print", True))
         self.chk_auto_print.setStyleSheet("color: #34D399; font-size: 13px; font-weight: bold;")
         self.chk_auto_print.stateChanged.connect(self._auto_save_format_settings)
         hc_box.addWidget(self.chk_auto_print)
@@ -483,9 +483,9 @@ class TakeoutSortingWidget(QWidget):
         # “外卖设置”是二级页面；外卖格式内部再用三级菜单拆分内容，
         # 保留原有三组配置，但一次只显示当前选中的一组。
         format_third_menu = QFrame()
-        format_third_menu.setObjectName("TakeoutFormatThirdLevelMenu")
+        format_third_menu.setObjectName("PrinterRelayFormatThirdLevelMenu")
         format_third_menu.setStyleSheet(
-            "QFrame#TakeoutFormatThirdLevelMenu { background: #111827; border-bottom: 1px solid #334155; }"
+            "QFrame#PrinterRelayFormatThirdLevelMenu { background: #111827; border-bottom: 1px solid #334155; }"
             "QPushButton { background: transparent; color: #94A3B8; border: none; "
             "border-bottom: 3px solid transparent; border-radius: 0; padding: 9px 14px; "
             "font-size: 14px; font-weight: 700; }"
@@ -626,7 +626,7 @@ class TakeoutSortingWidget(QWidget):
         mapping_grid = QGridLayout()
         mapping_grid.setSpacing(10)
         mapping_grid.setColumnStretch(1, 1)
-        takeout_mapping = self.config.get("takeout_field_mapping") or self.config.get("takeout_pos_field_mapping") or self.config.get("official_pos_field_mapping") or {}
+        takeout_mapping = self.config.get("printer_relay_field_mapping") or self.config.get("printer_relay_pos_field_mapping") or self.config.get("official_pos_field_mapping") or {}
         mapping_defaults = {
             "order_id_labels": ["订单号", "订单编号", "流水号"],
             "amount_labels": ["实付", "实收", "支付金额", "付款金额", "合计"],
@@ -676,12 +676,12 @@ class TakeoutSortingWidget(QWidget):
 
         # ── 4. 左侧二级菜单 ──
         section_sidebar = QFrame()
-        section_sidebar.setObjectName("TakeoutSidebar")
+        section_sidebar.setObjectName("PrinterRelaySidebar")
         section_sidebar.setMinimumWidth(180)
         section_sidebar.setMaximumWidth(230)
         section_sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         section_sidebar.setStyleSheet(
-            "QFrame#TakeoutSidebar { background-color: #0F172A; border-right: 1px solid #1E293B; }"
+            "QFrame#PrinterRelaySidebar { background-color: #0F172A; border-right: 1px solid #1E293B; }"
             "QLabel { background: transparent; }"
         )
         sidebar_layout = QVBoxLayout(section_sidebar)
@@ -758,7 +758,7 @@ class TakeoutSortingWidget(QWidget):
             return
         state = state or (self.interceptor.get_status() if self.interceptor else {})
         self._refresh_relay_observations(state)
-        queue = str(self.config.get("takeout_proxy_queue_name", "") or "").strip()
+        queue = str(self.config.get("printer_relay_queue_name", "") or "").strip()
         physical = str(self.config.get("printer_name", "") or "").strip() if str(self.config.get("printer_type", "windows")).lower() == "windows" else ""
         if not queue:
             text = u"尚未配置中继：请先前往“打印机中继”完成端口、Windows 队列和实体打印机配置。"
@@ -767,9 +767,9 @@ class TakeoutSortingWidget(QWidget):
         elif state.get("last_error"):
             text = u"中继异常：%s\n系统会继续使用兼容模式；请前往设置检查队列和监听状态。" % state.get("last_error")
         elif state.get("running"):
-            mode = state.get("mode") or self.config.get("takeout_relay_mode", "compatibility")
-            policy = state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", "auto")
-            reason = state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "等待验证")
+            mode = state.get("mode") or self.config.get("printer_relay_mode", "compatibility")
+            policy = state.get("mode_policy") or self.config.get("printer_relay_mode_policy", "auto")
+            reason = state.get("mode_reason") or self.config.get("printer_relay_mode_reason", "等待验证")
             policy_text = u"自动判断" if policy == "auto" else u"强制兼容"
             text = u"中继已配置且监听中。当前：%s；策略：%s。\n原因：%s\n只有唯一订单、最终金额和可靠结账状态均验证通过，才会进入增强模式。" % (
                 mode_label(mode), policy_text, reason)
@@ -822,7 +822,7 @@ class TakeoutSortingWidget(QWidget):
         state = self.interceptor.get_status() if self.interceptor else {}
         state = state if isinstance(state, dict) else {}
         running = bool(state.get("running"))
-        mode = mode_label(state.get("mode") or self.config.get("takeout_relay_mode", "compatibility"))
+        mode = mode_label(state.get("mode") or self.config.get("printer_relay_mode", "compatibility"))
         error = str(state.get("last_error") or "")
         status = u"外卖测试状态：%s；当前中继模式：%s" % (u"监听中" if running else u"中继未运行", mode)
         if error:
@@ -872,7 +872,7 @@ class TakeoutSortingWidget(QWidget):
         mapping = {}
         for key, field in getattr(self, "takeout_mapping_fields", {}).items():
             mapping[key] = [item.strip() for item in field.text().replace("，", ",").split(",") if item.strip()]
-        self.config["takeout_field_mapping"] = mapping
+        self.config["printer_relay_field_mapping"] = mapping
         save_config(self.config)
         if self.interceptor and hasattr(self.interceptor, "update_config"):
             try:
@@ -1028,26 +1028,26 @@ class TakeoutSortingWidget(QWidget):
                 "keywords": kws
             })
         self.categories = updated
-        self.config["takeout_categories"] = updated
+        self.config["printer_relay_categories"] = updated
         mode_idx = self.cmb_match_mode.currentIndex()
-        self.config["takeout_match_mode"] = "contains" if mode_idx == 0 else "exact"
+        self.config["printer_relay_match_mode"] = "contains" if mode_idx == 0 else "exact"
         save_config(self.config)
 
     def _auto_save_format_settings(self):
-        self.config["takeout_font_hdr"] = self.cmb_font_hdr.currentIndex()
-        self.config["takeout_font_cat"] = self.cmb_font_cat.currentIndex()
-        self.config["takeout_font_item"] = self.cmb_font_item.currentIndex()
+        self.config["printer_relay_font_hdr"] = self.cmb_font_hdr.currentIndex()
+        self.config["printer_relay_font_cat"] = self.cmb_font_cat.currentIndex()
+        self.config["printer_relay_font_item"] = self.cmb_font_item.currentIndex()
 
-        self.config["takeout_mark_star"] = self.chk_star.isChecked()
-        self.config["takeout_show_prices"] = self.chk_prices.isChecked()
-        self.config["takeout_kitchen_copies"] = self.spn_kitchen_copies.value()
-        self.config["takeout_cust_copies"] = self.spn_cust_copies.value()
+        self.config["printer_relay_mark_star"] = self.chk_star.isChecked()
+        self.config["printer_relay_show_prices"] = self.chk_prices.isChecked()
+        self.config["printer_relay_kitchen_copies"] = self.spn_kitchen_copies.value()
+        self.config["printer_relay_cust_copies"] = self.spn_cust_copies.value()
 
-        self.config["takeout_show_address"] = self.chk_address.isChecked()
-        self.config["takeout_show_time"] = self.chk_time.isChecked()
-        self.config["takeout_show_full_id"] = self.chk_full_id.isChecked()
-        self.config["takeout_show_preorder"] = self.chk_preorder.isChecked()
-        self.config["takeout_auto_print"] = self.chk_auto_print.isChecked()
+        self.config["printer_relay_show_address"] = self.chk_address.isChecked()
+        self.config["printer_relay_show_time"] = self.chk_time.isChecked()
+        self.config["printer_relay_show_full_id"] = self.chk_full_id.isChecked()
+        self.config["printer_relay_show_preorder"] = self.chk_preorder.isChecked()
+        self.config["printer_relay_auto_print"] = self.chk_auto_print.isChecked()
         save_config(self.config)
 
     def _update_live_preview(self):
@@ -1055,7 +1055,7 @@ class TakeoutSortingWidget(QWidget):
         self.txt_preview.setPlainText(parsed.get("sorted_text", ""))
 
     def _parse_text(self, raw_text):
-        takeout_mapping = self.config.get("takeout_field_mapping") or self.config.get("takeout_pos_field_mapping") or self.config.get("official_pos_field_mapping", {})
+        takeout_mapping = self.config.get("printer_relay_field_mapping") or self.config.get("printer_relay_pos_field_mapping") or self.config.get("official_pos_field_mapping", {})
         opts = {
             "mark_multi_qty_star": self.chk_star.isChecked(),
             "show_prices": self.chk_prices.isChecked(),
@@ -1064,8 +1064,8 @@ class TakeoutSortingWidget(QWidget):
             "show_full_order_id": self.chk_full_id.isChecked(),
             "show_preorder_alert": self.chk_preorder.isChecked(),
             "custom_categories": self.categories,
-            "takeout_match_mode": "contains" if self.cmb_match_mode.currentIndex() == 0 else "exact",
-            "takeout_field_mapping": takeout_mapping,
+            "printer_relay_match_mode": "contains" if self.cmb_match_mode.currentIndex() == 0 else "exact",
+            "printer_relay_field_mapping": takeout_mapping,
         }
         return parse_and_sort_takeout_text(raw_text, opts)
 
@@ -1110,14 +1110,14 @@ class TakeoutSortingWidget(QWidget):
             self.lbl_last_job.setText(u"最近任务：状态未知，已尝试原始转发；当前使用兼容模式")
             self.on_interceptor_status(u"ⓘ 打印数据无法完整解析，已降级兼容模式")
             return
-        if created and not dry_run and bool(self.config.get("takeout_auto_print", True)):
+        if created and not dry_run and bool(self.config.get("printer_relay_auto_print", True)):
             self._print_job(job, parsed, reprint=False)
 
     def _print_job(self, job, parsed, reprint=False):
         if not self.printer:
             show_warning(self, u"无法打印", u"没有可用的小票打印机。请先在系统设置中选择真实物理打印机。")
             return False
-        proxy_queue_name = str(self.config.get("takeout_proxy_queue_name", "")).strip().casefold()
+        proxy_queue_name = str(self.config.get("printer_relay_queue_name", "")).strip().casefold()
         physical_printer = str(self.config.get("printer_name", "")).strip().casefold()
         if not physical_printer:
             try:

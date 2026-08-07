@@ -12,7 +12,7 @@ from utils.port_scanner import scan_printers
 from config import save_config, app_branding
 from utils.window_utils import find_official_window_handle, is_official_window_configured
 from core.app_logger import log_event, CAT_SYSTEM
-from core.takeout_relay import validate_relay_config
+from core.printer_relay_mode import validate_relay_config
 
 def check_ygf_official_running(config=None) -> bool:
     """检测已配置的官方 POS 窗口是否正在运行。"""
@@ -572,14 +572,14 @@ class LoginWindow(QDialog):
             self.lbl_badge2.setText(u"⚠️ 未连接")
             self.lbl_badge2.setStyleSheet("color: #FBBF24; background-color: #78350F; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #D97706;")
             self.hardware_warnings.append("打印机未连接")
-        if not relay_ok and bool(self.config.get("takeout_interceptor_enabled", False)):
+        if not relay_ok and bool(self.config.get("printer_relay_enabled", False)):
             self.hardware_warnings.append(u"打印机中继：%s" % relay_detail)
         
         QTimer.singleShot(250, self._check_shouqianba)
 
     def _check_printer_relay(self):
         """Check configured printer-relay transport without starting it."""
-        if not bool(self.config.get("takeout_interceptor_enabled", False)):
+        if not bool(self.config.get("printer_relay_enabled", False)):
             return True, u"未启用（兼容模式）"
         try:
             report = validate_relay_config(self.config, check_windows=True)

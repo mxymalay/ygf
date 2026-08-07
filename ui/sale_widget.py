@@ -2350,17 +2350,17 @@ class SaleWidget(QWidget):
         """Return the global relay/routing mode without making it a local switch."""
         state = {}
         parent = self.window()
-        controller = getattr(parent, "takeout_interceptor", None)
+        controller = getattr(parent, "printer_relay_controller", None)
         if controller is not None:
             try:
                 state = controller.get_status() or {}
             except Exception:
                 state = {}
-        mode = str(state.get("mode") or self.config.get("takeout_relay_mode", "compatibility") or "compatibility")
-        policy = str(state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", "auto") or "auto")
-        reason = str(state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "等待中继验证") or "等待中继验证")
+        mode = str(state.get("mode") or self.config.get("printer_relay_mode", "compatibility") or "compatibility")
+        policy = str(state.get("mode_policy") or self.config.get("printer_relay_mode_policy", "auto") or "auto")
+        reason = str(state.get("mode_reason") or self.config.get("printer_relay_mode_reason", "等待中继验证") or "等待中继验证")
         running = bool(state.get("running"))
-        # ``TakeoutProxyController.get_status`` deliberately keeps the last
+        # ``PrinterRelayController.get_status`` deliberately keeps the last
         # observed ticket/mode in the diagnostic panel after a temporary stop.
         # That historical mode must not be presented as the *current* global
         # mode: the routing and call-number pages validate the live listener

@@ -131,11 +131,10 @@ TEMPLATE_FILE = os.path.join(DATA_DIR, "settings.json.template")
 # 模块化 JSON 文件路径
 MODULE_FILES = {
     "sys": os.path.join(SETTINGS_DIR, "base.json"),
-    "takeout": os.path.join(SETTINGS_DIR, "printer_relay.json"),
+    "printer_relay": os.path.join(SETTINGS_DIR, "printer_relay.json"),
     "algo": os.path.join(SETTINGS_DIR, "algo.json"),
     "shouqianba": os.path.join(SETTINGS_DIR, "shouqianba.json"),
 }
-LEGACY_RELAY_MODULE_FILE = os.path.join(SETTINGS_DIR, "takeout.json")
 
 # ─── 默认配置 ────────────────────────────────────────
 DEFAULT_CONFIG = {
@@ -159,12 +158,12 @@ DEFAULT_CONFIG = {
     "printer_feed_lines": 4,
     "printer_cash_drawer_enabled": True,
     "printer_show_tags": True,
-    "printer_takeout_banner_enabled": True,
-    "printer_takeout_banner_lines": 3,
+    "printer_packaging_banner_enabled": True,
+    "printer_packaging_banner_lines": 3,
     "printer_separator_char": "-",
     "printer_customer_title": "POS点餐 堂食",
     "printer_kitchen_title_dinein": "制作单-堂食",
-    "printer_kitchen_title_takeout": "制作单-打包",
+    "printer_kitchen_title_packaging": "制作单-打包",
     "printer_customer_footer": "打印时间：{time}",
     "printer_kitchen_footer": "打印时间：{time}",
     "printer_report_title": "营业汇总报表",
@@ -266,21 +265,21 @@ DEFAULT_CONFIG = {
 
     # 4. 官方 POS 打印中继与订单识别配置 (printer_relay.json)
     # 默认关闭：必须先把官方 POS 打印机改为本机 TCP 中继队列后才启用。
-    "takeout_interceptor_enabled": False,
-    "takeout_proxy_port": 9101,
-    "takeout_proxy_queue_name": "",
-    "takeout_proxy_mode_version": 1,
+    "printer_relay_enabled": False,
+    "printer_relay_port": 9101,
+    "printer_relay_queue_name": "",
+    "printer_relay_mode_version": 1,
     # Relay health/mode is persisted as a diagnostic hint only.  Any stale or
     # missing value is treated as compatibility mode at runtime.
-    "takeout_relay_mode": "compatibility",
+    "printer_relay_mode": "compatibility",
     # Automatic mode is safe default; force_compatibility is a manual
     # maintenance/test override and never enables enhanced routing by itself.
-    "takeout_relay_mode_policy": "auto",
-    "takeout_relay_last_check_at": "",
-    "takeout_relay_last_success_at": "",
-    "takeout_relay_last_error": "",
-    "takeout_relay_last_identification": "",
-    "takeout_relay_payment_required": True,
+    "printer_relay_mode_policy": "auto",
+    "printer_relay_last_check_at": "",
+    "printer_relay_last_success_at": "",
+    "printer_relay_last_error": "",
+    "printer_relay_last_identification": "",
+    "printer_relay_payment_required": True,
     # Official POS receipt field aliases.  Empty/custom values are optional;
     # parser defaults remain active for old configurations.
     "official_pos_field_mapping": {
@@ -292,11 +291,11 @@ DEFAULT_CONFIG = {
     },
     # Keep a bounded copy of official POS printer samples for test-machine
     # format analysis.  Samples may contain order details; disable after use.
-    "takeout_capture_enabled": False,
-    "takeout_capture_max_files": 20,
-    "takeout_capture_max_bytes": 2097152,
-    "takeout_auto_print": True,
-    "takeout_categories": [
+    "printer_relay_capture_enabled": False,
+    "printer_relay_capture_max_files": 20,
+    "printer_relay_capture_max_bytes": 2097152,
+    "printer_relay_auto_print": True,
+    "printer_relay_categories": [
         {"id": "cat_1", "name": u"主食类", "keywords": [u"面", u"米饭", u"粉丝", u"年糕", u"方便面"]},
         {"id": "cat_2", "name": u"肉类", "keywords": [u"牛肉", u"肥牛", u"羊肉", u"鸡肉", u"培根", u"火腿", u"肉丸"]},
         {"id": "cat_3", "name": u"海鲜类", "keywords": [u"虾", u"蟹棒", u"鱼丸", u"鱿鱼", u"巴沙鱼"]},
@@ -304,18 +303,18 @@ DEFAULT_CONFIG = {
         {"id": "cat_5", "name": u"豆制品类", "keywords": [u"豆腐", u"腐竹", u"豆皮", u"豆干"]},
         {"id": "cat_6", "name": u"饮料酒水", "keywords": [u"可乐", u"雪碧", u"王老吉", u"酸梅汤", u"矿泉水"]}
     ],
-    "takeout_match_mode": "contains",
-    "takeout_font_hdr": 1,
-    "takeout_font_cat": 1,
-    "takeout_font_item": 1,
-    "takeout_mark_star": True,
-    "takeout_show_prices": False,
-    "takeout_kitchen_copies": 1,
-    "takeout_cust_copies": 0,
-    "takeout_show_address": True,
-    "takeout_show_time": True,
-    "takeout_show_full_id": False,
-    "takeout_show_preorder": True,
+    "printer_relay_match_mode": "contains",
+    "printer_relay_font_hdr": 1,
+    "printer_relay_font_cat": 1,
+    "printer_relay_font_item": 1,
+    "printer_relay_mark_star": True,
+    "printer_relay_show_prices": False,
+    "printer_relay_kitchen_copies": 1,
+    "printer_relay_cust_copies": 0,
+    "printer_relay_show_address": True,
+    "printer_relay_show_time": True,
+    "printer_relay_show_full_id": False,
+    "printer_relay_show_preorder": True,
 }
 
 # These settings are written by older pages/runtime helpers but are not part
@@ -325,6 +324,14 @@ DEFAULT_CONFIG = {
 # treated as an obsolete/foreign field and is deliberately discarded when the
 # modular files are rewritten.
 OPTIONAL_CONFIG_KEYS = {
+    # Runtime diagnostics and operator-defined field aliases maintained by
+    # the printer-relay page.  They are intentionally persisted in the
+    # canonical printer_relay namespace, not under the former takeout name.
+    "printer_relay_capture_dir",
+    "printer_relay_field_mapping",
+    "printer_relay_pos_field_mapping",
+    "printer_relay_mode_changed_at",
+    "printer_relay_mode_reason",
     "call_used_numbers",
     "call_last_slot",
     "call_manual_no",
@@ -350,53 +357,11 @@ OPTIONAL_CONFIG_KEYS = {
 
 TRANSIENT_CONFIG_KEYS = {"simulation_mode", "is_mock_mode"}
 
-# The first implementation called the whole module ``takeout`` because it
-# started as an external-order formatter.  It now also receives official POS
-# dine-in receipts, so persisted configuration uses the neutral
-# ``printer_relay_*`` namespace.  Runtime callers still receive the legacy
-# names below for compatibility with old plugins and test integrations.
-CONFIG_KEY_RENAMES = {
-    "takeout_interceptor_enabled": "printer_relay_enabled",
-    "takeout_proxy_port": "printer_relay_port",
-    "takeout_proxy_queue_name": "printer_relay_queue_name",
-    "takeout_proxy_mode_version": "printer_relay_mode_version",
-    "takeout_relay_mode": "printer_relay_mode",
-    "takeout_relay_mode_policy": "printer_relay_mode_policy",
-    "takeout_relay_last_check_at": "printer_relay_last_check_at",
-    "takeout_relay_last_success_at": "printer_relay_last_success_at",
-    "takeout_relay_last_error": "printer_relay_last_error",
-    "takeout_relay_last_identification": "printer_relay_last_identification",
-    "takeout_relay_payment_required": "printer_relay_payment_required",
-    "printer_takeout_banner_enabled": "printer_packaging_banner_enabled",
-    "printer_takeout_banner_lines": "printer_packaging_banner_lines",
-    "printer_kitchen_title_takeout": "printer_kitchen_title_packaging",
-}
-for _key in tuple(DEFAULT_CONFIG):
-    if _key.startswith("takeout_"):
-        CONFIG_KEY_RENAMES.setdefault(_key, "printer_relay_" + _key[len("takeout_"):])
-CONFIG_KEY_RENAMES_REVERSE = {value: key for key, value in CONFIG_KEY_RENAMES.items()}
-
-
-def canonical_config_key(key):
-    """Return the neutral persisted name for a legacy config key."""
-    return CONFIG_KEY_RENAMES.get(str(key), str(key))
-
-
-def legacy_config_key(key):
-    """Return the in-memory compatibility name for a persisted key."""
-    return CONFIG_KEY_RENAMES_REVERSE.get(str(key), str(key))
-
-
-KNOWN_CONFIG_KEYS = frozenset(DEFAULT_CONFIG).union(OPTIONAL_CONFIG_KEYS).union(
-    CONFIG_KEY_RENAMES_REVERSE
-)
+KNOWN_CONFIG_KEYS = frozenset(DEFAULT_CONFIG).union(OPTIONAL_CONFIG_KEYS)
 
 # Key 属于哪个模块文件的映射规则
 MODULAR_KEYS = {
-    # Keep the module id ``takeout`` for import/reset compatibility; the
-    # persisted fields themselves are printer_relay_* and are not external-
-    # order-only settings anymore.
-    "takeout": lambda k: k.startswith("takeout_") or k.startswith("printer_relay_"),
+    "printer_relay": lambda k: k.startswith("printer_relay_"),
     "algo": lambda k: k in (
         "private_ratio_percent", "private_amount_ratio_percent", "min_private_weight_kg",
         "max_daily_revenue_limit",
@@ -419,20 +384,11 @@ def _known_config_only(value):
     if not isinstance(value, dict):
         return {}
     cleaned = {}
-    # Read both generations.  If a file accidentally contains both names,
-    # the new canonical key wins; this makes the migration deterministic.
-    canonical_items = {}
-    legacy_items = {}
     for key, item in value.items():
         if key in TRANSIENT_CONFIG_KEYS:
             continue
-        if key in CONFIG_KEY_RENAMES_REVERSE:
-            canonical_items[key] = item
-        elif key in KNOWN_CONFIG_KEYS:
-            legacy_items[key] = item
-    cleaned.update(legacy_items)
-    for key, item in canonical_items.items():
-        cleaned[legacy_config_key(key)] = item
+        if key in KNOWN_CONFIG_KEYS:
+            cleaned[key] = item
     if "soup_price_4" in cleaned:
         cleaned.setdefault("special_soup_price", cleaned["soup_price_4"])
         cleaned.pop("soup_price_4", None)
@@ -524,10 +480,7 @@ def _backup_paths(paths, reason="config"):
 
 def backup_config_bundle(reason="manual"):
     """Create a recoverable snapshot before import or reset."""
-    paths = list(MODULE_FILES.values()) + [CONFIG_FILE]
-    if os.path.exists(LEGACY_RELAY_MODULE_FILE):
-        paths.append(LEGACY_RELAY_MODULE_FILE)
-    return _backup_paths(paths, reason)
+    return _backup_paths(list(MODULE_FILES.values()) + [CONFIG_FILE], reason)
 
 
 def detect_legacy_config():
@@ -553,8 +506,6 @@ def detect_legacy_config():
 
 def _remove_config_files():
     paths = [CONFIG_FILE] + list(MODULE_FILES.values())
-    if LEGACY_RELAY_MODULE_FILE not in paths:
-        paths.append(LEGACY_RELAY_MODULE_FILE)
     for path in paths:
         try:
             os.remove(path)
@@ -632,14 +583,8 @@ def load_config(migration_policy="auto", selected_keys=None) -> dict:
     # 3. 读取拆分后的 data/settings/*.json (模块化文件覆盖)
     module_values = {}
     for mod, path in MODULE_FILES.items():
-        source_path = path
-        # One-time compatibility for installations that have not run the
-        # migration script yet.  The canonical file always wins when both
-        # exist; save_config writes only printer_relay.json afterwards.
-        if mod == "takeout" and not os.path.exists(path) and os.path.exists(LEGACY_RELAY_MODULE_FILE):
-            source_path = LEGACY_RELAY_MODULE_FILE
-        if os.path.exists(source_path):
-            mod_data = _load_json_object(source_path, mod)
+        if os.path.exists(path):
+            mod_data = _load_json_object(path, mod)
             if mod_data:
                 module_values.update(_known_config_only(mod_data))
     if migration_policy == "auto":
@@ -701,12 +646,12 @@ def load_config(migration_policy="auto", selected_keys=None) -> dict:
     # thread.  Never reinterpret an old "enabled" value as permission to
     # start a real local printer proxy after upgrade.
     try:
-        takeout_proxy_mode_version = int(merged.get("takeout_proxy_mode_version", 0) or 0)
+        printer_relay_mode_version = int(merged.get("printer_relay_mode_version", 0) or 0)
     except (TypeError, ValueError):
-        takeout_proxy_mode_version = 0
-    if takeout_proxy_mode_version < 1:
-        merged["takeout_interceptor_enabled"] = False
-        merged["takeout_proxy_mode_version"] = 1
+        printer_relay_mode_version = 0
+    if printer_relay_mode_version < 1:
+        merged["printer_relay_enabled"] = False
+        merged["printer_relay_mode_version"] = 1
     merged["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
     # 4. 拆分并同步写回 data/settings/ 目录下各个模块文件
@@ -741,28 +686,18 @@ def save_config(cfg: dict):
             cfg.pop(key, None)
     cfg.update(transient_values)
     cfg["config_schema_version"] = CONFIG_SCHEMA_VERSION
-    # Persist only the neutral generation.  Keep legacy names in the live
-    # dictionary so existing runtime code/plugins continue to work in this
-    # process; they are never written back to JSON.
     persisted = {}
-    # First accept canonical-only callers, then let a legacy key in the same
-    # live dictionary win because existing UI code mutates that key in-place.
     for key, value in cfg.items():
         if key not in KNOWN_CONFIG_KEYS or key in TRANSIENT_CONFIG_KEYS:
             continue
-        if key in CONFIG_KEY_RENAMES:
-            continue
-        persisted[canonical_config_key(key)] = value
-    for key, value in cfg.items():
-        if key in CONFIG_KEY_RENAMES and key in KNOWN_CONFIG_KEYS:
-            persisted[CONFIG_KEY_RENAMES[key]] = value
+        persisted[key] = value
     # ``soup_price_4`` was removed from the live dictionary above; keep this
     # guard for callers that pass a mapping with unusual iteration behavior.
     persisted.pop("soup_price_4", None)
     persisted["config_schema_version"] = CONFIG_SCHEMA_VERSION
 
     # 按模块拆分保存到 data/settings/*.json
-    module_buckets = {"sys": {}, "takeout": {}, "algo": {}, "shouqianba": {}}
+    module_buckets = {"sys": {}, "printer_relay": {}, "algo": {}, "shouqianba": {}}
     for k, v in persisted.items():
         mod = _get_module_name(k)
         module_buckets[mod][k] = v
@@ -809,8 +744,7 @@ def import_config_bundle(file_path: str) -> dict:
         with zipfile.ZipFile(file_path, 'r') as zipf:
             allowed = {
                 "settings/base.json": "sys",
-                "settings/printer_relay.json": "takeout",
-                "settings/takeout.json": "takeout",
+                "settings/printer_relay.json": "printer_relay",
                 "settings/algo.json": "algo",
                 "settings/shouqianba.json": "shouqianba",
             }

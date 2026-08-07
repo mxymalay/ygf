@@ -1,4 +1,4 @@
-"""Durable, non-financial history for manually processed takeout tickets."""
+"""Durable, non-financial history for printer-relay tickets."""
 import hashlib
 import json
 import os
@@ -14,7 +14,7 @@ def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-class TakeoutJobStore:
+class PrinterRelayJobStore:
     """Keep a small local history so the operator can distinguish print and reprint.
 
     These records never enter the sales ledger: an external platform order is

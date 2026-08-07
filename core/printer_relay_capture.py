@@ -32,14 +32,14 @@ def capture_print_payload(payload, parsed=None, config=None, capture_dir=None):
     if not data:
         return ""
     try:
-        max_bytes = max(1024, int(config.get("takeout_capture_max_bytes", 2 * 1024 * 1024) or 0))
+        max_bytes = max(1024, int(config.get("printer_relay_capture_max_bytes", 2 * 1024 * 1024) or 0))
     except (TypeError, ValueError):
         max_bytes = 2 * 1024 * 1024
     # The interceptor itself caps one TCP job at 1 MiB.  Keep this guard for
     # direct callers and mark truncation explicitly if it ever applies.
     truncated = len(data) > max_bytes
     stored = data[:max_bytes]
-    root = capture_dir or config.get("takeout_capture_dir") or DEFAULT_CAPTURE_DIR
+    root = capture_dir or config.get("printer_relay_capture_dir") or DEFAULT_CAPTURE_DIR
     os.makedirs(root, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     digest = hashlib.sha256(data).hexdigest()[:12]
@@ -88,7 +88,7 @@ def capture_print_payload(payload, parsed=None, config=None, capture_dir=None):
             os.fsync(stream.fileno())
         os.replace(temporary_meta, meta_path)
         try:
-            max_files = max(1, int(config.get("takeout_capture_max_files", 20) or 0))
+            max_files = max(1, int(config.get("printer_relay_capture_max_files", 20) or 0))
         except (TypeError, ValueError):
             max_files = 20
         # Count one raw sample as a .bin/.json pair.  Deleting by individual

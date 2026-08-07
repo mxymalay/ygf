@@ -313,7 +313,7 @@ class AutoSwitchController(QObject):
 
         db = getattr(self.main_window, "db", None)
         if operating_mode is None:
-            operating_mode = str(self.config.get("takeout_relay_mode", "compatibility") or "compatibility")
+            operating_mode = str(self.config.get("printer_relay_mode", "compatibility") or "compatibility")
         if db and hasattr(db, "record_switch_quota_decision"):
             try:
                 db.record_switch_quota_decision(weight, is_private, forced_official)
@@ -393,7 +393,7 @@ class AutoSwitchController(QObject):
         amount in a printed ticket cannot switch the routing algorithm.
         """
         try:
-            from core.takeout_proxy_host import read_proxy_status, _is_process_alive
+            from core.printer_relay_host import read_proxy_status, _is_process_alive
             state = read_proxy_status()
             if not state.get("running") or state.get("mode") != "enhanced":
                 return 0.0, False

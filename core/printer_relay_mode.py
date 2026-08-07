@@ -100,7 +100,7 @@ def inspect_windows_queue(queue_name, relay_port=None):
 def validate_relay_config(config, check_windows=True):
     """Return a structured, UI-safe validation report."""
     config = config or {}
-    queue = _text(config.get("takeout_proxy_queue_name"))
+    queue = _text(config.get("printer_relay_queue_name"))
     printer_type = _text(config.get("printer_type", "windows")).lower()
     physical = _text(config.get("printer_name")) if printer_type == "windows" else ""
     if printer_type == "windows" and not physical:
@@ -109,7 +109,7 @@ def validate_relay_config(config, check_windows=True):
             physical = _text(win32print.GetDefaultPrinter())
         except Exception:
             physical = ""
-    relay_port = _port(config.get("takeout_proxy_port"), 9101)
+    relay_port = _port(config.get("printer_relay_port"), 9101)
     report = {
         "ok": True,
         "errors": [],
@@ -155,10 +155,10 @@ def enhanced_mode_eligibility(config, runtime=None, parsed=None):
     runtime = runtime or {}
     parsed = parsed or {}
     reasons = []
-    policy = _text(config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO)).lower()
+    policy = _text(config.get("printer_relay_mode_policy", MODE_POLICY_AUTO)).lower()
     if policy == MODE_POLICY_FORCE_COMPATIBILITY:
         reasons.append("已手动锁定兼容模式")
-    if not bool(config.get("takeout_interceptor_enabled")):
+    if not bool(config.get("printer_relay_enabled")):
         reasons.append("中继未启用")
     if not runtime.get("running"):
         reasons.append("中继监听未运行")

@@ -639,27 +639,67 @@ def _stop_service(install_dir, remove=False):
 
 
 PRINTER_RELAY_SERVICE_NAME = "ppposPrinterRelay"
-LEGACY_PRINTER_RELAY_SERVICE_NAME = "ppposTakeoutRelay"
+_OBSOLETE_RELAY_SERVICE_NAME = "ppposTakeoutRelay"
+_OBSOLETE_RELAY_EXECUTABLE = "TakeoutRelayService.exe"
+_OBSOLETE_RELAY_FILES = (
+    _OBSOLETE_RELAY_EXECUTABLE,
+    "takeout_relay_service.py",
+    "takeout_proxy_host.py",
+    os.path.join("core", "takeout_capture.py"),
+    os.path.join("core", "takeout_interceptor.py"),
+    os.path.join("core", "takeout_jobs.py"),
+    os.path.join("core", "takeout_proxy_host.py"),
+    os.path.join("core", "takeout_relay.py"),
+    os.path.join("ui", "takeout_sorting_widget.py"),
+    os.path.join("docs", "takeout_proxy_win7.md"),
+)
 
 
 def _stop_printer_relay_service(install_dir, remove=False):
-    """Stop both current and legacy relay registrations during upgrade."""
-    for filename in ("PrinterRelayService.exe", "TakeoutRelayService.exe"):
-        service_exe = os.path.join(install_dir, filename)
+    """Stop/remove the current printer relay registration."""
+    service_exe = os.path.join(install_dir, "PrinterRelayService.exe")
+    try:
+        if os.path.isfile(service_exe):
+            _run_hidden([service_exe, "stop"], timeout=60)
+            if remove:
+                _run_hidden([service_exe, "remove"], timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if remove:
         try:
-            if os.path.isfile(service_exe):
-                _run_hidden([service_exe, "stop"], timeout=60)
-                if remove:
-                    _run_hidden([service_exe, "remove"], timeout=60)
+            _run_hidden(["sc.exe", "stop", PRINTER_RELAY_SERVICE_NAME], timeout=30)
+            _run_hidden(["sc.exe", "delete", PRINTER_RELAY_SERVICE_NAME], timeout=30)
         except (OSError, subprocess.SubprocessError):
             pass
-    if remove:
-        for service_name in (PRINTER_RELAY_SERVICE_NAME, LEGACY_PRINTER_RELAY_SERVICE_NAME):
-            try:
-                _run_hidden(["sc.exe", "stop", service_name], timeout=30)
-                _run_hidden(["sc.exe", "delete", service_name], timeout=30)
-            except (OSError, subprocess.SubprocessError):
-                pass
+
+
+def _remove_obsolete_printer_relay_artifacts(install_dir):
+    """Remove the pre-PrinterRelayService executable/service once.
+
+    This is a cleanup migration, not a runtime compatibility path. New
+    packages never contain the obsolete executable and never query its name.
+    """
+    if not install_dir:
+        return
+    old_exe = os.path.join(install_dir, _OBSOLETE_RELAY_EXECUTABLE)
+    try:
+        if os.path.isfile(old_exe):
+            _run_hidden([old_exe, "stop"], timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        _run_hidden(["sc.exe", "stop", _OBSOLETE_RELAY_SERVICE_NAME], timeout=30)
+        _run_hidden(["sc.exe", "delete", _OBSOLETE_RELAY_SERVICE_NAME], timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    for relative_path in _OBSOLETE_RELAY_FILES:
+        path = os.path.join(install_dir, relative_path)
+        try:
+            if os.path.isfile(path):
+                os.chmod(path, 0o666)
+                os.remove(path)
+        except OSError:
+            continue
 
 
 def _remove_legacy_scale_services():
@@ -712,16 +752,17 @@ def _install(target_dir, display_name, icon_preset="yangguofu"):
     old_display_name = _registry_display_name() or APP_DISPLAY_NAME
     _remove_legacy_scale_services()
     was_running = _service_running()
-    printer_relay_was_running = False
-    for service_name in (PRINTER_RELAY_SERVICE_NAME, LEGACY_PRINTER_RELAY_SERVICE_NAME):
-        try:
-            result = _run_hidden(["sc.exe", "query", service_name], timeout=20)
-            output = ((result.stdout or b"") + (result.stderr or b"")).decode("mbcs", errors="ignore")
-            printer_relay_was_running = printer_relay_was_running or (
-                result.returncode == 0 and ("RUNNING" in output.upper() or "运行" in output)
-            )
-        except (OSError, UnicodeError, subprocess.SubprocessError):
-            pass
+    try:
+        relay_query = _run_hidden(["sc.exe", "query", PRINTER_RELAY_SERVICE_NAME], timeout=20)
+        relay_output = ((relay_query.stdout or b"") + (relay_query.stderr or b"")).decode("mbcs", errors="ignore")
+        printer_relay_was_running = relay_query.returncode == 0 and (
+            "RUNNING" in relay_output.upper() or "运行" in relay_output
+        )
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        printer_relay_was_running = False
+    _remove_obsolete_printer_relay_artifacts(old_dir or target_dir)
+    if old_dir and _norm(old_dir) != _norm(target_dir):
+        _remove_obsolete_printer_relay_artifacts(target_dir)
     if old_dir and _norm(old_dir) != _norm(target_dir):
         _stop_service(old_dir, remove=True)
         _stop_printer_relay_service(old_dir, remove=True)

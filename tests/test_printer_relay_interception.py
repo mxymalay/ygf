@@ -7,17 +7,17 @@ from unittest import mock
 
 from PyQt5.QtCore import QCoreApplication
 
-from core.takeout_interceptor import (
-    TakeoutPrintInterceptor,
+from core.printer_relay_interceptor import (
+    PrinterRelayInterceptor,
     build_takeout_escpos_ticket,
     escpos_payload_to_text,
     parse_and_sort_takeout_text,
     parse_official_pos_text,
 )
-from core.takeout_jobs import TakeoutJobStore
-from core.takeout_capture import capture_print_payload
-from core.takeout_proxy_host import TakeoutProxyHost, TakeoutProxyController, _is_process_alive
-from core.takeout_relay import MODE_COMPATIBILITY, enhanced_mode_eligibility, validate_relay_config
+from core.printer_relay_jobs import PrinterRelayJobStore
+from core.printer_relay_capture import capture_print_payload
+from core.printer_relay_host import PrinterRelayHost, PrinterRelayController, _is_process_alive
+from core.printer_relay_mode import MODE_COMPATIBILITY, enhanced_mode_eligibility, validate_relay_config
 
 
 SAMPLE = """美团外卖 #18存根联
@@ -49,7 +49,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
             path = capture_print_payload(
                 b"\x1b@" + SAMPLE.encode("gbk") + b"\x1dV\x01",
                 dict(parsed, payload_type="raw_escpos"),
-                {"takeout_capture_enabled": True, "takeout_capture_max_files": 4},
+                {"printer_relay_capture_enabled": True, "printer_relay_capture_max_files": 4},
                 capture_dir=directory,
             )
             self.assertTrue(path.endswith(".bin"))
@@ -66,7 +66,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
             path = capture_print_payload(
                 b"\x1b@POS#001",
                 {"payload_type": "raw_escpos", "payment_status": "unknown"},
-                {"takeout_capture_max_files": 2},
+                {"printer_relay_capture_max_files": 2},
                 capture_dir=directory,
             )
             self.assertTrue(path.endswith(".bin"))
@@ -152,13 +152,13 @@ class TakeoutInterceptionTests(unittest.TestCase):
                 "合计 45.50\n应付 45.50\n实付 45.50\n支付成功")
         parsed = parse_official_pos_text(text)
         eligible = enhanced_mode_eligibility(
-            {"takeout_interceptor_enabled": True}, {"running": True}, parsed
+            {"printer_relay_enabled": True}, {"running": True}, parsed
         )
         self.assertTrue(eligible["eligible"])
 
     def test_unknown_external_print_can_be_confirmed_by_later_paid_print(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+            store = PrinterRelayJobStore(os.path.join(directory, "jobs.json"))
             first = parse_official_pos_text(
                 "美团外卖\n订单号：TRANS-1\n肥牛 x 1\n合计 12.00\n实付 12.00"
             )
@@ -174,7 +174,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
         parsed = parse_and_sort_takeout_text(SAMPLE + "\n支付成功")
         self.assertEqual(parsed["payment_status"], "paid")
         eligible = enhanced_mode_eligibility(
-            {"takeout_interceptor_enabled": True},
+            {"printer_relay_enabled": True},
             {"running": True},
             parsed,
         )
@@ -183,7 +183,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
     def test_missing_payment_evidence_stays_compatibility(self):
         parsed = parse_and_sort_takeout_text(SAMPLE)
         eligible = enhanced_mode_eligibility(
-            {"takeout_interceptor_enabled": True},
+            {"printer_relay_enabled": True},
             {"running": True},
             parsed,
         )
@@ -192,8 +192,8 @@ class TakeoutInterceptionTests(unittest.TestCase):
 
     def test_relay_validation_blocks_queue_physical_loop(self):
         report = validate_relay_config({
-            "takeout_proxy_port": 9101,
-            "takeout_proxy_queue_name": "Same",
+            "printer_relay_port": 9101,
+            "printer_relay_queue_name": "Same",
             "printer_name": "same",
         }, check_windows=False)
         self.assertFalse(report["ok"])
@@ -212,7 +212,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
         port = probe.getsockname()[1]
         probe.close()
 
-        proxy = TakeoutPrintInterceptor({"takeout_interceptor_enabled": True, "takeout_proxy_port": port})
+        proxy = PrinterRelayInterceptor({"printer_relay_enabled": True, "printer_relay_port": port})
         received = []
         proxy.order_intercepted.connect(received.append)
         self.assertTrue(proxy.start())
@@ -231,7 +231,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
 
     def test_job_store_deduplicates_without_touching_sales_ledger(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+            store = PrinterRelayJobStore(os.path.join(directory, "jobs.json"))
             parsed = parse_and_sort_takeout_text(SAMPLE)
             first, created = store.create_or_get(parsed, SAMPLE)
             second, created_again = store.create_or_get(parsed, SAMPLE)
@@ -244,7 +244,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
 
     def test_job_store_uses_stable_fingerprint_when_raw_print_changes(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+            store = PrinterRelayJobStore(os.path.join(directory, "jobs.json"))
             first = parse_and_sort_takeout_text(SAMPLE)
             second = dict(first)
             second["raw_text"] = SAMPLE.replace("实付：￥34.50", "实付：￥34.50\n打印时间：12:01")
@@ -256,7 +256,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
 
     def test_verified_amount_total_excludes_unknown_payment_jobs(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+            store = PrinterRelayJobStore(os.path.join(directory, "jobs.json"))
             parsed = parse_and_sort_takeout_text(SAMPLE + "\n支付成功")
             paid, _ = store.create_or_get(parsed, SAMPLE + "\n支付成功")
             unknown_parsed = parse_and_sort_takeout_text(SAMPLE)
@@ -265,7 +265,7 @@ class TakeoutInterceptionTests(unittest.TestCase):
 
     def test_same_order_amount_change_is_audited_without_recounting(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+            store = PrinterRelayJobStore(os.path.join(directory, "jobs.json"))
             first = parse_and_sort_takeout_text(SAMPLE + "\n支付成功")
             second = dict(first)
             second["order_amount"] = 99.0
@@ -278,14 +278,14 @@ class TakeoutInterceptionTests(unittest.TestCase):
     def test_detached_host_forwards_without_a_widget(self):
         """The host owns forwarding; the PyQt page is not in this path."""
         config = {
-            "takeout_interceptor_enabled": True,
-            "takeout_proxy_port": 19091,
-            "takeout_proxy_queue_name": "YGF 外卖中继",
+            "printer_relay_enabled": True,
+            "printer_relay_port": 19091,
+            "printer_relay_queue_name": "YGF 外卖中继",
             "printer_name": "真实热敏打印机",
-            "takeout_auto_print": True,
-            "takeout_kitchen_copies": 1,
-            "takeout_cust_copies": 1,
-            "takeout_categories": [{"id": "food", "name": "菜品", "keywords": ["牛", "可乐"]}],
+            "printer_relay_auto_print": True,
+            "printer_relay_kitchen_copies": 1,
+            "printer_relay_cust_copies": 1,
+            "printer_relay_categories": [{"id": "food", "name": "菜品", "keywords": ["牛", "可乐"]}],
         }
 
         class FakePrinter:
@@ -300,10 +300,10 @@ class TakeoutInterceptionTests(unittest.TestCase):
                 return True
 
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch("core.takeout_proxy_host.load_config", return_value=config), \
-                    mock.patch("core.takeout_proxy_host.ReceiptPrinter", FakePrinter):
-                host = TakeoutProxyHost()
-                host.jobs = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+            with mock.patch("core.printer_relay_host.load_config", return_value=config), \
+                    mock.patch("core.printer_relay_host.ReceiptPrinter", FakePrinter):
+                host = PrinterRelayHost()
+                host.jobs = PrinterRelayJobStore(os.path.join(directory, "jobs.json"))
                 host._handle_order({"raw_text": SAMPLE})
 
             job = host.jobs.get_recent(1)[0]
@@ -314,9 +314,9 @@ class TakeoutInterceptionTests(unittest.TestCase):
 
     def test_parse_failure_forwards_original_payload(self):
         config = {
-            "takeout_interceptor_enabled": True,
-            "takeout_proxy_port": 19092,
-            "takeout_proxy_queue_name": "YGF 外卖中继",
+            "printer_relay_enabled": True,
+            "printer_relay_port": 19092,
+            "printer_relay_queue_name": "YGF 外卖中继",
             "printer_name": "真实热敏打印机",
         }
 
@@ -332,10 +332,10 @@ class TakeoutInterceptionTests(unittest.TestCase):
                 return True
 
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch("core.takeout_proxy_host.load_config", return_value=config), \
-                    mock.patch("core.takeout_proxy_host.ReceiptPrinter", FakePrinter):
-                host = TakeoutProxyHost()
-                host.jobs = TakeoutJobStore(os.path.join(directory, "jobs.json"))
+            with mock.patch("core.printer_relay_host.load_config", return_value=config), \
+                    mock.patch("core.printer_relay_host.ReceiptPrinter", FakePrinter):
+                host = PrinterRelayHost()
+                host.jobs = PrinterRelayJobStore(os.path.join(directory, "jobs.json"))
                 host.running = True
                 host._handle_order({"raw_text": "binary", "raw_payload": b"ORIGINAL", "parse_failed": True})
             self.assertEqual(FakePrinter.sent, [b"ORIGINAL"])
@@ -343,13 +343,13 @@ class TakeoutInterceptionTests(unittest.TestCase):
     def test_stale_relay_pid_system_error_is_treated_as_not_running(self):
         # Win7/PyInstaller can surface SystemError from os.kill(pid, 0) for
         # a stale detached-host PID.  That state must not abort POS startup.
-        with mock.patch("core.takeout_proxy_host.os.kill", side_effect=SystemError("kill error")):
+        with mock.patch("core.printer_relay_host.os.kill", side_effect=SystemError("kill error")):
             self.assertFalse(_is_process_alive(12345))
 
     def test_temporary_stop_blocks_watchdog_restart_until_explicit_start(self):
-        controller = TakeoutProxyController({
-            "takeout_interceptor_enabled": True,
-            "takeout_proxy_queue_name": "YGF 外卖中继",
+        controller = PrinterRelayController({
+            "printer_relay_enabled": True,
+            "printer_relay_queue_name": "YGF 外卖中继",
         })
         controller._temporarily_stopped = True
         self.assertFalse(controller.ensure_running())

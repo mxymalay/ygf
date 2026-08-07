@@ -18,7 +18,7 @@ try:
 except ImportError:  # Static analysis/non-Windows fallback.
     win32event = win32service = win32serviceutil = servicemanager = None
 
-from core.takeout_proxy_host import TakeoutProxyHost, request_proxy_stop, _clear_stop_request
+from core.printer_relay_host import PrinterRelayHost, request_proxy_stop, _clear_stop_request
 
 
 SERVICE_NAME = "ppposPrinterRelay"
@@ -44,7 +44,7 @@ if win32serviceutil:
             _clear_stop_request()
             servicemanager.LogInfoMsg("%s starting" % SERVICE_NAME)
             try:
-                TakeoutProxyHost().run()
+                PrinterRelayHost().run()
             finally:
                 servicemanager.LogInfoMsg("%s stopped" % SERVICE_NAME)
 else:

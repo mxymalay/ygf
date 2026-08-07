@@ -31,7 +31,7 @@ from utils.window_utils import (
     find_official_window_info,
     is_official_window_configured,
 )
-from core.takeout_relay import (
+from core.printer_relay_mode import (
     MODE_COMPATIBILITY,
     MODE_POLICY_AUTO,
     MODE_POLICY_FORCE_COMPATIBILITY,
@@ -1077,7 +1077,7 @@ class SettingsWidget(QWidget):
         grid.addWidget(self._make_label(u"中继监听端口："), 0, 0)
         self.spin_relay_listen_port = QSpinBox()
         self.spin_relay_listen_port.setRange(1024, 65535)
-        self.spin_relay_listen_port.setValue(int(self.config.get("takeout_proxy_port", 9101) or 9101))
+        self.spin_relay_listen_port.setValue(int(self.config.get("printer_relay_port", 9101) or 9101))
         grid.addWidget(self.spin_relay_listen_port, 0, 1)
         grid.addWidget(self._make_label(u"Windows 中继队列："), 1, 0)
         # Windows 队列不是只能手填：扫描本机已安装的打印队列后可以
@@ -1132,7 +1132,7 @@ class SettingsWidget(QWidget):
         self.txt_relay_serial_port.setPlaceholderText(u"例如：COM4")
         grid.addWidget(self.txt_relay_serial_port, 6, 1)
         self.chk_relay_enabled = QCheckBox(u"启用中继监听（取消勾选并保存可停用）")
-        self.chk_relay_enabled.setChecked(bool(self.config.get("takeout_interceptor_enabled", False)))
+        self.chk_relay_enabled.setChecked(bool(self.config.get("printer_relay_enabled", False)))
         grid.addWidget(self.chk_relay_enabled, 7, 1)
         capture_hint = QLabel(u"原始 .bin/.json 会自动保存，实时监控直接读取这些文件；保留数量不能为 0，否则实时监控没有文件可显示。数量越大占用磁盘越多。")
         capture_hint.setWordWrap(True)
@@ -1141,13 +1141,13 @@ class SettingsWidget(QWidget):
         grid.addWidget(self._make_label(u"最多保留采样条数："), 9, 0)
         self.spin_relay_capture_max_files = QSpinBox()
         self.spin_relay_capture_max_files.setRange(1, 10000)
-        self.spin_relay_capture_max_files.setValue(int(self.config.get("takeout_capture_max_files", 20) or 20))
+        self.spin_relay_capture_max_files.setValue(int(self.config.get("printer_relay_capture_max_files", 20) or 20))
         self.spin_relay_capture_max_files.setToolTip(u"超过数量后按时间删除最旧的采样，.bin 和 .json 成对删除。")
         grid.addWidget(self.spin_relay_capture_max_files, 9, 1)
         self.cmb_relay_mode_policy = QComboBox()
         self.cmb_relay_mode_policy.addItem(u"自动判断（推荐）", MODE_POLICY_AUTO)
         self.cmb_relay_mode_policy.addItem(u"强制兼容模式（测试/故障）", MODE_POLICY_FORCE_COMPATIBILITY)
-        policy = self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO)
+        policy = self.config.get("printer_relay_mode_policy", MODE_POLICY_AUTO)
         policy_index = self.cmb_relay_mode_policy.findData(policy)
         self.cmb_relay_mode_policy.setCurrentIndex(policy_index if policy_index >= 0 else 0)
         self.cmb_relay_mode_policy.setToolTip(u"不会提供强制增强模式；增强模式必须由已验证的官方 POS 数据自动触发。")
@@ -1469,13 +1469,13 @@ class SettingsWidget(QWidget):
         self.chk_printer_show_tags.setChecked(bool(self.config.get("printer_show_tags", True)))
         slips_grid.addWidget(self.chk_printer_show_tags, 3, 0, 1, 2)
         self.chk_printer_takeout_banner = QCheckBox(u"打包制作单显示醒目“打包”标记")
-        self.chk_printer_takeout_banner.setChecked(bool(self.config.get("printer_takeout_banner_enabled", True)))
+        self.chk_printer_takeout_banner.setChecked(bool(self.config.get("printer_packaging_banner_enabled", True)))
         slips_grid.addWidget(self.chk_printer_takeout_banner, 4, 0, 1, 2)
         slips_grid.addWidget(self._make_label(u"标记行数："), 4, 2)
-        self.spin_printer_takeout_banner_lines = QSpinBox()
-        self.spin_printer_takeout_banner_lines.setRange(0, 8)
-        self.spin_printer_takeout_banner_lines.setValue(int(self.config.get("printer_takeout_banner_lines", 3) or 0))
-        slips_grid.addWidget(self.spin_printer_takeout_banner_lines, 4, 3)
+        self.spin_printer_packaging_banner_lines = QSpinBox()
+        self.spin_printer_packaging_banner_lines.setRange(0, 8)
+        self.spin_printer_packaging_banner_lines.setValue(int(self.config.get("printer_packaging_banner_lines", 3) or 0))
+        slips_grid.addWidget(self.spin_printer_packaging_banner_lines, 4, 3)
         self.btn_save_printer_slips = QPushButton(u"保存单据与份数设置")
         self._style_touch_action_btn(self.btn_save_printer_slips, "blue")
         self.btn_save_printer_slips.clicked.connect(self._on_save_printer_slips)
@@ -1577,10 +1577,10 @@ class SettingsWidget(QWidget):
         template_grid.addWidget(self.lbl_printer_kitchen_title_dinein, 2, 0)
         self.txt_printer_kitchen_title_dinein = QLineEdit(self.config.get("printer_kitchen_title_dinein", "制作单-堂食"))
         template_grid.addWidget(self.txt_printer_kitchen_title_dinein, 2, 1)
-        self.lbl_printer_kitchen_title_takeout = self._make_label(u"打包制作单标题（旧版）：")
-        template_grid.addWidget(self.lbl_printer_kitchen_title_takeout, 3, 0)
-        self.txt_printer_kitchen_title_takeout = QLineEdit(self.config.get("printer_kitchen_title_takeout", "制作单-打包"))
-        template_grid.addWidget(self.txt_printer_kitchen_title_takeout, 3, 1)
+        self.lbl_printer_kitchen_title_packaging = self._make_label(u"打包制作单标题（旧版）：")
+        template_grid.addWidget(self.lbl_printer_kitchen_title_packaging, 3, 0)
+        self.txt_printer_kitchen_title_packaging = QLineEdit(self.config.get("printer_kitchen_title_packaging", "制作单-打包"))
+        template_grid.addWidget(self.txt_printer_kitchen_title_packaging, 3, 1)
         self.lbl_printer_kitchen_footer = self._make_label(u"制作单底部（旧版）：")
         template_grid.addWidget(self.lbl_printer_kitchen_footer, 4, 0)
         self.txt_printer_kitchen_footer = QLineEdit(self.config.get("printer_kitchen_footer", "打印时间：{time}"))
@@ -1635,7 +1635,7 @@ class SettingsWidget(QWidget):
 
     def _relay_runtime_state(self):
         parent = self.window()
-        controller = getattr(parent, "takeout_interceptor", None)
+        controller = getattr(parent, "printer_relay_controller", None)
         if controller is None:
             return {"running": False, "message": "中继控制器未加载"}
         try:
@@ -1644,12 +1644,12 @@ class SettingsWidget(QWidget):
             return {"running": False, "last_error": str(exc)}
 
     def _relay_service_controller(self):
-        controller = getattr(self.window(), "takeout_interceptor", None)
+        controller = getattr(self.window(), "printer_relay_controller", None)
         return getattr(controller, "service_controller", None)
 
     def _relay_service_action(self, action, success_text, title, message, stages):
         from ui.custom_dialog import show_info, show_warning
-        controller = getattr(self.window(), "takeout_interceptor", None)
+        controller = getattr(self.window(), "printer_relay_controller", None)
         if controller is None:
             show_warning(self, u"中继服务不可用", u"当前窗口尚未加载打印机中继控制器。")
             return
@@ -1706,7 +1706,7 @@ class SettingsWidget(QWidget):
         """Start the normal detached listener or the installed relay service."""
         from ui.custom_dialog import show_info, show_warning
         candidate = self._relay_config_from_form()
-        if not candidate.get("takeout_interceptor_enabled"):
+        if not candidate.get("printer_relay_enabled"):
             show_warning(
                 self,
                 u"中继尚未启用",
@@ -1717,7 +1717,7 @@ class SettingsWidget(QWidget):
         if report.get("errors"):
             show_warning(self, u"无法启动中继", "\n".join(report["errors"]) + u"\n\n请先修复配置并保存。")
             return
-        controller = getattr(self.window(), "takeout_interceptor", None)
+        controller = getattr(self.window(), "printer_relay_controller", None)
         if controller is None:
             show_warning(self, u"中继控制器未加载", u"请重新启动本 POS 后重试。")
             return
@@ -1746,7 +1746,7 @@ class SettingsWidget(QWidget):
     def _stop_relay_listener(self):
         """Temporarily stop the listener without disabling or clearing config."""
         from ui.custom_dialog import show_info, show_warning
-        controller = getattr(self.window(), "takeout_interceptor", None)
+        controller = getattr(self.window(), "printer_relay_controller", None)
         if controller is None:
             show_warning(self, u"中继控制器未加载", u"请重新启动本 POS 后重试。")
             return
@@ -1814,7 +1814,7 @@ class SettingsWidget(QWidget):
         """扫描本机 Windows 打印队列，并把已保存名称保留为可选项。"""
         if not hasattr(self, "cmb_relay_queue"):
             return
-        current = str(self.config.get("takeout_proxy_queue_name", "") or "").strip()
+        current = str(self.config.get("printer_relay_queue_name", "") or "").strip()
         typed = str(self.cmb_relay_queue.currentText() or "").strip()
         selected = typed or current
         self.cmb_relay_queue.blockSignals(True)
@@ -1844,11 +1844,11 @@ class SettingsWidget(QWidget):
 
     def _relay_config_from_form(self):
         config = dict(self.config)
-        config["takeout_proxy_port"] = self.spin_relay_listen_port.value()
-        config["takeout_proxy_queue_name"] = self.cmb_relay_queue.currentText().strip()
-        config["takeout_interceptor_enabled"] = self.chk_relay_enabled.isChecked()
-        config["takeout_capture_max_files"] = self.spin_relay_capture_max_files.value()
-        config["takeout_relay_mode_policy"] = self.cmb_relay_mode_policy.currentData() or MODE_POLICY_AUTO
+        config["printer_relay_port"] = self.spin_relay_listen_port.value()
+        config["printer_relay_queue_name"] = self.cmb_relay_queue.currentText().strip()
+        config["printer_relay_enabled"] = self.chk_relay_enabled.isChecked()
+        config["printer_relay_capture_max_files"] = self.spin_relay_capture_max_files.value()
+        config["printer_relay_mode_policy"] = self.cmb_relay_mode_policy.currentData() or MODE_POLICY_AUTO
         config["printer_name"] = self.cmb_relay_printer_name.currentText().strip()
         config["printer_type"] = self.cmb_relay_printer_type.currentText().split(" - ")[0].strip()
         config["printer_ip"] = self.txt_relay_ip.text().strip()
@@ -1879,7 +1879,7 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info, show_warning
         candidate = self._relay_config_from_form()
         report = validate_relay_config(candidate, check_windows=False)
-        if report.get("errors") and candidate.get("takeout_interceptor_enabled"):
+        if report.get("errors") and candidate.get("printer_relay_enabled"):
             show_warning(self, u"中继配置异常", "\n".join(report["errors"]))
             self.config.update(candidate)
             # 即使启用条件尚未满足，也要保留用户刚填写的配置，避免
@@ -1889,7 +1889,7 @@ class SettingsWidget(QWidget):
             return
         self.config.update(candidate)
         save_config(self.config)
-        controller = getattr(self.window(), "takeout_interceptor", None)
+        controller = getattr(self.window(), "printer_relay_controller", None)
         if controller is not None:
             try:
                 controller.update_config(self.config)
@@ -1913,8 +1913,8 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info, show_warning
         candidate = self._relay_config_from_form()
         report = validate_relay_config(candidate, check_windows=True)
-        self.config["takeout_relay_last_check_at"] = report.get("checked_at", "")
-        self.config["takeout_relay_last_error"] = "; ".join(report.get("errors", []))
+        self.config["printer_relay_last_check_at"] = report.get("checked_at", "")
+        self.config["printer_relay_last_error"] = "; ".join(report.get("errors", []))
         save_config(self.config)
         self._refresh_relay_status()
         if report.get("ok"):
@@ -1950,7 +1950,7 @@ class SettingsWidget(QWidget):
             u"监听地址：127.0.0.1:%s\n\n"
             u"本按钮不会伪造官方 POS 数据，也不会代替官方 POS 出单。请现在回到官方 POS，"
             u"选择已配置的 Windows 中继队列，打印一张真实测试单；打印完成后回到本页点击“刷新中继状态”。"
-            % (state.get("port") or config.get("takeout_proxy_port") or 9101),
+            % (state.get("port") or config.get("printer_relay_port") or 9101),
         )
 
     def _refresh_relay_status(self):
@@ -1977,7 +1977,7 @@ class SettingsWidget(QWidget):
                     output_target))
         state = self._relay_runtime_state()
         running = bool(state.get("running"))
-        controller = getattr(self.window(), "takeout_interceptor", None)
+        controller = getattr(self.window(), "printer_relay_controller", None)
         temporarily_stopped = bool(getattr(controller, "_temporarily_stopped", False))
         service_state = None
         service_controller = self._relay_service_controller()
@@ -1986,10 +1986,10 @@ class SettingsWidget(QWidget):
                 service_state = service_controller.query()
             except Exception:
                 service_state = None
-        mode = state.get("mode") or self.config.get("takeout_relay_mode", MODE_COMPATIBILITY)
-        policy = state.get("mode_policy") or self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO)
-        mode_reason = state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "") or u"等待验证"
-        mode_changed = state.get("mode_changed_at") or self.config.get("takeout_relay_mode_changed_at", "") or u"暂无"
+        mode = state.get("mode") or self.config.get("printer_relay_mode", MODE_COMPATIBILITY)
+        policy = state.get("mode_policy") or self.config.get("printer_relay_mode_policy", MODE_POLICY_AUTO)
+        mode_reason = state.get("mode_reason") or self.config.get("printer_relay_mode_reason", "") or u"等待验证"
+        mode_changed = state.get("mode_changed_at") or self.config.get("printer_relay_mode_changed_at", "") or u"暂无"
         detail = state.get("last_error") or state.get("message") or (u"监听运行中" if running else u"监听未运行")
         if temporarily_stopped and not running:
             detail = u"已由用户临时关闭监听；配置未清除，点击“启动临时中继”可恢复"
@@ -2099,9 +2099,9 @@ class SettingsWidget(QWidget):
     @staticmethod
     def _load_relay_capture_records(config, state):
         """Read saved JSON sidecars and merge live-only duplicate/link flags."""
-        root = str(config.get("takeout_capture_dir") or os.path.join(DATA_DIR, "printer_relay_capture"))
+        root = str(config.get("printer_relay_capture_dir") or os.path.join(DATA_DIR, "printer_relay_capture"))
         try:
-            limit = max(1, int(config.get("takeout_capture_max_files", 20) or 20))
+            limit = max(1, int(config.get("printer_relay_capture_max_files", 20) or 20))
         except (TypeError, ValueError):
             limit = 20
         try:
@@ -2381,12 +2381,12 @@ class SettingsWidget(QWidget):
             self.lbl_printer_customer_title,
             self.lbl_printer_customer_footer,
             self.lbl_printer_kitchen_title_dinein,
-            self.lbl_printer_kitchen_title_takeout,
+            self.lbl_printer_kitchen_title_packaging,
             self.lbl_printer_kitchen_footer,
             self.txt_printer_customer_title,
             self.txt_printer_customer_footer,
             self.txt_printer_kitchen_title_dinein,
-            self.txt_printer_kitchen_title_takeout,
+            self.txt_printer_kitchen_title_packaging,
             self.txt_printer_kitchen_footer,
         )
         for field in legacy_fields:
@@ -3797,14 +3797,14 @@ class SettingsWidget(QWidget):
         self.config["printer_report_enabled"] = self.chk_printer_report.isChecked()
         self.config["printer_report_copies"] = self.spin_printer_report_copies.value()
         self.config["printer_show_tags"] = self.chk_printer_show_tags.isChecked()
-        self.config["printer_takeout_banner_enabled"] = self.chk_printer_takeout_banner.isChecked()
-        self.config["printer_takeout_banner_lines"] = self.spin_printer_takeout_banner_lines.value()
+        self.config["printer_packaging_banner_enabled"] = self.chk_printer_takeout_banner.isChecked()
+        self.config["printer_packaging_banner_lines"] = self.spin_printer_packaging_banner_lines.value()
 
     def _apply_printer_template_config(self):
         self.config["printer_customer_title"] = self.txt_printer_customer_title.text()
         self.config["printer_customer_footer"] = self.txt_printer_customer_footer.text()
         self.config["printer_kitchen_title_dinein"] = self.txt_printer_kitchen_title_dinein.text()
-        self.config["printer_kitchen_title_takeout"] = self.txt_printer_kitchen_title_takeout.text()
+        self.config["printer_kitchen_title_packaging"] = self.txt_printer_kitchen_title_packaging.text()
         self.config["printer_kitchen_footer"] = self.txt_printer_kitchen_footer.text()
         self.config["printer_report_title"] = self.txt_printer_report_title.text()
         self.config["printer_report_footer"] = self.txt_printer_report_footer.text()
@@ -5806,7 +5806,7 @@ class SettingsWidget(QWidget):
             return
         try:
             backup_config_bundle("before_reset_takeout")
-            self.config = reset_module_config(self.config, "takeout")
+            self.config = reset_module_config(self.config, "printer_relay")
             show_info(self, u"还原成功", u"【打印机中继与订单识别规则】已成功还原为出厂默认值！")
         except Exception as e:
             show_error(self, u"操作异常", f"还原配置时发生异常: {e}")

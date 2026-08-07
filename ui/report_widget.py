@@ -14,8 +14,8 @@ from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor, QFont, QTextCharFormat
 
 from core.database import Database
-from core.takeout_relay import validate_relay_config
-from core.takeout_proxy_host import STATUS_PATH
+from core.printer_relay_mode import validate_relay_config
+from core.printer_relay_host import STATUS_PATH
 
 
 class ReportWidget(QWidget):
@@ -426,7 +426,7 @@ class ReportWidget(QWidget):
         report = validate_relay_config(self.config, check_windows=False)
         if report.get("errors"):
             return {"available": False, "reason": "打印中继未配置成功：%s" % "；".join(report["errors"]), "mode_warning": mode_warning}
-        if not bool(self.config.get("takeout_interceptor_enabled")):
+        if not bool(self.config.get("printer_relay_enabled")):
             return {"available": False, "reason": "打印中继未启用，暂时没有可核验的官方 POS 数据。", "mode_warning": mode_warning}
 
         state = {}

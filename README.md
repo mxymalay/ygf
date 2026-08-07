@@ -23,7 +23,7 @@
 
 双 POS 电子秤桥接的完整安装、测试、修复与安全删除步骤见 [ScaleBridge Windows 7 操作手册](docs/scale_bridge_win7.md)，故障处理见 [ScaleBridge 故障排查](docs/scale_bridge_troubleshooting.md)。
 
-官方 POS 外卖单的 RAW 打印中继安装、测试、停用与删除步骤见 [外卖打印中继 Windows 7 操作手册](docs/takeout_proxy_win7.md)。
+官方 POS 打印中继安装、测试、停用与删除步骤见 [打印机中继 Windows 7 操作手册](docs/printer_relay_win7.md)。
 
 官方 POS 窗口首次选择、启动检测与切换规则见 [官方 POS 窗口识别](docs/official_window_setup.md)。
 

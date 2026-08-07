@@ -142,18 +142,18 @@ class MainWindow(QMainWindow):
         self._startup_checkpoint(u"正在加载报表", u"营业统计模块已准备", 53)
 
         # 页面 3: 官方 POS 打印识别与外卖格式
-        from ui.takeout_sorting_widget import TakeoutSortingWidget
-        from core.takeout_proxy_host import TakeoutProxyController
+        from ui.printer_relay_widget import PrinterRelayWidget
+        from core.printer_relay_host import PrinterRelayController
         # This object only controls a detached per-user proxy host.  It does
         # not own the TCP listener, so closing this window cannot cut off the
         # official POS's configured external-order printer channel.
-        self.takeout_interceptor = TakeoutProxyController(self.config)
-        self.takeout_page = TakeoutSortingWidget(
-            config=self.config, printer=self.sale_page.printer, interceptor=self.takeout_interceptor
+        self.printer_relay_controller = PrinterRelayController(self.config)
+        self.printer_relay_page = PrinterRelayWidget(
+            config=self.config, printer=self.sale_page.printer, interceptor=self.printer_relay_controller
         )
-        if self.config.get("takeout_interceptor_enabled", False) and self.config.get("takeout_proxy_queue_name", "").strip():
-            self.takeout_interceptor.start()
-        self.stack.addWidget(self.takeout_page)
+        if self.config.get("printer_relay_enabled", False) and self.config.get("printer_relay_queue_name", "").strip():
+            self.printer_relay_controller.start()
+        self.stack.addWidget(self.printer_relay_page)
         self._startup_checkpoint(u"正在加载打印机中继", u"打印机中继模块已准备", 62)
 
         # 页面 4: 叫号设置 (独立叫号避重菜单)
@@ -467,10 +467,10 @@ class MainWindow(QMainWindow):
 
     def _check_printer_relay_connection(self):
         """Check the configured printer-relay queue without starting it."""
-        if not bool(self.config.get("takeout_interceptor_enabled", False)):
+        if not bool(self.config.get("printer_relay_enabled", False)):
             self._hardware_check_state["printer_relay_ok"] = True
             return
-        from core.takeout_relay import validate_relay_config
+        from core.printer_relay_mode import validate_relay_config
 
         try:
             report = validate_relay_config(self.config, check_windows=True)
@@ -609,6 +609,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.sale_page.cleanup()
-        # Do not stop the detached takeout proxy here.  Official POS may still
+        # Do not stop the detached printer relay here.  Official POS may still
         # print external orders after this UI is closed or during an update.
         super().closeEvent(event)

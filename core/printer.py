@@ -603,10 +603,10 @@ class ReceiptPrinter:
         }
         
         # 如果是打包，最上方密集打印3行“打包”
-        if is_takeout and bool(self.config.get("printer_takeout_banner_enabled", True)):
+        if is_takeout and bool(self.config.get("printer_packaging_banner_enabled", True)):
             d += self.FONT_SMALL + self.ALIGN_CENTER
             try:
-                banner_lines = min(8, max(0, int(self.config.get("printer_takeout_banner_lines", 3))))
+                banner_lines = min(8, max(0, int(self.config.get("printer_packaging_banner_lines", 3))))
             except (TypeError, ValueError):
                 banner_lines = 3
             packed_line = "打包" * max(4, width // 4) + "\n"
@@ -614,7 +614,7 @@ class ReceiptPrinter:
             d += self.FONT_NORMAL
 
         # 1. 标题
-        title_key = "printer_kitchen_title_takeout" if is_takeout else "printer_kitchen_title_dinein"
+        title_key = "printer_kitchen_title_packaging" if is_takeout else "printer_kitchen_title_dinein"
         title_default = "制作单-打包" if is_takeout else "制作单-堂食"
         d += self.ALIGN_CENTER + self.BOLD_ON + self.DOUBLE_HEIGHT
         for line in self._template_lines(self.config.get(title_key, title_default), context, title_default):

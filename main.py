@@ -24,9 +24,9 @@ def main():
 
     # The RAW listener intentionally runs outside the PyQt POS process.  It
     # must remain available when the cashier closes/restarts the main screen.
-    if "--takeout-proxy-host" in sys.argv:
-        from core.takeout_proxy_host import run_takeout_proxy_host
-        sys.exit(run_takeout_proxy_host())
+    if "--printer-relay-host" in sys.argv:
+        from core.printer_relay_host import run_printer_relay_host
+        sys.exit(run_printer_relay_host())
 
     # 启用高分辨率屏幕(High DPI)自适应缩放支持 (必须在创建 QApplication 之前设置)
     if hasattr(Qt, 'AA_EnableHighDpiScaling'):

@@ -1,4 +1,4 @@
-"""Detached local host for the takeout RAW-print interception channel.
+"""Detached local host for the official-POS printer relay channel.
 
 The official POS sends an external-order job to a Windows TCP/IP queue that
 targets 127.0.0.1.  That TCP listener must *not* live in the PyQt POS process:
@@ -19,14 +19,14 @@ from datetime import datetime
 from config import BASE_DIR, DATA_DIR, MODULE_FILES, load_config, save_config
 from core.database import Database
 from core.printer import ReceiptPrinter
-from core.takeout_interceptor import (
-    TakeoutPrintInterceptor,
+from core.printer_relay_interceptor import (
+    PrinterRelayInterceptor,
     build_takeout_escpos_ticket,
     parse_official_pos_text,
 )
-from core.takeout_jobs import TakeoutJobStore
+from core.printer_relay_jobs import PrinterRelayJobStore
 from core.printer_relay_service import PrinterRelayServiceController
-from core.takeout_relay import (
+from core.printer_relay_mode import (
     MODE_COMPATIBILITY,
     MODE_ENHANCED,
     MODE_POLICY_AUTO,
@@ -150,7 +150,7 @@ def is_proxy_status_live(state, expected_port=9101, max_age_seconds=6):
 
 def _config_signature():
     result = []
-    for key in ("sys", "takeout"):
+    for key in ("sys", "printer_relay"):
         path = MODULE_FILES[key]
         try:
             stat = os.stat(path)
@@ -160,39 +160,39 @@ def _config_signature():
     return tuple(result)
 
 
-def _takeout_options(config):
-    takeout_mapping = (
-        config.get("takeout_field_mapping")
-        or config.get("takeout_pos_field_mapping")
+def _printer_relay_options(config):
+    relay_mapping = (
+        config.get("printer_relay_field_mapping")
+        or config.get("printer_relay_pos_field_mapping")
         or config.get("official_pos_field_mapping", {})
     )
     options = {
-        "mark_multi_qty_star": bool(config.get("takeout_mark_star", True)),
-        "show_prices": bool(config.get("takeout_show_prices", False)),
-        "show_address": bool(config.get("takeout_show_address", True)),
-        "show_order_time": bool(config.get("takeout_show_time", True)),
-        "show_full_order_id": bool(config.get("takeout_show_full_id", False)),
-        "show_preorder_alert": bool(config.get("takeout_show_preorder", True)),
-        "takeout_match_mode": config.get("takeout_match_mode", "contains"),
+        "mark_multi_qty_star": bool(config.get("printer_relay_mark_star", True)),
+        "show_prices": bool(config.get("printer_relay_show_prices", False)),
+        "show_address": bool(config.get("printer_relay_show_address", True)),
+        "show_order_time": bool(config.get("printer_relay_show_time", True)),
+        "show_full_order_id": bool(config.get("printer_relay_show_full_id", False)),
+        "show_preorder_alert": bool(config.get("printer_relay_show_preorder", True)),
+        "printer_relay_match_mode": config.get("printer_relay_match_mode", "contains"),
         # Used by parse_and_sort_takeout_text only.  Keep the generic mapping
         # separately so dine-in/official recognition remains independent.
-        "takeout_field_mapping": takeout_mapping,
+        "printer_relay_field_mapping": relay_mapping,
         "official_pos_field_mapping": config.get("official_pos_field_mapping", {}),
     }
-    categories = config.get("takeout_categories")
+    categories = config.get("printer_relay_categories")
     if isinstance(categories, list) and categories:
         options["custom_categories"] = categories
     return options
 
 
-class TakeoutProxyHost:
+class PrinterRelayHost:
     """Owns the listener and the physical-printer forwarding path."""
 
     def __init__(self):
         self.config = load_config()
-        self.jobs = TakeoutJobStore()
+        self.jobs = PrinterRelayJobStore()
         self.official_db = Database()
-        self.interceptor = TakeoutPrintInterceptor(self.config, on_order=self._handle_order)
+        self.interceptor = PrinterRelayInterceptor(self.config, on_order=self._handle_order)
         self.running = False
         self.started_at = _now()
         self.last_message = "正在启动打印机中继守护进程"
@@ -200,7 +200,7 @@ class TakeoutProxyHost:
         self.last_order = ""
         self.current_mode = MODE_COMPATIBILITY
         self.last_identified_at = ""
-        self.last_enhanced_success_at = str(self.config.get("takeout_relay_last_success_at", "") or "")
+        self.last_enhanced_success_at = str(self.config.get("printer_relay_last_success_at", "") or "")
         self.last_payload_type = ""
         # A small, sanitized snapshot for the settings page.  Keep raw
         # printer bytes/text in the optional capture files only; the runtime
@@ -211,8 +211,8 @@ class TakeoutProxyHost:
         # a short control/noise job.  Showing only ``last_received`` made it
         # impossible to tell which JSON file the parser was using.
         self.recent_received = []
-        self.mode_reason = str(self.config.get("takeout_relay_mode_reason", "") or "")
-        self.last_mode_change_at = str(self.config.get("takeout_relay_mode_changed_at", "") or "")
+        self.mode_reason = str(self.config.get("printer_relay_mode_reason", "") or "")
+        self.last_mode_change_at = str(self.config.get("printer_relay_mode_changed_at", "") or "")
         self._last_status_at = 0
         self._config_signature = _config_signature()
 
@@ -224,19 +224,19 @@ class TakeoutProxyHost:
         self.current_mode = mode
         self.mode_reason = reason
         if previous == mode:
-            self.config["takeout_relay_mode"] = mode
-            self.config["takeout_relay_mode_reason"] = reason
+            self.config["printer_relay_mode"] = mode
+            self.config["printer_relay_mode_reason"] = reason
             return
         changed_at = _now()
         self.last_mode_change_at = changed_at
-        policy = str(self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO)
+        policy = str(self.config.get("printer_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO)
         try:
             self.official_db.record_relay_mode_event(previous, mode, policy, reason, changed_at)
         except Exception:
             pass
-        self.config["takeout_relay_mode"] = mode
-        self.config["takeout_relay_mode_reason"] = reason
-        self.config["takeout_relay_mode_changed_at"] = changed_at
+        self.config["printer_relay_mode"] = mode
+        self.config["printer_relay_mode_reason"] = reason
+        self.config["printer_relay_mode_changed_at"] = changed_at
         try:
             save_config(self.config)
             self._config_signature = _config_signature()
@@ -254,7 +254,7 @@ class TakeoutProxyHost:
             "last_error": self.last_error,
             "last_order": self.last_order,
             "mode": self.current_mode,
-            "mode_policy": str(self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO),
+            "mode_policy": str(self.config.get("printer_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO),
             "mode_reason": self.mode_reason,
             "mode_changed_at": self.last_mode_change_at,
             "last_identified_at": self.last_identified_at,
@@ -283,7 +283,7 @@ class TakeoutProxyHost:
         self._config_signature = _config_signature()
         self.config = new_config
         self.interceptor.update_config(new_config)
-        if str(new_config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO)) != MODE_POLICY_AUTO:
+        if str(new_config.get("printer_relay_mode_policy", MODE_POLICY_AUTO)) != MODE_POLICY_AUTO:
             self._set_mode(MODE_COMPATIBILITY, "用户手动锁定兼容模式")
         if not self.interceptor.is_enabled:
             self.last_message = "配置已停用打印机中继"
@@ -310,7 +310,7 @@ class TakeoutProxyHost:
 
     def _handle_order(self, intercepted):
         raw_text = str(intercepted.get("raw_text", ""))
-        parsed = parse_official_pos_text(raw_text, _takeout_options(self.config))
+        parsed = parse_official_pos_text(raw_text, _printer_relay_options(self.config))
         raw_payload = intercepted.get("raw_payload") or b""
         self.last_payload_type = str(intercepted.get("payload_type", "binary_or_unknown") or "binary_or_unknown")
         parse_failed = bool(intercepted.get("parse_failed")) or not (
@@ -328,7 +328,7 @@ class TakeoutProxyHost:
             # The relay owns the physical output path.  Preserve the original
             # receipt whenever recognition cannot be trusted; parsing must
             # never turn into a silent print loss.
-            queue_name = str(self.config.get("takeout_proxy_queue_name", "")).strip().casefold()
+            queue_name = str(self.config.get("printer_relay_queue_name", "")).strip().casefold()
             physical_name = str(self.config.get("printer_name", "")).strip().casefold() if str(self.config.get("printer_type", "windows")).lower() == "windows" else ""
             if str(self.config.get("printer_type", "windows")).lower() == "windows" and not physical_name:
                 try:
@@ -431,7 +431,7 @@ class TakeoutProxyHost:
                 except Exception as exc:
                     self.last_error = "官方营业额入账失败：%s" % exc
                 try:
-                    self.config["takeout_relay_last_success_at"] = self.last_enhanced_success_at
+                    self.config["printer_relay_last_success_at"] = self.last_enhanced_success_at
                     save_config(self.config)
                 except Exception:
                     pass
@@ -518,7 +518,7 @@ class TakeoutProxyHost:
                     # original receipt forwarding path.
                     self.last_error = "官方营业额入账失败：%s" % exc
             try:
-                self.config["takeout_relay_last_success_at"] = self.last_enhanced_success_at
+                self.config["printer_relay_last_success_at"] = self.last_enhanced_success_at
                 save_config(self.config)
             except Exception:
                 pass
@@ -532,12 +532,12 @@ class TakeoutProxyHost:
                 self.last_message = "重复外卖单已拦截，未自动重打：" + self.last_order
             self._write_status()
             return
-        if not self.config.get("takeout_auto_print", True):
+        if not self.config.get("printer_relay_auto_print", True):
             self.last_message = "已保存外卖单，已按设置跳过自动打印：" + self.last_order
             self._write_status()
             return
 
-        queue_name = str(self.config.get("takeout_proxy_queue_name", "")).strip().casefold()
+        queue_name = str(self.config.get("printer_relay_queue_name", "")).strip().casefold()
         physical_name = str(self.config.get("printer_name", "")).strip().casefold() if str(self.config.get("printer_type", "windows")).lower() == "windows" else ""
         if str(self.config.get("printer_type", "windows")).lower() == "windows" and not physical_name:
             try:
@@ -556,8 +556,8 @@ class TakeoutProxyHost:
             self._write_status()
             return
 
-        kitchen = max(0, int(self.config.get("takeout_kitchen_copies", 1) or 0))
-        stub = max(0, int(self.config.get("takeout_cust_copies", 0) or 0))
+        kitchen = max(0, int(self.config.get("printer_relay_kitchen_copies", 1) or 0))
+        stub = max(0, int(self.config.get("printer_relay_cust_copies", 0) or 0))
         copies = kitchen + stub
         if copies <= 0:
             self.last_error = "制作联和存根联均为 0，无法自动打印"
@@ -696,7 +696,7 @@ class TakeoutProxyHost:
         receipt with a valid amount and stable order id.  If no such evidence
         exists, remain in compatibility mode and wait for a real ticket.
         """
-        if str(self.config.get("takeout_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO) != MODE_POLICY_AUTO:
+        if str(self.config.get("printer_relay_mode_policy", MODE_POLICY_AUTO) or MODE_POLICY_AUTO) != MODE_POLICY_AUTO:
             return False
         try:
             rows = self.official_db.get_official_receipts(limit=100)
@@ -753,7 +753,7 @@ class TakeoutProxyHost:
 
         restored_enhanced = self._restore_verified_mode_after_startup()
         if not restored_enhanced:
-            if str(self.config.get("takeout_relay_mode", MODE_COMPATIBILITY) or MODE_COMPATIBILITY) == MODE_ENHANCED:
+            if str(self.config.get("printer_relay_mode", MODE_COMPATIBILITY) or MODE_COMPATIBILITY) == MODE_ENHANCED:
                 self.mode_reason = "启动自检未找到可复用的已验证官方订单，等待实时验证"
             self.last_message = "中继守护进程运行中：127.0.0.1:%d" % self.interceptor.port
         self._write_status(True)
@@ -780,12 +780,12 @@ class TakeoutProxyHost:
         return 0
 
 
-def run_takeout_proxy_host():
-    """CLI entry point used by ``main.py --takeout-proxy-host``."""
-    return TakeoutProxyHost().run()
+def run_printer_relay_host():
+    """CLI entry point used by ``main.py --printer-relay-host``."""
+    return PrinterRelayHost().run()
 
 
-class TakeoutProxyController:
+class PrinterRelayController:
     """Small GUI-side controller.  It never owns the local socket itself."""
 
     def __init__(self, config):
@@ -813,7 +813,7 @@ class TakeoutProxyController:
     @property
     def port(self):
         try:
-            return int(self.config.get("takeout_proxy_port", 9101))
+            return int(self.config.get("printer_relay_port", 9101))
         except (TypeError, ValueError):
             return 9101
 
@@ -862,9 +862,9 @@ class TakeoutProxyController:
                 return False
         command = [sys.executable]
         if getattr(sys, "frozen", False):
-            command.append("--takeout-proxy-host")
+            command.append("--printer-relay-host")
         else:
-            command.extend([os.path.join(BASE_DIR, "main.py"), "--takeout-proxy-host"])
+            command.extend([os.path.join(BASE_DIR, "main.py"), "--printer-relay-host"])
         kwargs = {"cwd": BASE_DIR, "close_fds": True}
         if os.name == "nt":
             kwargs["creationflags"] = (
@@ -883,9 +883,9 @@ class TakeoutProxyController:
         """Best-effort watchdog restart with a quiet retry cooldown."""
         if self._temporarily_stopped:
             return False
-        if not self.config.get("takeout_interceptor_enabled", False):
+        if not self.config.get("printer_relay_enabled", False):
             return False
-        if not str(self.config.get("takeout_proxy_queue_name", "")).strip():
+        if not str(self.config.get("printer_relay_queue_name", "")).strip():
             return False
         if self._running:
             return True
@@ -907,7 +907,7 @@ class TakeoutProxyController:
         self.config = config
         if self._service_installed():
             try:
-                if config.get("takeout_interceptor_enabled", False):
+                if config.get("printer_relay_enabled", False):
                     self._temporarily_stopped = False
                     return self.start()
                 self.stop()
@@ -915,7 +915,7 @@ class TakeoutProxyController:
             except Exception as exc:
                 self.last_error = str(exc)
                 return False
-        if config.get("takeout_interceptor_enabled", False):
+        if config.get("printer_relay_enabled", False):
             self._temporarily_stopped = False
             return self.start()
         self.stop()

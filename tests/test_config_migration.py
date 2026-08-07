@@ -13,7 +13,7 @@ class ModularConfigMigrationTests(unittest.TestCase):
         os.makedirs(settings)
         modules = {
             "sys": os.path.join(settings, "base.json"),
-            "takeout": os.path.join(settings, "takeout.json"),
+            "printer_relay": os.path.join(settings, "printer_relay.json"),
             "algo": os.path.join(settings, "algo.json"),
             "shouqianba": os.path.join(settings, "shouqianba.json"),
         }

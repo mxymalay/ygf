@@ -185,13 +185,13 @@ def main(argv=None):
             total += 1
         elif not os.path.exists(canonical_module):
             os.makedirs(backup_dir, exist_ok=True)
-            shutil.copy2(legacy_module, os.path.join(backup_dir, "takeout.json"))
+            shutil.copy2(legacy_module, os.path.join(backup_dir, "printer_relay_legacy.json"))
             os.replace(legacy_module, canonical_module)
             print("[迁移] 已重命名配置模块：%s -> %s" % (legacy_module, canonical_module))
             total += 1
         else:
             # Both generations exist: preserve canonical values, fill only
-            # missing keys from the old file, then remove takeout.json.
+            # missing keys from the old file, then remove the old module.
             try:
                 with open(legacy_module, "r", encoding="utf-8") as stream:
                     legacy_value = json.load(stream)
@@ -203,7 +203,7 @@ def main(argv=None):
                 merged = dict(old_migrated)
                 merged.update(canonical_value)
                 os.makedirs(backup_dir, exist_ok=True)
-                shutil.copy2(legacy_module, os.path.join(backup_dir, "takeout.json"))
+                shutil.copy2(legacy_module, os.path.join(backup_dir, "printer_relay_legacy.json"))
                 shutil.copy2(canonical_module, os.path.join(backup_dir, "printer_relay.json"))
                 fd, temporary = tempfile.mkstemp(
                     prefix="printer_relay.json.", suffix=".tmp", dir=os.path.dirname(canonical_module)
