@@ -272,13 +272,14 @@ class TasteSelectionDialog(QDialog):
 
         self.setStyleSheet("QDialog { background: transparent; }")
 
-        # 草本骨汤不提供“不辣”
+        # 草本骨汤不提供“不辣”。牛骨汤类默认选择“微辣”，避免新单
+        # 没有口味标签；顾客仍可在弹窗中改成其他辣度或再次点击取消。
         if "草本骨汤" in soup_name:
             self.spicy_options = [u"原汤", u"微辣", u"中辣", u"重辣"]
         else:
             self.spicy_options = [u"不辣", u"原汤", u"微辣", u"中辣", u"重辣"]
 
-        self.selected_spice = ""
+        self.selected_spice = u"微辣" if (u"牛骨汤" in soup_name or u"骨汤" in soup_name) else ""
         self.selected_prefs = set()
         self.extra_tags = set()
         
