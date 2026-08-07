@@ -1461,7 +1461,12 @@ class SwitchSettingsWidget(QWidget):
         """)
         page_container = QWidget()
         page_container.setMinimumWidth(0)
-        page_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # The chart widgets intentionally keep a wider internal canvas for
+        # horizontal scrolling.  The page container itself must still shrink
+        # to the available viewport on narrow POS screens; otherwise that
+        # canvas width leaks into the second-level page and clips its right
+        # side when the outer horizontal scrollbar is disabled.
+        page_container.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         page_layout = QVBoxLayout(page_container)
         page_layout.setContentsMargins(16, 12, 16, 24)
         page_layout.setSpacing(18)
@@ -1848,6 +1853,7 @@ class SwitchSettingsWidget(QWidget):
         """
         self.chart_line_scroll = QScrollArea()
         self.chart_line_scroll.setWidgetResizable(True)
+        self.chart_line_scroll.setMinimumWidth(0)
         self.chart_line_scroll.setFixedHeight(540)
         self.chart_line_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.chart_line_scroll.setFrameShape(QFrame.NoFrame)
@@ -1863,6 +1869,7 @@ class SwitchSettingsWidget(QWidget):
 
         self.chart_amount_scroll = QScrollArea()
         self.chart_amount_scroll.setWidgetResizable(True)
+        self.chart_amount_scroll.setMinimumWidth(0)
         self.chart_amount_scroll.setFixedHeight(540)
         self.chart_amount_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.chart_amount_scroll.setFrameShape(QFrame.NoFrame)
@@ -1876,6 +1883,7 @@ class SwitchSettingsWidget(QWidget):
 
         self.chart_amount_hist_scroll = QScrollArea()
         self.chart_amount_hist_scroll.setWidgetResizable(True)
+        self.chart_amount_hist_scroll.setMinimumWidth(0)
         self.chart_amount_hist_scroll.setFixedHeight(390)
         self.chart_amount_hist_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.chart_amount_hist_scroll.setFrameShape(QFrame.NoFrame)
@@ -1888,6 +1896,8 @@ class SwitchSettingsWidget(QWidget):
         # 的指标。两个图都使用当天完整时间轴，因此重量模式切到金额模式
         # 后，另一张图仍能看到自己的历史记录和空白时段。
         self.route_metric_tabs = QTabWidget()
+        self.route_metric_tabs.setMinimumWidth(0)
+        self.route_metric_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.route_metric_tabs.setStyleSheet(
             "QTabWidget::pane { border: 1px solid #334155; border-radius: 8px; }"
             "QTabBar::tab { background: #1E293B; color: #CBD5E1; padding: 9px 22px; "
@@ -1928,6 +1938,7 @@ class SwitchSettingsWidget(QWidget):
         chart_hist_tip.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: normal;")
         self.chart_hist_scroll = QScrollArea()
         self.chart_hist_scroll.setWidgetResizable(True)
+        self.chart_hist_scroll.setMinimumWidth(0)
         self.chart_hist_scroll.setFixedHeight(390)
         self.chart_hist_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.chart_hist_scroll.setFrameShape(QFrame.NoFrame)
@@ -1948,7 +1959,7 @@ class SwitchSettingsWidget(QWidget):
         # 导航栏，右侧为可纵向滚动的内容区。
         section_sidebar = QFrame()
         section_sidebar.setObjectName("SwitchSidebar")
-        section_sidebar.setFixedWidth(220)
+        section_sidebar.setFixedWidth(180)
         section_sidebar.setStyleSheet("""
             QFrame#SwitchSidebar {
                 background-color: #0F172A;
@@ -1995,7 +2006,8 @@ class SwitchSettingsWidget(QWidget):
         # 将算法设置、图表、日志拆成真正独立的二级页面，避免三个区域
         # 在同一张长页面里同时展开。
         chart_panel = QWidget()
-        chart_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        chart_panel.setMinimumWidth(0)
+        chart_panel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         chart_layout = QVBoxLayout(chart_panel)
         chart_layout.setContentsMargins(10, 0, 10, 20)
         chart_layout.setSpacing(10)
@@ -2039,6 +2051,8 @@ class SwitchSettingsWidget(QWidget):
         right_panel.hide()
 
         self.section_stack = QStackedWidget()
+        self.section_stack.setMinimumWidth(0)
+        self.section_stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.section_stack.setStyleSheet("QStackedWidget { background: transparent; }")
         self.section_stack.addWidget(left_panel)
         self.section_stack.addWidget(chart_panel)

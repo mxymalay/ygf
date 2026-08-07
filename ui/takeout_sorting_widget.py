@@ -7,7 +7,8 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QStackedWidget, QTextEdit, QScrollArea
+    QComboBox, QSpinBox, QDoubleSpinBox, QTabWidget, QStackedWidget, QTextEdit,
+    QScrollArea, QSizePolicy
 )
 from core.takeout_interceptor import DEFAULT_CATEGORIES, parse_and_sort_takeout_text, build_takeout_escpos_ticket
 from core.takeout_jobs import TakeoutJobStore
@@ -121,6 +122,11 @@ class TakeoutSortingWidget(QWidget):
         scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         scroll_content = QWidget()
+        # Keep the second-level page tied to the available viewport.  Long
+        # receipt previews and format canvases must not widen the whole page
+        # on the narrow POS screen.
+        scroll_content.setMinimumWidth(0)
+        scroll_content.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         main_layout = QVBoxLayout(scroll_content)
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(14)
@@ -512,6 +518,8 @@ class TakeoutSortingWidget(QWidget):
         format_layout.addWidget(self.format_third_stack)
         self._select_format_third_section("categories")
         self.section_stack = QStackedWidget()
+        self.section_stack.setMinimumWidth(0)
+        self.section_stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.section_stack.setStyleSheet("QStackedWidget { background: transparent; }")
         self.section_stack.addWidget(initial_panel)
         self.section_stack.addWidget(format_panel)
@@ -563,7 +571,7 @@ class TakeoutSortingWidget(QWidget):
         # ── 4. 左侧二级菜单 ──
         section_sidebar = QFrame()
         section_sidebar.setObjectName("TakeoutSidebar")
-        section_sidebar.setFixedWidth(220)
+        section_sidebar.setFixedWidth(180)
         section_sidebar.setStyleSheet(
             "QFrame#TakeoutSidebar { background-color: #0F172A; border-right: 1px solid #1E293B; }"
             "QLabel { background: transparent; }"

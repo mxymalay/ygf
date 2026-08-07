@@ -503,6 +503,9 @@ class TakeoutProxyController:
         self.config = config
         self.last_error = ""
         self._last_start_attempt = 0.0
+        # A manual temporary stop must not be undone by the settings-page
+        # watchdog until the operator explicitly starts the relay again.
+        self._temporarily_stopped = False
         # The Windows service is opt-in and independently survives GUI exits
         # and reboots.  Until it is installed, retain the existing detached
         # per-user host for backwards compatibility.
@@ -545,6 +548,7 @@ class TakeoutProxyController:
         return {"running": False, "port": self.port, "message": "外卖中继守护进程未运行"}
 
     def start(self):
+        self._temporarily_stopped = False
         if self._running:
             return True
         self._last_start_attempt = time.time()
@@ -576,6 +580,8 @@ class TakeoutProxyController:
 
     def ensure_running(self):
         """Best-effort watchdog restart with a quiet retry cooldown."""
+        if self._temporarily_stopped:
+            return False
         if not self.config.get("takeout_interceptor_enabled", False):
             return False
         if not str(self.config.get("takeout_proxy_queue_name", "")).strip():
@@ -587,6 +593,7 @@ class TakeoutProxyController:
         return self.start()
 
     def stop(self):
+        self._temporarily_stopped = True
         if self._service_installed():
             try:
                 self.service_controller.stop()
@@ -600,6 +607,7 @@ class TakeoutProxyController:
         if self._service_installed():
             try:
                 if config.get("takeout_interceptor_enabled", False):
+                    self._temporarily_stopped = False
                     return self.start()
                 self.stop()
                 return True
@@ -607,6 +615,7 @@ class TakeoutProxyController:
                 self.last_error = str(exc)
                 return False
         if config.get("takeout_interceptor_enabled", False):
+            self._temporarily_stopped = False
             return self.start()
         self.stop()
         return True

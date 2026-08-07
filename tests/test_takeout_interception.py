@@ -16,7 +16,7 @@ from core.takeout_interceptor import (
 )
 from core.takeout_jobs import TakeoutJobStore
 from core.takeout_capture import capture_print_payload
-from core.takeout_proxy_host import TakeoutProxyHost, _is_process_alive
+from core.takeout_proxy_host import TakeoutProxyHost, TakeoutProxyController, _is_process_alive
 from core.takeout_relay import MODE_COMPATIBILITY, enhanced_mode_eligibility, validate_relay_config
 
 
@@ -297,6 +297,14 @@ class TakeoutInterceptionTests(unittest.TestCase):
         # a stale detached-host PID.  That state must not abort POS startup.
         with mock.patch("core.takeout_proxy_host.os.kill", side_effect=SystemError("kill error")):
             self.assertFalse(_is_process_alive(12345))
+
+    def test_temporary_stop_blocks_watchdog_restart_until_explicit_start(self):
+        controller = TakeoutProxyController({
+            "takeout_interceptor_enabled": True,
+            "takeout_proxy_queue_name": "YGF 外卖中继",
+        })
+        controller._temporarily_stopped = True
+        self.assertFalse(controller.ensure_running())
 
 
 if __name__ == "__main__":

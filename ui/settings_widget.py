@@ -411,7 +411,9 @@ class SettingsWidget(QWidget):
         # 左侧导航栏 (Left Sidebar)
         # ════════════════════════════════════════════════════════════
         sidebar = QFrame()
-        sidebar.setFixedWidth(220)
+        # Keep enough room for the labels while leaving the actual settings
+        # form usable on the narrow Win7 POS display.
+        sidebar.setFixedWidth(180)
         sidebar.setStyleSheet("""
             QFrame#SettingsSidebar {
                 background-color: #0F172A;
@@ -668,6 +670,11 @@ class SettingsWidget(QWidget):
             outer_layout.addWidget(menu_frame)
 
         wrapper = QWidget()
+        # Let the settings page follow the available viewport.  Long labels
+        # or previews must not widen the whole second-level page when the
+        # outer horizontal scrollbar is disabled.
+        wrapper.setMinimumWidth(0)
+        wrapper.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         wrapper.setStyleSheet("background: transparent;")
         wrapper_layout = QVBoxLayout(wrapper)
         wrapper_layout.setContentsMargins(20, 20, 20, 20)
@@ -1164,6 +1171,22 @@ class SettingsWidget(QWidget):
         queue_hint.setWordWrap(True)
         queue_hint.setStyleSheet("color: #94A3B8; font-size: 14px;")
         action_row.addWidget(queue_hint, 0, 1)
+        self.btn_start_relay_listener = QPushButton(u"启动临时中继")
+        self._style_touch_action_btn(self.btn_start_relay_listener, "purple")
+        self.btn_start_relay_listener.clicked.connect(self._start_relay_listener)
+        action_row.addWidget(self.btn_start_relay_listener, 1, 0)
+        listener_hint = QLabel(u"官方 POS 显示未连接时，先点击这里启动监听，再回官方 POS 打印。")
+        listener_hint.setWordWrap(True)
+        listener_hint.setStyleSheet("color: #94A3B8; font-size: 14px;")
+        action_row.addWidget(listener_hint, 1, 1)
+        self.btn_stop_relay_listener = QPushButton(u"关闭临时中继")
+        self._style_touch_action_btn(self.btn_stop_relay_listener, "danger")
+        self.btn_stop_relay_listener.clicked.connect(self._stop_relay_listener)
+        action_row.addWidget(self.btn_stop_relay_listener, 2, 0)
+        stop_hint = QLabel(u"只停止本次监听，不清除配置；需要恢复时再次点击“启动临时中继”。")
+        stop_hint.setWordWrap(True)
+        stop_hint.setStyleSheet("color: #94A3B8; font-size: 14px;")
+        action_row.addWidget(stop_hint, 2, 1)
         step2_layout.addLayout(action_row)
         layout.addWidget(step2)
 
@@ -1609,6 +1632,67 @@ class SettingsWidget(QWidget):
             u"ppposTakeoutRelay 已启动。请刷新状态并打印真实测试单。",
         )
 
+    def _start_relay_listener(self):
+        """Start the normal detached listener or the installed relay service."""
+        from ui.custom_dialog import show_info, show_warning
+        candidate = self._relay_config_from_form()
+        if not candidate.get("takeout_interceptor_enabled"):
+            show_warning(
+                self,
+                u"中继尚未启用",
+                u"请先勾选“启用中继监听”，点击保存中继配置后再启动。",
+            )
+            return
+        report = validate_relay_config(candidate, check_windows=False)
+        if report.get("errors"):
+            show_warning(self, u"无法启动中继", "\n".join(report["errors"]) + u"\n\n请先修复配置并保存。")
+            return
+        controller = getattr(self.window(), "takeout_interceptor", None)
+        if controller is None:
+            show_warning(self, u"中继控制器未加载", u"请重新启动本 POS 后重试。")
+            return
+        self.config.update(candidate)
+        save_config(self.config)
+        try:
+            started = bool(controller.start())
+        except Exception as exc:
+            started = False
+            controller.last_error = str(exc)
+        self._refresh_relay_status()
+        if not started:
+            show_warning(
+                self,
+                u"中继启动失败",
+                getattr(controller, "last_error", "") or u"未能启动监听进程，请检查端口和服务状态。",
+            )
+            return
+        QTimer.singleShot(800, self._refresh_relay_status)
+        show_info(
+            self,
+            u"中继启动请求已发送",
+            u"请稍等片刻，点击“刷新中继状态”确认监听正常；确认后回到官方 POS 打印真实测试单。",
+        )
+
+    def _stop_relay_listener(self):
+        """Temporarily stop the listener without disabling or clearing config."""
+        from ui.custom_dialog import show_info, show_warning
+        controller = getattr(self.window(), "takeout_interceptor", None)
+        if controller is None:
+            show_warning(self, u"中继控制器未加载", u"请重新启动本 POS 后重试。")
+            return
+        try:
+            controller.stop()
+        except Exception as exc:
+            show_warning(self, u"临时停止中继失败", str(exc))
+            return
+        self._refresh_relay_status()
+        show_info(
+            self,
+            u"中继已临时停止",
+            u"本次监听已停止，配置和独立服务安装状态均保留。需要恢复时点击“启动临时中继”；"
+            u"官方 POS 在停止期间会显示收银机未连接。",
+        )
+
     def _stop_relay_service(self):
         self._relay_service_action(
             lambda controller: controller.stop_service(),
@@ -1839,6 +1923,8 @@ class SettingsWidget(QWidget):
                     output_target))
         state = self._relay_runtime_state()
         running = bool(state.get("running"))
+        controller = getattr(self.window(), "takeout_interceptor", None)
+        temporarily_stopped = bool(getattr(controller, "_temporarily_stopped", False))
         service_state = None
         service_controller = self._relay_service_controller()
         if service_controller is not None:
@@ -1851,6 +1937,8 @@ class SettingsWidget(QWidget):
         mode_reason = state.get("mode_reason") or self.config.get("takeout_relay_mode_reason", "") or u"等待验证"
         mode_changed = state.get("mode_changed_at") or self.config.get("takeout_relay_mode_changed_at", "") or u"暂无"
         detail = state.get("last_error") or state.get("message") or (u"监听运行中" if running else u"监听未运行")
+        if temporarily_stopped and not running:
+            detail = u"已由用户临时关闭监听；配置未清除，点击“启动临时中继”可恢复"
         source = state.get("payload_type") or self.config.get("takeout_relay_last_identification") or u"等待真实测试单"
         identified_at = state.get("last_identified_at") or u"暂无"
         enhanced_at = state.get("last_enhanced_success_at") or u"暂无"

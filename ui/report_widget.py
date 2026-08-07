@@ -72,7 +72,7 @@ class ReportWidget(QWidget):
         # 完成订单号/金额/付款状态校验后才会进入总营业额。
         section_sidebar = QFrame()
         section_sidebar.setObjectName("ReportSidebar")
-        section_sidebar.setFixedWidth(220)
+        section_sidebar.setFixedWidth(180)
         section_sidebar.setStyleSheet(
             "QFrame#ReportSidebar { background-color: #0F172A; border-right: 1px solid #1E293B; }"
             "QLabel { background: transparent; }"
