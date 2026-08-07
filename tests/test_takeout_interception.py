@@ -16,7 +16,7 @@ from core.takeout_interceptor import (
 )
 from core.takeout_jobs import TakeoutJobStore
 from core.takeout_capture import capture_print_payload
-from core.takeout_proxy_host import TakeoutProxyHost
+from core.takeout_proxy_host import TakeoutProxyHost, _is_process_alive
 from core.takeout_relay import MODE_COMPATIBILITY, enhanced_mode_eligibility, validate_relay_config
 
 
@@ -291,6 +291,12 @@ class TakeoutInterceptionTests(unittest.TestCase):
                 host.running = True
                 host._handle_order({"raw_text": "binary", "raw_payload": b"ORIGINAL", "parse_failed": True})
             self.assertEqual(FakePrinter.sent, [b"ORIGINAL"])
+
+    def test_stale_relay_pid_system_error_is_treated_as_not_running(self):
+        # Win7/PyInstaller can surface SystemError from os.kill(pid, 0) for
+        # a stale detached-host PID.  That state must not abort POS startup.
+        with mock.patch("core.takeout_proxy_host.os.kill", side_effect=SystemError("kill error")):
+            self.assertFalse(_is_process_alive(12345))
 
 
 if __name__ == "__main__":

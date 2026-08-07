@@ -89,7 +89,12 @@ def _is_process_alive(pid):
         return True
     except PermissionError:
         return True
-    except (OSError, TypeError, ValueError):
+    # On some Win7/PyInstaller combinations, os.kill(pid, 0) can leak a
+    # SystemError with an already-set Windows error instead of raising the
+    # usual OSError when the detached relay PID is stale or inaccessible.
+    # A dead/unqueryable relay is a normal degraded state and must never stop
+    # the main POS window from starting.
+    except (OSError, SystemError, TypeError, ValueError):
         return False
 
 
