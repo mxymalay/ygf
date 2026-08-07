@@ -1164,7 +1164,9 @@ class SaleWidget(QWidget):
         # amount of space, so a large inter-column gap makes the product
         # panel (and its checkout buttons) needlessly squeeze.
         layout.setSpacing(10)
-        layout.setContentsMargins(12, 12, 12, 12)
+        # Match the compact menu spacing: the category strip should sit the
+        # same distance from the top edge as it does from the product grid.
+        layout.setContentsMargins(12, 6, 12, 12)
 
         # ── 左侧：开单面板 ──
         left_card = QFrame()
