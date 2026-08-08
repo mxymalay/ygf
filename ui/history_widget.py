@@ -578,6 +578,13 @@ class HistoryWidget(QWidget):
         meta_row.addWidget(self.lbl_header_title)
         
         meta_row.addStretch()
+
+        self.lbl_header_source = QLabel(u"官方系统")
+        self.lbl_header_source.setStyleSheet(
+            "font-size: 13px; font-weight: bold; color: #DBEAFE; "
+            "background: #2563EB; border: none; border-radius: 14px; padding: 6px 12px;"
+        )
+        meta_row.addWidget(self.lbl_header_source)
         
         self.lbl_header_status = QLabel(u"已支付")
         self.lbl_header_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #EA580C; border: none;")
@@ -799,7 +806,7 @@ class HistoryWidget(QWidget):
                     subtotal = unit_price * qty
                 cart_items.append({
                     "name": name,
-                    "tag": "官方小票商品",
+                    "tag": str(detail.get("flavor", "") or ""),
                     "type": "official",
                     "qty": qty,
                     "price": unit_price,
@@ -984,6 +991,7 @@ class HistoryWidget(QWidget):
 
         if not record:
             self.lbl_header_title.setText(u"📋 取餐号：---")
+            self.lbl_header_source.setText(u"---")
             self.lbl_order_no.setText(u"订单编号：---")
             self.lbl_create_time.setText(u"创建时间：---")
             self.lbl_item_total.setText(u"商品金额：¥ 0.00")
@@ -1007,6 +1015,15 @@ class HistoryWidget(QWidget):
         self.lbl_header_title.setText(u"取餐号：%s" % call_no)
         self.lbl_order_no.setText(u"订单编号：%s" % display_order_no)
         self.lbl_create_time.setText(u"创建时间：%s" % str(record.get("created_at", "")))
+        is_official_record = self._record_source(record) == "official"
+        self.lbl_header_source.setText(u"官方系统" if is_official_record else u"私域 POS")
+        self.lbl_header_source.setStyleSheet(
+            "font-size: 13px; font-weight: bold; color: #DBEAFE; "
+            "background: #2563EB; border: none; border-radius: 14px; padding: 6px 12px;"
+            if is_official_record else
+            "font-size: 13px; font-weight: bold; color: #D1FAE5; "
+            "background: #059669; border: none; border-radius: 14px; padding: 6px 12px;"
+        )
         
         # 结账方式
         pm = record.get("payment_method", "")
@@ -1106,10 +1123,11 @@ class HistoryWidget(QWidget):
                 if item_type == "soup":
                     w = item.get("weight", record.get("weight_kg", 0.0))
                     lbl_qty = QLabel("x%.3f kg" % w)
-                elif item_type == "official" and "subtotal" in item and item.get("price", 0.0):
+                elif item_type == "official" and "subtotal" in item and item.get("subtotal") is not None:
                     qty_value = float(item.get("qty", 1.0) or 1.0)
                     qty_text = ("%.3f" % qty_value).rstrip("0").rstrip(".")
-                    lbl_qty = QLabel("x%s" % qty_text)
+                    unit = str(item.get("spec", "") or "")
+                    lbl_qty = QLabel("x%s%s" % (qty_text, (" " + unit) if unit else ""))
                 else:
                     lbl_qty = QLabel("x%d" % qty)
 
@@ -1144,10 +1162,10 @@ class HistoryWidget(QWidget):
                     unit_price = item.get("price", 0.0)
                     qty_value = item.get("qty", 1.0)
                     if subtotal is not None and unit_price:
-                        lbl_price = QLabel(u"¥ %.2f × %s = ¥ %.2f" % (
+                        lbl_price = QLabel(u"¥ %.2f" % float(subtotal))
+                        lbl_price.setToolTip(u"单价：¥ %.2f × 数量：%s" % (
                             float(unit_price),
                             ("%.3f" % float(qty_value)).rstrip("0").rstrip("."),
-                            float(subtotal),
                         ))
                     else:
                         lbl_price = QLabel(u"官方小票")

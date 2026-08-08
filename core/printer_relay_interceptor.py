@@ -206,6 +206,9 @@ def _extract_official_pos_item_details(raw_text: str):
             continue
         cleaned = clean_dish_name(name)
         if cleaned:
+            if cleaned in ("原汤", "不辣", "微辣", "中辣", "重辣", "特辣", "少辣") and details:
+                details[-1]["flavor"] = cleaned
+                continue
             details.append(_official_pos_item_detail(line, cleaned))
     return details
 
