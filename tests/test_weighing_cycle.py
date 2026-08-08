@@ -380,6 +380,25 @@ class WeighingCycleTests(unittest.TestCase):
         SaleWidget._on_weight_update(dummy, 0.4)
         self.assertFalse(dummy._is_stable)
 
+    def test_ui_keeps_reader_stability_for_small_weight_drift(self):
+        """A 1.240 -> 1.242 kg drift is inside the reader's 0.01 kg window."""
+        dummy = SimpleNamespace(
+            current_weight=1.240,
+            _last_weight_monotonic=0.0,
+            _has_scale_reading=True,
+            _stable_weight=1.240,
+            _is_stable=True,
+            config={"stable_threshold": 0.01},
+            lbl_weight=_Label(),
+            lbl_scale_status_icon=_Label(),
+        )
+        SaleWidget._on_weight_update(dummy, 1.242)
+        self.assertTrue(dummy._is_stable)
+        # A real movement outside the same configured band still invalidates
+        # the check before the next stable window is emitted.
+        SaleWidget._on_weight_update(dummy, 1.260)
+        self.assertFalse(dummy._is_stable)
+
     def test_switch_progress_is_for_current_channel_cycle_not_daily_ratio(self):
         controller = self._controller()
         controller._target_private_ratio = 30.0

@@ -463,10 +463,10 @@ class ReportWidget(QWidget):
     def _official_report_summary(self):
         """Return database-backed official totals even when relay is offline.
 
-        The relay state controls completeness warnings, not whether already
-        verified rows can be viewed.  A compatibility interval may miss some
-        future official tickets, but it must not hide official or total data
-        that is already present in the ledger.
+        The relay state is shown as context, not used as the completeness
+        verdict.  Official/total confidence comes from the persisted daily
+        call-number sequence; existing rows remain visible even if the relay
+        is currently offline or in compatibility mode.
         """
         mode_details = self._mode_reliability_details()
         mode_warning = mode_details.get("warning") or ""
@@ -474,6 +474,12 @@ class ReportWidget(QWidget):
             summary = self.db.get_official_stats_by_date(self.start_date_str, self.end_date_str) or {}
         except Exception as exc:
             return {"available": False, "reason": "官方数据库读取失败：%s" % exc, "mode_warning": mode_warning}
+
+        # Completeness is determined from the official POS call-number
+        # sequence persisted in the database, not from the current relay
+        # mode.  Compatibility mode can miss an order, while a continuous
+        # sequence proves that the selected ledger range was fully captured.
+        continuity = self._official_order_continuity_details()
 
         state = {}
         try:
@@ -503,12 +509,147 @@ class ReportWidget(QWidget):
                 "summary": summary,
                 "source_note": source_note,
                 "mode_warning": mode_warning,
+                "continuity": continuity,
                 "risk_periods": mode_details.get("periods") or [],
             }
         return {
             "available": False,
             "reason": "当前时间段没有获取到已验证的官方 POS 营业数据。",
             "mode_warning": mode_warning,
+            "continuity": continuity,
+        }
+
+    @staticmethod
+    def _format_call_number(value):
+        try:
+            return str(int(value)).zfill(3)
+        except (TypeError, ValueError):
+            return str(value or "")
+
+    @classmethod
+    def _format_missing_call_numbers(cls, numbers):
+        """Compact missing numbers into readable ranges for a narrow card."""
+        values = sorted(set(int(item) for item in numbers))
+        if not values:
+            return ""
+        parts = []
+        start = previous = values[0]
+        for value in values[1:]:
+            if value == previous + 1:
+                previous = value
+                continue
+            parts.append(
+                cls._format_call_number(start)
+                if start == previous
+                else "%s-%s" % (cls._format_call_number(start), cls._format_call_number(previous))
+            )
+            start = previous = value
+        parts.append(
+            cls._format_call_number(start)
+            if start == previous
+            else "%s-%s" % (cls._format_call_number(start), cls._format_call_number(previous))
+        )
+        return "、".join(parts)
+
+    def _official_order_continuity_details(self):
+        """Check whether persisted official call numbers are continuous.
+
+        Official numbers restart each day, so each calendar day is checked
+        independently from 1 to its highest number observed in the database.
+        """
+        getter = getattr(self.db, "get_official_receipts", None)
+        if not callable(getter):
+            return {"evaluated": False, "trusted": True, "warning": "", "message": ""}
+
+        try:
+            rows = getter(self.start_date_str, self.end_date_str, limit=20000) or []
+        except Exception:
+            rows = []
+        # Revenue rows are retained as a fallback for stores upgraded from a
+        # schema that has verified revenue but no generic receipt observation.
+        revenue_getter = getattr(self.db, "get_official_revenue_by_date", None)
+        if callable(revenue_getter):
+            try:
+                rows += revenue_getter(
+                    self.start_date_str, self.end_date_str, include_refunded=True
+                ) or []
+            except Exception:
+                pass
+
+        start_day = str(self.start_date_str or "")[:10]
+        end_day = str(self.end_date_str or start_day)[:10]
+        by_day = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            observed = str(
+                row.get("observed_at") or row.get("created_at") or ""
+            ).replace("T", " ")
+            day = observed[:10]
+            if not day or (start_day and day < start_day) or (end_day and day > end_day):
+                continue
+            # A receipt can be a kitchen reprint; the number is still valid
+            # evidence of the official sequence and is deduplicated below.
+            match = re.search(r"(\d+)", str(row.get("order_no") or ""))
+            if not match:
+                continue
+            try:
+                number = int(match.group(1))
+            except (TypeError, ValueError):
+                continue
+            if number < 1 or number > 9999:
+                continue
+            by_day.setdefault(day, set()).add(number)
+
+        if not by_day:
+            return {
+                "evaluated": True,
+                "trusted": False,
+                "warning": "无法取得数据库中的官方取餐号，无法确认官方账本是否完整。",
+                "message": "官方取餐号连续性：无法确认",
+                "latest": [],
+                "missing": [],
+            }
+
+        latest = []
+        missing = []
+        for day in sorted(by_day):
+            numbers = by_day[day]
+            high = max(numbers)
+            absent = [number for number in range(1, high + 1) if number not in numbers]
+            latest.append({"date": day, "number": high})
+            if absent:
+                missing.append({"date": day, "numbers": absent, "latest": high})
+
+        if missing:
+            detail_lines = []
+            for item in missing:
+                detail_lines.append(
+                    "%s 缺失官方号：%s（数据库最新：%s）"
+                    % (
+                        item["date"],
+                        ReportWidget._format_missing_call_numbers(item["numbers"]),
+                        ReportWidget._format_call_number(item["latest"]),
+                    )
+                )
+            warning = "官方订单号不连续，当前官方账本/混合账本不可信。\n%s" % "\n".join(detail_lines)
+            message = warning
+            trusted = False
+        else:
+            latest_text = "、".join(
+                "%s：%s" % (item["date"], ReportWidget._format_call_number(item["number"]))
+                for item in latest
+            )
+            warning = ""
+            message = "官方订单号已连续入账至：%s，当前账本可信。" % latest_text
+            trusted = True
+        return {
+            "evaluated": True,
+            "trusted": trusted,
+            "warning": warning,
+            "message": message,
+            "latest": latest,
+            "missing": missing,
         }
 
     @staticmethod
@@ -789,24 +930,36 @@ class ReportWidget(QWidget):
             total_amount = float(a_sum or 0.0) + official_amount
             total_count = int(count or 0) + official_count
             mode_warning = official.get("mode_warning") or ""
-            official_status = u"已验证；统计期间曾降级" if mode_warning else u"已验证"
-            total_status = u"不完整风险；统计期间曾降级" if mode_warning else u"完整"
-            official_hint = u"来源：打印中继；只统计订单号、金额和付款状态均已校验的官方 POS 订单。"
-            total_hint = u"总营业额 = 私域 POS 已支付流水 + 已验证官方 POS 营业额。"
+            continuity = official.get("continuity") or {}
+            continuity_evaluated = bool(continuity.get("evaluated"))
+            continuity_trusted = bool(continuity.get("trusted"))
+            continuity_message = continuity.get("message") or ""
+            continuity_warning = continuity.get("warning") or ""
+            if continuity_evaluated:
+                official_status = u"可信" if continuity_trusted else u"不可信"
+                total_status = u"可信" if continuity_trusted else u"不可信"
+            else:
+                official_status = u"已验证"
+                total_status = u"已验证"
+            official_hint = u"来源：官方订单号连续性；只统计已存入数据库的官方 POS 订单。"
+            total_hint = u"总营业额 = 私域 POS 已支付流水 + 已验证官方 POS 营业额。可信度按官方订单号连续性判断。"
+            if continuity_message:
+                official_hint += u"\n\n" + continuity_message
+                total_hint += u"\n\n" + continuity_message
             source_note = official.get("source_note") or ""
             if source_note:
                 official_hint += u"\n\n" + source_note
                 total_hint += u"\n\n" + source_note
             if mode_warning:
-                official_hint += u"\n\n" + mode_warning
-                total_hint += u"\n\n" + mode_warning
+                official_hint += u"\n\n运行提示：" + mode_warning
+                total_hint += u"\n\n运行提示：" + mode_warning
             self._set_channel_card(
                 self.official_report_card,
                 u"数据状态：%s" % official_status,
                 u"¥ %.2f" % official_amount,
                 u"订单数量：%d" % official_count,
                 official_hint,
-                risk_text=mode_warning or source_note,
+                risk_text=continuity_warning if continuity_evaluated else "",
             )
             self._set_channel_card(
                 self.total_report_card,
@@ -814,14 +967,17 @@ class ReportWidget(QWidget):
                 u"¥ %.2f" % total_amount,
                 u"订单数量：%d" % total_count,
                 total_hint,
-                risk_text=mode_warning or source_note,
+                risk_text=continuity_warning if continuity_evaluated else "",
             )
-            self.lbl_official_notice.setText(mode_warning)
+            notice_text = continuity_warning
+            if mode_warning:
+                notice_text = (notice_text + "\n\n" if notice_text else "") + mode_warning
+            self.lbl_official_notice.setText(notice_text)
             # This is a warning about the completeness of official/total
             # figures.  The private-POS report is independent of that source
             # and must stay clean even when the selected period had a relay
             # fallback event.
-            self.lbl_official_notice.setVisible(bool(mode_warning) and self.report_section != "private")
+            self.lbl_official_notice.setVisible(bool(notice_text) and self.report_section != "private")
             self.btn_go_private_report.setVisible(False)
         else:
             reason = official.get("reason") or u"未获取到官方 POS 数据"

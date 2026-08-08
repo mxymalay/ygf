@@ -2932,9 +2932,20 @@ class SaleWidget(QWidget):
             self.lbl_mock_action.hide()
         if hasattr(self, "lbl_scale_diagnose_action"):
             self.lbl_scale_diagnose_action.hide()
-        # Only ScaleReader's configured N-sample stability window may mark a
-        # reading stable.  Two matching UI frames are not sufficient.
-        if abs(weight_kg - self._stable_weight) > 0.005:
+        # Keep the UI gate in the same tolerance band as ScaleReader.  The
+        # reader confirms stability when its configured N-sample window stays
+        # within ``stable_threshold`` (default 0.01 kg).  The old hard-coded
+        # 0.005 kg comparison could turn a valid 1.240 -> 1.242 kg stable
+        # reading back into "识别中" even though the reader had not revoked
+        # stability; larger movement still clears the green check immediately.
+        try:
+            stable_tolerance = max(
+                0.001,
+                float(getattr(self, "config", {}).get("stable_threshold", 0.01)),
+            )
+        except (TypeError, ValueError):
+            stable_tolerance = 0.01
+        if abs(weight_kg - self._stable_weight) > stable_tolerance:
             self._is_stable = False
             self.lbl_scale_status_icon.setText(u"⏳")
             self.lbl_scale_status_icon.setStyleSheet("font-size: 24px; font-weight: bold; color: #FEF08A; border: none; background: transparent;")
