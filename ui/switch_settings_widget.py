@@ -8,15 +8,64 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QStackedWidget,
     QTabWidget,
-    QSizePolicy
+    QSizePolicy,
+    QSlider,
 )
 from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF, QDate, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
 from datetime import datetime, timedelta
 from html import escape
+from math import hypot
 from config import save_config
 from core.app_logger import log_event, CAT_SYSTEM, read_logs, CAT_DECISION, CAT_SWITCH, CAT_PANIC
 from ui.custom_dialog import show_info, show_warning, show_question
+
+
+def _spread_chart_points(points, plot, radius=5.0):
+    """Visually separate coincident points while keeping their data x/y."""
+    placed = []
+    result = []
+    offsets = (0.0, -8.0, 8.0, -16.0, 16.0, -24.0, 24.0, -32.0, 32.0)
+    min_distance = radius * 2.0 + 3.0
+    for point in points:
+        chosen = point
+        for offset in offsets:
+            candidate_x = max(plot.left() + radius, min(plot.right() - radius, point.x() + offset))
+            candidate = QPointF(candidate_x, point.y())
+            if all(hypot(candidate.x() - other.x(), candidate.y() - other.y()) >= min_distance for other in placed):
+                chosen = candidate
+                break
+        placed.append(chosen)
+        result.append(chosen)
+    return result
+
+
+def _draw_dynamic_chart_label(painter, point, text, color, plot, occupied, font, index=0):
+    """Place a value label in the nearest free slot around a point."""
+    metrics = QFontMetrics(font)
+    width = max(42.0, float(metrics.horizontalAdvance(str(text))) + 8.0)
+    height = max(18.0, float(metrics.height()) + 2.0)
+    y_offsets = (-12.0, 8.0, -30.0, 26.0, -48.0, 44.0, -66.0, 62.0)
+    x_offsets = (6.0, -width - 6.0, 12.0, -width - 12.0)
+    candidates = []
+    start = index % len(y_offsets)
+    for step in range(len(y_offsets)):
+        dy = y_offsets[(start + step) % len(y_offsets)]
+        for dx in x_offsets:
+            x = max(plot.left() + 2.0, min(plot.right() - width - 2.0, point.x() + dx))
+            y = max(plot.top() + 2.0, min(plot.bottom() - height - 2.0, point.y() + dy))
+            candidates.append(QRectF(x, y, width, height))
+    chosen = None
+    for rect in candidates:
+        if not any(rect.adjusted(-2, -2, 2, 2).intersects(previous) for previous in occupied):
+            chosen = rect
+            break
+    if chosen is None:
+        chosen = candidates[0]
+    painter.setPen(color)
+    painter.setFont(font)
+    painter.drawText(chosen, Qt.AlignLeft | Qt.AlignVCenter, str(text))
+    occupied.append(chosen.adjusted(-2, -2, 2, 2))
 
 
 class TouchSpinBox(QWidget):
@@ -107,6 +156,7 @@ class DecisionWeightChart(QWidget):
     MANUAL_COLOR = QColor("#A855F7")
     GRID_COLOR = QColor("#26364D")
     TEXT_COLOR = QColor("#CBD5E1")
+    MAX_HORIZONTAL_SCALE = 12.0
     point_clicked = pyqtSignal(object)
 
     def __init__(self, parent=None, chart_mode="combined"):
@@ -119,6 +169,7 @@ class DecisionWeightChart(QWidget):
         self.app_sessions = []
         self.session_state_known = False
         self.pre_start_state_unknown = False
+        self.prior_shutdown_at = None
         self._hit_targets = []
         self.histogram_metadata = {}
         self._scroll_dragging = False
@@ -180,6 +231,7 @@ class DecisionWeightChart(QWidget):
             self.timeline_end = None
             self.app_sessions = []
             self.session_state_known = False
+            self.prior_shutdown_at = None
             self.update()
             return
         day_end = day_start + timedelta(days=1)
@@ -214,6 +266,7 @@ class DecisionWeightChart(QWidget):
             or self.app_sessions != sessions
             or self.session_state_known != bool(starts or prior_shutdowns)
             or self.pre_start_state_unknown != pre_start_state_unknown
+            or self.prior_shutdown_at != (max(prior_shutdowns) if prior_shutdowns else None)
         )
         self.timeline_start = day_start
         self.timeline_end = day_end
@@ -223,6 +276,7 @@ class DecisionWeightChart(QWidget):
         # red closed interval.
         self.session_state_known = bool(starts or prior_shutdowns)
         self.pre_start_state_unknown = pre_start_state_unknown
+        self.prior_shutdown_at = max(prior_shutdowns) if prior_shutdowns else None
         if state_changed:
             self.update()
 
@@ -277,11 +331,12 @@ class DecisionWeightChart(QWidget):
             midpoint = left + (right - left) / 2.0
             state = self._app_state_at(midpoint)
             if state == "closed":
-                # Downtime is context, not a second data series: keep the
-                # red interruption line hairline-thin and translucent so it
-                # stays behind the blue/green cumulative curve.
-                closed_color = QColor(239, 68, 68, 105)
-                pen = QPen(closed_color, 1.0, Qt.DashLine)
+                # Downtime is context, not a second data series: keep the red
+                # interruption line visibly dashed while it stays behind the
+                # blue/green cumulative curve.
+                closed_color = QColor(239, 68, 68, 230)
+                pen = QPen(closed_color, 2.2, Qt.CustomDashLine)
+                pen.setDashPattern([8.0, 5.0])
             else:
                 pen = QPen(QColor("#64748B"), 1.8, Qt.SolidLine)
             painter.setPen(pen)
@@ -412,7 +467,7 @@ class DecisionWeightChart(QWidget):
             value = float(scale)
         except (TypeError, ValueError):
             value = 1.0
-        value = max(0.75, min(4.0, value))
+        value = max(0.75, min(self.MAX_HORIZONTAL_SCALE, value))
         if abs(value - self.horizontal_scale) < 0.0001:
             return
 
@@ -564,7 +619,7 @@ class DecisionWeightChart(QWidget):
             legend_items = (
                 ("line", self.OFFICIAL_COLOR, u"官方"),
                 ("line", self.PRIVATE_COLOR, u"私有"),
-                ("line", self.MANUAL_COLOR, u"手动切换"),
+                ("circle", self.MANUAL_COLOR, u"手动切换"),
                 ("circle", QColor("#F59E0B"), u"程序开启"),
                 ("square", QColor("#EF4444"), u"程序关闭"),
             )
@@ -705,7 +760,10 @@ class DecisionWeightChart(QWidget):
         points = self._normalised_events()
         route_points = [item for item in points if item[2] in ("official", "private")]
         cumulative_points = self._cumulative_route_points(route_points)
-        if not points:
+        # Even without a route point, a known startup/shutdown timeline is
+        # meaningful: it should show the overnight closed interval instead of
+        # replacing the chart with the empty-state message.
+        if not points and not self.app_sessions and not self.session_state_known:
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(QFont("Microsoft YaHei", 13))
             painter.drawText(outer, Qt.AlignCenter, u"今日暂无称重决策记录")
@@ -733,8 +791,8 @@ class DecisionWeightChart(QWidget):
         # 以当天实际有数据的时间范围绘图，而不是固定 00:00-24:00。
         # 例如所有操作都发生在 00:00-01:00 时，固定全天坐标会把点
         # 和手动切换线全部压在左边；保留少量两侧留白即可看清趋势。
-        data_start = min(item[0] for item in points)
-        timeline_ends = [item[0] for item in points]
+        data_start = min(item[0] for item in points) if points else self.timeline_start
+        timeline_ends = [item[0] for item in points] if points else [data_start]
         timeline_ends.extend(end for _start, end in self.downtime_gaps)
         data_end = max(timeline_ends)
         if self.timeline_start is not None and self.timeline_end is not None:
@@ -775,6 +833,12 @@ class DecisionWeightChart(QWidget):
             y = plot.bottom() - (weight / y_max) * plot.height()
             return QPointF(x, y)
 
+        if not cumulative_points and (self.session_state_known or self.app_sessions):
+            # No route has happened yet today, but the process state is known;
+            # render the full closed/open timeline at zero so the overnight
+            # red dashed interval remains visible.
+            self._draw_state_segments(painter, start_time, end_time, 0.0, point_for)
+
         # One continuous cumulative curve: start at zero, then connect every
         # chronological bowl to the next total. The segment colour belongs to
         # the bowl that made that increment, so blue/green changes explain the
@@ -805,22 +869,39 @@ class DecisionWeightChart(QWidget):
             previous_route_when = when
             previous_cumulative = cumulative_weight
 
+        # Keep the cumulative line connected after the last weighing.  App
+        # startup/shutdown markers can occur later in the selected day; the
+        # total stays flat there, with the segment colour indicating whether
+        # the process was open or closed.
+        if previous_route_when is not None and previous_route_when < end_time:
+            self._draw_state_segments(
+                painter, previous_route_when, end_time, previous_cumulative, point_for
+            )
+
         value_font = QFont("Microsoft YaHei", 8)
-        for index, (when, cumulative_weight, channel, _event, bowl_weight) in enumerate(cumulative_points):
+        true_points = [point_for(when, cumulative_weight) for when, cumulative_weight, _channel, _event, _weight in cumulative_points]
+        display_points = _spread_chart_points(true_points, plot, radius=4.5)
+        occupied_value_labels = [
+            QRectF(point.x() - 7.0, point.y() - 7.0, 14.0, 14.0)
+            for point in display_points
+        ]
+        for index, ((when, cumulative_weight, channel, _event, bowl_weight), point, display_point) in enumerate(zip(cumulative_points, true_points, display_points)):
             color = self.PRIVATE_COLOR if channel == "private" else self.OFFICIAL_COLOR
-            point = point_for(when, cumulative_weight)
+            if abs(display_point.x() - point.x()) > 0.5:
+                painter.setPen(QPen(QColor("#64748B"), 1, Qt.DotLine))
+                painter.drawLine(point, display_point)
             painter.setPen(QPen(QColor("#0F172A"), 1))
             painter.setBrush(QBrush(color))
-            painter.drawEllipse(point, 4.5, 4.5)
+            painter.drawEllipse(display_point, 4.5, 4.5)
             if not self._scroll_dragging:
-                painter.setPen(color)
-                value_y = point.y() - 8 if index % 2 == 0 else point.y() + 16
-                painter.setFont(value_font)
-                painter.drawText(QPointF(point.x() + 5, max(plot.top() + 10, min(plot.bottom() - 2, value_y))),
-                                 "+%.3f" % bowl_weight)
+                _draw_dynamic_chart_label(
+                    painter, display_point, "+%.3f" % bowl_weight, color,
+                    plot, occupied_value_labels, value_font, index,
+                )
             self._hit_targets.append({
                 "kind": "weighing",
-                "point": point,
+                "point": display_point,
+                "data_point": point,
                 "when": when,
                 "event": dict(_event or {}),
                 "weight_kg": bowl_weight,
@@ -1047,6 +1128,7 @@ class DecisionAmountChart(QWidget):
     MANUAL_COLOR = QColor("#A855F7")
     GRID_COLOR = QColor("#26364D")
     TEXT_COLOR = QColor("#CBD5E1")
+    MAX_HORIZONTAL_SCALE = 12.0
     point_clicked = pyqtSignal(object)
 
     def __init__(self, parent=None):
@@ -1055,6 +1137,9 @@ class DecisionAmountChart(QWidget):
         self.timeline_start = None
         self.timeline_end = None
         self.app_sessions = []
+        self.session_state_known = False
+        self.pre_start_state_unknown = False
+        self.prior_shutdown_at = None
         self._hit_targets = []
         self.horizontal_scale = 1.0
         self.setMinimumHeight(520)
@@ -1088,6 +1173,8 @@ class DecisionAmountChart(QWidget):
             self.timeline_start = None
             self.timeline_end = None
             self.app_sessions = []
+            self.session_state_known = False
+            self.pre_start_state_unknown = False
         else:
             day_end = day_start + timedelta(days=1)
 
@@ -1101,6 +1188,7 @@ class DecisionAmountChart(QWidget):
 
             starts = parse_times(startup_times)
             stops = parse_times(shutdown_times, include_before_day=True)
+            prior_shutdowns = [value for value in stops if value < day_start]
             sessions = []
             for started_at in starts:
                 following_stops = [value for value in stops if value > started_at]
@@ -1110,7 +1198,132 @@ class DecisionAmountChart(QWidget):
             self.timeline_start = day_start
             self.timeline_end = day_end
             self.app_sessions = sessions
+            self.session_state_known = bool(starts or prior_shutdowns)
+            self.prior_shutdown_at = max(prior_shutdowns) if prior_shutdowns else None
+            route_times = [
+                self._event_time(row) for row in self.events
+                if self._event_time(row) is not None
+            ]
+            self.pre_start_state_unknown = bool(
+                starts and route_times and min(route_times) < starts[0]
+            )
         self.update()
+
+    def _app_state_at(self, when):
+        if not self.session_state_known:
+            return "unknown"
+        if self.pre_start_state_unknown and self.app_sessions:
+            first_start = min(start for start, _end in self.app_sessions)
+            if when < first_start:
+                return "unknown"
+        for started_at, ended_at in self.app_sessions:
+            if started_at <= when < ended_at:
+                return "open"
+        return "closed"
+
+    def _interval_has_closed_state(self, start, end):
+        if not self.session_state_known or end <= start:
+            return False
+        boundaries = [start, end]
+        for session_start, session_end in self.app_sessions:
+            if start < session_start < end:
+                boundaries.append(session_start)
+            if start < session_end < end:
+                boundaries.append(session_end)
+        boundaries = sorted(set(boundaries))
+        return any(
+            self._app_state_at(boundaries[index] + (boundaries[index + 1] - boundaries[index]) / 2.0) == "closed"
+            for index in range(len(boundaries) - 1)
+        )
+
+    def _draw_state_segments(self, painter, start, end, cumulative_amount, point_for):
+        """Draw the cumulative line through open/closed periods.
+
+        A closed interval is deliberately rendered as a red dashed segment,
+        matching the weight chart, while the cumulative amount remains flat.
+        """
+        if end <= start:
+            return
+        boundaries = [start, end]
+        if self.session_state_known:
+            for session_start, session_end in self.app_sessions:
+                if start < session_start < end:
+                    boundaries.append(session_start)
+                if start < session_end < end:
+                    boundaries.append(session_end)
+        boundaries = sorted(set(boundaries))
+        for index in range(len(boundaries) - 1):
+            left, right = boundaries[index], boundaries[index + 1]
+            midpoint = left + (right - left) / 2.0
+            if self._app_state_at(midpoint) == "closed":
+                pen = QPen(QColor(239, 68, 68, 230), 2.2, Qt.CustomDashLine)
+                pen.setDashPattern([8.0, 5.0])
+            else:
+                pen = QPen(QColor("#64748B"), 1.8, Qt.SolidLine)
+            painter.setPen(pen)
+            painter.drawLine(point_for(left, cumulative_amount), point_for(right, cumulative_amount))
+
+    def _scroll_viewport_anchor(self):
+        parent = self.parentWidget()
+        while parent is not None:
+            if hasattr(parent, "horizontalScrollBar") and hasattr(parent, "viewport"):
+                try:
+                    return float(parent.horizontalScrollBar().value()), float(parent.viewport().width())
+                except RuntimeError:
+                    break
+            parent = parent.parentWidget()
+        return 0.0, float(self.width())
+
+    def _draw_fixed_header(self, painter, y, title, title_font):
+        """Keep the amount title/legend fixed while the data canvas scrolls."""
+        scroll_x, viewport_width = self._scroll_viewport_anchor()
+        visible_width = max(120.0, min(float(self.width()), viewport_width))
+        left = scroll_x + 42.0
+        right = scroll_x + visible_width - 18.0
+        legend_font = QFont("Microsoft YaHei", 11)
+        title_width = float(QFontMetrics(title_font).horizontalAdvance(title))
+        legend_items = (
+            ("line", self.OFFICIAL_COLOR, u"官方"),
+            ("line", self.PRIVATE_COLOR, u"私有"),
+            ("circle", self.MANUAL_COLOR, u"手动切换"),
+            ("circle", QColor("#F59E0B"), u"程序开启"),
+            ("square", QColor("#EF4444"), u"程序关闭"),
+        )
+        item_widths = [
+            (44.0 if kind == "line" else 28.0)
+            + float(QFontMetrics(legend_font).horizontalAdvance(label)) + 18.0
+            for kind, _color, label in legend_items
+        ]
+        legend_width = sum(item_widths) + 12.0 * (len(item_widths) - 1)
+        legend_x = left + title_width + 34.0
+        if legend_x + legend_width > right:
+            legend_x = max(left + title_width + 12.0, right - legend_width)
+        painter.save()
+        painter.setPen(self.TEXT_COLOR)
+        painter.setFont(title_font)
+        painter.drawText(QPointF(left, float(y)), title)
+        cursor_x = legend_x
+        for index, (kind, color, label) in enumerate(legend_items):
+            painter.save()
+            if kind == "line":
+                painter.setPen(QPen(color, 4))
+                painter.drawLine(QPointF(cursor_x, float(y) - 7), QPointF(cursor_x + 34.0, float(y) - 7))
+                text_x = cursor_x + 42.0
+            else:
+                painter.setPen(QPen(QColor("#0F172A"), 1))
+                painter.setBrush(color)
+                center = QPointF(cursor_x + 10.0, float(y) - 7.0)
+                if kind == "circle":
+                    painter.drawEllipse(center, 5.0, 5.0)
+                else:
+                    painter.drawRect(QRectF(center.x() - 5.0, center.y() - 5.0, 10.0, 10.0))
+                text_x = cursor_x + 22.0
+            painter.setPen(self.TEXT_COLOR)
+            painter.setFont(legend_font)
+            painter.drawText(QPointF(text_x, float(y)), label)
+            painter.restore()
+            cursor_x += item_widths[index] + 12.0
+        painter.restore()
 
     def zoom_in_horizontal(self):
         self._set_zoom(self.horizontal_scale * 1.25)
@@ -1123,7 +1336,7 @@ class DecisionAmountChart(QWidget):
 
     def _set_zoom(self, value):
         try:
-            self.horizontal_scale = max(0.75, min(4.0, float(value)))
+            self.horizontal_scale = max(0.75, min(self.MAX_HORIZONTAL_SCALE, float(value)))
         except (TypeError, ValueError):
             self.horizontal_scale = 1.0
         self.setMinimumWidth(max(720, min(30000, int((110 + max(1, len(self.events)) * 84) * self.horizontal_scale))))
@@ -1163,7 +1376,7 @@ class DecisionAmountChart(QWidget):
                 points.append((when, amount, channel, event_row))
         points.sort(key=lambda item: item[0])
         manual_points.sort(key=lambda item: item[0])
-        if not points and not manual_points and not self.app_sessions:
+        if not points and not manual_points and not self.app_sessions and not self.session_state_known:
             painter.setPen(self.TEXT_COLOR)
             painter.setFont(QFont("Microsoft YaHei", 13))
             painter.drawText(outer, Qt.AlignCenter, u"今日暂无已入账金额记录（金额图不使用估算金额）")
@@ -1176,33 +1389,22 @@ class DecisionAmountChart(QWidget):
         end_time = self.timeline_end or (max(all_times) + timedelta(minutes=5))
         total_seconds = max(1.0, (end_time - start_time).total_seconds())
         width = float(self.width())
-        plot = QRectF(84, 58, max(120.0, width - 108), max(320.0, float(self.height()) - 124.0))
-        cumulative = {"official": 0.0, "private": 0.0}
-        series = {"official": [], "private": []}
+        plot = QRectF(68, 48, max(120.0, width - 92), max(320.0, float(self.height()) - 105.0))
+
+        # 金额图与重量图共用一条按时间排序的累计曲线；每一段的颜色
+        # 表示产生该笔金额的渠道，而不是把官方/私域拆成两条从零开始的线。
+        cumulative_points = []
+        running_total = 0.0
         for when, amount, channel, row in points:
-            cumulative[channel] += amount
-            series[channel].append((when, cumulative[channel], amount, row))
-        y_max = max([item[1] for values in series.values() for item in values] or [0.01])
-        y_max = max(1.0, ((y_max * 1.15) * 100.0 + 0.9999) // 1 / 100.0)
+            running_total += amount
+            cumulative_points.append((when, running_total, channel, row, amount))
+        y_max = max([item[1] for item in cumulative_points] or [0.01])
+        y_max = max(1.0, ((y_max * 1.12) * 100.0 + 0.9999) // 1 / 100.0)
 
         title_font = QFont("Microsoft YaHei", 12)
         title_font.setBold(True)
         title_font.setPointSize(16)
-        painter.setPen(self.TEXT_COLOR)
-        painter.setFont(title_font)
-        painter.drawText(QPointF(42.0, 32.0), u"按金额分流：官方/私域已入账金额（¥）")
-        legend_font = QFont("Microsoft YaHei", 10)
-        painter.setFont(legend_font)
-        painter.setPen(self.OFFICIAL_COLOR)
-        painter.drawText(QPointF(440.0, 32.0), u"■ 官方")
-        painter.setPen(self.PRIVATE_COLOR)
-        painter.drawText(QPointF(520.0, 32.0), u"■ 私域")
-        painter.setPen(self.MANUAL_COLOR)
-        painter.drawText(QPointF(590.0, 32.0), u"● 手动")
-        painter.setPen(QColor("#F59E0B"))
-        painter.drawText(QPointF(665.0, 32.0), u"○ 开启")
-        painter.setPen(QColor("#EF4444"))
-        painter.drawText(QPointF(740.0, 32.0), u"□ 关闭")
+        self._draw_fixed_header(painter, 28, u"按金额分流：官方/私域累计金额（¥）", title_font)
 
         painter.setFont(QFont("Microsoft YaHei", 9))
         for index in range(5):
@@ -1211,48 +1413,81 @@ class DecisionAmountChart(QWidget):
             painter.setPen(QPen(self.GRID_COLOR, 1))
             painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
             painter.setPen(self.TEXT_COLOR)
-            painter.drawText(QRectF(5, y - 8, 72, 16), Qt.AlignRight | Qt.AlignVCenter, "¥%.2f" % (y_max * ratio))
+            painter.drawText(QRectF(5, y - 8, 57, 16), Qt.AlignRight | Qt.AlignVCenter, "¥%.2f" % (y_max * ratio))
 
         def point_for(when, value):
             x = plot.left() + ((when - start_time).total_seconds() / total_seconds) * plot.width()
             y = plot.bottom() - (value / y_max) * plot.height()
             return QPointF(x, y)
 
-        for channel, color in (("official", self.OFFICIAL_COLOR), ("private", self.PRIVATE_COLOR)):
-            values = series[channel]
-            previous = point_for(start_time, 0.0)
-            for when, total, amount, row in values:
-                current = point_for(when, total)
+        if not cumulative_points and (self.session_state_known or self.app_sessions):
+            self._draw_state_segments(painter, start_time, end_time, 0.0, point_for)
+
+        previous_point = point_for(start_time, 0.0)
+        previous_when = None
+        previous_total = 0.0
+        amount_true_points = [point_for(when, total) for when, total, _channel, _row, _amount in cumulative_points]
+        amount_display_points = _spread_chart_points(amount_true_points, plot, radius=5.0)
+        occupied_amount_labels = [
+            QRectF(point.x() - 8.0, point.y() - 8.0, 16.0, 16.0)
+            for point in amount_display_points
+        ]
+        amount_font = QFont("Microsoft YaHei", 9)
+        for index, ((when, total, channel, row, amount), current, display_current) in enumerate(zip(cumulative_points, amount_true_points, amount_display_points)):
+            color = self.PRIVATE_COLOR if channel == "private" else self.OFFICIAL_COLOR
+            if previous_when is None:
+                self._draw_state_segments(painter, start_time, when, 0.0, point_for)
                 painter.setPen(QPen(color, 2.8))
-                painter.drawLine(previous, current)
-                painter.setPen(QPen(QColor("#0F172A"), 1))
-                painter.setBrush(QBrush(color))
-                painter.drawEllipse(current, 5.0, 5.0)
-                painter.setPen(color)
-                painter.setFont(QFont("Microsoft YaHei", 9))
-                painter.drawText(QPointF(current.x() + 6, max(plot.top() + 12, min(plot.bottom() - 2, current.y() - 8))), "+¥%.2f" % amount)
-                self._hit_targets.append({
-                    "kind": "amount_revenue",
-                    "point": current,
-                    "when": when,
-                    "event": dict(row or {}),
-                    "channel": channel,
-                    "amount": amount,
-                    "cumulative_amount": total,
-                })
-                previous = current
+                painter.drawLine(point_for(when, 0.0), current)
+            elif self._interval_has_closed_state(previous_when, when):
+                # 关闭到重新开启之间保持累计金额不变，并用红色虚线明确标记。
+                self._draw_state_segments(painter, previous_when, when, previous_total, point_for)
+                painter.setPen(QPen(color, 2.8))
+                painter.drawLine(point_for(when, previous_total), current)
+            else:
+                painter.setPen(QPen(color, 2.8))
+                painter.drawLine(previous_point, current)
+            if abs(display_current.x() - current.x()) > 0.5:
+                painter.setPen(QPen(QColor("#64748B"), 1, Qt.DotLine))
+                painter.drawLine(current, display_current)
+            painter.setPen(QPen(QColor("#0F172A"), 1))
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(display_current, 5.0, 5.0)
+            _draw_dynamic_chart_label(
+                painter, display_current, "+¥%.2f" % amount, color,
+                plot, occupied_amount_labels, amount_font, index,
+            )
+            self._hit_targets.append({
+                "kind": "amount_revenue",
+                "point": display_current,
+                "data_point": current,
+                "when": when,
+                "event": dict(row or {}),
+                "channel": channel,
+                "amount": amount,
+                "cumulative_amount": total,
+            })
+            previous_point = current
+            previous_when = when
+            previous_total = total
+
+        # Continue the flat cumulative amount line through the remainder of
+        # the selected day so later app state markers never float unconnected.
+        if previous_when is not None and previous_when < end_time:
+            self._draw_state_segments(
+                painter, previous_when, end_time, previous_total, point_for
+            )
 
         # A manual switch is a routing boundary, not revenue.  Keep it on
         # the amount chart nevertheless, so the operator can understand why
         # the amount series has a blank/changed segment after switching.
         for when, row in manual_points:
-            cumulative_at = {channel: 0.0 for channel in ("official", "private")}
-            for point_when, _amount, channel, _event in points:
+            cumulative_at = 0.0
+            for point_when, _amount, _channel, _event in points:
                 if point_when > when:
                     break
-                cumulative_at[channel] += _amount
-            marker_value = max(cumulative_at.values() or [0.0])
-            marker_point = point_for(when, marker_value)
+                cumulative_at += _amount
+            marker_point = point_for(when, cumulative_at)
             painter.setPen(QPen(QColor("#0F172A"), 1))
             painter.setBrush(self.MANUAL_COLOR)
             painter.drawEllipse(marker_point, 5.5, 5.5)
@@ -1269,12 +1504,12 @@ class DecisionAmountChart(QWidget):
         # 与重量图一致地标出程序启动/关闭节点。它们只是状态边界，
         # 不属于营业额，因此不在点旁边绘制文字，避免窄屏重叠。
         def cumulative_at(when):
-            totals = {"official": 0.0, "private": 0.0}
-            for point_when, _amount, channel, _event in points:
+            total = 0.0
+            for point_when, _amount, _channel, _event in points:
                 if point_when > when:
                     break
-                totals[channel] += _amount
-            return max(totals.values() or [0.0])
+                total += _amount
+            return total
 
         for started_at, ended_at in self.app_sessions:
             for when, marker_kind in ((started_at, "app_start"), (ended_at, "app_shutdown")):
@@ -1289,7 +1524,6 @@ class DecisionAmountChart(QWidget):
                 else:
                     painter.drawRect(QRectF(marker_point.x() - 5.0, marker_point.y() - 5.0, 10.0, 10.0))
                 self._hit_targets.append({"kind": marker_kind, "point": marker_point, "when": when})
-
         painter.setPen(QPen(QColor("#64748B"), 1))
         painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
         painter.setPen(self.TEXT_COLOR)
@@ -1573,7 +1807,7 @@ class SwitchSettingsWidget(QWidget):
         left_panel.setStyleSheet("""
             QGroupBox {
                 background-color: #1E293B; border-radius: 12px; border: 1px solid #334155;
-                margin-top: 24px; padding-top: 24px;
+                margin-top: 0px; padding-top: 24px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin; subcontrol-position: top left;
@@ -1599,7 +1833,10 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.setSpacing(20)
 
         # --- 场景 1：总控与智能过滤 ---
-        grp1 = QGroupBox(u"总控与智能过滤设置")
+        # The four section tabs above already identify these groups; keeping
+        # another boxed title here duplicated the navigation and consumed
+        # valuable vertical space on narrow screens.
+        grp1 = QGroupBox()
         lay1 = QFormLayout(grp1)
         lay1.setContentsMargins(20, 30, 20, 20)
         lay1.setSpacing(16)
@@ -1634,6 +1871,54 @@ class SwitchSettingsWidget(QWidget):
         lbl_amount_ratio_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
         lbl_amount_ratio_tip.setWordWrap(True)
         lay1.addRow(QLabel(), lbl_amount_ratio_tip)
+
+        # Ratio hysteresis: a horizontal slider makes the switching cadence
+        # understandable at a glance and remains usable on a narrow screen.
+        self.sld_switch_hysteresis = QSlider(Qt.Horizontal)
+        self.sld_switch_hysteresis.setRange(0, 30)
+        self.sld_switch_hysteresis.setSingleStep(1)
+        self.sld_switch_hysteresis.setPageStep(5)
+        self.sld_switch_hysteresis.setMinimumHeight(30)
+        self.sld_switch_hysteresis.setToolTip(
+            u"0% 最快；数值越大，目标比例附近会多攒一些再切换，最多 30%"
+        )
+        self.sld_switch_hysteresis.setStyleSheet("""
+            QSlider::groove:horizontal {
+                height: 8px; background: #334155; border-radius: 4px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #0EA5E9; border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                width: 22px; margin: -8px 0; border-radius: 11px;
+                background: #38BDF8; border: 2px solid #E0F2FE;
+            }
+        """)
+        self.lbl_switch_hysteresis_value = QLabel()
+        self.lbl_switch_hysteresis_value.setMinimumWidth(72)
+        self.lbl_switch_hysteresis_value.setAlignment(Qt.AlignCenter)
+        self.lbl_switch_hysteresis_value.setStyleSheet(
+            "font-size: 16px; color: #38BDF8; font-weight: bold;"
+        )
+        hysteresis_row = QWidget()
+        hysteresis_layout = QHBoxLayout(hysteresis_row)
+        hysteresis_layout.setContentsMargins(0, 0, 0, 0)
+        hysteresis_layout.setSpacing(10)
+        hysteresis_layout.addWidget(self.sld_switch_hysteresis, 1)
+        hysteresis_layout.addWidget(self.lbl_switch_hysteresis_value)
+        self.sld_switch_hysteresis.valueChanged.connect(self._update_switch_hysteresis_label)
+        lay1.addRow(QLabel(u"自动切换缓冲（越大越慢）:"), hysteresis_row)
+        lbl_hysteresis_tip = QLabel(
+            u"0% 为最快切换；缓冲越大，达到目标比例附近后会继续攒单再切换，减少来回跳转，不改变目标占比。"
+        )
+        lbl_hysteresis_tip.setStyleSheet("font-size: 13px; color: #64748B; font-weight: normal;")
+        lbl_hysteresis_tip.setWordWrap(True)
+        # The slider's right-hand column can be narrow on Win7/narrow
+        # screens. QLabel otherwise keeps its one-line size hint and clips
+        # the wrapped explanation when the following form row is laid out.
+        lbl_hysteresis_tip.setMinimumHeight(54)
+        lbl_hysteresis_tip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        lay1.addRow(QLabel(), lbl_hysteresis_tip)
         
         self.sp_weight = TouchDoubleSpinBox(0.25, 0.00, 5.00, 0.05, " kg")
         lay1.addRow(QLabel(u"轻量小单切回门限:"), self.sp_weight)
@@ -1668,7 +1953,7 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.addWidget(grp1)
 
         # --- 场景 2：连续收银防打断 ---
-        grp2 = QGroupBox(u"连续收银防打断保护")
+        grp2 = QGroupBox()
         lay2 = QFormLayout(grp2)
         lay2.setContentsMargins(20, 30, 20, 20)
         lay2.setSpacing(16)
@@ -1690,7 +1975,7 @@ class SwitchSettingsWidget(QWidget):
         form_vlayout.addWidget(grp2)
 
         # --- 场景 3：异常抖动与人工干预 ---
-        grp3 = QGroupBox(u"秤具防抖与人工干预门限")
+        grp3 = QGroupBox()
         lay3 = QFormLayout(grp3)
         lay3.setContentsMargins(20, 30, 20, 20)
         lay3.setSpacing(16)
@@ -1729,7 +2014,7 @@ class SwitchSettingsWidget(QWidget):
             form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
         # --- 场景 4：订单收尾 ---
-        grp4 = QGroupBox(u"结账收尾动作设置")
+        grp4 = QGroupBox()
         lay4 = QFormLayout(grp4)
         lay4.setContentsMargins(20, 30, 20, 20)
         lay4.setSpacing(16)
@@ -1929,9 +2214,21 @@ class SwitchSettingsWidget(QWidget):
         self.weight_histogram_chart.point_clicked.connect(
             self._on_weight_chart_point_clicked, Qt.QueuedConnection
         )
-        btn_zoom_out.clicked.connect(self.weight_line_chart.zoom_out_horizontal)
-        btn_zoom_reset.clicked.connect(self.weight_line_chart.reset_horizontal_zoom)
-        btn_zoom_in.clicked.connect(self.weight_line_chart.zoom_in_horizontal)
+        # The zoom controls sit above both metric tabs.  Keep the two line
+        # charts at the same horizontal scale, so pressing 放大 while viewing
+        # the amount tab does not silently zoom an invisible chart instead.
+        btn_zoom_out.clicked.connect(lambda: (
+            self.weight_line_chart.zoom_out_horizontal(),
+            self.amount_chart.zoom_out_horizontal(),
+        ))
+        btn_zoom_reset.clicked.connect(lambda: (
+            self.weight_line_chart.reset_horizontal_zoom(),
+            self.amount_chart.reset_horizontal_zoom(),
+        ))
+        btn_zoom_in.clicked.connect(lambda: (
+            self.weight_line_chart.zoom_in_horizontal(),
+            self.amount_chart.zoom_in_horizontal(),
+        ))
         # Keep the old attribute as a compatibility alias for callers that
         # only need to refresh or focus the main line chart.
         self.weight_chart = self.weight_line_chart
@@ -2537,7 +2834,11 @@ class SwitchSettingsWidget(QWidget):
         startup_times = []
         shutdown_times = []
         try:
-            manual_logs = read_logs(limit=2000)
+            # The previous day's final shutdown may be far outside the most
+            # recent 2,000 log entries on a busy POS.  Read the retained log
+            # so the full-day chart can pair that close with today's first
+            # startup and draw the overnight red interval.
+            manual_logs = read_logs(limit=0)
             seen_manual = set()
             for entry in manual_logs:
                 if entry.get("cat") == CAT_SYSTEM and entry.get("msg") == "系统启动":
@@ -2957,11 +3258,19 @@ class SwitchSettingsWidget(QWidget):
         button.clicked.connect(slot)
         return button
 
+    def _update_switch_hysteresis_label(self, value):
+        if hasattr(self, "lbl_switch_hysteresis_value"):
+            self.lbl_switch_hysteresis_value.setText(u"缓冲 %d%%" % int(value))
+
     def _load_config(self):
         self.chk_enabled.setChecked(self.config.get("auto_switch_enabled", True))
         weight_ratio = int(self.config.get("private_ratio_percent", 30))
         self.sp_ratio.setValue(weight_ratio)
         self.sp_amount_ratio.setValue(int(self.config.get("private_amount_ratio_percent", weight_ratio)))
+        self.sld_switch_hysteresis.setValue(
+            max(0, min(30, int(float(self.config.get("switch_hysteresis_percent", 10) or 0))))
+        )
+        self._update_switch_hysteresis_label(self.sld_switch_hysteresis.value())
         self.sp_weight.setValue(float(self.config.get("min_private_weight_kg", 0.25)))
         legacy_limit = float(self.config.get("max_daily_revenue_limit", 500.0) or 500.0)
         weekday_limit = float(self.config.get("weekday_max_daily_revenue_limit", legacy_limit))
@@ -3013,6 +3322,7 @@ class SwitchSettingsWidget(QWidget):
         self.config["auto_switch_enabled"] = self.chk_enabled.isChecked()
         self.config["private_ratio_percent"] = self.sp_ratio.value()
         self.config["private_amount_ratio_percent"] = self.sp_amount_ratio.value()
+        self.config["switch_hysteresis_percent"] = self.sld_switch_hysteresis.value()
         self.config["min_private_weight_kg"] = self.sp_weight.value()
         self.config["mon_thu_max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
         self.config["friday_max_daily_revenue_limit"] = self.sp_friday_max_daily_limit.value()
@@ -3043,6 +3353,7 @@ class SwitchSettingsWidget(QWidget):
         self.config["auto_switch_enabled"] = self.chk_enabled.isChecked()
         self.config["private_ratio_percent"] = self.sp_ratio.value()
         self.config["private_amount_ratio_percent"] = self.sp_amount_ratio.value()
+        self.config["switch_hysteresis_percent"] = self.sld_switch_hysteresis.value()
         self.config["min_private_weight_kg"] = self.sp_weight.value()
         self.config["mon_thu_max_daily_revenue_limit"] = self.sp_mon_thu_max_daily_limit.value()
         self.config["friday_max_daily_revenue_limit"] = self.sp_friday_max_daily_limit.value()

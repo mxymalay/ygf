@@ -2,6 +2,7 @@
 历史订单查询界面 — 还原 POS 标准排版
 PyQt5 + Python 3.8 兼容
 """
+import os
 import re
 from datetime import date
 from PyQt5.QtWidgets import (
@@ -14,6 +15,7 @@ from PyQt5.QtGui import QColor, QFont
 
 from core.database import Database, REFUNDED
 from core.payment_utils import payment_display_label
+from config import DATA_DIR
 
 
 class OrderCard(QFrame):
@@ -788,6 +790,32 @@ class HistoryWidget(QWidget):
                 item_details = [item for item in value if isinstance(item, dict) and str(item.get("name", "")).strip()]
         except (TypeError, ValueError):
             item_details = []
+        # Older receipts were stored before the structured item parser was
+        # added.  If the relay still retained the original capture sidecar,
+        # reparse it at display time so history does not remain stuck on the
+        # old concatenated product string.
+        if not item_details:
+            capture_path = str(row.get("capture_path", "") or "")
+            meta_path = capture_path[:-4] + ".json" if capture_path.lower().endswith(".bin") else capture_path
+            try:
+                # A copied installation can retain the old absolute drive in
+                # the database while the capture directory moves with the
+                # application.  Fall back to the matching local basename.
+                if meta_path and not os.path.isfile(meta_path) and capture_path:
+                    local_capture = os.path.join(DATA_DIR, "printer_relay_capture", os.path.basename(capture_path))
+                    meta_path = local_capture[:-4] + ".json" if local_capture.lower().endswith(".bin") else local_capture
+                if meta_path and os.path.isfile(meta_path):
+                    with open(meta_path, "r", encoding="utf-8") as stream:
+                        metadata = json.load(stream)
+                    raw_text = str(metadata.get("extracted_text", "") or "")
+                    if raw_text:
+                        from core.printer_relay_interceptor import parse_official_pos_text
+                        item_details = [
+                            item for item in (parse_official_pos_text(raw_text).get("item_details") or [])
+                            if isinstance(item, dict) and str(item.get("name", "")).strip()
+                        ]
+            except (OSError, TypeError, ValueError, ImportError):
+                item_details = []
         if item_details:
             cart_items = []
             for detail in item_details:

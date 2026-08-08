@@ -241,6 +241,9 @@ DEFAULT_CONFIG = {
     # Enhanced mode uses verified revenue and keeps an independent target;
     # defaulting to the legacy weight ratio preserves existing behavior.
     "private_amount_ratio_percent": 30,
+    # Hysteresis around the target ratio prevents rapid back-and-forth
+    # switching.  The settings slider exposes 0% (fastest) to 30% (slowest).
+    "switch_hysteresis_percent": 10,
     "min_private_weight_kg": 0.25,
     # 私域 POS 当日累计收款上限。周一至周四、周五、周六、周日分别设置；
     # 旧的周中/周末键和 max_daily_revenue_limit 继续作为迁移兼容别名。
@@ -366,6 +369,7 @@ MODULAR_KEYS = {
     "printer_relay": lambda k: k.startswith("printer_relay_"),
     "algo": lambda k: k in (
         "private_ratio_percent", "private_amount_ratio_percent", "min_private_weight_kg",
+        "switch_hysteresis_percent",
         "max_daily_revenue_limit",
         "mon_thu_max_daily_revenue_limit", "friday_max_daily_revenue_limit",
         "saturday_max_daily_revenue_limit", "sunday_max_daily_revenue_limit",

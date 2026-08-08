@@ -55,6 +55,13 @@ class AutoSwitchController(QObject):
                 amount_ratio_default,
             )),
         )
+        # A small hysteresis band around the target prevents the route from
+        # flipping on every bowl when the accumulated ratio hovers near the
+        # target. Missing keys keep old/test configurations at 0%.
+        self._switch_hysteresis_percent = min(
+            30.0,
+            max(0.0, _config_float(self.config, "switch_hysteresis_percent", 0.0)),
+        )
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))
         self._min_valid_weight = max(0.0, _config_float(self.config, "min_valid_weight_kg", 0.08))
@@ -419,6 +426,23 @@ class AutoSwitchController(QObject):
     def _verified_takeout_amount_state(self):
         return self._verified_official_amount_state()
 
+    def _active_switch_channel_is_private(self):
+        """Return the channel whose current cycle is being accumulated."""
+        if self._switch_cycle_initialized and self._switch_cycle_is_private is not None:
+            return bool(self._switch_cycle_is_private)
+        return bool(self._current_is_private)
+
+    def _switch_target_ratio(self, target):
+        """Apply the configurable anti-flapping band to a ratio target."""
+        target = min(1.0, max(0.0, float(target or 0.0)))
+        # Keep explicit 0%/100% settings as hard limits.
+        if target <= 0.0 or target >= 1.0:
+            return target
+        buffer = min(0.30, max(0.0, self._switch_hysteresis_percent / 100.0))
+        if self._active_switch_channel_is_private():
+            return min(1.0, target + buffer)
+        return max(0.0, target - buffer)
+
     def _amount_route_decision(self, weight_kg):
         """Choose a channel from verified revenue when enhanced mode is live.
 
@@ -438,11 +462,12 @@ class AutoSwitchController(QObject):
             unit_price = max(0.0, float(self.config.get("unit_price", 0.0) or 0.0))
             estimated_amount = max(0.0, float(weight_kg or 0.0)) * unit_price
             target = min(1.0, max(0.0, self._target_private_amount_ratio / 100.0))
+            switch_target = self._switch_target_ratio(target)
             total_after_private = private_revenue + verified_external + estimated_amount
             if total_after_private <= 0.0:
                 return True
             private_ratio_after = (private_revenue + estimated_amount) / total_after_private
-            return private_ratio_after < target
+            return private_ratio_after < switch_target
         except Exception as exc:
             _safe_console(f"[AutoDecisionEngine] 金额分流估算失败，继续兼容模式: {exc}")
             return None
@@ -462,16 +487,17 @@ class AutoSwitchController(QObject):
             official_amount = max(0.0, float(verified_official or 0.0))
             total = private_amount + official_amount
             target = min(1.0, max(0.0, self._target_private_amount_ratio / 100.0))
+            switch_target = self._switch_target_ratio(target)
             if self._switch_cycle_is_private:
                 next_channel = "官方 POS"
-                if target >= 1.0:
+                if switch_target >= 1.0:
                     return (0.0, None, next_channel, self._target_private_amount_ratio)
-                remaining = (target * total - private_amount) / (1.0 - target)
+                remaining = (switch_target * total - private_amount) / (1.0 - switch_target)
             else:
                 next_channel = "私域 POS"
-                if target <= 0.0:
+                if switch_target <= 0.0:
                     return (0.0, None, next_channel, self._target_private_amount_ratio)
-                remaining = private_amount / target - total
+                remaining = private_amount / switch_target - total
             return (0.0, max(0.0, remaining), next_channel, self._target_private_amount_ratio)
         except (TypeError, ValueError, AttributeError):
             return None
@@ -930,7 +956,8 @@ class AutoSwitchController(QObject):
         # 累计称重重量。这样小单被官方过滤后，大单会承担相应的配额，
         # 比按订单次数更接近营业额的可观测代理指标。
         current_ratio = self.get_actual_private_weight_ratio()
-        if current_ratio < self._target_private_ratio:
+        switch_target = self._switch_target_ratio(self._target_private_ratio / 100.0)
+        if current_ratio / 100.0 < switch_target:
             self._record_quota_decision(weight_kg, True)
             self._last_decision_kind = "quota_private"
             self._last_decision_reason = "重量配额选择私有 POS"
@@ -984,6 +1011,7 @@ class AutoSwitchController(QObject):
         if not self._switch_cycle_is_private and self._private_daily_limit_reached():
             return 0.0, None, "官方 POS"
         target = min(1.0, max(0.0, self._target_private_ratio / 100.0))
+        switch_target = self._switch_target_ratio(target)
         base_total = max(0.0, float(self._switch_cycle_start_total_weight or 0.0))
         base_private = max(0.0, float(self._switch_cycle_start_private_weight or 0.0))
         if base_total <= 0.000001:
@@ -992,7 +1020,7 @@ class AutoSwitchController(QObject):
             # zero baseline rather than returning None and making the UI
             # remove the remaining-kg indicator altogether.  0% and 100%
             # remain intentionally non-switching configurations.
-            if target <= 0.0 or (self._switch_cycle_is_private and target >= 1.0):
+            if switch_target <= 0.0 or (self._switch_cycle_is_private and switch_target >= 1.0):
                 return 0.0, None, "官方 POS" if self._switch_cycle_is_private else "私有 POS"
             return 0.0, 0.0, "官方 POS" if self._switch_cycle_is_private else "私有 POS"
         delta_total = max(0.0, self._total_weight_kg - base_total)
@@ -1001,15 +1029,15 @@ class AutoSwitchController(QObject):
 
         if self._switch_cycle_is_private:
             next_channel = "官方 POS"
-            if target >= 1.0:
+            if switch_target >= 1.0:
                 return 0.0, None, next_channel
-            required = (target * base_total - base_private) / (1.0 - target)
+            required = (switch_target * base_total - base_private) / (1.0 - switch_target)
             progressed = delta_private
         else:
             next_channel = "私有 POS"
-            if target <= 0.0:
+            if switch_target <= 0.0:
                 return 0.0, None, next_channel
-            required = (base_private - target * base_total) / target
+            required = (base_private - switch_target * base_total) / switch_target
             progressed = delta_official
 
         required = max(0.0, required)
@@ -1134,6 +1162,7 @@ class AutoSwitchController(QObject):
                 if snapshot["basis"] == "amount"
                 else f"当日累计私域重量占比: {weight_pct:.1f}% / 目标 {self._target_private_ratio:.1f}% | 次数: {count_pct:.1f}%"
             )
+            ratio_text += f" | 切换缓冲: {self._switch_hysteresis_percent:.0f}%"
             fb.setToolTip(
                 f"自动决策系统 | 本轮{switch_text}\n"
                 f"{ratio_text}\n"
@@ -1189,6 +1218,10 @@ class AutoSwitchController(QObject):
                 "private_amount_ratio_percent",
                 amount_ratio_default,
             )),
+        )
+        self._switch_hysteresis_percent = min(
+            30.0,
+            max(0.0, _config_float(self.config, "switch_hysteresis_percent", 0.0)),
         )
         self._min_private_weight = max(0.0, _config_float(self.config, "min_private_weight_kg", 0.25))
         self._official_lock_sec = max(0.0, _config_float(self.config, "official_lock_sec", 60.0))

@@ -938,7 +938,8 @@ class Database:
                               WHEN t.item_names_json IS NOT NULL AND t.item_names_json <> '[]' THEN t.item_names_json
                               ELSE '[]'
                           END AS item_names_json,
-                          COALESCE(NULLIF(r.item_details_json, ''), '[]') AS item_details_json
+                          COALESCE(NULLIF(r.item_details_json, ''), '[]') AS item_details_json,
+                          COALESCE(r.capture_path, '') AS capture_path
                    FROM official_pos_revenue v
                    LEFT JOIN official_pos_receipts r ON r.receipt_key=v.order_key
                    LEFT JOIN takeout_orders t ON t.order_key=v.order_key

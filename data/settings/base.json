@@ -16,9 +16,12 @@
   "printer_feed_lines": 4,
   "printer_cash_drawer_enabled": true,
   "printer_show_tags": true,
+  "printer_packaging_banner_enabled": true,
+  "printer_packaging_banner_lines": 3,
   "printer_separator_char": "-",
   "printer_customer_title": "POS点餐 堂食",
   "printer_kitchen_title_dinein": "制作单-堂食",
+  "printer_kitchen_title_packaging": "制作单-打包",
   "printer_customer_footer": "打印时间：{time}",
   "printer_kitchen_footer": "打印时间：{time}",
   "printer_report_title": "营业汇总报表",
@@ -54,8 +57,12 @@
   "auto_start_delay": 8,
   "auto_switch_enabled": true,
   "floating_ball_enabled": true,
+  "floating_ball_position": {
+    "x": 1127,
+    "y": 172
+  },
   "panic_hotkey": "F10",
-  "auto_hide_delay_sec": 10,
+  "auto_hide_delay_sec": 3,
   "scale_source": "official",
   "scale_connection_mode": "direct",
   "scale_port": "COM2",
@@ -115,7 +122,5 @@
     ]
   },
   "call_mode": "smart",
-  "printer_packaging_banner_enabled": true,
-  "printer_packaging_banner_lines": 3,
-  "printer_kitchen_title_packaging": "制作单-打包"
+  "call_used_numbers": []
 }

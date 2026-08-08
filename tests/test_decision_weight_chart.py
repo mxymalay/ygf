@@ -5,6 +5,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QImage, QPainter
 
 from ui.switch_settings_widget import DecisionWeightChart, SwitchSettingsWidget
 
@@ -57,6 +58,9 @@ class DecisionWeightChartTests(unittest.TestCase):
         chart.reset_horizontal_zoom()
         self.assertEqual(chart.minimumWidth(), normal_width)
 
+        chart.set_horizontal_scale(99.0)
+        self.assertEqual(chart.horizontal_scale, chart.MAX_HORIZONTAL_SCALE)
+
     def test_restart_between_weighings_is_a_downtime_gap(self):
         events = [
             {"created_at": "2026-08-06 12:00:00", "weight_kg": 0.40, "channel": "official"},
@@ -100,6 +104,68 @@ class DecisionWeightChartTests(unittest.TestCase):
             "2026-08-06", [], ["2026-08-05 23:00:00"]
         )
         self.assertEqual(chart._app_state_at(chart.timeline_start), "closed")
+
+    def test_prior_day_shutdown_keeps_closed_line_without_fake_close_marker(self):
+        chart = DecisionWeightChart(chart_mode="line")
+        self.addCleanup(chart.deleteLater)
+        chart.set_timeline_context(
+            "2026-08-06",
+            ["2026-08-06 09:00:00"],
+            ["2026-08-05 23:00:00"],
+        )
+        image = QImage(900, 520, QImage.Format_ARGB32)
+        image.fill(0)
+        painter = QPainter(image)
+        chart.resize(900, 520)
+        chart.render(painter)
+        painter.end()
+        markers = [target for target in chart._hit_targets if target.get("kind") == "app_shutdown"]
+        self.assertEqual(markers, [])
+        self.assertEqual(chart._app_state_at(chart.timeline_start), "closed")
+
+    def test_nearby_points_are_visually_spread_with_data_point_connector(self):
+        chart = DecisionWeightChart(chart_mode="line")
+        self.addCleanup(chart.deleteLater)
+        timestamp = "2026-08-06 12:00:00"
+        chart.set_events([
+            {"created_at": timestamp, "weight_kg": 0.001, "channel": "official"},
+            {"created_at": timestamp, "weight_kg": 0.001, "channel": "private"},
+            {"created_at": timestamp, "weight_kg": 0.001, "channel": "official"},
+        ])
+        chart.resize(900, 520)
+        image = QImage(900, 520, QImage.Format_ARGB32)
+        image.fill(0)
+        painter = QPainter(image)
+        chart.render(painter)
+        painter.end()
+        points = [target for target in chart._hit_targets if target.get("kind") == "weighing"]
+        self.assertEqual(len(points), 3)
+        self.assertGreater(len({round(target["point"].x(), 1) for target in points}), 1)
+        self.assertTrue(all("data_point" in target for target in points))
+
+    def test_line_continues_flat_after_last_route_point(self):
+        chart = DecisionWeightChart(chart_mode="line")
+        self.addCleanup(chart.deleteLater)
+        chart.set_events([
+            {"created_at": "2026-08-06 10:00:00", "weight_kg": 0.40, "channel": "official"},
+        ])
+        chart.set_timeline_context(
+            "2026-08-06",
+            ["2026-08-06 08:00:00"],
+            ["2026-08-06 11:00:00"],
+        )
+        chart.resize(900, 520)
+        image = QImage(900, 520, QImage.Format_ARGB32)
+        image.fill(0)
+        with patch.object(chart, "_draw_state_segments", wraps=chart._draw_state_segments) as draw_state:
+            painter = QPainter(image)
+            chart.render(painter)
+            painter.end()
+        intervals = {
+            (args[1].strftime("%H:%M"), args[2].strftime("%H:%M"))
+            for args, _kwargs in draw_state.call_args_list
+        }
+        self.assertIn(("10:00", "00:00"), intervals)
 
     def test_histogram_private_ratio_label(self):
         self.assertEqual(DecisionWeightChart._private_ratio_label(3.0, 1.0), "25%")

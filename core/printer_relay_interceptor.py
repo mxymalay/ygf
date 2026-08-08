@@ -40,7 +40,10 @@ DEFAULT_CATEGORIES = [
 def clean_dish_name(raw_name: str) -> str:
     """清理菜品名称中的序号、数量、价格与全半角空格，以便精准匹配关键字"""
     # 1. 剔除前导序号 (如 1. 2. #1)
-    s = re.sub(r"^\d+[\.\、\s]*", "", raw_name)
+    # ``1元串``/``10元饮料`` are legitimate SKU names, not row numbers.
+    s = str(raw_name or "")
+    if not re.match(r"^\d+元", s):
+        s = re.sub(r"^\d+[\.\、\s]*", "", s)
     # 2. 剔除数量后缀 (如 x 2, ×1, 2份)
     s = re.sub(r"[xX*×]\s*\d+|\d+\s*份", "", s)
     # 3. 剔除价格 (￥30.00)
@@ -105,6 +108,12 @@ def _official_pos_item_name(line: str) -> str:
     text = re.sub(r"\s+", " ", str(line or "")).strip()
     if not text:
         return ""
+    # A collapsed row number is normally separated from the product name
+    # (``1 经典草本骨汤``), but products such as ``1元串/小食`` use the same
+    # leading digits as part of their actual name.  Strip only the former;
+    # never remove a price-prefixed product name.
+    if not re.match(r"^\d+元", text):
+        text = re.sub(r"^\d+(?=[\u4e00-\u9fff])", "", text).strip()
 
     unit = re.search(r"(?:（\s*kg\s*）|\(\s*kg\s*\)|\bkg\b)", text, re.IGNORECASE)
     if unit:
@@ -116,6 +125,7 @@ def _official_pos_item_name(line: str) -> str:
     # Non-weight products are commonly printed as ``商品名份1.001.00`` or
     # ``商品名 1.00 1.00`` (quantity and subtotal).  Strip only the trailing
     # numeric columns, never digits embedded in a legitimate product name.
+    text = re.sub(r"(?:\s*份)?\s*\d+\.\d{2}\s+\d+(?:\.\d+)?\s+\d+\.\d{2}\s*$", "", text)
     text = re.sub(r"(?:\s*份)?\s*\d+\.\d{2}\s*\d+\.\d{2}\s*$", "", text)
     text = re.sub(r"(?:\s*份)?\s*(?:\d+\.\d{1,3}\s+){2,}\d+\.\d{1,3}\s*$", "", text)
     return text.strip()
@@ -124,6 +134,8 @@ def _official_pos_item_name(line: str) -> str:
 def _official_pos_item_detail(line: str, name: str) -> dict:
     """Parse the numeric columns that follow one official POS product row."""
     text = re.sub(r"\s+", " ", str(line or "")).strip()
+    compact = re.sub(r"\s+", "", text)
+    text = re.sub(r"^\d+(?=[\u4e00-\u9fff])", "", text).strip()
     compact = re.sub(r"\s+", "", text)
     detail = {"name": name, "spec": "", "unit_price": None, "quantity": None, "subtotal": None}
     unit = re.search(r"(?:（\s*kg\s*）|\(\s*kg\s*\)|\bkg\b)", text, re.IGNORECASE)
@@ -143,16 +155,52 @@ def _official_pos_item_detail(line: str, name: str) -> dict:
                 detail["subtotal"] = float(numbers[-1])
         return detail
 
-    portion = re.search(r"份(\d+\.\d{2})(\d+\.\d{2})$", compact)
+    portion = re.search(r"份(\d+\.\d{2})(\d+(?:\.\d+)?)(\d+\.\d{2})$", compact)
     if portion:
         detail["spec"] = "份"
         detail["unit_price"] = float(portion.group(1))
-        detail["quantity"] = 1.0
-        detail["subtotal"] = float(portion.group(2))
+        detail["quantity"] = float(portion.group(2))
+        detail["subtotal"] = float(portion.group(3))
+    else:
+        portion = re.search(r"份(\d+\.\d{2})(\d+\.\d{2})$", compact)
+        if portion:
+            detail["spec"] = "份"
+            detail["unit_price"] = float(portion.group(1))
+            detail["quantity"] = 1.0
+            detail["subtotal"] = float(portion.group(2))
     return detail
 
 
-def _extract_official_pos_item_details(raw_text: str):
+def _official_flavor_options(options=None):
+    """Collect configured flavor labels without tying parsing to one flavor."""
+    values = {
+        "原味", "原汤", "不辣", "微辣", "中辣", "重辣", "特辣", "少辣",
+    }
+    if not isinstance(options, dict):
+        return values
+    for key in ("shop_sku_categories", "custom_categories", "printer_relay_categories"):
+        categories = options.get(key)
+        if not isinstance(categories, list):
+            continue
+        for category in categories:
+            if not isinstance(category, dict):
+                continue
+            items = category.get("items") if isinstance(category.get("items"), list) else [category]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                configured = item.get("flavor_options") or category.get("flavor_options") or []
+                if isinstance(configured, str):
+                    configured = re.split(r"[,，、\n]+", configured)
+                if isinstance(configured, (list, tuple, set)):
+                    values.update(
+                        clean_dish_name(value) for value in configured
+                        if str(value or "").strip()
+                    )
+    return values
+
+
+def _extract_official_pos_item_details(raw_text: str, options=None):
     """Extract product rows and their numeric columns from an official slip."""
     lines = [line.strip() for line in str(raw_text or "").replace("\r\n", "\n").split("\n") if line.strip()]
     if not lines:
@@ -189,6 +237,7 @@ def _extract_official_pos_item_details(raw_text: str):
         "取餐号", "POS点餐", "人民币", "微信", "支付宝", "银行卡", "刷卡",
     )
     details = []
+    flavor_options = _official_flavor_options(options)
     for line in candidate_lines:
         compact = re.sub(r"\s+", "", line)
         if not compact:
@@ -206,7 +255,17 @@ def _extract_official_pos_item_details(raw_text: str):
             continue
         cleaned = clean_dish_name(name)
         if cleaned:
-            if cleaned in ("原汤", "不辣", "微辣", "中辣", "重辣", "特辣", "少辣") and details:
+            # Official POS prints a flavor/remark on its own line directly
+            # below the product row.  Use configured labels when available,
+            # but also accept any short, Chinese-only, no-number line so a
+            # newly configured flavor does not require a code change.
+            generic_flavor = (
+                bool(details)
+                and not re.search(r"\d", compact)
+                and len(cleaned) <= 8
+                and bool(re.fullmatch(r"[\u4e00-\u9fff]+", cleaned))
+            )
+            if cleaned in flavor_options or generic_flavor:
                 details[-1]["flavor"] = cleaned
                 continue
             details.append(_official_pos_item_detail(line, cleaned))
@@ -404,7 +463,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
         # ``name x qty ￥price`` syntax used by takeout platforms.  Parse the
         # product rows separately so headers, hotline text and column numbers
         # never appear as goods in order history.
-        item_details = _extract_official_pos_item_details(raw_text)
+        item_details = _extract_official_pos_item_details(raw_text, options)
         official_names = [item["name"] for item in item_details]
         for name in official_names:
             cat_id = classify_item(name, custom_categories, match_mode=match_mode)

@@ -397,6 +397,29 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertEqual(next_channel, "私有 POS")
         controller._hide_timer.stop()
 
+    def test_switch_hysteresis_delays_weight_channel_flip(self):
+        controller = self._controller()
+        controller._target_private_ratio = 30.0
+        controller._switch_hysteresis_percent = 10.0
+        controller._switch_cycle_initialized = True
+        controller._switch_cycle_is_private = True
+        controller._total_weight_kg = 1.0
+        controller._private_weight_kg = 0.35
+
+        # A private cycle keeps collecting until the upper 40% edge.
+        self.assertTrue(controller._evaluate_decision(0.3, official_available=True))
+
+        controller = self._controller()
+        controller._target_private_ratio = 30.0
+        controller._switch_hysteresis_percent = 10.0
+        controller._switch_cycle_initialized = True
+        controller._switch_cycle_is_private = False
+        controller._total_weight_kg = 1.0
+        controller._private_weight_kg = 0.25
+
+        # An official cycle stays official until the lower 20% edge.
+        self.assertFalse(controller._evaluate_decision(0.3, official_available=True))
+
     def test_enhanced_snapshot_uses_amount_hint_instead_of_weight(self):
         controller = self._controller()
         controller._target_private_amount_ratio = 30.0

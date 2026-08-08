@@ -185,6 +185,27 @@ class TakeoutInterceptionTests(unittest.TestCase):
         self.assertEqual(result["item_details"][0]["subtotal"], 16.09)
         self.assertEqual(result["item_details"][1]["subtotal"], 1.00)
 
+    def test_official_customer_preserves_price_prefixed_sku_and_original_flavor(self):
+        text = ("杨国福(肥西水晶城店)\n取餐号:0017 [POS点餐]\n"
+                "名称 规格 单价 数量 小计\n"
+                "经典草本骨汤（KG） KG 47.60 0.940 44.74\n"
+                "原味\n"
+                "1元串/小食 份 1.00 1 1.00\n"
+                "合计 45.74\n应付 45.74\n订单号: DINE-17\n"
+                "订单时间:2026-08-08 12:30:12")
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["item_names"], ["经典草本骨汤（kg）", "1元串/小食"])
+        self.assertEqual(result["item_details"][0]["flavor"], "原味")
+        self.assertEqual(result["item_details"][1]["name"], "1元串/小食")
+
+    def test_official_customer_accepts_new_short_flavor_without_parser_change(self):
+        text = ("取餐号:0020 [POS点餐]\n名称 规格 单价 数量 小计\n"
+                "经典草本骨汤（KG） KG 47.60 0.100 4.76\n"
+                "超麻\n合计 4.76\n应付 4.76\n"
+                "订单号: DINE-20\n订单时间:2026-08-08 13:00:00")
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["item_details"][0]["flavor"], "超麻")
+
     def test_custom_official_pos_field_mapping_can_translate_vendor_labels(self):
         text = "POS点餐\n流水号：VENDOR-7\n应收金额：¥28.00\n状态：已结账\n肥牛 x 1"
         result = parse_official_pos_text(text, {

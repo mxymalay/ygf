@@ -1,6 +1,7 @@
 {
   "private_ratio_percent": 30,
   "private_amount_ratio_percent": 30,
+  "switch_hysteresis_percent": 10,
   "min_private_weight_kg": 0.25,
   "mon_thu_max_daily_revenue_limit": 500.0,
   "friday_max_daily_revenue_limit": 500.0,

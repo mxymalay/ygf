@@ -40,7 +40,8 @@ class FloatingBall(QWidget):
 
         # 胶囊本体仍为 88x48；窗口右侧预留出票倒计时，顶部预留
         # “还需约 xxx kg”提示，底部继续保留暂停/锁定/对勾状态栏。
-        self.setFixedSize(160, 84)
+        # 顶部提示与胶囊之间留出 2px 安全间距，双行文字不会压住球体。
+        self.setFixedSize(160, 90)
 
         # 优先恢复用户上次拖动后保存的位置；首次运行才使用右上角默认位
         # 置。默认位置会在主界面完成首轮布局后再计算一次。
@@ -170,7 +171,7 @@ class FloatingBall(QWidget):
             try:
                 first_top = first_menu_button.mapToGlobal(QPoint(0, 0)).y()
                 first_height = max(1, first_menu_button.height())
-                # The capsule is drawn 19 px below the floating window's top;
+                # The capsule is drawn 24 px below the floating window's top;
                 # place it just below the first product row, in the open area
                 # shown in the reference screenshot.
                 y = first_top + first_height + 35
@@ -359,20 +360,20 @@ class FloatingBall(QWidget):
             led_color = QColor(96, 165, 250)
 
         # 渐变底色
-        grad = QLinearGradient(0, 16, 0, 66)
+        grad = QLinearGradient(0, 21, 0, 71)
         grad.setColorAt(0.0, bg_color1)
         grad.setColorAt(1.0, bg_color2)
 
         # 2. 绘制主胶囊背景与外边框 (顶部预留倒计时区域)
         painter.setBrush(QBrush(grad))
         painter.setPen(QPen(border_outer, 2.0))
-        painter.drawRoundedRect(1, 17, 86, 48, 24, 24)
+        painter.drawRoundedRect(1, 22, 86, 48, 24, 24)
 
         # 2.1 配额“水位”：上一份用浅色铺底，本次增加量用较深同色系填充。
         # 采用裁剪路径，水位不会溢出胶囊圆角；文字和状态图标仍绘制在其上方。
         painter.save()
         liquid_path = QPainterPath()
-        liquid_path.addRoundedRect(QRectF(2, 18, 84, 46), 23, 23)
+        liquid_path.addRoundedRect(QRectF(2, 23, 84, 46), 23, 23)
         painter.setClipPath(liquid_path)
 
         # The capsule's fill represents the system currently shown to the
@@ -394,7 +395,7 @@ class FloatingBall(QWidget):
             grad.setColorAt(1.0, QColor(base[0], base[1], base[2], max(12, alpha - 22)))
             return grad
 
-        track_x, track_y, track_w, track_h = 2.0, 18.0, 84.0, 46.0
+        track_x, track_y, track_w, track_h = 2.0, 23.0, 84.0, 46.0
         previous_w = track_w * max(0.0, min(1.0, self._quota_previous_progress))
         current_w = track_w * max(0.0, min(1.0, self._quota_progress))
         if previous_w > 0:
@@ -429,21 +430,21 @@ class FloatingBall(QWidget):
         painter.setBrush(Qt.NoBrush)
         # 内侧线也使用未填充背景色，避免白色高光把边框误显示成进度色。
         painter.setPen(QPen(QColor(bg_color2.red(), bg_color2.green(), bg_color2.blue(), 220), 1.0))
-        painter.drawRoundedRect(3, 19, 82, 44, 22, 22)
+        painter.drawRoundedRect(3, 24, 82, 44, 22, 22)
 
         # 4. 边框嵌入式 LED 呼吸指示灯 (位于文字前方垂直居中)
         painter.setBrush(QBrush(led_color))
         painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
-        # 文字居中，胶囊高 50。圆点大小 6x6，所以 y=38 刚好垂直居中。
+        # 文字居中，胶囊高 50。圆点大小 6x6，所以 y=43 刚好垂直居中。
         led_x = 22 if self.is_our_pos_active else 12
-        painter.drawEllipse(led_x, 38, 6, 6)
+        painter.drawEllipse(led_x, 43, 6, 6)
 
         # 5. 两行居中文字排版
         title_text = u"私域" if self.is_our_pos_active else u"官方系统"
         font_title = QFont("Microsoft YaHei", 9, QFont.Bold)
         painter.setFont(font_title)
         painter.setPen(QColor(255, 255, 255))
-        rect_title = QRect(6, 21, 82, 40) # 扩大标题矩形，使其完全居中
+        rect_title = QRect(6, 26, 82, 40) # 扩大标题矩形，使其完全居中
         painter.drawText(rect_title, Qt.AlignCenter, title_text)
 
         # 下一次切换剩余重量/金额：放在胶囊上方的黑底白字小标签中。
@@ -451,16 +452,24 @@ class FloatingBall(QWidget):
         switch_hint_lines = self._switch_hint_lines()
         if switch_hint_lines:
             hint_width = self._switch_hint_width()
-            line_height = 8 if len(switch_hint_lines) > 1 else 14
-            hint_height = line_height * len(switch_hint_lines)
+            # Two-line hints used to have an 8px line box and no padding,
+            # which made the glyphs touch each other and the rounded border.
+            # Keep the capsule width stable, but give the text a breathable
+            # line height and a small inset on all sides.
+            is_multi_line = len(switch_hint_lines) > 1
+            line_height = 9 if is_multi_line else 15
+            padding_x = 4
+            padding_y = 1
+            hint_height = line_height * len(switch_hint_lines) + padding_y * 2
             painter.setBrush(QColor(0, 0, 0, 175))
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(1, 1, hint_width, hint_height, 7, 7)
+            painter.setPen(QPen(QColor(255, 255, 255, 45), 1.0))
+            painter.drawRoundedRect(1, 0, hint_width, hint_height, 8, 8)
             painter.setPen(QColor(255, 255, 255))
-            painter.setFont(QFont("Microsoft YaHei", 6 if len(switch_hint_lines) > 1 else 7, QFont.Bold))
+            painter.setFont(QFont("Microsoft YaHei", 7 if is_multi_line else 8, QFont.Bold))
             for index, line in enumerate(switch_hint_lines):
                 painter.drawText(
-                    QRect(2, 1 + index * line_height, hint_width - 2, line_height),
+                    QRect(1 + padding_x, padding_y + index * line_height,
+                          hint_width - padding_x * 2, line_height),
                     Qt.AlignCenter,
                     line,
                 )
@@ -469,10 +478,10 @@ class FloatingBall(QWidget):
         if self._countdown_active and self._countdown_remaining_sec > 0:
             painter.setBrush(QColor(15, 23, 42, 220))
             painter.setPen(QPen(QColor(254, 240, 138, 220), 1.0))
-            painter.drawRoundedRect(93, 33, 30, 18, 9, 9)
+            painter.drawRoundedRect(93, 38, 30, 18, 9, 9)
             painter.setPen(QColor(254, 240, 138))
             painter.setFont(QFont("Microsoft YaHei", 9, QFont.Bold))
-            painter.drawText(QRect(93, 33, 30, 18), Qt.AlignCenter, str(self._countdown_remaining_sec))
+            painter.drawText(QRect(93, 38, 30, 18), Qt.AlignCenter, str(self._countdown_remaining_sec))
 
         # 6. 悬浮球下方独立状态指示栏 (小灵动岛，不与主胶囊重叠)
         is_paused = False
@@ -511,27 +520,27 @@ class FloatingBall(QWidget):
             bg_x = 44 - bg_width // 2
             painter.setBrush(QColor(0, 0, 0, 140))
             painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(bg_x, 67, bg_width, 16, 8, 8)
+            painter.drawRoundedRect(bg_x, 72, bg_width, 16, 8, 8)
             
             # 逐个绘制图标
             icon_x = bg_x + 4 + 10  # 10 is the center offset of the first icon
             for icon in active_icons:
                 if icon == "PAUSE":
                     painter.setPen(QPen(QColor(255, 255, 255), 2.0, Qt.SolidLine, Qt.RoundCap))
-                    painter.drawLine(icon_x - 2, 71, icon_x - 2, 79)
-                    painter.drawLine(icon_x + 2, 71, icon_x + 2, 79)
+                    painter.drawLine(icon_x - 2, 76, icon_x - 2, 84)
+                    painter.drawLine(icon_x + 2, 76, icon_x + 2, 84)
                 elif icon == "LOCK":
                     painter.setPen(QPen(QColor(255, 255, 255), 1.5, Qt.SolidLine, Qt.RoundCap))
                     painter.setBrush(QColor(255, 255, 255))
-                    painter.drawRect(icon_x - 3, 75, 6, 4)
+                    painter.drawRect(icon_x - 3, 80, 6, 4)
                     painter.setBrush(Qt.NoBrush)
-                    painter.drawArc(icon_x - 2, 71, 4, 6, 0, 180 * 16)
+                    painter.drawArc(icon_x - 2, 76, 4, 6, 0, 180 * 16)
                 elif icon == "CHECK":
                     painter.setPen(QPen(QColor(253, 224, 71), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                     path = QPainterPath()
-                    path.moveTo(icon_x - 4, 75)
-                    path.lineTo(icon_x - 1, 78)
-                    path.lineTo(icon_x + 4, 71)
+                    path.moveTo(icon_x - 4, 80)
+                    path.lineTo(icon_x - 1, 83)
+                    path.lineTo(icon_x + 4, 76)
                     painter.drawPath(path)
                 
                 icon_x += 20
@@ -546,7 +555,7 @@ class FloatingBall(QWidget):
             hint_width = self._switch_hint_width()
             self._progress_hint_pressed = bool(
                 bool(self._switch_hint_text())
-                and QRect(1, 0, hint_width, 16).contains(event.pos())
+                and QRect(1, 0, hint_width, 20).contains(event.pos())
             )
             if self._progress_hint_pressed:
                 self._long_press_timer.stop()
