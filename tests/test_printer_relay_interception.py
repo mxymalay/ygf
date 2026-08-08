@@ -165,6 +165,25 @@ class TakeoutInterceptionTests(unittest.TestCase):
         self.assertEqual(result["payment_status"], "paid")
         self.assertIn("人民币+微信", result["payment_status_evidence"])
 
+    def test_official_customer_items_strip_columns_and_footer_text(self):
+        text = ("杨国福(肥西水晶城店)\n取餐号:0018 [POS点餐]\n"
+                "名称 规格 单价 数量 小计\n"
+                "经典草本骨汤（kg） kg47.600.33816.09\n"
+                "微辣\n元宵/小食份1.001.00\n"
+                "加盟咨询热线：400-6058-777\n合计 17.09\n"
+                "订单号: DINE-18\n订单时间:2026-08-08 12:45:17")
+        result = parse_official_pos_text(text)
+        self.assertEqual(
+            result["item_names"],
+            ["经典草本骨汤（kg）", "微辣", "元宵/小食"],
+        )
+        self.assertNotIn("加盟咨询热线", result["item_names"])
+        self.assertEqual(result["item_count"], 3)
+        self.assertEqual(result["item_details"][0]["unit_price"], 47.60)
+        self.assertEqual(result["item_details"][0]["quantity"], 0.338)
+        self.assertEqual(result["item_details"][0]["subtotal"], 16.09)
+        self.assertEqual(result["item_details"][2]["subtotal"], 1.00)
+
     def test_custom_official_pos_field_mapping_can_translate_vendor_labels(self):
         text = "POS点餐\n流水号：VENDOR-7\n应收金额：¥28.00\n状态：已结账\n肥牛 x 1"
         result = parse_official_pos_text(text, {

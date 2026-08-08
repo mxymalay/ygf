@@ -83,6 +83,138 @@ def _format_item_line(line: str, show_prices: bool, mark_star: bool):
     return text, qty
 
 
+def _is_official_pos_customer_text(raw_text: str) -> bool:
+    """Return whether text is the official POS customer settlement slip."""
+    compact = re.sub(r"\s+", "", str(raw_text or ""))
+    return (
+        "取餐号" in compact
+        and "POS点餐" in compact
+        and "制作单" not in compact
+    )
+
+
+def _official_pos_item_name(line: str) -> str:
+    """Remove official POS column values while keeping the product name.
+
+    The Windows POS driver often removes column spacing when the receipt is
+    captured.  A row such as ``经典草本骨汤（KG） KG 47.60 0.006 0.29`` can
+    therefore arrive as one long string.  Use the unit marker or the final
+    quantity/amount columns as a boundary instead of treating those numbers
+    as part of the product name.
+    """
+    text = re.sub(r"\s+", " ", str(line or "")).strip()
+    if not text:
+        return ""
+
+    unit = re.search(r"(?:（\s*kg\s*）|\(\s*kg\s*\)|\bkg\b)", text, re.IGNORECASE)
+    if unit:
+        suffix = text[unit.end():]
+        numbers = re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)", suffix)
+        if len(numbers) >= 2 and not re.search(r"[\u4e00-\u9fff]", suffix):
+            return text[:unit.end()].strip()
+
+    # Non-weight products are commonly printed as ``商品名份1.001.00`` or
+    # ``商品名 1.00 1.00`` (quantity and subtotal).  Strip only the trailing
+    # numeric columns, never digits embedded in a legitimate product name.
+    text = re.sub(r"(?:\s*份)?\s*\d+\.\d{2}\s*\d+\.\d{2}\s*$", "", text)
+    text = re.sub(r"(?:\s*份)?\s*(?:\d+\.\d{1,3}\s+){2,}\d+\.\d{1,3}\s*$", "", text)
+    return text.strip()
+
+
+def _official_pos_item_detail(line: str, name: str) -> dict:
+    """Parse the numeric columns that follow one official POS product row."""
+    text = re.sub(r"\s+", " ", str(line or "")).strip()
+    compact = re.sub(r"\s+", "", text)
+    detail = {"name": name, "spec": "", "unit_price": None, "quantity": None, "subtotal": None}
+    unit = re.search(r"(?:（\s*kg\s*）|\(\s*kg\s*\)|\bkg\b)", text, re.IGNORECASE)
+    if unit:
+        detail["spec"] = "kg"
+        suffix = re.sub(r"\s+", "", text[unit.end():])
+        match = re.search(r"(\d+\.\d{2})(\d+\.\d{1,3})(\d+\.\d{2})$", suffix)
+        if match:
+            detail["unit_price"] = float(match.group(1))
+            detail["quantity"] = float(match.group(2))
+            detail["subtotal"] = float(match.group(3))
+        else:
+            numbers = re.findall(r"\d+(?:\.\d+)?", suffix)
+            if len(numbers) >= 3:
+                detail["unit_price"] = float(numbers[0])
+                detail["quantity"] = float(numbers[-2])
+                detail["subtotal"] = float(numbers[-1])
+        return detail
+
+    portion = re.search(r"份(\d+\.\d{2})(\d+\.\d{2})$", compact)
+    if portion:
+        detail["spec"] = "份"
+        detail["unit_price"] = float(portion.group(1))
+        detail["quantity"] = 1.0
+        detail["subtotal"] = float(portion.group(2))
+    return detail
+
+
+def _extract_official_pos_item_details(raw_text: str):
+    """Extract product rows and their numeric columns from an official slip."""
+    lines = [line.strip() for line in str(raw_text or "").replace("\r\n", "\n").split("\n") if line.strip()]
+    if not lines:
+        return []
+
+    header_index = -1
+    for index, line in enumerate(lines):
+        compact = re.sub(r"\s+", "", line)
+        if "名称" in compact and "单价" in compact and "数量" in compact:
+            header_index = index
+            break
+
+    if header_index >= 0:
+        candidate_lines = lines[header_index + 1:]
+    else:
+        # Compact test/driver templates may omit the column header.  Start
+        # after the POS marker so the store title and pickup number cannot be
+        # mistaken for products.
+        start = 0
+        for index, line in enumerate(lines):
+            compact = re.sub(r"\s+", "", line)
+            if "POS点餐" in compact:
+                start = index + 1
+                break
+        candidate_lines = lines[start:]
+
+    stop_prefixes = (
+        "合计", "系统抹零", "应付", "实付", "实收", "原价合计", "订单号",
+        "订单时间", "下单时间", "打印时间", "服务热线", "加盟咨询热线",
+        "联系电话", "送餐地址", "收货地址", "地址", "支付", "付款",
+        "操作人", "备注",
+    )
+    skip_prefixes = (
+        "取餐号", "POS点餐", "人民币", "微信", "支付宝", "银行卡", "刷卡",
+    )
+    details = []
+    for line in candidate_lines:
+        compact = re.sub(r"\s+", "", line)
+        if not compact:
+            break
+        if compact.startswith(skip_prefixes):
+            continue
+        if compact.startswith(stop_prefixes):
+            break
+        if compact in ("名称规格单价数量小计", "规格单价数量小计"):
+            continue
+        if re.fullmatch(r"[-=*_]+", compact) or re.fullmatch(r"[\d.]+", compact):
+            continue
+        name = _official_pos_item_name(line)
+        if not name:
+            continue
+        cleaned = clean_dish_name(name)
+        if cleaned:
+            details.append(_official_pos_item_detail(line, cleaned))
+    return details
+
+
+def _extract_official_pos_item_names(raw_text: str):
+    """Backward-compatible names-only view of official POS rows."""
+    return [item["name"] for item in _extract_official_pos_item_details(raw_text)]
+
+
 def classify_item(item_name: str, custom_categories: list = None, match_mode: str = "contains") -> str:
     """
     根据菜品名关键词识别分类
@@ -263,17 +395,34 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
 
     item_count = 0
     item_names = []
-    for line in lines:
-        formatted_line, qty = _format_item_line(line, show_prices, mark_star)
-        if not formatted_line:
-            continue
-        cat_id = classify_item(formatted_line, custom_categories, match_mode=match_mode)
-        if cat_id in categorized_items:
-            categorized_items[cat_id].append(formatted_line)
-        else:
-            categorized_items["other"].append(formatted_line)
-        item_count += qty
-        item_names.append(clean_dish_name(formatted_line))
+    item_details = []
+    if _is_official_pos_customer_text(raw_text):
+        # Official customer slips have aligned columns rather than the
+        # ``name x qty ￥price`` syntax used by takeout platforms.  Parse the
+        # product rows separately so headers, hotline text and column numbers
+        # never appear as goods in order history.
+        item_details = _extract_official_pos_item_details(raw_text)
+        official_names = [item["name"] for item in item_details]
+        for name in official_names:
+            cat_id = classify_item(name, custom_categories, match_mode=match_mode)
+            if cat_id in categorized_items:
+                categorized_items[cat_id].append(name)
+            else:
+                categorized_items["other"].append(name)
+        item_names = official_names
+        item_count = len(official_names)
+    else:
+        for line in lines:
+            formatted_line, qty = _format_item_line(line, show_prices, mark_star)
+            if not formatted_line:
+                continue
+            cat_id = classify_item(formatted_line, custom_categories, match_mode=match_mode)
+            if cat_id in categorized_items:
+                categorized_items[cat_id].append(formatted_line)
+            else:
+                categorized_items["other"].append(formatted_line)
+            item_count += qty
+            item_names.append(clean_dish_name(formatted_line))
 
     # 组装票据文本
     platform_name = "美团外卖" if is_meituan else ("饿了么" if is_eleme else "外卖订单")
@@ -364,6 +513,7 @@ def parse_and_sort_takeout_text(raw_text: str, options: dict = None) -> dict:
         "key_confidence": "high" if full_order_id else "low",
         "item_count": item_count,
         "item_names": item_names,
+        "item_details": item_details,
         "raw_text": raw_text,
         "sorted_text": sorted_text,
     }

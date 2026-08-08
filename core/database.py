@@ -219,6 +219,7 @@ class Database:
                     key_confidence             TEXT DEFAULT 'low',
                     item_count                 INTEGER NOT NULL DEFAULT 0,
                     item_names_json            TEXT DEFAULT '[]',
+                    item_details_json          TEXT DEFAULT '[]',
                     payload_type               TEXT DEFAULT '',
                     capture_path               TEXT DEFAULT '',
                     observed_at                TEXT NOT NULL,
@@ -309,6 +310,7 @@ class Database:
                 "payment_breakdown_json": "TEXT DEFAULT ''",
                 "item_count": "INTEGER NOT NULL DEFAULT 0",
                 "item_names_json": "TEXT DEFAULT '[]'",
+                "item_details_json": "TEXT DEFAULT '[]'",
             }.items():
                 self._ensure_column(conn, name, definition, table="official_pos_receipts")
 
@@ -738,12 +740,19 @@ class Database:
         except (TypeError, ValueError):
             amount = None
         item_names = parsed.get("item_names") or []
+        item_details = parsed.get("item_details") or []
         try:
             item_names = [str(item) for item in item_names if str(item).strip()]
             item_json = json.dumps(item_names, ensure_ascii=False)
         except (TypeError, ValueError):
             item_names = []
             item_json = "[]"
+        try:
+            item_details = [item for item in item_details if isinstance(item, dict)]
+            details_json = json.dumps(item_details, ensure_ascii=False)
+        except (TypeError, ValueError):
+            item_details = []
+            details_json = "[]"
         try:
             item_count = max(0, int(parsed.get("item_count") or 0))
         except (TypeError, ValueError):
@@ -758,9 +767,9 @@ class Database:
                    (receipt_key, receipt_kind, platform, order_id, order_no,
                    amount, amount_valid, payment_status, payment_method,
                    payment_breakdown_json, payment_status_confidence,
-                   key_confidence, item_count, item_names_json, payload_type,
+                   key_confidence, item_count, item_names_json, item_details_json, payload_type,
                    capture_path, observed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key,
                     str(parsed.get("receipt_kind", "unknown") or "unknown"),
@@ -776,6 +785,7 @@ class Database:
                     str(parsed.get("key_confidence", "low") or "low"),
                     item_count,
                     item_json,
+                    details_json,
                     str(payload_type or parsed.get("payload_type", "") or ""),
                     str(capture_path or parsed.get("capture_path", "") or ""),
                     now,
@@ -785,7 +795,7 @@ class Database:
             if not created:
                 existing = conn.execute(
                     """SELECT amount, payment_status, payment_method, payment_breakdown_json,
-                              item_count, item_names_json
+                              item_count, item_names_json, item_details_json
                          FROM official_pos_receipts WHERE receipt_key=?""",
                     (key,),
                 ).fetchone()
@@ -811,6 +821,7 @@ class Database:
                            payment_status_confidence=CASE WHEN payment_status='unknown' AND ? <> 'unknown' THEN ? ELSE payment_status_confidence END,
                            item_count=CASE WHEN item_count=0 AND ? > 0 THEN ? ELSE item_count END,
                            item_names_json=CASE WHEN (item_names_json='' OR item_names_json='[]') AND ? <> '[]' THEN ? ELSE item_names_json END,
+                           item_details_json=CASE WHEN (item_details_json='' OR item_details_json='[]') AND ? <> '[]' THEN ? ELSE item_details_json END,
                            payload_type=COALESCE(NULLIF(?, ''), payload_type),
                            capture_path=COALESCE(NULLIF(?, ''), capture_path)
                        WHERE receipt_key=?""",
@@ -825,7 +836,7 @@ class Database:
                         str(parsed.get("payment_breakdown_json", "") or ""),
                         str(parsed.get("payment_status", "unknown") or "unknown").lower(),
                         str(parsed.get("payment_status_confidence", "unknown") or "unknown"),
-                        item_count, item_count, item_json, item_json,
+                        item_count, item_count, item_json, item_json, details_json, details_json,
                         str(payload_type or ""), str(capture_path or ""), key,
                     ),
                 )
@@ -926,7 +937,8 @@ class Database:
                               WHEN r.item_names_json IS NOT NULL AND r.item_names_json <> '[]' THEN r.item_names_json
                               WHEN t.item_names_json IS NOT NULL AND t.item_names_json <> '[]' THEN t.item_names_json
                               ELSE '[]'
-                          END AS item_names_json
+                          END AS item_names_json,
+                          COALESCE(NULLIF(r.item_details_json, ''), '[]') AS item_details_json
                    FROM official_pos_revenue v
                    LEFT JOIN official_pos_receipts r ON r.receipt_key=v.order_key
                    LEFT JOIN takeout_orders t ON t.order_key=v.order_key

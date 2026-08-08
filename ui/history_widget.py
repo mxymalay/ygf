@@ -774,17 +774,51 @@ class HistoryWidget(QWidget):
                 item_names = [str(item).strip() for item in value if str(item).strip()]
         except (TypeError, ValueError):
             item_names = []
-        cart_items = [
-            {
-                "name": name,
-                "tag": "官方小票商品",
-                "type": "official",
-                "qty": 1,
-                "price": 0.0,
-                "base_price": 0.0,
-            }
-            for name in item_names
-        ]
+        item_details = []
+        try:
+            value = json.loads(row.get("item_details_json", "[]") or "[]")
+            if isinstance(value, list):
+                item_details = [item for item in value if isinstance(item, dict) and str(item.get("name", "")).strip()]
+        except (TypeError, ValueError):
+            item_details = []
+        if item_details:
+            cart_items = []
+            for detail in item_details:
+                name = str(detail.get("name", "")).strip()
+                try:
+                    unit_price = float(detail.get("unit_price")) if detail.get("unit_price") is not None else 0.0
+                except (TypeError, ValueError):
+                    unit_price = 0.0
+                try:
+                    qty = float(detail.get("quantity")) if detail.get("quantity") is not None else 1.0
+                except (TypeError, ValueError):
+                    qty = 1.0
+                try:
+                    subtotal = float(detail.get("subtotal")) if detail.get("subtotal") is not None else unit_price * qty
+                except (TypeError, ValueError):
+                    subtotal = unit_price * qty
+                cart_items.append({
+                    "name": name,
+                    "tag": "官方小票商品",
+                    "type": "official",
+                    "qty": qty,
+                    "price": unit_price,
+                    "base_price": unit_price,
+                    "subtotal": subtotal,
+                    "spec": str(detail.get("spec", "") or ""),
+                })
+        else:
+            cart_items = [
+                {
+                    "name": name,
+                    "tag": "官方小票商品",
+                    "type": "official",
+                    "qty": 1,
+                    "price": 0.0,
+                    "base_price": 0.0,
+                }
+                for name in item_names
+            ]
         return {
             "id": "official:%s" % str(row.get("id", row.get("order_key", ""))),
             "source": "official_pos",
@@ -1072,6 +1106,10 @@ class HistoryWidget(QWidget):
                 if item_type == "soup":
                     w = item.get("weight", record.get("weight_kg", 0.0))
                     lbl_qty = QLabel("x%.3f kg" % w)
+                elif item_type == "official" and "subtotal" in item and item.get("price", 0.0):
+                    qty_value = float(item.get("qty", 1.0) or 1.0)
+                    qty_text = ("%.3f" % qty_value).rstrip("0").rstrip(".")
+                    lbl_qty = QLabel("x%s" % qty_text)
                 else:
                     lbl_qty = QLabel("x%d" % qty)
 
@@ -1102,7 +1140,17 @@ class HistoryWidget(QWidget):
                     row_main.addSpacing(10)
                     row_main.addWidget(lbl_price)
                 elif item_type == "official":
-                    lbl_price = QLabel(u"官方小票")
+                    subtotal = item.get("subtotal")
+                    unit_price = item.get("price", 0.0)
+                    qty_value = item.get("qty", 1.0)
+                    if subtotal is not None and unit_price:
+                        lbl_price = QLabel(u"¥ %.2f × %s = ¥ %.2f" % (
+                            float(unit_price),
+                            ("%.3f" % float(qty_value)).rstrip("0").rstrip("."),
+                            float(subtotal),
+                        ))
+                    else:
+                        lbl_price = QLabel(u"官方小票")
                     lbl_price.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
                     row_main.addSpacing(30)
                     row_main.addWidget(lbl_price)
