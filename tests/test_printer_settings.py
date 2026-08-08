@@ -128,6 +128,10 @@ class PrinterSettingsTests(unittest.TestCase):
         second_raw = printer._build_kitchen_slip(sale, sale["cart_items"][1], 2)
         self.assertIn("取餐号：12 - 1".encode("gbk"), first_raw)
         self.assertIn("取餐号：12 - 2".encode("gbk"), second_raw)
+        self.assertIn("POS#12".encode("gbk"), first_raw)
+        self.assertIn("POS#12".encode("gbk"), second_raw)
+        self.assertNotIn("POS#12 - 1".encode("gbk"), first_raw)
+        self.assertNotIn("POS#12 - 2".encode("gbk"), second_raw)
 
 
 if __name__ == "__main__":

@@ -486,18 +486,9 @@ class QueueWidget(QWidget):
             label.setText(u"官方叫号池暂不可读取，本模式暂不生成号码，请先检查打印中继或切回其他叫号模式。")
 
     def _load_settings(self):
-        mode = self.config.get("call_mode", CallNumberManager.MODE_SMART)
-        if mode == CallNumberManager.MODE_OFFICIAL_OFFSET:
-            try:
-                enhanced_ready = bool(self.call_mgr.relay_enhanced_available())
-            except Exception:
-                enhanced_ready = False
-            if not enhanced_ready:
-                # 模式四没有安全的兼容模式替代算法；启动/打开页面时
-                # 直接回到智能模式，避免界面显示“已选中但实际不产号”。
-                mode = CallNumberManager.MODE_SMART
-                self.config["call_mode"] = mode
-                save_config(self.config)
+        # 叫号模式跟随实时中继状态：兼容模式自动回到模式一，增强
+        # 模式自动进入模式四，不再用弹窗阻拦收银员保存设置。
+        mode = self.call_mgr.synchronize_mode_with_relay(force=True)
         if mode == CallNumberManager.MODE_SMART:
             self.cmb_mode.setCurrentIndex(0)
         elif mode == CallNumberManager.MODE_CUSTOM:
@@ -526,37 +517,24 @@ class QueueWidget(QWidget):
         else:
             mode = CallNumberManager.MODE_OFFICIAL_OFFSET
 
-        # 官方错峰随机依赖增强模式的已验证官方叫号。兼容模式下保存
-        # 它会造成“设置看似成功、实际拿不到号码”的假状态，因此在
-        # 保存入口直接拦截，并恢复到已保存的可用模式。
-        if mode == CallNumberManager.MODE_OFFICIAL_OFFSET:
-            try:
-                ready = bool(self.call_mgr.relay_enhanced_available())
-            except Exception:
-                ready = False
-            if not ready:
-                from ui.custom_dialog import show_warning
-                show_warning(
-                    self,
-                    u"当前为兼容模式，不能保存模式四",
-                    u"模式四需要打印中继处于增强模式，并已捕获可靠的官方叫号。请先完成真实测试并刷新中继状态，再保存模式四。",
-                )
-                fallback = self.config.get("call_mode", CallNumberManager.MODE_SMART)
-                index_map = {
-                    CallNumberManager.MODE_SMART: 0,
-                    CallNumberManager.MODE_CUSTOM: 1,
-                    CallNumberManager.MODE_MANUAL: 2,
-                }
-                self.cmb_mode.setCurrentIndex(index_map.get(fallback, 0))
-                self.stack_mode.setCurrentIndex(self.cmb_mode.currentIndex())
-                return
-
         self.config["call_mode"] = mode
         self.config["custom_start_no"] = self.spin_start.value()
         self.config["custom_end_no"] = self.spin_end.value()
         self.config["custom_is_seq"] = self.chk_custom_seq.isChecked()
-
+        effective_mode = self.call_mgr.synchronize_mode_with_relay(force=True)
         save_config(self.config)
+        if effective_mode != mode:
+            mode = effective_mode
+            index_map = {
+                CallNumberManager.MODE_SMART: 0,
+                CallNumberManager.MODE_CUSTOM: 1,
+                CallNumberManager.MODE_MANUAL: 2,
+                CallNumberManager.MODE_OFFICIAL_OFFSET: 3,
+            }
+            self.cmb_mode.blockSignals(True)
+            self.cmb_mode.setCurrentIndex(index_map.get(mode, 0))
+            self.cmb_mode.blockSignals(False)
+            self.stack_mode.setCurrentIndex(index_map.get(mode, 0))
         self.call_mgr._cached_next_number = None
         self.refresh_pool_display()
         self.call_mode_saved.emit()

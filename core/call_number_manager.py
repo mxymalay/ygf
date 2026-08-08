@@ -40,6 +40,33 @@ class CallNumberManager:
         self._cached_next_number = None
         self._official_pool_cache = None
         self._official_pool_cache_at = 0.0
+        self._last_mode_sync_at = 0.0
+
+    def synchronize_mode_with_relay(self, force=False):
+        """Keep the call-number algorithm aligned with the live relay mode.
+
+        Mode four is meaningful only while the official-POS relay is live in
+        enhanced mode.  When the relay is compatible, fall back to mode one
+        so checkout can continue.  Conversely, enhanced mode automatically
+        selects mode four as requested by the official-number workflow.
+        """
+        now = time.monotonic()
+        if not force and now - self._last_mode_sync_at < 1.0:
+            return self.config.get("call_mode", self.MODE_SMART)
+        self._last_mode_sync_at = now
+        current = self.config.get("call_mode", self.MODE_SMART)
+        try:
+            enhanced = bool(self.relay_enhanced_available())
+        except Exception:
+            enhanced = False
+        desired = self.MODE_OFFICIAL_OFFSET if enhanced else (
+            self.MODE_SMART if current == self.MODE_OFFICIAL_OFFSET else current
+        )
+        if desired != current:
+            self.config["call_mode"] = desired
+            self._cached_next_number = None
+            save_config(self.config)
+        return desired
 
     def set_official_db(self, official_db):
         """Attach the local official-POS receipt ledger after construction."""
@@ -65,11 +92,12 @@ class CallNumberManager:
             return "evening"
 
     def get_mode(self) -> str:
-        return self.config.get("call_mode", self.MODE_SMART)
+        return self.synchronize_mode_with_relay()
 
     def set_mode(self, mode: str):
         self.config["call_mode"] = mode
         self._cached_next_number = None
+        self._last_mode_sync_at = 0.0
         save_config(self.config)
 
     @staticmethod

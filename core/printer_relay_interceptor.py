@@ -394,6 +394,7 @@ def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
     has_official_kitchen_markers = (
         "制作单" in compact
         and "取餐号" in compact
+        and not any(marker in compact for marker in ("美团", "饿了么", "外卖订单", "外卖打包"))
     )
     if parsed.get("is_waimai") and not has_official_kitchen_markers:
         receipt_kind = "takeout"
@@ -414,6 +415,7 @@ def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
     parsed["receipt_kind"] = receipt_kind
     parsed["platform"] = platform
     parsed["is_official_receipt"] = receipt_kind in ("takeout", "dinein")
+    parsed["is_official_kitchen"] = bool(has_official_kitchen_markers)
 
     # This store's official POS only emits the customer settlement receipt
     # after checkout.  Apply that local workflow rule only when the payload

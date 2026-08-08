@@ -110,6 +110,24 @@ class TakeoutInterceptionTests(unittest.TestCase):
         result = parse_official_pos_text(text)
         self.assertEqual(result["receipt_kind"], "takeout")
 
+    def test_official_kitchen_sequence_follows_customer_soup_order(self):
+        host = PrinterRelayHost.__new__(PrinterRelayHost)
+        host._official_kitchen_orders = {}
+        host.config = {"printer_template_profile": "official_v2", "printer_logo_enabled": False}
+        customer = parse_official_pos_text(
+            "取餐号:0013\nPOS点餐\n"
+            "经典草本骨汤（KG） KG 47.60 0.006 0.29\n"
+            "酸汤（KG） KG 47.60 0.010 0.48\n"
+            "合计 0.77\n订单号: DINE-13\n订单时间: 2026-08-08 11:05:58"
+        )
+        host._remember_official_customer_order(customer, customer["raw_text"])
+        first = parse_official_pos_text("取餐号:0013\n制作单 POS#0013\n经典草本骨汤（KG）\n0.006\n")
+        second = parse_official_pos_text("取餐号:0013\n制作单 POS#0013\n酸汤（KG）\n0.010\n")
+        _item1, index1, total1 = host._official_kitchen_sequence(first, first["raw_text"])
+        _item2, index2, total2 = host._official_kitchen_sequence(second, second["raw_text"])
+        self.assertEqual((index1, total1), (1, 2))
+        self.assertEqual((index2, total2), (2, 2))
+
     def test_official_settlement_ticket_implies_paid_for_this_pos_workflow(self):
         text = ("杨国福(肥西水晶城店)\n取餐号:0044 [POS点餐]\n"
                 "应付 10.60\n人民币 10.60\n"

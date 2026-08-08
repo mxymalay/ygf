@@ -71,7 +71,10 @@ class CallNumberManagerOfficialOffsetTests(unittest.TestCase):
         manager = CallNumberManager(config, official_db=_ReceiptDb([]))
         with patch("core.call_number_manager.save_config"):
             chosen = manager.get_next_number()
-        self.assertIsNone(chosen)
+        # Compatibility fallback is automatic; mode one keeps the cashier
+        # moving even before the first official POS ticket is observed.
+        self.assertIsNotNone(chosen)
+        self.assertEqual(config["call_mode"], CallNumberManager.MODE_SMART)
         self.assertFalse(manager.official_mode_ready())
 
     def test_compatibility_mode_cannot_use_official_relative_numbers(self):
@@ -81,7 +84,17 @@ class CallNumberManagerOfficialOffsetTests(unittest.TestCase):
         }
         manager = CallNumberManager(config, official_db=_ReceiptDb([self._row(20, 1)]))
         self.assertFalse(manager.relay_enhanced_available())
-        self.assertIsNone(manager.peek_next_number())
+        self.assertIsNotNone(manager.peek_next_number())
+        self.assertEqual(config["call_mode"], CallNumberManager.MODE_SMART)
+
+    def test_enhanced_relay_automatically_selects_official_offset_mode(self):
+        config = {"call_mode": CallNumberManager.MODE_SMART, "call_used_numbers": []}
+        manager = CallNumberManager(config, official_db=_ReceiptDb([]))
+        with patch.object(manager, "relay_enhanced_available", return_value=True), \
+                patch("core.call_number_manager.save_config"):
+            mode = manager.get_mode()
+        self.assertEqual(mode, CallNumberManager.MODE_OFFICIAL_OFFSET)
+        self.assertEqual(config["call_mode"], CallNumberManager.MODE_OFFICIAL_OFFSET)
 
 
 if __name__ == "__main__":

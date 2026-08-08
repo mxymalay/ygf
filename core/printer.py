@@ -247,7 +247,9 @@ class ReceiptPrinter:
             "shop_subtitle": sale.get("shop_subtitle", "") or "杨国福(肥西水晶城店)",
             "call_no": call_no,
             "kitchen_call_no": kitchen_call_no,
-            "pos_order_no": "POS#" + kitchen_call_no,
+            # 序号只属于最上方的取餐号；制作单标题保持基础 POS 号，
+            # 便于和同一顾客单的多份制作单对应。
+            "pos_order_no": "POS#" + str(call_no),
             # 取餐号行使用双倍宽高；按一半的逻辑列宽排版，避免 ESC/POS
             # 放大后把右侧的 [POS点餐] 挤出纸面。
             "pickup_line": fmt_lr_48(
@@ -256,7 +258,7 @@ class ReceiptPrinter:
             ).rstrip("\n"),
             "table_header": self._customer_table_header(),
             "kitchen_title_line": fmt_lr_48(
-                "制作单", "POS#" + kitchen_call_no,
+                "制作单", "POS#" + str(call_no),
                 max(8, self._line_width() // 2),
             ).rstrip("\n"),
             "index": index,

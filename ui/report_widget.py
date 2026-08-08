@@ -117,6 +117,10 @@ class ReportWidget(QWidget):
             "color: #FEF3C7; background: #78350F; border: 1px solid #D97706; "
             "border-radius: 8px; padding: 10px;"
         )
+        # Keep the warning from consuming the fixed-height POS viewport.  A
+        # full explanation remains on the official/total report cards.
+        self.lbl_official_notice.setMaximumHeight(72)
+        self.lbl_official_notice.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.btn_go_private_report = QPushButton(u"查看私域 POS 营业额")
         self.btn_go_private_report.setMinimumHeight(42)
         self.btn_go_private_report.clicked.connect(lambda: self._select_report_section("private"))
@@ -327,7 +331,16 @@ class ReportWidget(QWidget):
         fallback_layout.addWidget(btn_fallback_private)
         fallback_layout.addStretch()
         self.report_content_stack.addWidget(self.report_fallback_page)
-        main_layout.addWidget(self.report_content_stack, stretch=1)
+        # The calendar and receipt have a deliberately dense layout.  When a
+        # reliability notice is visible, let the report body scroll instead
+        # of squeezing the calendar until its rows overlap the quick buttons.
+        report_scroll = QScrollArea()
+        report_scroll.setWidgetResizable(True)
+        report_scroll.setFrameShape(QFrame.NoFrame)
+        report_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        report_scroll.setWidget(self.report_content_stack)
+        self.report_scroll = report_scroll
+        main_layout.addWidget(report_scroll, stretch=1)
 
         root_layout.addWidget(section_sidebar)
         root_layout.addLayout(main_layout, stretch=1)
@@ -380,6 +393,13 @@ class ReportWidget(QWidget):
             self.btn_go_private_report.setVisible(False)
             if hasattr(self, "report_content_stack"):
                 self.report_content_stack.setCurrentIndex(0)
+        elif section != "private" and hasattr(self, "lbl_official_notice"):
+            # Re-show the completeness warning when the operator deliberately
+            # opens the official or total view after having inspected private
+            # POS figures.
+            mode_warning = (getattr(self, "_official_report_state", {}) or {}).get("mode_warning") or ""
+            self.lbl_official_notice.setVisible(bool(mode_warning))
+            self.btn_go_private_report.setVisible(False)
         # When the official source is unavailable, both official and total
         # views intentionally fall back to the private-POS view.  A deliberate
         # click on either unavailable entry must still show the reason instead
@@ -671,7 +691,11 @@ class ReportWidget(QWidget):
                 total_hint,
             )
             self.lbl_official_notice.setText(mode_warning)
-            self.lbl_official_notice.setVisible(bool(mode_warning))
+            # This is a warning about the completeness of official/total
+            # figures.  The private-POS report is independent of that source
+            # and must stay clean even when the selected period had a relay
+            # fallback event.
+            self.lbl_official_notice.setVisible(bool(mode_warning) and self.report_section != "private")
             self.btn_go_private_report.setVisible(False)
         else:
             reason = official.get("reason") or u"未获取到官方 POS 数据"

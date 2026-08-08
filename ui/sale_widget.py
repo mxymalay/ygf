@@ -26,7 +26,7 @@ from core.call_number_manager import CallNumberManager
 from core.order_draft import clear_draft, load_draft, save_draft
 from ui.custom_dialog import show_warning, show_info, show_question, get_int_input, ReceiptPreviewDialog
 from core.app_logger import log_event, CAT_USER, CAT_PRINT, CAT_ORDER, CAT_SYSTEM
-from core.shop_catalog import get_shop_categories
+from core.shop_catalog import get_shop_categories, default_flavor_options
 
 
 # Official Yang Guo Fu receipts use a long numeric merchant order number
@@ -256,13 +256,18 @@ class TasteSelectionDialog(QDialog):
     """
     flavor_changed = pyqtSignal(str)
 
-    def __init__(self, soup_name, is_dark_mode=True, parent=None):
+    def __init__(self, soup_name, is_dark_mode=True, parent=None,
+                 flavor_options=None, auto_hide_sec=1.0):
         super().__init__(parent)
         self.setWindowTitle(f"选择口味 - {soup_name}")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Popup)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.is_dark_mode = is_dark_mode
+        try:
+            self.auto_hide_sec = max(0.0, float(auto_hide_sec or 0.0))
+        except (TypeError, ValueError):
+            self.auto_hide_sec = 1.0
         self.arrow_direction = "up"
         self.arrow_x_offset = 60
 
@@ -274,12 +279,17 @@ class TasteSelectionDialog(QDialog):
 
         # 草本骨汤不提供“不辣”。牛骨汤类默认选择“微辣”，避免新单
         # 没有口味标签；顾客仍可在弹窗中改成其他辣度或再次点击取消。
-        if "草本骨汤" in soup_name:
-            self.spicy_options = [u"原汤", u"微辣", u"中辣", u"重辣"]
-        else:
-            self.spicy_options = [u"不辣", u"原汤", u"微辣", u"中辣", u"重辣"]
+        options = flavor_options or default_flavor_options(soup_name)
+        self.spicy_options = []
+        for option in options:
+            text = str(option or "").strip()
+            if text and text not in self.spicy_options:
+                self.spicy_options.append(text)
+        if not self.spicy_options:
+            self.spicy_options = default_flavor_options(soup_name)
 
-        self.selected_spice = u"微辣" if (u"牛骨汤" in soup_name or u"骨汤" in soup_name) else ""
+        default_spice = u"微辣" if (u"牛骨汤" in soup_name or u"骨汤" in soup_name) else ""
+        self.selected_spice = default_spice if default_spice in self.spicy_options else ""
         self.selected_prefs = set()
         self.extra_tags = set()
         
@@ -377,7 +387,15 @@ class TasteSelectionDialog(QDialog):
         self._reset_auto_close_timer()
         
     def _reset_auto_close_timer(self):
-        self.auto_close_timer.start(1000)
+        if self.auto_hide_sec > 0:
+            self.auto_close_timer.start(max(1, int(round(self.auto_hide_sec * 1000))))
+        else:
+            self.auto_close_timer.stop()
+
+    def showEvent(self, event):
+        """Start the configured countdown even when the default flavor is untouched."""
+        super().showEvent(event)
+        self._reset_auto_close_timer()
 
     def update_layout_margins(self):
         if self.arrow_direction == "up":
@@ -656,7 +674,7 @@ class MenuGridButton(QPushButton):
     右侧菜单卡片按钮 — 深浅主题自适应 (分类支持汤底、打包盒、精品串与饮料)
     """
 
-    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_skewer=False, is_dark_mode=True, parent=None, show_flavor=False, category_id=""):
+    def __init__(self, key_id, title, subtitle, price, is_soup=False, is_box=False, is_skewer=False, is_dark_mode=True, parent=None, show_flavor=False, category_id="", flavor_options=None, flavor_auto_hide_sec=1.0):
         super().__init__(parent)
         self.key_id = key_id
         self.title_str = title
@@ -667,6 +685,11 @@ class MenuGridButton(QPushButton):
         self.is_box = is_box
         self.is_skewer = is_skewer
         self.show_flavor = bool(show_flavor)
+        self.flavor_options = list(flavor_options or [])
+        try:
+            self.flavor_auto_hide_sec = max(0.0, float(flavor_auto_hide_sec or 0.0))
+        except (TypeError, ValueError):
+            self.flavor_auto_hide_sec = 1.0
         self.category_id = category_id
         self.is_dark_mode = is_dark_mode
         self.count = 0
@@ -1935,8 +1958,10 @@ class SaleWidget(QWidget):
                 btn = MenuGridButton(
                     iid, item.get("name", iid), subtitle, price,
                     is_soup, is_box, is_skewer, self.is_dark_mode,
-                    show_flavor=bool(category.get("show_flavor", False)) if is_soup else False,
+                    show_flavor=bool(item.get("show_flavor", False)) if is_soup else False,
                     category_id=cid,
+                    flavor_options=item.get("flavor_options", []) if is_soup else [],
+                    flavor_auto_hide_sec=item.get("flavor_auto_hide_sec", 1.0) if is_soup else 0.0,
                 )
                 btn.clicked.connect(lambda checked=False, b=btn: self._on_menu_click(b))
                 btn.set_count(int(restore_counts.get(iid, 0) or 0))
@@ -2059,12 +2084,17 @@ class SaleWidget(QWidget):
                     return
 
             soup_clean_name = btn.title_str.replace("\n", " ")
-            dlg = TasteSelectionDialog(soup_clean_name, is_dark_mode=self.is_dark_mode, parent=self)
-            
-            # 汤底分类的“显示口味”开关由店铺设置控制；不再根据商品
-            # 名称硬编码，改名后仍能保持正确行为。
+            # 每个汤底商品独立控制是否在点击卡片时弹出口味；“改口味”
+            # 快捷操作会绕过这个开关，始终弹出对话框。
             skip_flavor_popup = not bool(getattr(btn, "show_flavor", False))
-            
+            dlg = None if skip_flavor_popup else TasteSelectionDialog(
+                soup_clean_name,
+                is_dark_mode=self.is_dark_mode,
+                parent=self,
+                flavor_options=getattr(btn, "flavor_options", None),
+                auto_hide_sec=getattr(btn, "flavor_auto_hide_sec", 1.0),
+            )
+
             w = self.current_weight
             soup_unit_price = btn.price if (btn.price > 0) else unit_price
             b_price = calculate_price(w, soup_unit_price, price_unit)
@@ -2116,10 +2146,11 @@ class SaleWidget(QWidget):
                 self._auto_focus_requested = True
                 self._update_price_display()
 
-            dlg.flavor_changed.connect(update_flavor)
+            if dlg is not None:
+                dlg.flavor_changed.connect(update_flavor)
 
             # 3. 智能精准定位气泡弹窗在当前按键旁边/下方，且严格防越界 (特定汤底免打扰)
-            if not skip_flavor_popup:
+            if dlg is not None:
                 self._position_popup_at_widget(dlg, btn)
                 dlg.exec_()
                 
@@ -2280,7 +2311,19 @@ class SaleWidget(QWidget):
                 return
 
             soup_name = item.get("name", u"麻辣烫")
-            dlg = TasteSelectionDialog(soup_name, is_dark_mode=self.is_dark_mode, parent=self)
+            flavor_options = None
+            flavor_auto_hide_sec = 1.0
+            menu_button = self.menu_buttons.get(item.get("key_id"))
+            if menu_button is not None:
+                flavor_options = getattr(menu_button, "flavor_options", None)
+                flavor_auto_hide_sec = getattr(menu_button, "flavor_auto_hide_sec", 1.0)
+            dlg = TasteSelectionDialog(
+                soup_name,
+                is_dark_mode=self.is_dark_mode,
+                parent=self,
+                flavor_options=flavor_options,
+                auto_hide_sec=flavor_auto_hide_sec,
+            )
             
             # 设置初始勾选已有的口味标签 (如 '微辣 / 免蒜')
             if item.get("tag"):

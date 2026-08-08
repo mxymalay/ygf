@@ -9,6 +9,7 @@ it can still use the operator's Windows printer connections.
 import json
 import hashlib
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -211,6 +212,11 @@ class PrinterRelayHost:
         # a short control/noise job.  Showing only ``last_received`` made it
         # impossible to tell which JSON file the parser was using.
         self.recent_received = []
+        # Official POS sends the customer receipt and one or more kitchen
+        # slips as separate jobs.  Keep the customer item order so kitchen
+        # slips can use the same ``POS#0013 - 1`` / ``- 2`` numbering as the
+        # private POS official template.
+        self._official_kitchen_orders = {}
         self.mode_reason = str(self.config.get("printer_relay_mode_reason", "") or "")
         self.last_mode_change_at = str(self.config.get("printer_relay_mode_changed_at", "") or "")
         self._last_status_at = 0
@@ -308,6 +314,153 @@ class PrinterRelayHost:
             return True
         return any(marker in compact for marker in ("制作单", "后厨", "厨房打印", "出餐单"))
 
+    @staticmethod
+    def _official_call_key(parsed):
+        """Use the official pickup number to join customer/kitchen jobs."""
+        order_no = str((parsed or {}).get("order_no") or "").strip()
+        if order_no and order_no != "#---":
+            return re.sub(r"[^0-9A-Za-z_-]", "", order_no).casefold()
+        order_id = str((parsed or {}).get("full_order_id") or "").strip()
+        return order_id.casefold()
+
+    @staticmethod
+    def _official_soup_names(raw_text):
+        """Extract soup rows from the customer slip in display order."""
+        names = []
+        for line in str(raw_text or "").replace("\r", "").split("\n"):
+            if not re.search(r"(?:（|\()\s*KG\s*(?:）|\))", line, re.IGNORECASE):
+                continue
+            match = re.search(
+                r"([\u4e00-\u9fffA-Za-z0-9][\u4e00-\u9fffA-Za-z0-9 _（）()\-]{0,60}?(?:（\s*KG\s*）|\(\s*KG\s*\)))",
+                line,
+                re.IGNORECASE,
+            )
+            if not match:
+                continue
+            name = re.sub(r"\s+", "", match.group(1)).strip()
+            if name:
+                names.append(name)
+        return names
+
+    @staticmethod
+    def _official_item_key(name):
+        value = str(name or "").casefold()
+        value = re.sub(r"（\s*kg\s*）|\(\s*kg\s*\)", "", value, flags=re.IGNORECASE)
+        return re.sub(r"[^0-9a-z\u4e00-\u9fff]", "", value)
+
+    @classmethod
+    def _official_kitchen_item(cls, parsed, raw_text):
+        """Read one official POS kitchen slip's soup name/weight/flavor."""
+        lines = [line.strip() for line in str(raw_text or "").replace("\r", "").split("\n")]
+        name = ""
+        name_index = -1
+        for index, line in enumerate(lines):
+            match = re.search(
+                r"([\u4e00-\u9fffA-Za-z0-9][\u4e00-\u9fffA-Za-z0-9 _（）()\-]{0,60}?(?:（\s*KG\s*）|\(\s*KG\s*\)))",
+                line,
+                re.IGNORECASE,
+            )
+            if match:
+                name = re.sub(r"\s+", "", match.group(1)).strip()
+                name_index = index
+                break
+        if not name:
+            for candidate in (parsed or {}).get("item_names") or []:
+                if re.search(r"(?:（|\()\s*kg\s*(?:）|\))", str(candidate), re.IGNORECASE):
+                    name = str(candidate).strip()
+                    break
+        if not name:
+            name = "经典草本骨汤（KG）"
+
+        weight = 0.0
+        for line in lines[max(0, name_index + 1):]:
+            match = re.fullmatch(r"\s*(\d+(?:\.\d{1,3})?)\s*", line)
+            if match:
+                try:
+                    weight = float(match.group(1))
+                except (TypeError, ValueError):
+                    pass
+                break
+        flavor = ""
+        if name_index >= 0:
+            for line in lines[name_index + 1:]:
+                compact = re.sub(r"\s+", "", line)
+                if not compact or re.fullmatch(r"[-=*_]+", compact):
+                    continue
+                if re.fullmatch(r"\d+(?:\.\d{1,3})?", compact):
+                    continue
+                if any(marker in compact for marker in ("操作人", "下单时间", "打印时间", "取餐号", "制作单", "POS#")):
+                    continue
+                flavor = line.strip()
+                break
+        return {"name": name, "weight": weight, "tag": flavor, "type": "soup"}
+
+    def _remember_official_customer_order(self, parsed, raw_text):
+        key = self._official_call_key(parsed)
+        if not key:
+            return
+        names = self._official_soup_names(raw_text)
+        if not names:
+            return
+        existing = self._official_kitchen_orders.get(key) or {}
+        used = set(existing.get("used", set()))
+        self._official_kitchen_orders[key] = {"names": names, "used": used}
+        if len(self._official_kitchen_orders) > 200:
+            self._official_kitchen_orders.pop(next(iter(self._official_kitchen_orders)))
+
+    def _official_kitchen_sequence(self, parsed, raw_text):
+        key = self._official_call_key(parsed)
+        entry = self._official_kitchen_orders.setdefault(key, {"names": [], "used": set()})
+        item = self._official_kitchen_item(parsed, raw_text)
+        item_key = self._official_item_key(item.get("name"))
+        names = entry.get("names") or []
+        used = entry.setdefault("used", set())
+        index = None
+        # Match against the customer's item order first; repeated identical
+        # soup names consume successive positions before reprints reuse one.
+        for position, name in enumerate(names, 1):
+            if position not in used and self._official_item_key(name) == item_key:
+                index = position
+                break
+        if index is None:
+            for position, name in enumerate(names, 1):
+                if self._official_item_key(name) == item_key:
+                    index = position
+                    break
+        if index is None:
+            index = max(used or {0}) + 1
+            if index > len(names):
+                names.append(item.get("name", "经典草本骨汤（KG）"))
+        used.add(index)
+        entry["names"] = names
+        return item, index, max(1, len(names))
+
+    def _print_official_kitchen(self, parsed, raw_text):
+        """Print an official kitchen slip with private-POS-style numbering."""
+        item, index, kitchen_count = self._official_kitchen_sequence(parsed, raw_text)
+        call_no = str(parsed.get("order_no") or "#---").lstrip("#") or "---"
+        all_items = []
+        entry = self._official_kitchen_orders.get(self._official_call_key(parsed)) or {}
+        names = entry.get("names") or [item.get("name")]
+        for name in names[:kitchen_count]:
+            all_items.append(dict(item, name=name))
+        while len(all_items) < kitchen_count:
+            all_items.append(dict(item))
+        sale = {
+            "call_no": call_no,
+            "cart_items": all_items,
+            "weight_kg": item.get("weight", 0.0),
+            "created_at": parsed.get("order_time") or _now(),
+            "shop_subtitle": self.config.get("shop_subtitle", ""),
+            "config": self.config,
+        }
+        template_config = dict(self.config)
+        template_config["printer_template_profile"] = "official_v2"
+        template_config["printer_logo_enabled"] = False
+        printer = ReceiptPrinter(template_config)
+        payload = printer._build_kitchen_slip(sale, item, index)
+        return printer.print_raw(payload), printer.last_error
+
     def _handle_order(self, intercepted):
         raw_text = str(intercepted.get("raw_text", ""))
         parsed = parse_official_pos_text(raw_text, _printer_relay_options(self.config))
@@ -380,6 +533,34 @@ class PrinterRelayHost:
                 self.last_error = "官方票据流水入账失败：%s" % exc
             parsed["duplicate"] = not created
             parsed["conflict_detected"] = bool((_row or {}).get("conflict_detected"))
+            if not parsed.get("is_official_kitchen"):
+                self._remember_official_customer_order(parsed, raw_text)
+            if parsed.get("is_official_kitchen"):
+                # The official POS kitchen ticket is a separate print job,
+                # not an external order.  Re-render it with the same official
+                # v2 template used by private POS so multiple soup rows are
+                # visibly numbered (#0013 - 1, #0013 - 2), while the customer
+                # receipt remains an untouched original POS ticket.
+                self.last_identified_at = _now()
+                self._update_last_received(parsed, intercepted, parse_failed=False)
+                self.last_order = "%s %s" % (
+                    parsed.get("platform", "官方POS-堂食"),
+                    parsed.get("full_order_id") or parsed.get("order_no") or "无订单号",
+                )
+                if self.current_mode == MODE_ENHANCED:
+                    self._set_mode(MODE_ENHANCED, "官方 POS 制作单不改变增强模式")
+                try:
+                    success, error = self._print_official_kitchen(parsed, raw_text)
+                except Exception as exc:
+                    success, error = False, str(exc)
+                if success:
+                    self.last_error = ""
+                    self.last_message = "官方制作单已按顺序打印：%s" % self.last_order
+                else:
+                    self.last_error = error or "官方制作单重排打印失败"
+                    self.last_message = "官方制作单打印失败：%s" % self.last_error
+                self._write_status()
+                return
             if parsed.get("payment_status") == "cancelled":
                 try:
                     refund_result = self.official_db.record_official_refund(
