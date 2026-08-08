@@ -68,6 +68,83 @@ def _draw_dynamic_chart_label(painter, point, text, color, plot, occupied, font,
     occupied.append(chosen.adjusted(-2, -2, 2, 2))
 
 
+def _draw_time_axis_labels(painter, plot, point_for, event_times, start_time, end_time,
+                           full_day=False):
+    """Draw a de-duplicated time axis with collision-aware label spacing.
+
+    Event timestamps are useful for inspecting a switch, but drawing every
+    timestamp (plus the fixed 6-hour ticks) makes the labels overlap on a
+    narrow Win7 POS viewport.  Fixed ticks are kept first; event labels are
+    then added only when their rotated text bounds have room.
+    """
+    axis_font = QFont("Microsoft YaHei", 8)
+    metrics = QFontMetrics(axis_font)
+    angle_factor = 0.72  # conservative horizontal footprint at 45 degrees
+
+    def extent(text):
+        text_width = max(1.0, float(metrics.horizontalAdvance(text)))
+        return max(30.0, text_width * angle_factor + float(metrics.height()) + 8.0)
+
+    fixed = []
+    if full_day:
+        for hour in (0, 6, 12, 18, 24):
+            when = start_time + timedelta(hours=hour)
+            label = u"24:00" if hour == 24 else when.strftime("%H:%M")
+            fixed.append((when, label))
+    else:
+        fixed = [(start_time, start_time.strftime("%H:%M")),
+                 (end_time, end_time.strftime("%H:%M"))]
+
+    # Keep one candidate per pixel position.  A real event wins over a fixed
+    # tick at the same timestamp because it carries seconds-level detail.
+    candidates = {}
+    for when, label in fixed:
+        x = float(point_for(when, 0.0).x())
+        candidates.setdefault(round(x, 1), (x, label, 0))
+    for when in sorted(set(event_times or [])):
+        # The right edge of a full-day chart is the next midnight.  Keep the
+        # fixed ``24:00`` tick there instead of letting a session-end marker
+        # replace it with a second ``00:00:00`` label.
+        if when < start_time or when > end_time or (full_day and when == end_time):
+            continue
+        label = when.strftime("%H:%M:%S")
+        x = float(point_for(when, 0.0).x())
+        key = round(x, 1)
+        candidates[key] = (x, label, 1)
+
+    fixed_candidates = sorted((item for item in candidates.values() if item[2] == 0), key=lambda item: item[0])
+    event_candidates = sorted((item for item in candidates.values() if item[2] == 1), key=lambda item: item[0])
+    selected = []
+    occupied = []
+
+    def can_place(x, text):
+        half = extent(text) / 2.0
+        return all(abs(x - other_x) >= (half + other_half + 6.0)
+                   for other_x, other_half in occupied)
+
+    for x, label, _priority in fixed_candidates:
+        half = extent(label) / 2.0
+        selected.append((x, label))
+        occupied.append((x, half))
+    for x, label, _priority in event_candidates:
+        if can_place(x, label):
+            half = extent(label) / 2.0
+            selected.append((x, label))
+            occupied.append((x, half))
+
+    painter.save()
+    painter.setPen(QColor("#CBD5E1"))
+    painter.setFont(axis_font)
+    for x, label in sorted(selected, key=lambda item: item[0]):
+        text_width = float(metrics.horizontalAdvance(label))
+        painter.save()
+        painter.translate(x, plot.bottom() + 14.0)
+        painter.rotate(45)
+        painter.drawText(QPointF(-text_width / 2.0, 0.0), label)
+        painter.restore()
+    painter.restore()
+
+
 class TouchSpinBox(QWidget):
     """触屏友好的数字加减控件 (整数)"""
     def __init__(self, value, min_val, max_val, step=1, suffix="", parent=None):
@@ -908,64 +985,18 @@ class DecisionWeightChart(QWidget):
                 "channel": channel,
             })
 
-        # Use actual event times, sampled to the available width.  Labels are
-        # rotated after translation so they remain fully visible below the axis.
-        # 标签不能只按事件数量等距抽样：多次手动切换可能集中在几秒
-        # 内，等距抽样仍会把文字画在同一小段区域。改为按实际像素
-        # 间距贪心选择，所有红线保留，但时间文字不互相覆盖。
-        if self._scroll_dragging:
-            indexes = []
-        else:
-            indexes = []
-        min_label_spacing = 100.0
-        last_label_x = None
         if not self._scroll_dragging:
-            for idx, (when, _weight, _channel, _event) in enumerate(points):
-                x = point_for(when, 0.0).x()
-                if last_label_x is None or x - last_label_x >= min_label_spacing:
-                    indexes.append(idx)
-                    last_label_x = x
-        if not self._scroll_dragging and not indexes and self.timeline_start is None:
-            indexes = [0]
-        if not self._scroll_dragging and indexes and indexes[-1] != len(points) - 1:
-            # 最后一个时间点始终保留；若它与上一个候选点过近，
-            # 用最后一个替换上一个，避免为了“显示最后时间”再次重叠。
-            last_index = len(points) - 1
-            last_x = point_for(points[last_index][0], 0.0).x()
-            previous_x = point_for(points[indexes[-1]][0], 0.0).x()
-            if len(indexes) > 1 and last_x - previous_x < min_label_spacing:
-                indexes[-1] = last_index
-            else:
-                indexes.append(last_index)
-        if not self._scroll_dragging:
-            axis_font = QFont("Microsoft YaHei", 8)
-            painter.setFont(axis_font)
-            for idx in indexes:
-                when = points[idx][0]
-                point = point_for(when, 0.0)
-                label = when.strftime("%H:%M:%S")
-                painter.save()
-                painter.translate(point.x(), plot.bottom() + 13)
-                painter.rotate(45)
-                painter.setPen(self.TEXT_COLOR)
-                painter.drawText(QPointF(0, 0), label)
-                painter.restore()
-
-        if not self._scroll_dragging and self.timeline_start is not None and self.timeline_end is not None:
-            # A full-day axis makes the midnight-to-first-start state visible
-            # even when there are only a few weighings.
-            axis_ticks = [
-                self.timeline_start + timedelta(hours=hour)
-                for hour in (0, 6, 12, 18, 24)
-            ]
-            for tick in axis_ticks:
-                point = point_for(tick, 0.0)
-                painter.save()
-                painter.translate(point.x(), plot.bottom() + 13)
-                painter.rotate(45)
-                painter.setPen(self.TEXT_COLOR)
-                painter.drawText(QPointF(0, 0), tick.strftime("%H:%M"))
-                painter.restore()
+            # Keep fixed day ticks and actual event timestamps in one layout
+            # pass so they cannot draw over each other.
+            _draw_time_axis_labels(
+                painter,
+                plot,
+                point_for,
+                [item[0] for item in points],
+                start_time,
+                end_time,
+                full_day=self.timeline_start is not None and self.timeline_end is not None,
+            )
 
         # 将每个点投影到横坐标。辅助线统一使用低透明度细虚线，避免
         # 官方、私有点较多时遮住折线、数值和时间标签。手动切换没有
@@ -1526,11 +1557,21 @@ class DecisionAmountChart(QWidget):
                 self._hit_targets.append({"kind": marker_kind, "point": marker_point, "when": when})
         painter.setPen(QPen(QColor("#64748B"), 1))
         painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
-        painter.setPen(self.TEXT_COLOR)
-        painter.setFont(QFont("Microsoft YaHei", 9))
-        for when in (start_time, end_time):
-            x = point_for(when, 0.0).x()
-            painter.drawText(QRectF(x - 42, plot.bottom() + 8, 84, 18), Qt.AlignCenter, when.strftime("%H:%M"))
+        # Amount charts used to show only two endpoint labels (and on a full
+        # day both endpoints read ``00:00``).  Use the same collision-aware
+        # time axis as the weight chart so the amount trend always exposes
+        # its time scale and useful event timestamps.
+        _draw_time_axis_labels(
+            painter,
+            plot,
+            point_for,
+            [item[0] for item in points]
+            + [item[0] for item in manual_points]
+            + [boundary for session in self.app_sessions for boundary in session],
+            start_time,
+            end_time,
+            full_day=self.timeline_start is not None and self.timeline_end is not None,
+        )
         painter.end()
 
 

@@ -1540,6 +1540,13 @@ class SettingsWidget(QWidget):
         profile_index = {"legacy": 0, "official_v2": 1, "official_v3": 2, "custom": 3}.get(profile, 2)
         self.cmb_printer_template_profile.setCurrentIndex(profile_index)
         profile_grid.addWidget(self.cmb_printer_template_profile, 0, 1)
+        # The template selector is often used by itself.  Keep its save action
+        # beside the selector instead of forcing the operator to scroll past
+        # the custom-template fields to find the page-level save button.
+        self.btn_save_printer_template_profile = QPushButton(u"保存模板选择")
+        self._style_touch_action_btn(self.btn_save_printer_template_profile, "blue")
+        self.btn_save_printer_template_profile.clicked.connect(self._on_save_printer_template)
+        profile_grid.addWidget(self.btn_save_printer_template_profile, 0, 2)
         layout.addLayout(profile_grid)
 
         self.lbl_printer_custom_template_hint = QLabel(
