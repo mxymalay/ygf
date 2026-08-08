@@ -2578,6 +2578,7 @@ class SettingsWidget(QWidget):
             | QAbstractItemView.EditKeyPressed
         )
         self.tbl_sku_items.setAlternatingRowColors(True)
+        self.tbl_sku_items.verticalHeader().setVisible(False)
         self.tbl_sku_items.verticalHeader().setDefaultSectionSize(42)
         self.tbl_sku_items.setStyleSheet(
             "QTableWidget { background: #111827; color: #E2E8F0; font-size: 13px; "
@@ -2647,7 +2648,10 @@ class SettingsWidget(QWidget):
             return viewport_width < 980
         try:
             screen = QApplication.primaryScreen()
-            return bool(screen and screen.availableGeometry().width() < 1500)
+            # Qt reports logical pixels on scaled/high-DPI Windows displays;
+            # use a lower fallback threshold so a 1366/150% screen does not
+            # incorrectly enter the dense layout when the table can fit.
+            return bool(screen and screen.availableGeometry().width() < 1200)
         except Exception:
             return False
 
