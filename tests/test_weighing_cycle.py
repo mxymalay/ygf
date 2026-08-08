@@ -397,6 +397,26 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertEqual(next_channel, "私有 POS")
         controller._hide_timer.stop()
 
+    def test_enhanced_snapshot_uses_amount_hint_instead_of_weight(self):
+        controller = self._controller()
+        controller._target_private_amount_ratio = 30.0
+        controller._switch_cycle_initialized = True
+        controller._switch_cycle_is_private = False
+        controller.main_window.db = Mock()
+        controller.main_window.db.get_today_summary.return_value = {"total_amount": 100.0}
+
+        with patch.object(
+            controller,
+            "_verified_official_amount_state",
+            return_value=(200.0, True),
+        ):
+            snapshot = controller._switch_progress_snapshot()
+
+        self.assertEqual(snapshot["basis"], "amount")
+        self.assertIsNone(snapshot["remaining_kg"])
+        self.assertAlmostEqual(snapshot["remaining_amount"], 100.0 / 0.3 - 300.0)
+        controller._hide_timer.stop()
+
     def test_manual_switch_resets_cycle_baseline_but_keeps_daily_counters(self):
         controller = self._controller()
         controller._target_private_ratio = 30.0

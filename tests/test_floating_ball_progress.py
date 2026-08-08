@@ -44,6 +44,21 @@ class FloatingBallProgressTests(unittest.TestCase):
         ball._switch_next_channel = "私有 POS"
         self.assertEqual(FloatingBall._switch_hint_text(ball), "下次切私域 POS")
 
+    def test_timer_refreshes_routing_hint_when_relay_mode_changes(self):
+        calls = []
+        ball = SimpleNamespace(
+            main_window=SimpleNamespace(
+                switch_controller=SimpleNamespace(
+                    refresh_floating_ball_progress=lambda: calls.append(True),
+                )
+            ),
+            update=lambda: calls.append("paint"),
+        )
+
+        FloatingBall._refresh_state(ball)
+
+        self.assertEqual(calls, [True, "paint"])
+
 
 if __name__ == "__main__":
     unittest.main()

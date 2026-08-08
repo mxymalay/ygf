@@ -66,7 +66,7 @@ class FloatingBall(QWidget):
 
         # 定时刷新界面以确保暂停图标能按时消失 (1Hz)
         self._state_refresh_timer = QTimer(self)
-        self._state_refresh_timer.timeout.connect(self.update)
+        self._state_refresh_timer.timeout.connect(self._refresh_state)
         self._state_refresh_timer.start(1000)
 
         # 决策通过的对钩指示符
@@ -90,6 +90,25 @@ class FloatingBall(QWidget):
         # final global geometry yet; repeat once after the main window is
         # shown so a first-run default aligns with the real product row.
         QTimer.singleShot(0, self._restore_or_move_to_default)
+
+    def _refresh_state(self):
+        """Refresh both paint-only state and the routing hint.
+
+        The relay changes to enhanced mode in a detached process.  That
+        transition does not emit a Qt signal in this process, so repainting
+        alone leaves the previous compatibility-mode ``kg`` hint visible
+        until the next weighing decision.  Ask the controller to re-read its
+        live relay status once per second so the hint changes to currency (or
+        back to weight) as soon as the mode changes.
+        """
+        controller = getattr(self.main_window, "switch_controller", None)
+        if controller is not None and hasattr(controller, "refresh_floating_ball_progress"):
+            try:
+                controller.refresh_floating_ball_progress()
+            except Exception as exc:
+                # A diagnostic refresh must never affect checkout or painting.
+                print("[FloatingBall] 刷新分流提示失败:", exc)
+        self.update()
 
     def _restore_or_move_to_default(self):
         """Restore a dragged position, otherwise place the ball by the menu."""
