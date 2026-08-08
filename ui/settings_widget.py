@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QMessageBox, QScrollArea, QStackedWidget, QButtonGroup,
     QFileDialog, QProgressBar, QApplication, QCheckBox, QPlainTextEdit,
     QTextBrowser, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView, QSizePolicy
+    QAbstractItemView, QAbstractSpinBox, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QUrl, QObject, QThread, QTimer, QDateTime, QSize, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence, QDesktopServices, QIcon, QPixmap, QImage, QPainter
@@ -247,6 +247,20 @@ class _MaintenanceBusyDialog(QDialog):
         self.set_stage(self._stages[self._stage_index])
 
 
+class _NoWheelDoubleSpinBox(QDoubleSpinBox):
+    """A numeric field that never changes value from an accidental wheel."""
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class _NoWheelSpinBox(QSpinBox):
+    """A sequence field that never changes value from an accidental wheel."""
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+
 class HotKeyRecorderEdit(QLineEdit):
     """按键实时录制框：鼠标点击后直接在键盘上敲击组合键 (如 Shift+Q 或 F12) 自动录制"""
     def __init__(self, parent=None):
@@ -324,6 +338,7 @@ class SettingsWidget(QWidget):
         self._relay_live_records_cache = []
         self._relay_live_records_signature = ""
         self._build_ui()
+        QTimer.singleShot(0, self._refresh_sku_card_layout)
         # Keep the relay page live while the operator is preparing the
         # official POS test.  The poll only reads the small status JSON and
         # never starts/stops a listener or writes configuration.
@@ -331,6 +346,15 @@ class SettingsWidget(QWidget):
         self._relay_status_timer.setInterval(1200)
         self._relay_status_timer.timeout.connect(self._refresh_relay_status)
         self._relay_status_timer.start()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # The settings page can be inserted into the main window before the
+        # final DPI-scaled size is known.  Re-activate the card layout after
+        # Qt has applied the new width so the first paint matches a category
+        # switch instead of requiring the operator to switch away and back.
+        if getattr(self, "_sku_card_mode", False):
+            QTimer.singleShot(0, self._refresh_sku_card_layout)
 
     def _make_label(self, text):
         """统一生成适合触屏收银机阅读的字段标签。"""
@@ -550,8 +574,12 @@ class SettingsWidget(QWidget):
             combo.setMinimumHeight(56)
             apply_touch_combo_style(combo, item_height=60)
         for chk in self.findChildren(QCheckBox):
+            if chk.property("_sku_card_control"):
+                continue
             apply_touch_checkbox_style(chk)
         for spin in self.findChildren((QSpinBox, QDoubleSpinBox)):
+            if spin.property("_sku_card_control"):
+                continue
             spin.setMinimumHeight(56)
             apply_touch_spinbox_style(spin)
         for text_input in self.findChildren(QLineEdit):
@@ -2600,6 +2628,13 @@ class SettingsWidget(QWidget):
         )
         outer.addWidget(self.tbl_sku_items)
 
+        self.sku_cards_container = QWidget()
+        self.sku_cards_layout = QVBoxLayout(self.sku_cards_container)
+        self.sku_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.sku_cards_layout.setSpacing(10)
+        self.sku_cards_container.hide()
+        outer.addWidget(self.sku_cards_container)
+
         item_buttons = QHBoxLayout()
         self.btn_add_sku_item = QPushButton(u"＋新增商品")
         self._style_touch_action_btn(self.btn_add_sku_item, "blue")
@@ -2655,6 +2690,159 @@ class SettingsWidget(QWidget):
         except Exception:
             return False
 
+    def _clear_sku_cards(self):
+        if not hasattr(self, "sku_cards_layout"):
+            return
+        while self.sku_cards_layout.count():
+            item = self.sku_cards_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._sku_card_records = []
+        self._selected_sku_card = None
+
+    def _select_sku_card(self, card):
+        self._selected_sku_card = card
+        for record in getattr(self, "_sku_card_records", []):
+            selected = record.get("card") is card
+            record["card"].setStyleSheet(
+                "QFrame { background: %s; border: 2px solid %s; border-radius: 10px; }"
+                % ("#172554" if selected else record.get("base_color", "#111827"),
+                   "#38BDF8" if selected else "#334155")
+            )
+            record["select_btn"].setText(u"已选中" if selected else u"选中")
+
+    def _refresh_sku_card_layout(self):
+        if not getattr(self, "_sku_card_mode", False) or not hasattr(self, "sku_cards_layout"):
+            return
+        self.sku_cards_layout.activate()
+        self.sku_cards_container.updateGeometry()
+        for record in getattr(self, "_sku_card_records", []):
+            card = record.get("card")
+            if card is not None and card.layout() is not None:
+                card.layout().activate()
+                card.updateGeometry()
+
+    def _build_sku_card(self, item, category, index):
+        is_soup = category.get("id") == "soup" or str(item.get("kind", "")) == "soup"
+        name = str(item.get("name", "") or u"新商品")
+        price = item.get("price")
+        if price is None and category.get("id") == "soup":
+            price = self.config.get("special_soup_price", 50.0) if item.get("special") else self.config.get("unit_price", 47.60)
+
+        card = QFrame()
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        base_color = "#111827" if index % 2 == 0 else "#172136"
+        card.setStyleSheet("QFrame { background: %s; border: 2px solid #334155; border-radius: 10px; }" % base_color)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+
+        top = QHBoxLayout()
+        title = QLabel(u"商品 %d" % (index + 1))
+        title.setStyleSheet("color: #BAE6FD; font-size: 13px; font-weight: 800; background: transparent; border: none;")
+        top.addWidget(title)
+        top.addStretch()
+        select_btn = QPushButton(u"选中")
+        select_btn.setFixedHeight(30)
+        select_btn.setStyleSheet(
+            "QPushButton { background: #334155; color: #E2E8F0; border: none; border-radius: 6px; padding: 3px 12px; }"
+            "QPushButton:hover { background: #0284C7; color: white; }"
+        )
+        top.addWidget(select_btn)
+        layout.addLayout(top)
+
+        info = QGridLayout()
+        info.setHorizontalSpacing(8)
+        info.setVerticalSpacing(6)
+        label_style = "color: #94A3B8; font-size: 12px; background: transparent; border: none;"
+        for text, row, col in ((u"商品名称", 0, 0), (u"价格（元）", 0, 2), (u"顺序", 0, 4)):
+            label = QLabel(text)
+            label.setStyleSheet(label_style)
+            info.addWidget(label, row, col)
+        name_edit = QLineEdit(name)
+        name_edit.setPlaceholderText(u"商品名称")
+        info.addWidget(name_edit, 0, 1, 1, 1)
+        price_edit = QLineEdit("%.2f" % float(price or 0.0))
+        price_edit.setAlignment(Qt.AlignCenter)
+        info.addWidget(price_edit, 0, 3, 1, 1)
+        order_spin = _NoWheelSpinBox()
+        order_spin.setRange(0, 999)
+        order_spin.setValue(int(item.get("order", index) or 0))
+        order_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        order_spin.setAlignment(Qt.AlignCenter)
+        info.addWidget(order_spin, 0, 5, 1, 1)
+        layout.addLayout(info)
+
+        flavor_check = None
+        hide_spin = None
+        options_edit = None
+        if is_soup:
+            flavor_row = QHBoxLayout()
+            flavor_check = QCheckBox(u"点击展示口味")
+            flavor_check.setProperty("_sku_card_control", True)
+            flavor_check.setChecked(bool(item.get("show_flavor", name == u"经典草本骨汤")))
+            flavor_check.setStyleSheet(
+                "QCheckBox { color: #E2E8F0; font-size: 13px; font-weight: normal; "
+                "background: transparent; border: none; spacing: 8px; }"
+                "QCheckBox::indicator { width: 20px; height: 20px; "
+                "border: 1px solid #64748B; border-radius: 4px; background: #0F172A; }"
+                "QCheckBox::indicator:checked { background: #0284C7; border-color: #38BDF8; }"
+            )
+            flavor_row.addWidget(flavor_check)
+            flavor_row.addSpacing(14)
+            hide_label = QLabel(u"自动隐藏（秒）")
+            hide_label.setStyleSheet(label_style)
+            flavor_row.addWidget(hide_label)
+            hide_spin = _NoWheelDoubleSpinBox()
+            hide_spin.setProperty("_sku_card_control", True)
+            hide_spin.setRange(0.0, 60.0)
+            hide_spin.setSingleStep(0.5)
+            hide_spin.setDecimals(1)
+            hide_spin.setSuffix("")
+            hide_spin.setValue(float(item.get("flavor_auto_hide_sec", 1.0) or 0.0))
+            hide_spin.setFixedSize(86, 46)
+            hide_spin.setStyleSheet(
+                "QDoubleSpinBox { background: #1E293B; color: #F8FAFC; border: 1px solid #475569; "
+                "border-radius: 5px; padding: 3px 20px 3px 5px; font-size: 12px; }"
+                "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 18px; background: #334155; border: none; }"
+            )
+            flavor_row.addWidget(hide_spin)
+            flavor_row.addStretch()
+            layout.addLayout(flavor_row)
+
+            options_row = QHBoxLayout()
+            options_label = QLabel(u"口味选项")
+            options_label.setStyleSheet(label_style)
+            options_row.addWidget(options_label)
+            options_edit = QLineEdit(u"，".join(str(option) for option in (item.get("flavor_options") or default_flavor_options(name))))
+            options_edit.setPlaceholderText(u"例如：不辣，微辣，中辣，重辣")
+            options_row.addWidget(options_edit, 1)
+            layout.addLayout(options_row)
+
+        record = {
+            "card": card, "base_color": base_color, "select_btn": select_btn, "name_edit": name_edit,
+            "price_edit": price_edit, "order_spin": order_spin,
+            "flavor_check": flavor_check, "hide_spin": hide_spin,
+            "options_edit": options_edit, "previous": dict(item),
+        }
+        self._sku_card_records.append(record)
+        select_btn.clicked.connect(lambda _checked=False, target=card: self._select_sku_card(target))
+        card._sku_record = record
+        return card
+
+    def _load_sku_cards(self, category):
+        self._sku_card_mode = True
+        self.tbl_sku_items.hide()
+        self._clear_sku_cards()
+        self.sku_cards_container.show()
+        for index, item in enumerate(category.get("items", [])):
+            card = self._build_sku_card(item, category, index)
+            self.sku_cards_layout.addWidget(card)
+        self.sku_cards_layout.addStretch()
+        self._refresh_sku_card_layout()
+        QTimer.singleShot(0, self._refresh_sku_card_layout)
+
     def _load_sku_category_editor(self, index):
         category = self._current_sku_category()
         if category is None:
@@ -2663,7 +2851,20 @@ class SettingsWidget(QWidget):
         # for ordinary categories instead of leaving disabled editors that
         # look like a broken input field; switching back to 汤底 restores them.
         show_flavor_columns = category.get("id") == "soup"
-        self._sku_compact_rows = bool(show_flavor_columns and self._sku_table_needs_compact_rows())
+        # Use the card editor at every width.  A single responsive layout is
+        # clearer than switching between a table and a partially wrapped
+        # table as the window/DPI changes.
+        self._sku_compact_rows = True
+        if hasattr(self, "btn_delete_sku_category"):
+            self.btn_delete_sku_category.setVisible(category.get("id") != "soup")
+        self.txt_sku_category_name.setText(category.get("name", ""))
+        self.spin_sku_category_order.setValue(int(category.get("order", 0)))
+        if self._sku_compact_rows:
+            self._load_sku_cards(category)
+            return
+        self._sku_card_mode = False
+        self.sku_cards_container.hide()
+        self.tbl_sku_items.show()
         self._sku_row_stride = 3 if self._sku_compact_rows else 1
         header = self.tbl_sku_items.horizontalHeader()
         header.setVisible(not self._sku_compact_rows)
@@ -2684,12 +2885,6 @@ class SettingsWidget(QWidget):
             self.tbl_sku_items.setColumnWidth(5, 300)
         for column in (3, 4, 5):
             self.tbl_sku_items.setColumnHidden(column, not show_flavor_columns)
-        self.txt_sku_category_name.setText(category.get("name", ""))
-        self.spin_sku_category_order.setValue(int(category.get("order", 0)))
-        if hasattr(self, "btn_delete_sku_category"):
-            # 汤底是系统内置基础分类，不允许删除；选中它时不显示
-            # 删除按钮，避免误操作和无意义的三次确认。
-            self.btn_delete_sku_category.setVisible(category.get("id") != "soup")
         self.tbl_sku_items.setRowCount(0)
         for item in category.get("items", []):
             row = self.tbl_sku_items.rowCount()
@@ -2735,7 +2930,7 @@ class SettingsWidget(QWidget):
             flavor_layout.addWidget(flavor_check)
             self.tbl_sku_items.setCellWidget(flavor_row, 2 if self._sku_compact_rows else 3, flavor_wrap)
 
-            hide_spin = QDoubleSpinBox()
+            hide_spin = _NoWheelDoubleSpinBox()
             hide_spin.setRange(0.0, 60.0)
             hide_spin.setSingleStep(0.5)
             hide_spin.setDecimals(1)
@@ -2808,6 +3003,26 @@ class SettingsWidget(QWidget):
         category = self._current_sku_category()
         if category is None:
             return
+        if getattr(self, "_sku_card_mode", False):
+            # Keep the stretch spacer at the bottom while appending a new
+            # card above it.
+            if self.sku_cards_layout.count():
+                spacer = self.sku_cards_layout.takeAt(self.sku_cards_layout.count() - 1)
+                if spacer.widget() is not None:
+                    self.sku_cards_layout.addWidget(spacer.widget())
+            item = {
+                "id": "%s_item_%d" % (category.get("id"), len(self._sku_card_records)),
+                "name": u"新商品", "price": None if category.get("id") == "soup" else 1.0,
+                "order": len(self._sku_card_records),
+                "kind": "soup" if category.get("id") == "soup" else "item",
+                "special": False, "show_flavor": False,
+                "flavor_auto_hide_sec": 1.0, "flavor_options": default_flavor_options(u"新商品"),
+            }
+            card = self._build_sku_card(item, category, len(self._sku_card_records))
+            self.sku_cards_layout.addWidget(card)
+            self.sku_cards_layout.addStretch()
+            self._select_sku_card(card)
+            return
         row = self.tbl_sku_items.rowCount()
         self.tbl_sku_items.insertRow(row)
         flavor_row = row
@@ -2844,7 +3059,7 @@ class SettingsWidget(QWidget):
         flavor_layout.setAlignment(Qt.AlignCenter)
         flavor_layout.addWidget(flavor_check)
         self.tbl_sku_items.setCellWidget(flavor_row, 2 if getattr(self, "_sku_compact_rows", False) else 3, flavor_wrap)
-        hide_spin = QDoubleSpinBox()
+        hide_spin = _NoWheelDoubleSpinBox()
         hide_spin.setRange(0.0, 60.0)
         hide_spin.setSingleStep(0.5)
         hide_spin.setDecimals(1)
@@ -2869,6 +3084,14 @@ class SettingsWidget(QWidget):
         self._resize_sku_items_table()
 
     def _delete_sku_item(self):
+        if getattr(self, "_sku_card_mode", False):
+            card = getattr(self, "_selected_sku_card", None)
+            if card is None:
+                return
+            self._sku_card_records = [record for record in self._sku_card_records if record.get("card") is not card]
+            card.deleteLater()
+            self._selected_sku_card = None
+            return
         row = self.tbl_sku_items.currentRow()
         if row >= 0:
             if getattr(self, "_sku_compact_rows", False):
@@ -2891,6 +3114,47 @@ class SettingsWidget(QWidget):
         category["show_flavor"] = category.get("show_flavor", category.get("id") == "soup") if category.get("id") == "soup" else False
         old_items = list(category.get("items", []))
         items = []
+        if getattr(self, "_sku_card_mode", False):
+            for item_index, record in enumerate(getattr(self, "_sku_card_records", [])):
+                name = record["name_edit"].text().strip() or u"新商品"
+                try:
+                    price = float(record["price_edit"].text() or 0.0)
+                except (TypeError, ValueError):
+                    price = 0.0
+                order = int(record["order_spin"].value())
+                previous = record.get("previous", {})
+                is_soup = category.get("id") == "soup"
+                if is_soup:
+                    base = self.config.get("special_soup_price", 50.0) if previous.get("special", False) else self.config.get("unit_price", 47.60)
+                    stored_price = None if abs(price - float(base or 0.0)) < 0.0001 else price
+                else:
+                    stored_price = price
+                kind = previous.get("kind") or ("soup" if is_soup else "item")
+                flavor_check = record.get("flavor_check")
+                hide_spin = record.get("hide_spin")
+                options_edit = record.get("options_edit")
+                option_text = options_edit.text() if options_edit is not None else ""
+                flavor_options = [part.strip() for part in option_text.replace(",", "，").split("，") if part.strip()]
+                if kind == "soup" and not flavor_options:
+                    flavor_options = default_flavor_options(name)
+                items.append({
+                    "id": previous.get("id") or "%s_item_%d" % (category.get("id"), item_index),
+                    "name": name, "price": stored_price, "order": order, "kind": kind,
+                    "special": bool(previous.get("special", False)),
+                    "show_flavor": bool(flavor_check.isChecked()) if flavor_check is not None and kind == "soup" else False,
+                    "flavor_auto_hide_sec": float(hide_spin.value()) if hide_spin is not None and kind == "soup" else 0.0,
+                    "flavor_options": flavor_options if kind == "soup" else [],
+                })
+            category["items"] = items
+            save_shop_categories(self.config, self._shop_catalog)
+            save_config(self.config)
+            parent_mw = self.window()
+            if hasattr(parent_mw, "sale_page") and hasattr(parent_mw.sale_page, "reload_sku_catalog"):
+                parent_mw.sale_page.reload_sku_catalog()
+            self._refresh_sku_category_combo(category.get("id"))
+            from ui.custom_dialog import show_info
+            show_info(self, u"商品与分类已保存", u"主界面的分类标签和商品按钮已更新。")
+            return
         stride = 3 if getattr(self, "_sku_compact_rows", False) else 1
         item_rows = range(0, self.tbl_sku_items.rowCount(), stride)
         for item_index, row in enumerate(item_rows):
@@ -4432,7 +4696,9 @@ class SettingsWidget(QWidget):
 
     def _on_settings_page_changed(self, index):
         self.stacked_widget.setCurrentIndex(index)
-        if index == 2 and self.cmb_scale_source.currentIndex() == 2:
+        if index == 0:
+            QTimer.singleShot(0, self._refresh_sku_card_layout)
+        elif index == 2 and self.cmb_scale_source.currentIndex() == 2:
             self._on_scale_source_changed(2)
         elif index == 3:
             self._refresh_scale_bridge_overall_status()

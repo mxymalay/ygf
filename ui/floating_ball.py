@@ -139,16 +139,16 @@ class FloatingBall(QWidget):
         return True
 
     def _move_to_default_position(self):
-        """Place the first-run ball at the top-right of the product area."""
+        """Place the first-run ball in the blank area at the product grid's upper-right."""
         from PyQt5.QtWidgets import QApplication
 
         screen = QApplication.primaryScreen()
         if screen is None:
             return
         screen_geo = screen.availableGeometry()
-        # The visible capsule is 88px wide inside a 160px transparent wrapper;
-        # anchor that visible part to the menu's top-right, not the wrapper's
-        # right edge, so it does not look like it is in the lower-right corner.
+        # The visible capsule is 88px wide inside a 160px transparent wrapper.
+        # Keep it a little left of the menu's far-right edge so it sits in the
+        # empty area beside the first product rows, matching the cashier view.
         x = screen_geo.left() + screen_geo.width() - 182
         y = screen_geo.top() + 28
 
@@ -159,20 +159,21 @@ class FloatingBall(QWidget):
         if menu_group is not None:
             try:
                 menu_top_left = menu_group.mapToGlobal(QPoint(0, 0))
-                # Leave a small margin from the menu's right edge.  The
-                # transparent wrapper may extend past the edge; only the
-                # visible capsule is anchored here.
-                x = menu_top_left.x() + menu_group.width() - 96
-                y = menu_top_left.y() - 17
+                # Leave roughly one capsule-width plus a small safety gap
+                # from the menu's right edge.  The transparent wrapper may
+                # extend farther right than the visible capsule.
+                x = menu_top_left.x() + menu_group.width() - 230
+                y = menu_top_left.y() + 132
             except (AttributeError, RuntimeError):
                 pass
         if first_menu_button is not None:
             try:
                 first_top = first_menu_button.mapToGlobal(QPoint(0, 0)).y()
-                # The capsule is drawn 17 px below the floating window's top.
-                # Align it with the top of the first product row, at the
-                # upper-right of the catalogue rather than below the grid.
-                y = first_top - 17
+                first_height = max(1, first_menu_button.height())
+                # The capsule is drawn 19 px below the floating window's top;
+                # place it just below the first product row, in the open area
+                # shown in the reference screenshot.
+                y = first_top + first_height + 35
             except (AttributeError, RuntimeError):
                 pass
 
