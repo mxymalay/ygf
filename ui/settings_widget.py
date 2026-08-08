@@ -2641,7 +2641,7 @@ class SettingsWidget(QWidget):
         return self._shop_catalog[index] if 0 <= index < len(self._shop_catalog) else None
 
     def _sku_table_needs_compact_rows(self):
-        """Use a two-line soup editor on narrow displays instead of clipping."""
+        """Use a multi-line soup editor on narrow displays instead of clipping."""
         viewport_width = self.tbl_sku_items.viewport().width()
         if viewport_width > 0:
             return viewport_width < 980
@@ -2660,7 +2660,24 @@ class SettingsWidget(QWidget):
         # look like a broken input field; switching back to 汤底 restores them.
         show_flavor_columns = category.get("id") == "soup"
         self._sku_compact_rows = bool(show_flavor_columns and self._sku_table_needs_compact_rows())
-        self._sku_row_stride = 2 if self._sku_compact_rows else 1
+        self._sku_row_stride = 3 if self._sku_compact_rows else 1
+        header = self.tbl_sku_items.horizontalHeader()
+        header.setVisible(not self._sku_compact_rows)
+        if self._sku_compact_rows:
+            self.tbl_sku_items.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            for column in range(6):
+                header.setSectionResizeMode(column, QHeaderView.Stretch)
+                self.tbl_sku_items.setColumnHidden(column, False)
+        else:
+            self.tbl_sku_items.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            header.setSectionResizeMode(0, QHeaderView.Stretch)
+            for column in (1, 2, 3, 4, 5):
+                header.setSectionResizeMode(column, QHeaderView.Fixed if column != 5 else QHeaderView.Fixed)
+            self.tbl_sku_items.setColumnWidth(1, 96)
+            self.tbl_sku_items.setColumnWidth(2, 64)
+            self.tbl_sku_items.setColumnWidth(3, 112)
+            self.tbl_sku_items.setColumnWidth(4, 112)
+            self.tbl_sku_items.setColumnWidth(5, 300)
         for column in (3, 4, 5):
             self.tbl_sku_items.setColumnHidden(column, not show_flavor_columns)
         self.txt_sku_category_name.setText(category.get("name", ""))
@@ -2674,11 +2691,17 @@ class SettingsWidget(QWidget):
             row = self.tbl_sku_items.rowCount()
             self.tbl_sku_items.insertRow(row)
             flavor_row = row
+            options_row = row
             if self._sku_compact_rows:
                 self.tbl_sku_items.insertRow(row + 1)
+                self.tbl_sku_items.insertRow(row + 2)
                 flavor_row = row + 1
-                self.tbl_sku_items.setItem(flavor_row, 0, QTableWidgetItem(u"口味设置"))
-                self.tbl_sku_items.setSpan(flavor_row, 0, 1, 3)
+                options_row = row + 2
+                self.tbl_sku_items.setItem(flavor_row, 0, QTableWidgetItem(u"点击展示口味"))
+                self.tbl_sku_items.setSpan(flavor_row, 0, 1, 2)
+                self.tbl_sku_items.setItem(flavor_row, 3, QTableWidgetItem(u"自动隐藏（秒）"))
+                self.tbl_sku_items.setSpan(flavor_row, 3, 1, 2)
+                self.tbl_sku_items.setItem(options_row, 0, QTableWidgetItem(u"口味选项"))
             name = str(item.get("name", ""))
             is_soup = str(item.get("kind", "")) == "soup" or category.get("id") == "soup"
             self.tbl_sku_items.setItem(row, 0, QTableWidgetItem(name))
@@ -2689,8 +2712,13 @@ class SettingsWidget(QWidget):
             price_item.setTextAlignment(Qt.AlignCenter)
             order_item = QTableWidgetItem(str(item.get("order", row)))
             order_item.setTextAlignment(Qt.AlignCenter)
-            self.tbl_sku_items.setItem(row, 1, price_item)
-            self.tbl_sku_items.setItem(row, 2, order_item)
+            if self._sku_compact_rows:
+                self.tbl_sku_items.setSpan(row, 0, 1, 4)
+                self.tbl_sku_items.setItem(row, 4, price_item)
+                self.tbl_sku_items.setItem(row, 5, order_item)
+            else:
+                self.tbl_sku_items.setItem(row, 1, price_item)
+                self.tbl_sku_items.setItem(row, 2, order_item)
 
             flavor_check = QCheckBox()
             flavor_check.setChecked(bool(item.get("show_flavor", is_soup and name == u"经典草本骨汤")))
@@ -2701,7 +2729,7 @@ class SettingsWidget(QWidget):
             flavor_layout.setContentsMargins(0, 0, 0, 0)
             flavor_layout.setAlignment(Qt.AlignCenter)
             flavor_layout.addWidget(flavor_check)
-            self.tbl_sku_items.setCellWidget(flavor_row, 3, flavor_wrap)
+            self.tbl_sku_items.setCellWidget(flavor_row, 2 if self._sku_compact_rows else 3, flavor_wrap)
 
             hide_spin = QDoubleSpinBox()
             hide_spin.setRange(0.0, 60.0)
@@ -2721,13 +2749,17 @@ class SettingsWidget(QWidget):
                 "background: #334155; border: none; }"
             )
             hide_spin.setToolTip(u"选择口味后自动关闭；填 0 表示不自动关闭")
-            self.tbl_sku_items.setCellWidget(flavor_row, 4, hide_spin)
+            self.tbl_sku_items.setCellWidget(flavor_row, 5 if self._sku_compact_rows else 4, hide_spin)
 
             options = item.get("flavor_options") or default_flavor_options(name)
             options_edit = QLineEdit(u"，".join(str(option) for option in options))
             options_edit.setPlaceholderText(u"例如：不辣，微辣，中辣，重辣")
             options_edit.setEnabled(is_soup)
-            self.tbl_sku_items.setCellWidget(flavor_row, 5, options_edit)
+            if self._sku_compact_rows:
+                self.tbl_sku_items.setSpan(options_row, 1, 1, 5)
+                self.tbl_sku_items.setCellWidget(options_row, 1, options_edit)
+            else:
+                self.tbl_sku_items.setCellWidget(flavor_row, 5, options_edit)
         # A category switch should always start at the leftmost, most useful
         # columns.  Operators can still scroll right to edit flavor options.
         self.tbl_sku_items.horizontalScrollBar().setValue(0)
@@ -2775,19 +2807,30 @@ class SettingsWidget(QWidget):
         row = self.tbl_sku_items.rowCount()
         self.tbl_sku_items.insertRow(row)
         flavor_row = row
+        options_row = row
         if getattr(self, "_sku_compact_rows", False):
             self.tbl_sku_items.insertRow(row + 1)
+            self.tbl_sku_items.insertRow(row + 2)
             flavor_row = row + 1
-            self.tbl_sku_items.setItem(flavor_row, 0, QTableWidgetItem(u"口味设置"))
-            self.tbl_sku_items.setSpan(flavor_row, 0, 1, 3)
+            options_row = row + 2
+            self.tbl_sku_items.setItem(flavor_row, 0, QTableWidgetItem(u"点击展示口味"))
+            self.tbl_sku_items.setSpan(flavor_row, 0, 1, 2)
+            self.tbl_sku_items.setItem(flavor_row, 3, QTableWidgetItem(u"自动隐藏（秒）"))
+            self.tbl_sku_items.setSpan(flavor_row, 3, 1, 2)
+            self.tbl_sku_items.setItem(options_row, 0, QTableWidgetItem(u"口味选项"))
         self.tbl_sku_items.setItem(row, 0, QTableWidgetItem(u"新商品"))
         price_item = QTableWidgetItem("1.00")
         price_item.setTextAlignment(Qt.AlignCenter)
-        order_item = QTableWidgetItem(str(row))
+        order_item = QTableWidgetItem(str(row // 3 if getattr(self, "_sku_compact_rows", False) else row))
         order_item.setTextAlignment(Qt.AlignCenter)
-        self.tbl_sku_items.setItem(row, 1, price_item)
-        self.tbl_sku_items.setItem(row, 2, order_item)
         is_soup = category.get("id") == "soup"
+        if getattr(self, "_sku_compact_rows", False):
+            self.tbl_sku_items.setSpan(row, 0, 1, 4)
+            self.tbl_sku_items.setItem(row, 4, price_item)
+            self.tbl_sku_items.setItem(row, 5, order_item)
+        else:
+            self.tbl_sku_items.setItem(row, 1, price_item)
+            self.tbl_sku_items.setItem(row, 2, order_item)
         flavor_check = QCheckBox()
         flavor_check.setChecked(is_soup and row == 0)
         flavor_check.setEnabled(is_soup)
@@ -2796,7 +2839,7 @@ class SettingsWidget(QWidget):
         flavor_layout.setContentsMargins(0, 0, 0, 0)
         flavor_layout.setAlignment(Qt.AlignCenter)
         flavor_layout.addWidget(flavor_check)
-        self.tbl_sku_items.setCellWidget(flavor_row, 3, flavor_wrap)
+        self.tbl_sku_items.setCellWidget(flavor_row, 2 if getattr(self, "_sku_compact_rows", False) else 3, flavor_wrap)
         hide_spin = QDoubleSpinBox()
         hide_spin.setRange(0.0, 60.0)
         hide_spin.setSingleStep(0.5)
@@ -2811,17 +2854,22 @@ class SettingsWidget(QWidget):
             "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 19px; "
             "background: #334155; border: none; }"
         )
-        self.tbl_sku_items.setCellWidget(flavor_row, 4, hide_spin)
+        self.tbl_sku_items.setCellWidget(flavor_row, 5 if getattr(self, "_sku_compact_rows", False) else 4, hide_spin)
         options_edit = QLineEdit(u"，".join(default_flavor_options(u"新商品")))
         options_edit.setEnabled(is_soup)
-        self.tbl_sku_items.setCellWidget(flavor_row, 5, options_edit)
+        if getattr(self, "_sku_compact_rows", False):
+            self.tbl_sku_items.setSpan(options_row, 1, 1, 5)
+            self.tbl_sku_items.setCellWidget(options_row, 1, options_edit)
+        else:
+            self.tbl_sku_items.setCellWidget(flavor_row, 5, options_edit)
         self._resize_sku_items_table()
 
     def _delete_sku_item(self):
         row = self.tbl_sku_items.currentRow()
         if row >= 0:
             if getattr(self, "_sku_compact_rows", False):
-                row = (row // 2) * 2
+                row = (row // 3) * 3
+                self.tbl_sku_items.removeRow(row + 2)
                 self.tbl_sku_items.removeRow(row + 1)
                 self.tbl_sku_items.removeRow(row)
             else:
@@ -2839,16 +2887,18 @@ class SettingsWidget(QWidget):
         category["show_flavor"] = category.get("show_flavor", category.get("id") == "soup") if category.get("id") == "soup" else False
         old_items = list(category.get("items", []))
         items = []
-        stride = 2 if getattr(self, "_sku_compact_rows", False) else 1
+        stride = 3 if getattr(self, "_sku_compact_rows", False) else 1
         item_rows = range(0, self.tbl_sku_items.rowCount(), stride)
         for item_index, row in enumerate(item_rows):
             name = self.tbl_sku_items.item(row, 0).text().strip() if self.tbl_sku_items.item(row, 0) else u"新商品"
+            price_column = 4 if getattr(self, "_sku_compact_rows", False) else 1
+            order_column = 5 if getattr(self, "_sku_compact_rows", False) else 2
             try:
-                price = float(self.tbl_sku_items.item(row, 1).text()) if self.tbl_sku_items.item(row, 1) else 0.0
+                price = float(self.tbl_sku_items.item(row, price_column).text()) if self.tbl_sku_items.item(row, price_column) else 0.0
             except (TypeError, ValueError):
                 price = 0.0
             try:
-                order = int(float(self.tbl_sku_items.item(row, 2).text())) if self.tbl_sku_items.item(row, 2) else row
+                order = int(float(self.tbl_sku_items.item(row, order_column).text())) if self.tbl_sku_items.item(row, order_column) else item_index
             except (TypeError, ValueError):
                 order = row
             previous = old_items[item_index] if item_index < len(old_items) else {}
@@ -2863,12 +2913,16 @@ class SettingsWidget(QWidget):
             kind = previous.get("kind") or ("soup" if is_soup else "item")
             row_is_soup = kind == "soup"
             flavor_row = row + 1 if getattr(self, "_sku_compact_rows", False) else row
-            flavor_wrap = self.tbl_sku_items.cellWidget(flavor_row, 3)
+            options_row = row + 2 if getattr(self, "_sku_compact_rows", False) else row
+            flavor_column = 2 if getattr(self, "_sku_compact_rows", False) else 3
+            hide_column = 5 if getattr(self, "_sku_compact_rows", False) else 4
+            options_column = 1 if getattr(self, "_sku_compact_rows", False) else 5
+            flavor_wrap = self.tbl_sku_items.cellWidget(flavor_row, flavor_column)
             flavor_check = flavor_wrap.findChild(QCheckBox) if flavor_wrap is not None else None
             show_flavor = bool(flavor_check.isChecked()) if flavor_check is not None and row_is_soup else False
-            hide_spin = self.tbl_sku_items.cellWidget(flavor_row, 4)
+            hide_spin = self.tbl_sku_items.cellWidget(flavor_row, hide_column)
             hide_sec = float(hide_spin.value()) if hide_spin is not None and row_is_soup else 0.0
-            options_edit = self.tbl_sku_items.cellWidget(flavor_row, 5)
+            options_edit = self.tbl_sku_items.cellWidget(options_row, options_column)
             option_text = options_edit.text() if options_edit is not None and row_is_soup else ""
             flavor_options = [part.strip() for part in option_text.replace(",", "，").split("，") if part.strip()]
             if row_is_soup and not flavor_options:
