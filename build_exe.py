@@ -55,6 +55,106 @@ def _clean_build_tree(path):
     return not os.path.exists(path)
 
 
+def _is_setup_artifact(name):
+    """Return whether a file is one of this project's generated setup EXEs."""
+    lowered = str(name or "").lower()
+    return lowered == "ygf-pos-setup.exe" or (
+        lowered.startswith("setup_") and lowered.endswith(".exe")
+    )
+
+
+def _remove_backup_contents(backup_dir, keep_names=()):
+    """Keep only explicitly named entries under the build backup directory."""
+    keep = set(keep_names or ())
+    for name in os.listdir(backup_dir):
+        if name in keep:
+            continue
+        path = os.path.join(backup_dir, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path, onerror=_remove_readonly)
+        else:
+            try:
+                os.chmod(path, stat.S_IWRITE)
+            except OSError:
+                pass
+            os.remove(path)
+
+
+def _backup_previous_setup(dist_dir):
+    """Move the newest previous setup into ``dist/backup``.
+
+    The build output directory is deliberately kept human-friendly: the root
+    contains only the newly generated installer, while ``backup`` contains at
+    most one previous installer version.  Copying to a temporary backup file
+    before removing old backup contents keeps a locked/failed source recoverable.
+    """
+    os.makedirs(dist_dir, exist_ok=True)
+    backup_dir = os.path.join(dist_dir, "backup")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    candidates = []
+    for name in os.listdir(dist_dir):
+        path = os.path.join(dist_dir, name)
+        if os.path.isfile(path) and _is_setup_artifact(name):
+            try:
+                stamp = os.path.getmtime(path)
+            except OSError:
+                stamp = 0
+            candidates.append((stamp, name, path))
+
+    # There is no current root package on the first build.  Do not touch an
+    # existing backup in that case; it is already the last known version.
+    if not candidates:
+        backup_candidates = []
+        for name in os.listdir(backup_dir):
+            path = os.path.join(backup_dir, name)
+            if os.path.isfile(path) and _is_setup_artifact(name):
+                try:
+                    stamp = os.path.getmtime(path)
+                except OSError:
+                    stamp = 0
+                backup_candidates.append((stamp, name))
+        if len(backup_candidates) > 1:
+            keep_name = max(backup_candidates, key=lambda item: item[0])[1]
+            _remove_backup_contents(backup_dir, keep_names=(keep_name,))
+        return True
+
+    _stamp, old_name, old_path = max(candidates, key=lambda item: item[0])
+    temp_name = ".previous_setup.tmp"
+    temp_path = os.path.join(backup_dir, temp_name)
+    try:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        shutil.copy2(old_path, temp_path)
+        _remove_backup_contents(backup_dir, keep_names=(temp_name,))
+        final_backup = os.path.join(backup_dir, old_name)
+        if os.path.exists(final_backup):
+            os.remove(final_backup)
+        os.replace(temp_path, final_backup)
+        os.remove(old_path)
+        # Remove stale root installers left by an older manual build, while
+        # retaining the single newest one just backed up above.
+        for _stamp, name, path in candidates:
+            if path == old_path:
+                continue
+            try:
+                os.remove(path)
+            except OSError as exc:
+                print("[X] 无法移除旧安装包 %s：%s" % (name, exc))
+                return False
+        print("[*] 已将上一版安装包备份到：%s" % os.path.abspath(final_backup))
+        return True
+    except (OSError, shutil.Error) as exc:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+        print("[X] 无法备份上一版安装包：%s" % exc)
+        print("    请关闭正在运行的安装包后重试")
+        return False
+
+
 def _create_payload_archive(package_dir, archive_path):
     """Create the payload embedded into the standalone setup executable."""
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -102,23 +202,26 @@ def main():
         print("[!] 正在安装 PyInstaller 独立编译组件...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"])
 
-    # 2. 清理旧的构建文件
+    # 2. 清理旧的构建文件；dist/backup 必须跨构建保留，因此不再整体删除 dist。
     print("[*] 正在清理历史构建缓存...")
-    for folder in ["build", "dist"]:
+    for folder in ["build"]:
         if os.path.exists(folder):
             if not _clean_build_tree(folder):
                 print("[i] 无法完全清理旧构建目录，后续将避开被占用文件")
-    # A locked old installer (or an old dist/YGF-POS folder) would make the
-    # output ambiguous: dist must contain exactly one deliverable.  Stop
-    # before compiling rather than silently mixing old and new files.
-    if os.path.isdir("dist") and os.listdir("dist"):
-        print("[X] dist 目录仍有文件被占用，无法保证只生成一个安装包")
-        print("    请先关闭旧的安装包/程序后再运行构建脚本")
+    dist_dir = "dist"
+    if not _backup_previous_setup(dist_dir):
+        return 7
+    leftovers = [
+        name for name in os.listdir(dist_dir)
+        if name != "backup"
+    ]
+    if leftovers:
+        print("[X] dist 目录存在未处理文件，无法保证只生成一个安装包：%s" % ", ".join(leftovers))
+        print("    请移走这些文件后再运行构建脚本")
         return 7
 
     # 3. 构造主程序与独立 Windows 服务的 PyInstaller 参数
     app_name = "启动"
-    dist_dir = "dist"
     # The application EXEs are build-only staging files.  They are embedded
     # into the setup payload and must not be presented as separate deliverables
     # in dist/.
@@ -362,7 +465,23 @@ def main():
             os.remove(payload_zip)
         except OSError:
             pass
-        setup_file = os.path.join(dist_dir, "YGF-POS-Setup.exe")
+        generated_setup = os.path.join(dist_dir, "YGF-POS-Setup.exe")
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        setup_file = os.path.join(dist_dir, "setup_%s.exe" % timestamp)
+        if os.path.exists(setup_file):
+            # Two builds in one second are uncommon, but never overwrite a
+            # successful previous artifact with the same timestamp.
+            suffix = 1
+            while os.path.exists(setup_file):
+                setup_file = os.path.join(
+                    dist_dir, "setup_%s_%d.exe" % (timestamp, suffix)
+                )
+                suffix += 1
+        try:
+            os.replace(generated_setup, setup_file)
+        except OSError as exc:
+            print("[X] 无法将安装包改名为带时间戳的文件：%s" % exc)
+            return 6
         try:
             shutil.rmtree(package_dir, onerror=_remove_readonly)
         except OSError:
@@ -372,7 +491,7 @@ def main():
         
         print("\n" + "=" * 60)
         print(" [v] 打包成功！")
-        print(" [*] dist 目录只保留一个安装包；应用文件将在安装时释放")
+        print(" [*] dist 目录保留当前安装包；上一版已放入 dist\\backup（仅保留一版）")
         print("=" * 60)
         print("[!] 输出文件：")
         print("   安装包: %s" % os.path.abspath(setup_file))

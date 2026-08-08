@@ -74,6 +74,78 @@ class PrinterSettingsTests(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0].count(ReceiptPrinter.INIT), 1)
 
+    def test_non_soup_order_prints_compact_paid_ticket(self):
+        printer = ReceiptPrinter(
+            {
+                "printer_chars_per_line": 48,
+                "printer_auto_cut_enabled": False,
+                "printer_feed_lines": 0,
+            }
+        )
+        sale = {
+            "call_no": "018",
+            "created_at": "2026-08-08 12:45:17",
+            "total_price": 12.50,
+            "cart_items": [
+                {"type": "drink", "name": "1元饮料", "qty": 1, "price": 1.00},
+                {"type": "skewer", "name": "精品串", "qty": 2, "price": 11.50},
+            ],
+        }
+        sent = []
+        with patch.object(printer, "_send_raw_to_windows", side_effect=lambda raw: sent.append(raw) or True):
+            self.assertTrue(printer.print_receipt(sale))
+        self.assertEqual(len(sent), 1)
+        raw = sent[0]
+        self.assertIn("成功收款：12.50元".encode("gbk"), raw)
+        self.assertIn("取餐号： 018".encode("gbk"), raw)
+        self.assertIn("类型：此订单不含汤底".encode("gbk"), raw)
+        self.assertIn("下单时间：2026-08-08 12:45:17".encode("gbk"), raw)
+        self.assertIn(ReceiptPrinter.DOUBLE_SIZE, raw)
+        self.assertEqual(raw.count(ReceiptPrinter.INIT), 1)
+
+    def test_non_soup_ticket_uses_editable_template(self):
+        printer = ReceiptPrinter(
+            {
+                "printer_non_soup_template": (
+                    "[C][B]收款:{amount}\n[L][S]取号:{call_no}\n"
+                    "[L][S]{order_type}\n[L][S]时间:{created_at}"
+                ),
+                "printer_auto_cut_enabled": False,
+                "printer_feed_lines": 0,
+            }
+        )
+        sale = {
+            "call_no": "018",
+            "created_at": "2026-08-08 12:45:17",
+            "total_price": 12.5,
+            "cart_items": [{"type": "drink", "name": "饮料", "qty": 1, "price": 12.5}],
+        }
+        raw = printer._build_non_soup_receipt(sale)
+        self.assertIn("收款:12.50".encode("gbk"), raw)
+        self.assertIn("取号:018".encode("gbk"), raw)
+        self.assertIn("此订单不含汤底".encode("gbk"), raw)
+        self.assertIn("时间:2026-08-08 12:45:17".encode("gbk"), raw)
+        self.assertIn(ReceiptPrinter.FONT_SMALL, raw)
+
+    def test_non_soup_ticket_can_be_disabled_without_affecting_manual_reprint(self):
+        printer = ReceiptPrinter(
+            {
+                "printer_non_soup_enabled": False,
+                "printer_auto_cut_enabled": False,
+                "printer_feed_lines": 0,
+            }
+        )
+        sale = {
+            "call_no": "018",
+            "total_price": 1.0,
+            "cart_items": [{"type": "drink", "name": "饮料", "qty": 1, "price": 1.0}],
+        }
+        sent = []
+        with patch.object(printer, "_send_raw_to_windows", side_effect=lambda raw: sent.append(raw) or True):
+            self.assertTrue(printer.print_receipt(sale))
+            self.assertTrue(printer.print_receipt(sale, respect_settings=False))
+        self.assertEqual(len(sent), 1)
+
     def test_official_v2_profile_contains_new_ticket_fields(self):
         printer = ReceiptPrinter(
             {

@@ -152,6 +152,10 @@ DEFAULT_CONFIG = {
     "printer_customer_copies": 1,
     "printer_kitchen_enabled": True,
     "printer_kitchen_copies": 1,
+    # 不含汤底的饮料/小串订单使用独立的简洁收款单；默认开启，
+    # 可在“打印纸格式”中关闭或编辑票面模板。
+    "printer_non_soup_enabled": True,
+    "printer_non_soup_template": "",
     "printer_report_enabled": True,
     "printer_report_copies": 1,
     "printer_auto_cut_enabled": True,

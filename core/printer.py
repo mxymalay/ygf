@@ -88,6 +88,14 @@ OFFICIAL_EXACT_KITCHEN_TEMPLATE = """[L][B][Y]取餐号:{kitchen_call_no}
 [L]操作人:   {operator}
 [L]下单时间: {created_at}"""
 
+# 无汤底订单不需要顾客单/制作单的完整版式，但仍要留下一张可追溯的
+# 收款凭证。它使用与其它模板相同的变量替换语法；第一行是醒目金额，
+# 其余行用小字体打印。设置页会把这段模板作为可编辑的默认值展示。
+NON_SOUP_RECEIPT_TEMPLATE = """[C][B][X]成功收款：{amount}元
+[L][S]取餐号： {call_no}
+[L][S]类型：{order_type}
+[L][S]下单时间：{created_at}"""
+
 
 class ReceiptPrinter:
     """小票打印器"""
@@ -332,6 +340,8 @@ class ReceiptPrinter:
             "created_at": created_at,
             "time": now_str,
             "total": "%.2f" % total,
+            "amount": "%.2f" % total,
+            "order_type": "此订单不含汤底",
             "total_line": fmt_lr_48("合计", "%.2f" % total, self._line_width()).rstrip("\n"),
             "due_line": fmt_lr_48("应付", "%.2f" % total, self._line_width()).rstrip("\n"),
             "paid_line": fmt_lr_48(
@@ -492,6 +502,7 @@ class ReceiptPrinter:
             line = raw_line.strip("\r")
             alignment = self.ALIGN_LEFT
             bold = False
+            small_font = False
             double_height = False
             double_size = False
             triple_size = False
@@ -512,9 +523,15 @@ class ReceiptPrinter:
                 elif line.startswith("[Y]"):
                     # 取餐号专用的三倍宽高，适配后厨远距离识别。
                     triple_size, line = True, line[3:]
+                elif line.startswith("[S]"):
+                    # 小票辅助信息使用小字体；每行开头显式恢复字体，
+                    # 避免上一行的大字状态泄漏到下一行。
+                    line = line[3:]
+                    small_font = True
                 else:
                     break
             data += alignment
+            data += self.FONT_SMALL if small_font else self.FONT_NORMAL
             if bold:
                 data += self.BOLD_ON
             if triple_size:
@@ -773,6 +790,17 @@ class ReceiptPrinter:
         d += self._feed_and_cut()
         return bytes(d)
 
+    def _build_non_soup_receipt(self, sale):
+        """Build the compact paid ticket used for drink/skewer-only orders."""
+        # Keep this ticket independently configurable from the customer and
+        # kitchen templates.  An empty setting intentionally falls back to
+        # the safe built-in template so upgrades never produce a blank slip.
+        template = self.config.get("printer_non_soup_template", "") or NON_SOUP_RECEIPT_TEMPLATE
+        data = bytearray(self.INIT)
+        return bytes(self._write_markup_template(
+            data, template, self._template_context(sale), NON_SOUP_RECEIPT_TEMPLATE
+        ))
+
     def print_receipt(self, sale, print_type="all", respect_settings=True):
         """全流程小票打印入口。
 
@@ -781,14 +809,18 @@ class ReceiptPrinter:
         """
         cart_items = sale.get("cart_items", [])
         has_soup = any(i.get("type") == "soup" or "weight" in i for i in cart_items)
+        customer_enabled = bool(self.config.get("printer_customer_enabled", True))
+        kitchen_enabled = bool(self.config.get("printer_kitchen_enabled", True))
         if not has_soup:
-            print("[ReceiptPrinter] 订单中无汤底项目，跳过打票（顾客单与制作单均不出票）")
-            return True
+            if respect_settings:
+                if not bool(self.config.get("printer_non_soup_enabled", True)):
+                    print("[ReceiptPrinter] 无汤底简洁收款单打印已关闭，跳过发单")
+                    return True
+            all_raw_data = self._build_non_soup_receipt(sale)
+            return self._send_print_data(all_raw_data)
 
         all_raw_data = bytearray()
 
-        customer_enabled = bool(self.config.get("printer_customer_enabled", True))
-        kitchen_enabled = bool(self.config.get("printer_kitchen_enabled", True))
         if print_type in ("all", "customer") and (not respect_settings or customer_enabled):
             customer_copies = self._copies(self.config, "printer_customer_copies", 1)
             customer_bytes = self._build_customer_receipt(sale)
@@ -807,6 +839,10 @@ class ReceiptPrinter:
             print("[ReceiptPrinter] 当前打印设置已关闭本次单据，跳过发单")
             return True
 
+        return self._send_print_data(bytes(all_raw_data))
+
+    def _send_print_data(self, raw_data):
+        """Send one assembled ticket through the configured printer backend."""
         pt = self.config.get("printer_type", "windows")
         if self.config.get("is_mock_mode", False):
             print("[模拟调试模式] 已完成小票及制作单模拟发单！")
@@ -814,11 +850,11 @@ class ReceiptPrinter:
 
         try:
             if pt == "windows":
-                return self._send_raw_to_windows(bytes(all_raw_data))
+                return self._send_raw_to_windows(bytes(raw_data))
             elif pt == "network":
-                return self._send_raw_to_network(bytes(all_raw_data))
+                return self._send_raw_to_network(bytes(raw_data))
             elif pt == "serial":
-                return self._send_raw_to_serial(bytes(all_raw_data))
+                return self._send_raw_to_serial(bytes(raw_data))
         except Exception as e:
             err_msg = str(e)
             print("[打印错误] %s" % err_msg)

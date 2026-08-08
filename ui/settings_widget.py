@@ -39,6 +39,7 @@ from core.printer_relay_mode import (
     validate_relay_config,
 )
 from core.shop_catalog import get_shop_categories, save_shop_categories, default_flavor_options
+from core.printer import NON_SOUP_RECEIPT_TEMPLATE
 
 
 SQB_INSTALLER_NAME = u"PC收款安装包v4.0.4.exe"
@@ -1549,6 +1550,77 @@ class SettingsWidget(QWidget):
         profile_grid.addWidget(self.btn_save_printer_template_profile, 0, 2)
         layout.addLayout(profile_grid)
 
+        # 其它票据格式独立成一个三级菜单分区。选择具体格式后才展开
+        # 它的开关、模板和预览，避免和官方/自定义顾客单混在一起。
+        self.printer_other_format_panel = QWidget()
+        other_format_layout = QVBoxLayout(self.printer_other_format_panel)
+        other_format_layout.setContentsMargins(0, 8, 0, 8)
+        other_format_layout.setSpacing(12)
+        other_format_layout.addWidget(self._printer_section_title(u"其他格式"))
+        other_format_selector = QGridLayout()
+        other_format_selector.setSpacing(12)
+        other_format_selector.setColumnStretch(1, 1)
+        other_format_selector.addWidget(self._make_label(u"选择其他格式："), 0, 0)
+        self.cmb_printer_other_format = QComboBox()
+        self.cmb_printer_other_format.addItem(u"请选择格式", "")
+        self.cmb_printer_other_format.addItem(u"无汤底订单简洁收款单", "non_soup")
+        self.cmb_printer_other_format.setCurrentIndex(1)
+        self.cmb_printer_other_format.currentIndexChanged.connect(self._on_printer_other_format_changed)
+        other_format_selector.addWidget(self.cmb_printer_other_format, 0, 1)
+        other_format_layout.addLayout(other_format_selector)
+
+        self.printer_non_soup_editor_panel = QWidget()
+        non_soup_editor_layout = QVBoxLayout(self.printer_non_soup_editor_panel)
+        non_soup_editor_layout.setContentsMargins(0, 0, 0, 0)
+        # 无汤底订单使用独立的简洁收款票，不与顾客单/制作单模板混在一
+        # 起。紧跟下拉选择显示，操作员进入本页即可看到编辑框和预览。
+        non_soup_editor_layout.addWidget(self._printer_section_title(u"无汤底订单简洁收款单"))
+        self.chk_printer_non_soup = QCheckBox(u"打印无汤底订单简洁收款单（独立于顾客单/制作单）")
+        self.chk_printer_non_soup.setChecked(bool(self.config.get("printer_non_soup_enabled", True)))
+        non_soup_editor_layout.addWidget(self.chk_printer_non_soup)
+        non_soup_hint = QLabel(
+            u"仅用于不含汤底的饮料/小串订单。模板每行可使用 [C]/[L]/[R] 对齐、"
+            u"[B] 粗体、[X] 双倍宽高、[S] 小字体；变量：{amount}、{call_no}、"
+            u"{order_type}、{created_at}。首行默认醒目显示金额，下面显示订单辅助信息。"
+        )
+        non_soup_hint.setWordWrap(True)
+        non_soup_hint.setStyleSheet("color: #FDE68A; font-size: 14px; background: transparent;")
+        non_soup_editor_layout.addWidget(non_soup_hint)
+        non_soup_grid = QGridLayout()
+        non_soup_grid.setSpacing(12)
+        non_soup_grid.setColumnStretch(0, 1)
+        non_soup_grid.setColumnStretch(1, 1)
+        non_soup_grid.addWidget(self._make_label(u"可编辑模板："), 0, 0)
+        non_soup_grid.addWidget(self._make_label(u"打印预览（示例数据）："), 0, 1)
+        self.txt_printer_non_soup_template = QPlainTextEdit()
+        self.txt_printer_non_soup_template.setPlainText(
+            self.config.get("printer_non_soup_template", "") or NON_SOUP_RECEIPT_TEMPLATE
+        )
+        self.txt_printer_non_soup_template.setMinimumHeight(150)
+        self.txt_printer_non_soup_template.setStyleSheet(
+            "QPlainTextEdit { background: #0F172A; color: #F8FAFC; border: 1px solid #334155; "
+            "border-radius: 10px; padding: 12px; font-size: 14px; }"
+        )
+        non_soup_grid.addWidget(self.txt_printer_non_soup_template, 1, 0)
+        self.txt_printer_non_soup_preview = QTextBrowser()
+        self.txt_printer_non_soup_preview.setReadOnly(True)
+        self.txt_printer_non_soup_preview.setMinimumHeight(150)
+        self.txt_printer_non_soup_preview.setStyleSheet(
+            "QTextBrowser { background: #FFFBEB; color: #111827; border: 1px solid #D97706; "
+            "border-radius: 10px; padding: 12px; }"
+        )
+        non_soup_grid.addWidget(self.txt_printer_non_soup_preview, 1, 1)
+        non_soup_editor_layout.addLayout(non_soup_grid)
+        self.btn_save_printer_non_soup = QPushButton(u"保存其他格式设置")
+        self._style_touch_action_btn(self.btn_save_printer_non_soup, "blue")
+        self.btn_save_printer_non_soup.clicked.connect(self._on_save_printer_template)
+        non_soup_editor_layout.addWidget(self.btn_save_printer_non_soup)
+        other_format_layout.addWidget(self.printer_non_soup_editor_panel)
+        layout.addWidget(self.printer_other_format_panel)
+        self.txt_printer_non_soup_template.textChanged.connect(self._refresh_non_soup_template_preview)
+        self.chk_printer_non_soup.stateChanged.connect(self._refresh_non_soup_template_preview)
+        self._refresh_non_soup_template_preview()
+
         self.lbl_printer_custom_template_hint = QLabel(
             u"自定义模板语法：每行前可加 [C]居中、[L]左对齐、[R]右对齐、[B]粗体、[D]双倍高度、[X]双倍宽高、[Y]三倍宽高。"
             u"可用变量：{shop_name}、{call_no}、{items}、{total}、{payment_method}、{order_id}、"
@@ -1584,6 +1656,7 @@ class SettingsWidget(QWidget):
             "border-radius: 10px; padding: 12px; font-size: 14px; }"
         )
         layout.addWidget(self.txt_printer_kitchen_template)
+
         self.lbl_printer_official_logo_note = QLabel(
             u"官方新版模板固定使用官方原始 Logo，不受自定义图片设置影响。"
         )
@@ -1695,7 +1768,12 @@ class SettingsWidget(QWidget):
         self._on_printer_width_changed()
         self._on_printer_template_profile_changed(self.cmb_printer_template_profile.currentIndex())
 
-        return self._wrap_in_scroll(card, [(u"① 纸张与走纸", [2, 3, 4, 5]), (u"② 单据与份数", [6, 7, 8]), (u"③ 打印模板", [9, 10, 11, 12, 13, 14, 15, 16, 17, 18])])
+        return self._wrap_in_scroll(card, [
+            (u"① 纸张与走纸", [2, 3, 4, 5]),
+            (u"② 单据与份数", [6, 7, 8]),
+            (u"③ 打印模板", [9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]),
+            (u"④ 其他格式", [12]),
+        ])
 
     def _printer_section_title(self, text):
         label = QLabel(text)
@@ -2454,6 +2532,56 @@ class SettingsWidget(QWidget):
             "[L][B][X]  {flavor}\n[L]{separator}\n"
             "[L]操作人：{operator}\n[L]下单时间：{created_at}"
         )
+
+    def _refresh_non_soup_template_preview(self, *_args):
+        """Render a paper-like preview for the independent no-soup ticket."""
+        if not hasattr(self, "txt_printer_non_soup_template"):
+            return
+        template = self.txt_printer_non_soup_template.toPlainText() or NON_SOUP_RECEIPT_TEMPLATE
+        context = {
+            "amount": "12.50",
+            "call_no": "018",
+            "order_type": "此订单不含汤底",
+            "created_at": "2026-08-08 12:45:17",
+        }
+
+        class _PreviewContext(dict):
+            def __missing__(self, key):
+                return "{" + key + "}"
+
+        try:
+            rendered = template.format_map(_PreviewContext(context))
+        except (ValueError, KeyError):
+            rendered = template
+        lines = []
+        for raw_line in rendered.splitlines():
+            # 预览去掉 ESC/POS 控制标记，但保留用户实际输入的正文。
+            line = re.sub(r"\[(?:C|L|R|B|D|X|Y|S)\]", "", raw_line).strip()
+            if line:
+                lines.append(line)
+        if not lines:
+            lines = [u"成功收款：12.50元", u"取餐号： 018", u"类型：此订单不含汤底", u"下单时间：2026-08-08 12:45:17"]
+        html_lines = []
+        for index, line in enumerate(lines):
+            escaped = html.escape(line)
+            if index == 0:
+                html_lines.append(
+                    "<div style='font-size:22pt;font-weight:700;text-align:center;'>%s</div>" % escaped
+                )
+            else:
+                html_lines.append(
+                    "<div style='font-size:11pt;line-height:1.8;'>%s</div>" % escaped
+                )
+        if not self.chk_printer_non_soup.isChecked():
+            html_lines.insert(0, "<div style='color:#B45309;font-weight:700;'>（当前已关闭，不会打印）</div>")
+        self.txt_printer_non_soup_preview.setHtml("".join(html_lines))
+
+    def _on_printer_other_format_changed(self, index):
+        """选中具体的其它票据格式后才展开对应的编辑项。"""
+        if not hasattr(self, "printer_non_soup_editor_panel"):
+            return
+        selected = self.cmb_printer_other_format.itemData(index)
+        self.printer_non_soup_editor_panel.setVisible(selected == "non_soup")
 
     def _on_printer_template_profile_changed(self, index):
         """按模板家族显示各自参数，避免官方和自定义设置互相覆盖。"""
@@ -4375,6 +4503,7 @@ class SettingsWidget(QWidget):
         self.config["printer_show_tags"] = self.chk_printer_show_tags.isChecked()
         self.config["printer_packaging_banner_enabled"] = self.chk_printer_takeout_banner.isChecked()
         self.config["printer_packaging_banner_lines"] = self.spin_printer_packaging_banner_lines.value()
+        self.config["printer_non_soup_enabled"] = self.chk_printer_non_soup.isChecked()
 
     def _apply_printer_template_config(self):
         self.config["printer_customer_title"] = self.txt_printer_customer_title.text()
@@ -4409,6 +4538,8 @@ class SettingsWidget(QWidget):
             self.config["printer_logo_path"] = self.config.get("printer_logo_path", "")
         self.config["printer_customer_template_custom"] = self.txt_printer_customer_template.toPlainText()
         self.config["printer_kitchen_template_custom"] = self.txt_printer_kitchen_template.toPlainText()
+        self.config["printer_non_soup_template"] = self.txt_printer_non_soup_template.toPlainText()
+        self.config["printer_non_soup_enabled"] = self.chk_printer_non_soup.isChecked()
 
     def _save_printer_section(self, apply_config, title, message):
         apply_config()

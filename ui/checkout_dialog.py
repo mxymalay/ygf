@@ -384,7 +384,7 @@ class CheckoutDialog(QDialog):
                 "font-weight: bold; padding: 6px; border-radius: 6px; border: none;"
             )
         else:
-            slip_info = u"[免出票] 无汤底订单，无需打印顾客单与制作单"
+            slip_info = u"[打印] 无汤底订单：简洁收款单"
             lbl_slip = QLabel(slip_info)
             lbl_slip.setAlignment(Qt.AlignCenter)
             lbl_slip.setStyleSheet(
