@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from ui.floating_ball import FloatingBall
 
@@ -66,6 +67,24 @@ class FloatingBallProgressTests(unittest.TestCase):
         FloatingBall._refresh_state(ball)
 
         self.assertEqual(calls, [True, "paint"])
+
+    @patch("ui.floating_ball.detect_foreground_pos_channel", return_value=False)
+    def test_timer_syncs_taskbar_selected_official_pos(self, _detect):
+        calls = []
+        ball = SimpleNamespace(
+            main_window=SimpleNamespace(
+                config={},
+                switch_controller=SimpleNamespace(
+                    sync_foreground_channel=lambda value: calls.append(("sync", value)),
+                    refresh_floating_ball_progress=lambda: calls.append("refresh"),
+                ),
+            ),
+            update=lambda: calls.append("paint"),
+        )
+
+        FloatingBall._refresh_state(ball)
+
+        self.assertEqual(calls, [("sync", False), "refresh", "paint"])
 
 
 if __name__ == "__main__":

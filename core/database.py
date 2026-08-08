@@ -923,13 +923,20 @@ class Database:
         finally:
             conn.close()
 
-    def get_official_revenue_by_date(self, start_date, end_date=None):
+    def get_official_revenue_by_date(self, start_date, end_date=None, include_refunded=False):
+        """Return official orders for history or verified revenue consumers.
+
+        Revenue/report callers keep the historical paid-only default.  The
+        order-history screen can opt into refunded rows so a refund changes
+        the status of the original order instead of making it disappear.
+        """
         s_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
         e_str = end_date.strftime("%Y-%m-%d") if end_date and hasattr(end_date, "strftime") else (str(end_date) if end_date else s_str)
+        statuses = (PAID, REFUNDED) if include_refunded else (PAID,)
         conn = self._get_conn()
         try:
-            rows = conn.execute(
-                """SELECT v.*,
+            placeholders = ", ".join("?" for _ in statuses)
+            query = """SELECT v.*,
                           COALESCE(NULLIF(v.payment_method, ''), r.payment_method, '') AS payment_method,
                           COALESCE(NULLIF(v.payment_breakdown_json, ''), r.payment_breakdown_json, '') AS payment_breakdown_json,
                           COALESCE(NULLIF(r.item_count, 0), t.item_count, 0) AS item_count,
@@ -943,9 +950,12 @@ class Database:
                    FROM official_pos_revenue v
                    LEFT JOIN official_pos_receipts r ON r.receipt_key=v.order_key
                    LEFT JOIN takeout_orders t ON t.order_key=v.order_key
-                   WHERE DATE(v.created_at) BETWEEN ? AND ? AND v.payment_status=?
-                   ORDER BY v.created_at ASC""",
-                (s_str, e_str, PAID),
+                   WHERE DATE(v.created_at) BETWEEN ? AND ?
+                     AND v.payment_status IN (%s)
+                   ORDER BY v.created_at ASC""" % placeholders
+            rows = conn.execute(
+                query,
+                (s_str, e_str) + statuses,
             ).fetchall()
             return [dict(row) for row in rows]
         finally:

@@ -62,6 +62,12 @@ class DatabaseLedgerTests(unittest.TestCase):
         self.assertTrue(result["linked"])
         self.assertEqual(result["original_order_id"], "2608080015202670637650001")
         self.assertEqual(self.db.get_official_stats_by_date("2026-08-08")["count"], 0)
+        self.assertEqual(self.db.get_official_revenue_by_date("2026-08-08"), [])
+        history_rows = self.db.get_official_revenue_by_date(
+            "2026-08-08", include_refunded=True
+        )
+        self.assertEqual(len(history_rows), 1)
+        self.assertEqual(history_rows[0]["payment_status"], REFUNDED)
         conn = self.db._get_conn()
         try:
             row = conn.execute(

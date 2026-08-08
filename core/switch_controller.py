@@ -1201,6 +1201,25 @@ class AutoSwitchController(QObject):
             self._current_is_private = bool(is_private)
         self._apply_switch_progress(fb, bool(is_private), self._switch_progress_snapshot())
 
+    def sync_foreground_channel(self, is_private):
+        """同步任务栏切屏后的当前通道，只更新状态显示，不重置分流周期。
+
+        店员直接点击任务栏切换窗口时，不会经过悬浮球的手动切换回调。
+        这里仅同步真实前台通道和悬浮球进度，保留当前累计重量/金额及
+        本轮切换基线，避免把一次窗口切换误记成新的称重周期。
+        """
+        if is_private is None:
+            return False
+        is_private = bool(is_private)
+        changed = self._current_is_private != is_private
+        self._current_is_private = is_private
+        self.refresh_floating_ball_progress(is_private)
+        fb = getattr(self.main_window, "floating_ball", None)
+        if fb is not None:
+            fb.is_our_pos_active = is_private
+            fb.update()
+        return changed
+
     def update_config(self, config: dict):
         """更新配置参数"""
         old_auto_switch_enabled = bool(self._auto_switch_enabled)

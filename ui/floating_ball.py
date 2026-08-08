@@ -16,6 +16,7 @@ from PyQt5.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, 
 from utils.window_utils import (
     bring_official_to_front,
     bring_our_pos_to_front,
+    detect_foreground_pos_channel,
     is_official_pos_available,
 )
 from utils.panic_handler import execute_panic_exit
@@ -103,6 +104,21 @@ class FloatingBall(QWidget):
         back to weight) as soon as the mode changes.
         """
         controller = getattr(self.main_window, "switch_controller", None)
+        # 任务栏切换不会经过悬浮球点击回调；读取当前前台窗口后同步球体
+        # 状态。只接受已配置的两个 POS，切到其他软件时保持上次状态。
+        foreground_is_private = detect_foreground_pos_channel(
+            self.main_window,
+            getattr(self.main_window, "config", None),
+        )
+        if foreground_is_private is not None:
+            try:
+                if controller is not None and hasattr(controller, "sync_foreground_channel"):
+                    controller.sync_foreground_channel(foreground_is_private)
+                else:
+                    self.is_our_pos_active = bool(foreground_is_private)
+            except Exception as exc:
+                # Foreground probing is cosmetic and must never affect checkout.
+                print("[FloatingBall] 同步前台 POS 状态失败:", exc)
         if controller is not None and hasattr(controller, "refresh_floating_ball_progress"):
             try:
                 controller.refresh_floating_ball_progress()

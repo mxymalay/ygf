@@ -102,6 +102,53 @@ def get_window_info(hwnd, process_cache=None):
         return None
 
 
+def _root_window_handle(hwnd):
+    """Return the top-level owner for a foreground child/popup HWND."""
+    if not user32 or not hwnd:
+        return int(hwnd) if hwnd else None
+    try:
+        # GA_ROOT = 2.  A taskbar click can focus a child dialog, while the
+        # configured identity is stored on the POS's top-level window.
+        get_ancestor = getattr(user32, "GetAncestor", None)
+        root = get_ancestor(hwnd, 2) if get_ancestor else hwnd
+        return int(root or hwnd)
+    except Exception:
+        return int(hwnd)
+
+
+def detect_foreground_pos_channel(main_window, config=None):
+    """Detect which configured POS is currently in the Windows foreground.
+
+    Returns ``True`` for the private POS, ``False`` for the configured official
+    POS, and ``None`` when another application (or no titled window) is active.
+    This is intentionally a read-only probe: it never raises, focuses windows,
+    or changes routing decisions by itself.
+    """
+    if not user32:
+        return None
+    try:
+        foreground = user32.GetForegroundWindow()
+        if not foreground:
+            return None
+        foreground_root = _root_window_handle(foreground)
+
+        if main_window is not None:
+            private_hwnd = int(main_window.winId())
+            if foreground_root == _root_window_handle(private_hwnd):
+                return True
+
+        # Read only the foreground descriptor instead of enumerating all
+        # windows once per second.  The selected title prefix is the required
+        # primary identity used by the POS picker; process matching remains a
+        # preference there so a renamed executable is still recognized.
+        info = get_window_info(foreground_root)
+        if info and _window_title_matches(info, config):
+            return False
+    except Exception:
+        return None
+    return None
+
+
 def list_visible_windows():
     """List visible, titled top-level windows for the operator's picker."""
     if not user32:

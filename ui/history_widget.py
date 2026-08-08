@@ -888,7 +888,7 @@ class HistoryWidget(QWidget):
             try:
                 raw_records.extend(
                     self._official_record(row)
-                    for row in (get_official(target_date, target_date) or [])
+                    for row in (get_official(target_date, target_date, include_refunded=True) or [])
                 )
             except Exception:
                 pass
