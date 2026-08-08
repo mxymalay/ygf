@@ -103,6 +103,62 @@ class DatabaseLedgerTests(unittest.TestCase):
         _created_paid, paid_row = self.db.record_official_receipt("official:DINE-1001", paid)
         self.assertEqual(paid_row["payment_status"], "paid")
 
+    def test_official_revenue_query_includes_receipt_items(self):
+        parsed = {
+            "receipt_kind": "dinein",
+            "platform": "官方POS-堂食",
+            "full_order_id": "DINE-ITEMS",
+            "order_no": "#1002",
+            "order_amount": 32.0,
+            "amount_valid": True,
+            "payment_status": "paid",
+            "payment_status_confidence": "high",
+            "key_confidence": "high",
+            "item_count": 2,
+            "item_names": ["肥牛", "可乐"],
+        }
+        self.db.record_official_receipt(
+            "official:DINE-ITEMS", parsed, observed_at="2026-08-07 12:00:00"
+        )
+        self.assertTrue(self.db.record_official_revenue(
+            "official:DINE-ITEMS", "官方POS-堂食", "DINE-ITEMS", 32.0,
+            created_at="2026-08-07 12:00:00", order_no="#1002",
+        ))
+        rows = self.db.get_official_revenue_by_date("2026-08-07")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["item_count"], 2)
+        self.assertEqual(rows[0]["item_names_json"], '["肥牛", "可乐"]')
+
+    def test_official_takeout_revenue_query_uses_takeout_items(self):
+        parsed = {
+            "platform": "美团",
+            "full_order_id": "1003",
+            "order_no": "#1003",
+            "order_amount": 19.9,
+            "amount_valid": True,
+            "payment_status": "paid",
+            "payment_status_confidence": "high",
+            "key_confidence": "high",
+            "item_count": 1,
+            "item_names": ["肥牛"],
+        }
+        self.db.record_takeout_order(
+            "美团:1003", parsed,
+            {"key": "美团:1003", "platform": "美团", "full_order_id": "1003",
+             "order_no": "#1003", "order_amount": 19.9,
+             "amount_valid": True, "payment_status": "paid",
+             "payment_status_confidence": "high", "key_confidence": "high",
+             "created_at": "2026-08-07 12:01:00"},
+        )
+        self.assertTrue(self.db.record_official_revenue(
+            "美团:1003", "美团", "1003", 19.9,
+            created_at="2026-08-07 12:01:00",
+        ))
+        rows = self.db.get_official_revenue_by_date("2026-08-07")
+        row = next(item for item in rows if item["order_key"] == "美团:1003")
+        self.assertEqual(row["item_count"], 1)
+        self.assertEqual(row["item_names_json"], '["肥牛"]')
+
     def test_generic_official_receipt_marks_amount_change_as_conflict(self):
         base = {
             "receipt_kind": "dinein", "platform": "官方POS-堂食",

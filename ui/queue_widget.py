@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QRadioButton, QSpinBox, QCheckBox, QFrame, QButtonGroup, QScrollArea, QLayout, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QRect, QPoint, QSize
+from PyQt5.QtCore import Qt, QRect, QPoint, QSize, pyqtSignal
 from PyQt5.QtGui import QPainter, QRadialGradient, QColor, QBrush, QPen, QFont
 from config import save_config
 from core.call_number_manager import CallNumberManager
@@ -154,6 +154,11 @@ class NumberBall(QWidget):
 
 class QueueWidget(QWidget):
     """叫号设置独立页面 — 明确层次与模块分离"""
+
+    # The cashier preview is on another page, but it must react in the same
+    # event turn as a saved mode.  Otherwise mode four can already be active
+    # in CallNumberManager while the homepage still shows the old preview.
+    call_mode_saved = pyqtSignal()
 
     def __init__(self, config, call_mgr: CallNumberManager, parent=None):
         super().__init__(parent)
@@ -554,6 +559,7 @@ class QueueWidget(QWidget):
         save_config(self.config)
         self.call_mgr._cached_next_number = None
         self.refresh_pool_display()
+        self.call_mode_saved.emit()
 
         from ui.custom_dialog import show_info
         show_info(self, u"保存成功", u"叫号模式设置已成功更新并生效！")

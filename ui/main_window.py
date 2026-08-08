@@ -158,6 +158,11 @@ class MainWindow(QMainWindow):
 
         # 页面 4: 叫号设置 (独立叫号避重菜单)
         self.queue_page = QueueWidget(self.config, self.call_mgr)
+        # Keep the cashier's "本次打印叫号" preview synchronized with a
+        # mode saved on the separate call-number page.  Without this signal,
+        # mode four took effect in the manager immediately but the homepage
+        # could retain the previous mode's preview for the first ticket.
+        self.queue_page.call_mode_saved.connect(self.sale_page.refresh_call_number_display)
         self.stack.addWidget(self.queue_page)
         self._startup_checkpoint(u"正在加载叫号设置", u"叫号模块已准备", 68)
 

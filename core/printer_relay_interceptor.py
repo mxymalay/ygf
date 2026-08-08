@@ -385,7 +385,17 @@ def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
     mapping = (options or {}).get("official_pos_field_mapping") if isinstance(options, dict) else None
     text = str(raw_text or "").replace("\r\n", "\n").strip()
     compact = re.sub(r"\s+", "", text)
-    if parsed.get("is_waimai"):
+    # The official POS emits a second, raw kitchen ticket for a dine-in
+    # checkout.  Its text contains “制作单” and therefore matches the generic
+    # takeout keyword list, but the official-only “取餐号” line proves that it
+    # is the store's own POS kitchen slip, not an external-platform order.
+    # Keep it in the official/dine-in path so the original layout is forwarded
+    # instead of being rewritten as an 外卖单.
+    has_official_kitchen_markers = (
+        "制作单" in compact
+        and "取餐号" in compact
+    )
+    if parsed.get("is_waimai") and not has_official_kitchen_markers:
         receipt_kind = "takeout"
         platform = parsed.get("platform") or "外卖订单"
     else:
@@ -398,7 +408,7 @@ def parse_official_pos_text(raw_text: str, options: dict = None) -> dict:
             parsed.get("order_amount") is not None
             and (parsed.get("full_order_id") or parsed.get("item_count") or looks_dinein)
         )
-        receipt_kind = "dinein" if (looks_dinein or has_receipt_fields) else "unknown"
+        receipt_kind = "dinein" if (looks_dinein or has_receipt_fields or has_official_kitchen_markers) else "unknown"
         platform = "官方POS-堂食" if receipt_kind == "dinein" else "官方POS"
 
     parsed["receipt_kind"] = receipt_kind

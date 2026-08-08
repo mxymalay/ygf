@@ -762,9 +762,29 @@ class HistoryWidget(QWidget):
     @staticmethod
     def _official_record(row):
         """Adapt the verified official-POS ledger to the order-card shape."""
+        import json
+
         order_id = str(row.get("order_id", "") or row.get("order_key", "") or "")
         platform = str(row.get("platform", "") or "官方 POS")
         amount = float(row.get("amount", 0.0) or 0.0)
+        item_names = []
+        try:
+            value = json.loads(row.get("item_names_json", "[]") or "[]")
+            if isinstance(value, list):
+                item_names = [str(item).strip() for item in value if str(item).strip()]
+        except (TypeError, ValueError):
+            item_names = []
+        cart_items = [
+            {
+                "name": name,
+                "tag": "官方小票商品",
+                "type": "official",
+                "qty": 1,
+                "price": 0.0,
+                "base_price": 0.0,
+            }
+            for name in item_names
+        ]
         return {
             "id": "official:%s" % str(row.get("id", row.get("order_key", ""))),
             "source": "official_pos",
@@ -779,7 +799,8 @@ class HistoryWidget(QWidget):
             "payment_breakdown_json": str(row.get("payment_breakdown_json", "") or ""),
             "total_price": amount,
             "weight_kg": 0.0,
-            "cart_items_json": "[]",
+            "item_count": int(row.get("item_count", 0) or 0),
+            "cart_items_json": json.dumps(cart_items, ensure_ascii=False),
             "print_status": "PRINTED",
         }
 
@@ -1080,6 +1101,11 @@ class HistoryWidget(QWidget):
                     row_main.addWidget(lbl_orig_price)
                     row_main.addSpacing(10)
                     row_main.addWidget(lbl_price)
+                elif item_type == "official":
+                    lbl_price = QLabel(u"官方小票")
+                    lbl_price.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none;")
+                    row_main.addSpacing(30)
+                    row_main.addWidget(lbl_price)
                 else:
                     lbl_price = QLabel("¥ %.2f" % price)
                     lbl_price.setStyleSheet("font-size: 15px; font-weight: bold; color: #F9FAFB; border: none;")
@@ -1095,9 +1121,23 @@ class HistoryWidget(QWidget):
 
                 self.items_layout.addLayout(item_row)
             
-            self.lbl_item_total.setText(u"商品金额：¥ %.2f" % original_total)
-            self.lbl_discount_total.setText(u"折扣金额：¥ %.2f" % (original_total - tot))
+            if any(item.get("type") == "official" for item in cart_items):
+                # Official POS receipts provide the product names separately
+                # from the final paid amount; do not replace the real amount
+                # with zero just because the ticket has no per-item prices.
+                self.lbl_item_total.setText(u"商品金额：¥ %.2f" % tot)
+                self.lbl_discount_total.setText(u"折扣金额：¥ 0.00")
+            else:
+                self.lbl_item_total.setText(u"商品金额：¥ %.2f" % original_total)
+                self.lbl_discount_total.setText(u"折扣金额：¥ %.2f" % (original_total - tot))
         else:
+            official_item_count = int(record.get("item_count", 0) or 0)
+            if self._record_source(record) == "official" and official_item_count:
+                item_row = QVBoxLayout()
+                item_label = QLabel(u"官方小票未解析出商品名称（共 %d 项）" % official_item_count)
+                item_label.setStyleSheet("font-size: 14px; color: #F59E0B; border: none;")
+                item_row.addWidget(item_label)
+                self.items_layout.addLayout(item_row)
             # 兼容旧版本记录
             proj_match = re.search(r"项目:(.*)", remark)
             proj_str = proj_match.group(1).strip() if proj_match else ""

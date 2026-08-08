@@ -95,6 +95,21 @@ class TakeoutInterceptionTests(unittest.TestCase):
         self.assertEqual(result["payment_status"], "unknown")
         self.assertEqual(result["key_confidence"], "high")
 
+    def test_official_pos_kitchen_slip_is_not_misclassified_as_takeout(self):
+        text = ("取餐号:0013\n制作单          POS#0013\n"
+                "经典草本骨汤（KG）\n                  0.006\n微辣\n"
+                "下单时间: 2026-08-08 11:05:38")
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["receipt_kind"], "dinein")
+        self.assertEqual(result["platform"], "官方POS-堂食")
+        self.assertTrue(result["is_official_receipt"])
+        self.assertEqual(result["payment_status"], "unknown")
+
+    def test_takeout_kitchen_slip_without_pickup_number_stays_takeout(self):
+        text = "美团外卖\n制作单\n肥牛 x 1\n订单号：MT-13"
+        result = parse_official_pos_text(text)
+        self.assertEqual(result["receipt_kind"], "takeout")
+
     def test_official_settlement_ticket_implies_paid_for_this_pos_workflow(self):
         text = ("杨国福(肥西水晶城店)\n取餐号:0044 [POS点餐]\n"
                 "应付 10.60\n人民币 10.60\n"
