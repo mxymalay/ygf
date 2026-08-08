@@ -393,16 +393,17 @@ class AutoSwitchController(QObject):
         amount in a printed ticket cannot switch the routing algorithm.
         """
         try:
-            from core.printer_relay_host import read_proxy_status, _is_process_alive
+            from core.printer_relay_host import read_proxy_status, is_proxy_status_live
             state = read_proxy_status()
-            if not state.get("running") or state.get("mode") != "enhanced":
+            # Use the same heartbeat-based liveness check as the home badge.
+            # A direct ``os.kill(pid, 0)`` probe is unreliable on Win7 when
+            # the detached relay runs under another account; rejecting that
+            # probe here made the UI say “增强模式” while amount routing fell
+            # back to the compatibility/weight path.
+            expected_port = _config_int(self.config, "printer_relay_port", 9101)
+            if not is_proxy_status_live(state, expected_port=expected_port):
                 return 0.0, False
-            # The status file is atomically written but can outlive a crashed
-            # detached host.  Never keep using amount routing from a stale
-            # ``running=true`` snapshot; the next decision must fall back to
-            # the compatibility/weight path.
-            pid = state.get("pid")
-            if pid and not _is_process_alive(pid):
+            if state.get("mode") != "enhanced":
                 return 0.0, False
             from datetime import date
             if hasattr(self.main_window, "db") and self.main_window.db:

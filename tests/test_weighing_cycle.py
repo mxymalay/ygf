@@ -417,6 +417,29 @@ class WeighingCycleTests(unittest.TestCase):
         self.assertAlmostEqual(snapshot["remaining_amount"], 100.0 / 0.3 - 300.0)
         controller._hide_timer.stop()
 
+    def test_enhanced_amount_state_uses_relay_heartbeat_on_win7(self):
+        controller = self._controller()
+        controller.main_window.db = Mock()
+        controller.main_window.db.get_official_stats_by_date.return_value = {
+            "amount_sum": 200.0,
+        }
+        status = {
+            "running": True,
+            "mode": "enhanced",
+            "port": 9101,
+            "updated_at": "2026-08-08 10:00:00",
+            "pid": 999999,
+        }
+
+        with patch("core.printer_relay_host.read_proxy_status", return_value=status), patch(
+            "core.printer_relay_host.is_proxy_status_live", return_value=True,
+        ):
+            amount, ready = controller._verified_official_amount_state()
+
+        self.assertTrue(ready)
+        self.assertAlmostEqual(amount, 200.0)
+        controller._hide_timer.stop()
+
     def test_manual_switch_resets_cycle_baseline_but_keeps_daily_counters(self):
         controller = self._controller()
         controller._target_private_ratio = 30.0
