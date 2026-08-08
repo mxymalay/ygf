@@ -6,6 +6,7 @@ does not depend on the POS application's virtual environment.
 """
 import os
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -661,16 +662,49 @@ def _stop_printer_relay_service(install_dir, remove=False):
     try:
         if os.path.isfile(service_exe):
             _run_hidden([service_exe, "stop"], timeout=60)
-            if remove:
-                _run_hidden([service_exe, "remove"], timeout=60)
     except (OSError, subprocess.SubprocessError):
         pass
+    # The service command returns as soon as the stop request is accepted;
+    # on Win7 the service process can still hold its own EXE for another few
+    # seconds.  Stop through SCM as well and wait for the process state before
+    # the payload extractor attempts to replace PrinterRelayService.exe.
+    try:
+        _run_hidden(["sc.exe", "stop", PRINTER_RELAY_SERVICE_NAME], timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    _wait_for_service_stopped(PRINTER_RELAY_SERVICE_NAME, timeout=20)
     if remove:
         try:
-            _run_hidden(["sc.exe", "stop", PRINTER_RELAY_SERVICE_NAME], timeout=30)
+            if os.path.isfile(service_exe):
+                _run_hidden([service_exe, "remove"], timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if remove:
+        try:
             _run_hidden(["sc.exe", "delete", PRINTER_RELAY_SERVICE_NAME], timeout=30)
         except (OSError, subprocess.SubprocessError):
             pass
+
+
+def _service_state_code(service_name):
+    """Return the SCM numeric state, or 0 when the service is absent."""
+    try:
+        result = _run_hidden(["sc.exe", "query", service_name], timeout=20)
+        output = ((result.stdout or b"") + (result.stderr or b"")).decode("mbcs", errors="ignore")
+        match = re.search(r"(?:STATE|状态)\s*:\s*([1-7])", output, re.IGNORECASE)
+        return int(match.group(1)) if result.returncode == 0 and match else 0
+    except (OSError, UnicodeError, subprocess.SubprocessError, ValueError):
+        return 0
+
+
+def _wait_for_service_stopped(service_name, timeout=20):
+    """Wait until SCM reports a service stopped/not installed."""
+    deadline = time.monotonic() + max(0, float(timeout or 0))
+    while time.monotonic() < deadline:
+        if _service_state_code(service_name) in (0, 1):
+            return True
+        time.sleep(0.25)
+    return _service_state_code(service_name) in (0, 1)
 
 
 def _remove_obsolete_printer_relay_artifacts(install_dir):
@@ -741,8 +775,34 @@ def _safe_extract_payload(target_dir):
                     os.chmod(destination, 0o666)
                 except OSError:
                     pass
-            with archive.open(info, "r") as source, open(destination, "wb") as target:
-                shutil.copyfileobj(source, target)
+            temporary = "%s.installing.%s" % (destination, os.getpid())
+            replaced = False
+            last_error = None
+            # A stopped Win7 service can take a short interval to release its
+            # executable.  Extract to a side file first, then retry the final
+            # replace instead of truncating the old file or failing on the
+            # first sharing violation.
+            for attempt in range(20):
+                try:
+                    with archive.open(info, "r") as source, open(temporary, "wb") as target:
+                        shutil.copyfileobj(source, target)
+                    os.replace(temporary, destination)
+                    replaced = True
+                    break
+                except PermissionError as exc:
+                    last_error = exc
+                    try:
+                        if os.path.isfile(temporary):
+                            os.remove(temporary)
+                    except OSError:
+                        pass
+                    if attempt >= 19:
+                        raise PermissionError(
+                            "无法覆盖文件：%s；请先退出 POS 并停止 ppposPrinterRelay 服务后重试。" % destination
+                        ) from exc
+                    time.sleep(0.5)
+            if not replaced and last_error is not None:
+                raise last_error
 
 
 def _install(target_dir, display_name, icon_preset="yangguofu"):
