@@ -168,15 +168,25 @@ DEFAULT_CONFIG = {
     "printer_kitchen_footer": "打印时间：{time}",
     "printer_report_title": "营业汇总报表",
     "printer_report_footer": "打印时间：{time}",
-    # 模板方案：legacy 保留旧版当前格式，official_v2 对齐新版官方票面，
-    # custom 使用设置页中的可编辑正文，便于以后换版时无需改程序。
-    # 新安装默认对齐官方新版票面；已有配置中的 legacy/custom 值会被
+    # 模板方案：legacy 是官方旧版参考模仿，official_v2 是官方新版参考模仿，
+    # official_v3 使用从官方原始 ESC/POS 小票提取的精确格式，custom 使用
+    # 设置页中的可编辑正文，便于以后换版时无需改程序。
+    # 新安装默认使用官方新版格式；已有配置中的 legacy/custom 值会被
     # 原样保留，不在升级时静默覆盖。
-    "printer_template_profile": "official_v2",
+    "printer_template_profile": "official_v3",
     "printer_service_phone": "400-6058-777",
     "printer_operator": "",
     "printer_logo_path": "",
     "printer_logo_enabled": True,
+    # Official/reference and custom ticket parameters are deliberately kept
+    # separate.  The older shared keys above remain as upgrade fallbacks.
+    "printer_official_logo_enabled": True,
+    "printer_official_service_phone": "400-6058-777",
+    "printer_official_operator": "",
+    "printer_custom_logo_enabled": True,
+    "printer_custom_logo_path": "",
+    "printer_custom_service_phone": "400-6058-777",
+    "printer_custom_operator": "",
     "printer_logo_width_px": 512,
     "app_logo_preset": "yangguofu",
     "shortcut_icon_preset": "yangguofu",
@@ -341,6 +351,7 @@ OPTIONAL_CONFIG_KEYS = {
     "call_last_slot",
     "call_manual_no",
     "call_seq_no",
+    "call_last_issued_no",
     "call_mode",
     "custom_is_seq",
     "custom_start_no",

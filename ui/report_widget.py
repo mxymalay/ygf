@@ -4,7 +4,7 @@ PyQt5 + Python 3.8 兼容
 """
 import json
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCalendarWidget, QFrame, QScrollArea, QGridLayout, QMessageBox,
@@ -365,17 +365,36 @@ class ReportWidget(QWidget):
         status = QLabel(u"数据状态：检查中")
         status.setWordWrap(True)
         status.setStyleSheet("color: #374151; font-size: 15px; border: none;")
+        amount_row = QHBoxLayout()
+        amount_row.setContentsMargins(0, 0, 0, 0)
+        amount_row.setSpacing(10)
+        amount_row.addStretch(1)
         amount = QLabel(u"¥ 0.00")
         amount.setAlignment(Qt.AlignCenter)
         amount.setStyleSheet("color: #111827; font-size: 32px; font-weight: 900; border: none;")
+        amount_row.addWidget(amount)
+        question = QLabel(u"?")
+        question.setAlignment(Qt.AlignCenter)
+        question.setFixedSize(28, 28)
+        question.setToolTip(u"当前统计完整")
+        question.setStyleSheet(
+            "color: #FFFFFF; background: #94A3B8; border: none; border-radius: 14px; "
+            "font-size: 18px; font-weight: 900;"
+        )
+        question.setVisible(False)
+        amount_row.addWidget(question)
+        amount_row.addStretch(1)
         count = QLabel(u"订单数量：0")
         count.setAlignment(Qt.AlignCenter)
         count.setStyleSheet("color: #374151; font-size: 15px; border: none;")
         hint = QLabel()
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #6B7280; font-size: 14px; border: none;")
+        hint.setStyleSheet(
+            "color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; "
+            "border-radius: 8px; padding: 12px; font-size: 14px;"
+        )
         layout.addWidget(status)
-        layout.addWidget(amount)
+        layout.addLayout(amount_row)
         layout.addWidget(count)
         layout.addWidget(hint)
         layout.addStretch()
@@ -383,6 +402,7 @@ class ReportWidget(QWidget):
         card._report_amount = amount
         card._report_count = count
         card._report_hint = hint
+        card._report_question = question
         card._report_key = key
         return card
 
@@ -441,13 +461,19 @@ class ReportWidget(QWidget):
             )
 
     def _official_report_summary(self):
-        """Return official totals only when relay setup and source are usable."""
-        mode_warning = self._mode_reliability_warning()
-        report = validate_relay_config(self.config, check_windows=False)
-        if report.get("errors"):
-            return {"available": False, "reason": "打印中继未配置成功：%s" % "；".join(report["errors"]), "mode_warning": mode_warning}
-        if not bool(self.config.get("printer_relay_enabled")):
-            return {"available": False, "reason": "打印中继未启用，暂时没有可核验的官方 POS 数据。", "mode_warning": mode_warning}
+        """Return database-backed official totals even when relay is offline.
+
+        The relay state controls completeness warnings, not whether already
+        verified rows can be viewed.  A compatibility interval may miss some
+        future official tickets, but it must not hide official or total data
+        that is already present in the ledger.
+        """
+        mode_details = self._mode_reliability_details()
+        mode_warning = mode_details.get("warning") or ""
+        try:
+            summary = self.db.get_official_stats_by_date(self.start_date_str, self.end_date_str) or {}
+        except Exception as exc:
+            return {"available": False, "reason": "官方数据库读取失败：%s" % exc, "mode_warning": mode_warning}
 
         state = {}
         try:
@@ -455,61 +481,151 @@ class ReportWidget(QWidget):
                 state = json.load(stream) or {}
         except (OSError, ValueError, TypeError):
             state = {}
-        if state.get("last_error"):
-            return {"available": False, "reason": "官方数据获取失败：%s" % state.get("last_error"), "mode_warning": mode_warning}
-        if not state.get("running"):
-            return {"available": False, "reason": "打印中继未运行，暂时没有可核验的官方 POS 数据。", "mode_warning": mode_warning}
-
-        summary = self.db.get_official_stats_by_date(self.start_date_str, self.end_date_str)
-        if not summary.get("count"):
-            return {"available": False, "reason": "当前时间段没有获取到已验证的官方 POS 营业数据。", "mode_warning": mode_warning}
-        return {"available": True, "reason": "金额和付款状态均已验证", "summary": summary, "mode_warning": mode_warning}
-
-    def _mode_reliability_warning(self):
-        """Return a notice when the selected period ever fell back to compatibility.
-
-        The warning is deliberately separate from availability: verified rows
-        remain visible, but a compatibility interval means some official
-        payments may never have reached the relay and totals are incomplete.
-        """
-        getter = getattr(self.db, "get_relay_mode_events", None)
-        if not callable(getter):
-            return ""
-        try:
-            events = getter(self.start_date_str, self.end_date_str, limit=500) or []
-        except Exception:
-            return ""
-        fallback_events = []
-        for event in events:
-            new_mode = str(event.get("new_mode", "") or "").strip().lower()
-            previous_mode = str(event.get("previous_mode", "") or "").strip().lower()
-            if new_mode in ("compatibility", "degraded") or (
-                previous_mode == "enhanced" and new_mode != "enhanced"
-            ):
-                fallback_events.append(event)
-        if not fallback_events:
-            return ""
-        first = sorted(
-            fallback_events,
-            key=lambda row: str(row.get("created_at", "") or "")
-        )[0]
-        stamp = str(first.get("created_at", "") or "")
-        reason = str(first.get("reason", "") or "").strip()
-        detail = (u"首次发生：%s" % stamp) if stamp else u"统计期间曾发生"
-        if reason:
-            detail += u"；原因：%s" % reason
-        return (
-            u"可信度提示：本统计期间曾切换到兼容模式（%s）。"
-            u"期间可能有官方 POS 支付未经过中继，因此官方营业额和总营业额可能不完整；"
-            u"当前已入账的可验证数据仍保留并展示。" % detail
-        )
+        if summary.get("count"):
+            source_note = ""
+            try:
+                report = validate_relay_config(self.config, check_windows=False) or {}
+            except Exception as exc:
+                # A validator/Windows API failure is a live-source warning;
+                # it must not hide rows already committed to the ledger.
+                report = {"errors": [str(exc) or "中继状态检查失败"]}
+            if report.get("errors"):
+                source_note = "当前中继配置异常，但数据库中已入账的官方记录仍保留展示。"
+            elif not bool(self.config.get("printer_relay_enabled")):
+                source_note = "当前未启用实时中继，以下为数据库中已入账的官方记录。"
+            elif str(state.get("mode") or self.config.get("printer_relay_mode") or "").lower() in ("compatibility", "degraded"):
+                source_note = "当前中继处于兼容模式，以下为数据库中已入账的官方记录；新官方订单可能不完整。"
+            elif state.get("last_error") or not state.get("running"):
+                source_note = "当前实时中继未运行，以下为数据库中已入账的官方记录。"
+            return {
+                "available": True,
+                "reason": "金额和付款状态均已验证",
+                "summary": summary,
+                "source_note": source_note,
+                "mode_warning": mode_warning,
+                "risk_periods": mode_details.get("periods") or [],
+            }
+        return {
+            "available": False,
+            "reason": "当前时间段没有获取到已验证的官方 POS 营业数据。",
+            "mode_warning": mode_warning,
+        }
 
     @staticmethod
-    def _set_channel_card(card, status, amount_text, count_text, hint):
+    def _parse_mode_event_time(value):
+        text = str(value or "").strip().replace("T", " ")
+        try:
+            return datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return None
+
+    def _mode_reliability_details(self):
+        """Return warning text and concrete compatibility/degraded intervals."""
+        getter = getattr(self.db, "get_relay_mode_events", None)
+        if not callable(getter):
+            return {"warning": "", "periods": []}
+        try:
+            start = datetime.strptime(str(self.start_date_str)[:10] + " 00:00:00", "%Y-%m-%d %H:%M:%S")
+            end = datetime.strptime(str(self.end_date_str)[:10] + " 23:59:59", "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return {"warning": "", "periods": []}
+        try:
+            # Include earlier transitions so a compatibility interval already
+            # open at the beginning of the selected day can be closed at the
+            # next enhanced transition instead of being omitted.
+            events = getter(None, self.end_date_str, limit=1000) or []
+        except Exception:
+            events = []
+        parsed_events = []
+        for event in events:
+            when = self._parse_mode_event_time(event.get("created_at"))
+            if when is not None:
+                parsed_events.append((when, event))
+        parsed_events.sort(key=lambda pair: pair[0])
+
+        risk_modes = ("compatibility", "degraded")
+        state = ""
+        active_reason = ""
+        for when, event in parsed_events:
+            if when < start:
+                state = str(event.get("new_mode", "") or "").strip().lower()
+                active_reason = str(event.get("reason", "") or "").strip()
+            else:
+                break
+
+        periods = []
+        risk_start = start if state in risk_modes else None
+        for when, event in parsed_events:
+            if when < start:
+                continue
+            if when > end:
+                break
+            new_mode = str(event.get("new_mode", "") or "").strip().lower()
+            reason = str(event.get("reason", "") or "").strip()
+            if state in risk_modes and new_mode not in risk_modes and risk_start is not None:
+                periods.append({"start": risk_start, "end": when, "reason": active_reason})
+                risk_start = None
+            elif state not in risk_modes and new_mode in risk_modes:
+                risk_start = when
+                active_reason = reason
+            elif new_mode in risk_modes and reason:
+                active_reason = reason
+            state = new_mode
+        if state in risk_modes and risk_start is not None:
+            periods.append({"start": risk_start, "end": end, "reason": active_reason})
+
+        if not periods:
+            return {"warning": "", "periods": []}
+
+        def format_stamp(value):
+            if value.date() == start.date():
+                return value.strftime("%H:%M:%S")
+            return value.strftime("%m-%d %H:%M")
+
+        lines = []
+        for index, period in enumerate(periods):
+            reason = str(period.get("reason") or "").strip()
+            if len(reason) > 100:
+                reason = reason[:97] + u"…"
+            reason_text = (u"；原因：%s" % reason) if reason else ""
+            end_text = format_stamp(period["end"])
+            if period["end"] == end:
+                end_text = u"统计结束"
+            label = u"首次风险区间" if index == 0 else u"风险区间%d" % (index + 1)
+            lines.append(u"%s：%s—%s%s" % (label, format_stamp(period["start"]), end_text, reason_text))
+        warning = (
+            u"可信度提示：以下期间处于兼容/降级状态，官方 POS 支付可能未经过中继，"
+            u"因此官方营业额和总营业额可能不完整；已入账的可验证数据仍保留。\n%s"
+            % "\n".join(lines)
+        )
+        return {"warning": warning, "periods": periods}
+
+    def _mode_reliability_warning(self):
+        return self._mode_reliability_details().get("warning") or ""
+
+    @staticmethod
+    def _set_channel_card(card, status, amount_text, count_text, hint, risk_text=""):
         card._report_status.setText(status)
         card._report_amount.setText(amount_text)
         card._report_count.setText(count_text)
         card._report_hint.setText(hint)
+        risk = bool(str(risk_text or "").strip())
+        question = getattr(card, "_report_question", None)
+        if question is not None:
+            question.setVisible(risk)
+            question.setToolTip(str(risk_text or u"当前统计完整"))
+            question.setStyleSheet(
+                "color: #FFFFFF; background: %s; border: none; border-radius: 14px; "
+                "font-size: 18px; font-weight: 900;" % ("#EA580C" if risk else "#16A34A")
+            )
+        card._report_status.setStyleSheet(
+            "color: %s; background: %s; border: none; border-radius: 8px; "
+            "padding: 8px 10px; font-size: 15px; font-weight: 800;"
+            % (
+                "#9A3412" if risk else "#166534",
+                "#FFEDD5" if risk else "#DCFCE7",
+            )
+        )
 
     def _add_receipt_row(self, layout, key_text, val_text, is_bold=False):
         row = QHBoxLayout()
@@ -673,6 +789,10 @@ class ReportWidget(QWidget):
             total_status = u"不完整风险；统计期间曾降级" if mode_warning else u"完整"
             official_hint = u"来源：打印中继；只统计订单号、金额和付款状态均已校验的官方 POS 订单。"
             total_hint = u"总营业额 = 私域 POS 已支付流水 + 已验证官方 POS 营业额。"
+            source_note = official.get("source_note") or ""
+            if source_note:
+                official_hint += u"\n\n" + source_note
+                total_hint += u"\n\n" + source_note
             if mode_warning:
                 official_hint += u"\n\n" + mode_warning
                 total_hint += u"\n\n" + mode_warning
@@ -682,6 +802,7 @@ class ReportWidget(QWidget):
                 u"¥ %.2f" % official_amount,
                 u"订单数量：%d" % official_count,
                 official_hint,
+                risk_text=mode_warning or source_note,
             )
             self._set_channel_card(
                 self.total_report_card,
@@ -689,6 +810,7 @@ class ReportWidget(QWidget):
                 u"¥ %.2f" % total_amount,
                 u"订单数量：%d" % total_count,
                 total_hint,
+                risk_text=mode_warning or source_note,
             )
             self.lbl_official_notice.setText(mode_warning)
             # This is a warning about the completeness of official/total
@@ -711,6 +833,7 @@ class ReportWidget(QWidget):
                 u"暂不可统计",
                 u"订单数量：暂不可统计",
                 unavailable_detail,
+                risk_text=mode_warning or reason,
             )
             self._set_channel_card(
                 self.total_report_card,
@@ -718,6 +841,7 @@ class ReportWidget(QWidget):
                 u"暂不可统计",
                 u"订单数量：暂不可统计",
                 total_detail,
+                risk_text=mode_warning or reason,
             )
             if self.report_section != "private":
                 self._select_report_section("private")

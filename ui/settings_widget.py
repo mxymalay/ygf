@@ -1531,12 +1531,13 @@ class SettingsWidget(QWidget):
         profile_grid.addWidget(self._make_label(u"模板方案："), 0, 0)
         self.cmb_printer_template_profile = QComboBox()
         self.cmb_printer_template_profile.addItems([
-            u"旧版当前格式（保持原样）",
-            u"官方新版参考（80mm）",
+            u"官方旧版参考模仿（保持原样）",
+            u"官方新版参考模仿（80mm）",
+            u"官方新版格式（官方原始票面）",
             u"自定义模板（以后换版用）",
         ])
-        profile = str(self.config.get("printer_template_profile", "official_v2") or "official_v2")
-        profile_index = {"legacy": 0, "official_v2": 1, "custom": 2}.get(profile, 1)
+        profile = str(self.config.get("printer_template_profile", "official_v3") or "official_v3")
+        profile_index = {"legacy": 0, "official_v2": 1, "official_v3": 2, "custom": 3}.get(profile, 2)
         self.cmb_printer_template_profile.setCurrentIndex(profile_index)
         profile_grid.addWidget(self.cmb_printer_template_profile, 0, 1)
         layout.addLayout(profile_grid)
@@ -1576,20 +1577,75 @@ class SettingsWidget(QWidget):
             "border-radius: 10px; padding: 12px; font-size: 14px; }"
         )
         layout.addWidget(self.txt_printer_kitchen_template)
+        self.lbl_printer_official_logo_note = QLabel(
+            u"官方新版模板固定使用官方原始 Logo，不受自定义图片设置影响。"
+        )
+        self.lbl_printer_official_logo_note.setWordWrap(True)
+        self.lbl_printer_official_logo_note.setStyleSheet(
+            "color: #BAE6FD; background: #082F49; border: 1px solid #0369A1; "
+            "border-radius: 8px; padding: 10px; font-size: 14px;"
+        )
+        layout.addWidget(self.lbl_printer_official_logo_note)
         logo_grid = QGridLayout()
         logo_grid.setSpacing(14)
         logo_grid.setColumnStretch(1, 1)
-        self.chk_printer_logo = QCheckBox(u"官方新版/自定义顾客单打印 Logo")
-        self.chk_printer_logo.setChecked(bool(self.config.get("printer_logo_enabled", True)))
-        logo_grid.addWidget(self.chk_printer_logo, 0, 0)
-        self.txt_printer_logo_path = QLineEdit(self.config.get("printer_logo_path", ""))
+        self.lbl_printer_custom_logo = self._make_label(u"自定义顾客单打印 Logo：")
+        logo_grid.addWidget(self.lbl_printer_custom_logo, 0, 0)
+        self.chk_printer_logo = QCheckBox(u"启用自定义 Logo")
+        self.chk_printer_logo.setChecked(bool(self.config.get(
+            "printer_custom_logo_enabled", self.config.get("printer_logo_enabled", True)
+        )))
+        logo_grid.addWidget(self.chk_printer_logo, 0, 1)
+        self.txt_printer_logo_path = QLineEdit(self.config.get(
+            "printer_custom_logo_path", self.config.get("printer_logo_path", "")
+        ))
         self.txt_printer_logo_path.setPlaceholderText(u"留空使用内置杨国福 Logo 图片")
-        logo_grid.addWidget(self.txt_printer_logo_path, 0, 1)
+        logo_grid.addWidget(self.txt_printer_logo_path, 0, 2)
         self.btn_browse_printer_logo = QPushButton(u"选择图片")
         self._style_touch_action_btn(self.btn_browse_printer_logo)
         self.btn_browse_printer_logo.clicked.connect(self._browse_printer_logo)
-        logo_grid.addWidget(self.btn_browse_printer_logo, 0, 2)
+        logo_grid.addWidget(self.btn_browse_printer_logo, 0, 3)
         layout.addLayout(logo_grid)
+        self.lbl_printer_official_params = self._printer_section_title(u"官方新版参数")
+        layout.addWidget(self.lbl_printer_official_params)
+        official_grid = QGridLayout()
+        official_grid.setSpacing(14)
+        official_grid.setColumnStretch(1, 1)
+        self.lbl_printer_official_service_phone = self._make_label(u"官方版加盟电话：")
+        official_grid.addWidget(self.lbl_printer_official_service_phone, 0, 0)
+        self.txt_printer_official_service_phone = QLineEdit(self.config.get(
+            "printer_official_service_phone", self.config.get("printer_service_phone", "400-6058-777")
+        ))
+        official_grid.addWidget(self.txt_printer_official_service_phone, 0, 1)
+        self.lbl_printer_official_operator = self._make_label(u"官方版制作单操作人：")
+        official_grid.addWidget(self.lbl_printer_official_operator, 1, 0)
+        self.txt_printer_official_operator = QLineEdit(self.config.get(
+            "printer_official_operator", self.config.get("printer_operator", "")
+        ))
+        self.txt_printer_official_operator.setPlaceholderText(u"留空则打印“收银员”")
+        official_grid.addWidget(self.txt_printer_official_operator, 1, 1)
+        layout.addLayout(official_grid)
+        self.lbl_printer_custom_params = self._printer_section_title(u"自定义模板参数")
+        layout.addWidget(self.lbl_printer_custom_params)
+        custom_params_grid = QGridLayout()
+        custom_params_grid.setSpacing(14)
+        custom_params_grid.setColumnStretch(1, 1)
+        self.lbl_printer_custom_service_phone = self._make_label(u"自定义版加盟电话：")
+        custom_params_grid.addWidget(self.lbl_printer_custom_service_phone, 0, 0)
+        self.txt_printer_custom_service_phone = QLineEdit(self.config.get(
+            "printer_custom_service_phone", self.config.get("printer_service_phone", "400-6058-777")
+        ))
+        custom_params_grid.addWidget(self.txt_printer_custom_service_phone, 0, 1)
+        self.lbl_printer_custom_operator = self._make_label(u"自定义版制作单操作人：")
+        custom_params_grid.addWidget(self.lbl_printer_custom_operator, 1, 0)
+        self.txt_printer_custom_operator = QLineEdit(self.config.get(
+            "printer_custom_operator", self.config.get("printer_operator", "")
+        ))
+        self.txt_printer_custom_operator.setPlaceholderText(u"留空则打印“收银员”")
+        custom_params_grid.addWidget(self.txt_printer_custom_operator, 1, 1)
+        layout.addLayout(custom_params_grid)
+        self.lbl_printer_report_params = self._printer_section_title(u"营业报表参数（独立于小票模板）")
+        layout.addWidget(self.lbl_printer_report_params)
         template_grid = QGridLayout()
         template_grid.setSpacing(14)
         template_grid.setColumnStretch(1, 1)
@@ -1621,15 +1677,6 @@ class SettingsWidget(QWidget):
         template_grid.addWidget(self.lbl_printer_report_footer, 6, 0)
         self.txt_printer_report_footer = QLineEdit(self.config.get("printer_report_footer", "打印时间：{time}"))
         template_grid.addWidget(self.txt_printer_report_footer, 6, 1)
-        self.lbl_printer_service_phone = self._make_label(u"加盟电话（官方新版/自定义）：")
-        template_grid.addWidget(self.lbl_printer_service_phone, 7, 0)
-        self.txt_printer_service_phone = QLineEdit(self.config.get("printer_service_phone", "400-6058-777"))
-        template_grid.addWidget(self.txt_printer_service_phone, 7, 1)
-        self.lbl_printer_operator = self._make_label(u"制作单操作人（官方新版/自定义）：")
-        template_grid.addWidget(self.lbl_printer_operator, 8, 0)
-        self.txt_printer_operator = QLineEdit(self.config.get("printer_operator", ""))
-        self.txt_printer_operator.setPlaceholderText(u"留空则打印“收银员”")
-        template_grid.addWidget(self.txt_printer_operator, 8, 1)
         self.btn_save_printer_template = QPushButton(u"保存打印模板设置")
         self._style_touch_action_btn(self.btn_save_printer_template, "blue")
         self.btn_save_printer_template.clicked.connect(self._on_save_printer_template)
@@ -2402,21 +2449,30 @@ class SettingsWidget(QWidget):
         )
 
     def _on_printer_template_profile_changed(self, index):
-        """只在选择自定义方案时显示自定义模板编辑区。"""
+        """按模板家族显示各自参数，避免官方和自定义设置互相覆盖。"""
         if not hasattr(self, "txt_printer_customer_template"):
             return
-        is_custom = index == 2
+        is_custom = index == 3
         custom_widgets = (
             self.lbl_printer_custom_template_hint,
             self.lbl_printer_customer_template,
             self.txt_printer_customer_template,
             self.lbl_printer_kitchen_template,
             self.txt_printer_kitchen_template,
+            self.lbl_printer_custom_params,
+            self.lbl_printer_custom_logo,
+            self.chk_printer_logo,
+            self.txt_printer_logo_path,
+            self.btn_browse_printer_logo,
+            self.lbl_printer_custom_service_phone,
+            self.txt_printer_custom_service_phone,
+            self.lbl_printer_custom_operator,
+            self.txt_printer_custom_operator,
         )
         for widget in custom_widgets:
             widget.setVisible(is_custom)
             widget.setEnabled(is_custom)
-        # 旧版方案使用下方的标题/底部字段；新版和自定义方案以正文模板
+        # 官方旧版参考模仿使用下方的标题/底部字段；新版和自定义方案以正文模板
         # 为准，避免用户修改了一个当前方案不会读取的输入框。
         legacy_fields = (
             self.lbl_printer_customer_title,
@@ -2442,21 +2498,36 @@ class SettingsWidget(QWidget):
         for field in report_fields:
             field.setVisible(True)
             field.setEnabled(True)
-        template_fields = (
-            self.chk_printer_logo,
-            self.txt_printer_logo_path,
-            self.btn_browse_printer_logo,
-            self.lbl_printer_service_phone,
-            self.txt_printer_service_phone,
-            self.lbl_printer_operator,
-            self.txt_printer_operator,
+        official_widgets = (
+            self.lbl_printer_official_logo_note,
+            self.lbl_printer_official_params,
+            self.lbl_printer_official_service_phone,
+            self.txt_printer_official_service_phone,
+            self.lbl_printer_official_operator,
+            self.txt_printer_official_operator,
         )
-        for field in template_fields:
-            field.setVisible(index in (1, 2))
-            field.setEnabled(index in (1, 2))
+        for widget in official_widgets:
+            visible = index in (1, 2)
+            widget.setVisible(visible)
+            widget.setEnabled(visible)
         if index == 1:
             self.txt_printer_customer_template.setPlainText(self._official_customer_template_text())
             self.txt_printer_kitchen_template.setPlainText(self._official_kitchen_template_text())
+        elif index == 2:
+            self.txt_printer_customer_template.setPlainText(
+                u"[C]{shop_subtitle}\n[L]{separator}\n[L][B][X]{pickup_line_exact}\n"
+                u"[L]{separator}\n[L]{table_header}\n[L]{separator}\n[L]{items}\n"
+                u"[L]{separator}\n[L]{total_line}\n[L]{due_line}\n[L]{paid_line}\n"
+                u"[L]{separator}\n[L]{order_id_line}\n[L]{order_time_line}\n"
+                u"[L]{separator}\n[L]加盟咨询热线：{service_phone}"
+            )
+            self.txt_printer_kitchen_template.setPlainText(
+                u"[L][B][Y]取餐号:{kitchen_call_no}\n[L]{separator}\n"
+                u"[L][B][X]{kitchen_title_line}\n[L]{separator}\n"
+                u"[L][B][X]{item_name}\n[R][B][X]{weight}\n"
+                u"[L][B][X]  {flavor}\n[L]{separator}\n"
+                u"[L]操作人:   {operator}\n[L]下单时间: {created_at}"
+            )
         elif index == 0:
             self.txt_printer_customer_template.setPlainText(self._official_customer_template_text())
             self.txt_printer_kitchen_template.setPlainText(self._official_kitchen_template_text())
@@ -4306,15 +4377,29 @@ class SettingsWidget(QWidget):
         self.config["printer_kitchen_footer"] = self.txt_printer_kitchen_footer.text()
         self.config["printer_report_title"] = self.txt_printer_report_title.text()
         self.config["printer_report_footer"] = self.txt_printer_report_footer.text()
-        self.config["printer_service_phone"] = self.txt_printer_service_phone.text()
-        self.config["printer_operator"] = self.txt_printer_operator.text()
-        self.config["printer_logo_enabled"] = self.chk_printer_logo.isChecked()
-        self.config["printer_logo_path"] = self.txt_printer_logo_path.text().strip()
+        profile_index = self.cmb_printer_template_profile.currentIndex()
         self.config["printer_template_profile"] = {
             0: "legacy",
             1: "official_v2",
-            2: "custom",
-        }.get(self.cmb_printer_template_profile.currentIndex(), "official_v2")
+            2: "official_v3",
+            3: "custom",
+        }.get(profile_index, "official_v3")
+        if profile_index in (1, 2):
+            self.config["printer_official_service_phone"] = self.txt_printer_official_service_phone.text().strip()
+            self.config["printer_official_operator"] = self.txt_printer_official_operator.text().strip()
+            self.config["printer_official_logo_enabled"] = True
+        elif profile_index == 3:
+            self.config["printer_custom_service_phone"] = self.txt_printer_custom_service_phone.text().strip()
+            self.config["printer_custom_operator"] = self.txt_printer_custom_operator.text().strip()
+            self.config["printer_custom_logo_enabled"] = self.chk_printer_logo.isChecked()
+            self.config["printer_custom_logo_path"] = self.txt_printer_logo_path.text().strip()
+        else:
+            # Legacy keeps the historical shared fields for backward
+            # compatibility; official/custom fields remain untouched.
+            self.config["printer_service_phone"] = self.config.get("printer_service_phone", "400-6058-777")
+            self.config["printer_operator"] = self.config.get("printer_operator", "")
+            self.config["printer_logo_enabled"] = self.config.get("printer_logo_enabled", True)
+            self.config["printer_logo_path"] = self.config.get("printer_logo_path", "")
         self.config["printer_customer_template_custom"] = self.txt_printer_customer_template.toPlainText()
         self.config["printer_kitchen_template_custom"] = self.txt_printer_kitchen_template.toPlainText()
 

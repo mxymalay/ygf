@@ -2768,7 +2768,7 @@ class SaleWidget(QWidget):
         elif mode == CallNumberManager.MODE_CUSTOM:
             self.lbl_mode_tip.setText(u"模式：自定义范围避重")
         elif mode == CallNumberManager.MODE_OFFICIAL_OFFSET:
-            self.lbl_mode_tip.setText(u"模式：官方错峰随机 [+30～+60 / 四小时旧号池]")
+            self.lbl_mode_tip.setText(u"模式：官方错峰随机 [+30～+60 / 四小时旧号池 / 相邻差≥10]")
         else:
             self.lbl_mode_tip.setText(u"模式：手动指定")
 

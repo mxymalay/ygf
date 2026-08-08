@@ -37,6 +37,11 @@ class CallNumberManager:
         self._last_time_slot = self.config.get("call_last_slot", self._get_current_time_slot())
         self._current_manual_no = self.config.get("call_manual_no", 1)
         self._current_seq_no = self.config.get("call_seq_no", None)
+        try:
+            last_issued = int(self.config.get("call_last_issued_no"))
+            self._last_issued_number = last_issued if last_issued > 0 else None
+        except (TypeError, ValueError):
+            self._last_issued_number = None
         self._cached_next_number = None
         self._official_pool_cache = None
         self._official_pool_cache_at = 0.0
@@ -79,7 +84,24 @@ class CallNumberManager:
         self.config["call_last_slot"] = self._last_time_slot
         self.config["call_manual_no"] = self._current_manual_no
         self.config["call_seq_no"] = self._current_seq_no
+        self.config["call_last_issued_no"] = self._last_issued_number
         save_config(self.config)
+
+    def _remember_issued_number(self, number):
+        try:
+            value = int(number)
+        except (TypeError, ValueError):
+            return
+        if value > 0:
+            self._last_issued_number = value
+
+    def _official_offset_candidates(self, pool):
+        """Return unused mode-4 numbers at least 10 away from the last one."""
+        available = sorted(set(pool) - self._used_numbers)
+        previous = self._last_issued_number
+        if previous is None:
+            return available
+        return [number for number in available if abs(number - previous) >= 10]
 
     def _get_current_time_slot(self) -> str:
         """获取当前时间段：morning (5-12), afternoon (12-18), evening (18-5)"""
@@ -209,7 +231,7 @@ class CallNumberManager:
     def _gen_official_offset_number(self):
         """Choose a random official-relative number without breaking legacy mode."""
         pool = self._official_offset_pool()
-        available = sorted(pool - self._used_numbers)
+        available = self._official_offset_candidates(pool)
         if not available:
             # Without an official high-water mark there is no safe number:
             # the POS may have started a new day at #1. Never guess a low
@@ -217,9 +239,12 @@ class CallNumberManager:
             if not pool:
                 return None
             self._used_numbers.clear()
-            available = sorted(pool)
+            available = self._official_offset_candidates(pool)
+        if not available:
+            return None
         chosen = random.choice(available)
         self._used_numbers.add(chosen)
+        self._remember_issued_number(chosen)
         self._cached_next_number = None
         self._save_state()
         return chosen
@@ -229,6 +254,7 @@ class CallNumberManager:
         self._used_numbers.clear()
         self._current_seq_no = None
         self._cached_next_number = None
+        self._last_issued_number = None
         self._save_state()
 
     def get_next_number(self) -> int:
@@ -240,6 +266,7 @@ class CallNumberManager:
                 chosen = self._cached_next_number
                 self._used_numbers.add(chosen)
                 self._cached_next_number = None
+                self._remember_issued_number(chosen)
                 self._save_state()
                 return chosen
             return self._gen_smart_number()
@@ -251,16 +278,22 @@ class CallNumberManager:
                     chosen = self._cached_next_number
                     self._used_numbers.add(chosen)
                     self._cached_next_number = None
+                    self._remember_issued_number(chosen)
                     self._save_state()
                     return chosen
                 return self._gen_custom_number()
         elif mode == self.MODE_OFFICIAL_OFFSET:
             if self._cached_next_number is not None:
                 pool = self._official_offset_pool()
-                if self._cached_next_number in pool and self._cached_next_number not in self._used_numbers:
+                if (
+                    self._cached_next_number in pool
+                    and self._cached_next_number not in self._used_numbers
+                    and self._official_offset_candidates([self._cached_next_number])
+                ):
                     chosen = self._cached_next_number
                     self._used_numbers.add(chosen)
                     self._cached_next_number = None
+                    self._remember_issued_number(chosen)
                     self._save_state()
                     return chosen
             return self._gen_official_offset_number()
@@ -270,6 +303,7 @@ class CallNumberManager:
             self._used_numbers.add(num)
             self._current_manual_no = num + 1
             self._cached_next_number = None
+            self._remember_issued_number(num)
             self._save_state()
             return num
 
@@ -328,12 +362,14 @@ class CallNumberManager:
 
         elif mode == self.MODE_OFFICIAL_OFFSET:
             pool = self._official_offset_pool()
-            available = sorted(pool - self._used_numbers)
+            available = self._official_offset_candidates(pool)
             if not available:
                 if not pool:
                     return None
                 self._used_numbers.clear()
-                available = sorted(pool)
+                available = self._official_offset_candidates(pool)
+            if not available:
+                return None
             self._cached_next_number = random.choice(available)
             return self._cached_next_number
 
@@ -368,6 +404,7 @@ class CallNumberManager:
 
         chosen = random.choice(pool)
         self._used_numbers.add(chosen)
+        self._remember_issued_number(chosen)
         self._cached_next_number = None
         self._save_state()
         return chosen
@@ -388,6 +425,7 @@ class CallNumberManager:
             self._current_seq_no += 1
             if self._current_seq_no > high:
                 self._current_seq_no = low
+            self._remember_issued_number(chosen)
             self._save_state()
             return chosen
         else:
@@ -397,6 +435,7 @@ class CallNumberManager:
                 pool = list(range(low, high + 1))
             chosen = random.choice(pool)
             self._used_numbers.add(chosen)
+            self._remember_issued_number(chosen)
             self._cached_next_number = None
             self._save_state()
             return chosen

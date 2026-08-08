@@ -371,7 +371,7 @@ class QueueWidget(QWidget):
         lbl_o_desc = QLabel(
             u"💡 机制说明：官方 POS 订单号从 1 开始递增，私域叫号优先从官方最近号的 +30～+60 号池随机抽取；\n"
             u"  • 已经超过 4 小时的官方号可回收到 1～旧官方最大号的低号池（例如旧号 10，可随机使用 1～10）。\n"
-            u"  • 两个号池都会避开当前 4 小时内的官方号和本地已用号；中继尚无官方数据时不会猜号，需先使用旧模式或完成一笔官方 POS 测试。"
+            u"  • 两个号池都会避开当前 4 小时内的官方号和本地已用号，且与上一张私域叫号至少相差 10；中继尚无官方数据时不会猜号，需先使用旧模式或完成一笔官方 POS 测试。"
         )
         lbl_o_desc.setWordWrap(True)
         lbl_o_desc.setStyleSheet("color: #94A3B8; font-size: 13px; border: none; background: transparent; line-height: 1.6;")
@@ -477,7 +477,7 @@ class QueueWidget(QWidget):
                 high_text = "%d～%d" % (high[0], high[-1])
                 old_text = ("1～%d" % old_max) if old_max else "暂无"
                 label.setText(
-                    u"当前已识别官方最大号：#%d；可回收旧号：%s；错峰号池：%s（随机、防重）"
+                    u"当前已识别官方最大号：#%d；可回收旧号：%s；错峰号池：%s（随机、防重、相邻至少差10）"
                     % (current_max, old_text, high_text)
                 )
             else:

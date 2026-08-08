@@ -96,6 +96,21 @@ class CallNumberManagerOfficialOffsetTests(unittest.TestCase):
         self.assertEqual(mode, CallNumberManager.MODE_OFFICIAL_OFFSET)
         self.assertEqual(config["call_mode"], CallNumberManager.MODE_OFFICIAL_OFFSET)
 
+    def test_official_offset_numbers_stay_at_least_ten_apart(self):
+        config = {
+            "call_mode": CallNumberManager.MODE_OFFICIAL_OFFSET,
+            "call_used_numbers": [],
+            "call_last_issued_no": 50,
+        }
+        manager = CallNumberManager(config, official_db=_ReceiptDb([
+            {"order_no": "#20", "observed_at": "2026-08-08 11:00:00", "payment_status": "paid"},
+        ]))
+        with patch.object(manager, "relay_enhanced_available", return_value=True), \
+                patch("core.call_number_manager.save_config"):
+            chosen = manager.get_next_number()
+        self.assertIsNotNone(chosen)
+        self.assertGreaterEqual(abs(chosen - 50), 10)
+
 
 if __name__ == "__main__":
     unittest.main()

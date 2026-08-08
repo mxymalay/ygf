@@ -133,6 +133,28 @@ class PrinterSettingsTests(unittest.TestCase):
         self.assertNotIn("POS#12 - 1".encode("gbk"), first_raw)
         self.assertNotIn("POS#12 - 2".encode("gbk"), second_raw)
 
+    def test_official_v3_uses_captured_logo_and_official_labels(self):
+        printer = ReceiptPrinter(
+            {
+                "printer_template_profile": "official_v3",
+                "printer_logo_enabled": True,
+                "printer_service_phone": "400-6058-777",
+                "printer_operator": "操作员甲",
+                "printer_auto_cut_enabled": False,
+                "printer_feed_lines": 0,
+            }
+        )
+        sale = dict(self.sale)
+        sale.update({"payment_method": "shouqianba", "order_id": "ORDER-123"})
+        customer = printer._build_customer_receipt(sale)
+        kitchen = printer._build_kitchen_slip(sale, sale["cart_items"][0], 1)
+        self.assertIn(b"\x1d\x76\x30\x03\x1e\x00\x4a\x00", customer)
+        self.assertIn("取餐号:0012    [POS点餐]".encode("gbk"), customer)
+        self.assertIn("订单号:  ORDER-123".encode("gbk"), customer)
+        self.assertIn("加盟咨询热线：400-6058-777".encode("gbk"), customer)
+        self.assertIn("取餐号:0012".encode("gbk"), kitchen)
+        self.assertIn("操作人:   操作员甲".encode("gbk"), kitchen)
+
 
 if __name__ == "__main__":
     unittest.main()

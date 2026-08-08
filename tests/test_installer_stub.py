@@ -2,12 +2,34 @@ import unittest
 import os
 import json
 import tempfile
+import zipfile
 from unittest.mock import patch
 
 import installer_stub
 
 
 class InstallerStubTests(unittest.TestCase):
+    def test_payload_extraction_reports_file_progress(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            payload = os.path.join(temp_dir, "payload.zip")
+            with zipfile.ZipFile(payload, "w") as archive:
+                archive.writestr("启动.exe", b"launcher")
+                archive.writestr("data/settings/base.json", b"{}")
+            target = os.path.join(temp_dir, "installed")
+            events = []
+            with patch.object(installer_stub, "_payload_path", return_value=payload):
+                installer_stub._safe_extract_payload(
+                    target,
+                    progress=lambda message, current, total: events.append((message, current, total)),
+                )
+            with open(os.path.join(target, "启动.exe"), "rb") as handle:
+                launcher_bytes = handle.read()
+
+        self.assertEqual(launcher_bytes, b"launcher")
+        self.assertTrue(events)
+        self.assertEqual(events[-1][1:], (2, 2))
+        self.assertIn("已释放", events[-1][0])
+
     def test_install_complete_message_names_launcher_and_path(self):
         message = installer_stub._install_complete_message("门店 POS", r"C:\Store POS")
 

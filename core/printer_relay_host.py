@@ -455,7 +455,9 @@ class PrinterRelayHost:
             "config": self.config,
         }
         template_config = dict(self.config)
-        template_config["printer_template_profile"] = "official_v2"
+        # Use the captured official layout for the re-rendered kitchen slip;
+        # the only intentional difference is our ``取餐号 -1/-2`` suffix.
+        template_config["printer_template_profile"] = "official_v3"
         template_config["printer_logo_enabled"] = False
         printer = ReceiptPrinter(template_config)
         payload = printer._build_kitchen_slip(sale, item, index)
@@ -538,7 +540,7 @@ class PrinterRelayHost:
             if parsed.get("is_official_kitchen"):
                 # The official POS kitchen ticket is a separate print job,
                 # not an external order.  Re-render it with the same official
-                # v2 template used by private POS so multiple soup rows are
+                # exact official template used by private POS so multiple soup rows are
                 # visibly numbered (#0013 - 1, #0013 - 2), while the customer
                 # receipt remains an untouched original POS ticket.
                 self.last_identified_at = _now()

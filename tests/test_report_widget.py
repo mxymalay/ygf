@@ -1,0 +1,53 @@
+import unittest
+from unittest.mock import patch
+
+from ui.report_widget import ReportWidget
+
+
+class _ReportDb:
+    events = []
+
+    def get_official_stats_by_date(self, start_date, end_date):
+        return {"count": 2, "amount_sum": 73.50}
+
+    def get_relay_mode_events(self, start_date, end_date, limit=500):
+        return list(self.events)
+
+
+class ReportOfficialDataTests(unittest.TestCase):
+    def test_existing_official_rows_remain_visible_in_compatibility_mode(self):
+        widget = ReportWidget.__new__(ReportWidget)
+        widget.db = _ReportDb()
+        widget.config = {"printer_relay_enabled": False}
+        widget.start_date_str = "2026-08-08"
+        widget.end_date_str = "2026-08-08"
+
+        with patch("ui.report_widget.validate_relay_config", return_value={"errors": []}):
+            result = widget._official_report_summary()
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["summary"]["count"], 2)
+        self.assertIn("数据库中已入账", result["source_note"])
+
+    def test_reliability_warning_lists_each_incomplete_interval(self):
+        widget = ReportWidget.__new__(ReportWidget)
+        widget.db = _ReportDb()
+        widget.db.events = [
+            {"previous_mode": "enhanced", "new_mode": "compatibility", "reason": "启动自检失败", "created_at": "2026-08-08 09:10:00"},
+            {"previous_mode": "compatibility", "new_mode": "enhanced", "reason": "官方订单已验证", "created_at": "2026-08-08 09:30:00"},
+            {"previous_mode": "enhanced", "new_mode": "degraded", "reason": "订单号缺失", "created_at": "2026-08-08 11:00:00"},
+            {"previous_mode": "degraded", "new_mode": "enhanced", "reason": "恢复验证", "created_at": "2026-08-08 11:20:00"},
+        ]
+        widget.start_date_str = "2026-08-08"
+        widget.end_date_str = "2026-08-08"
+
+        details = widget._mode_reliability_details()
+
+        self.assertEqual(len(details["periods"]), 2)
+        self.assertIn("09:10:00", details["warning"])
+        self.assertIn("11:00:00", details["warning"])
+        self.assertIn("启动自检失败", details["warning"])
+
+
+if __name__ == "__main__":
+    unittest.main()

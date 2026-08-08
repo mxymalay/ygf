@@ -57,6 +57,37 @@ OFFICIAL_KITCHEN_TEMPLATE = """[L][B][Y]取餐号：{kitchen_call_no}
 [L]操作人：{operator}
 [L]下单时间：{created_at}"""
 
+# This profile is based on the captured official POS ESC/POS ticket rather
+# than the earlier visual imitation.  Keep the kitchen ``-1/-2`` suffix in
+# ``kitchen_call_no``; it is our deliberate addition for multiple production
+# slips belonging to the same customer order.
+OFFICIAL_EXACT_CUSTOMER_TEMPLATE = """[C]{shop_subtitle}
+[L]{separator}
+[L][B][X]{pickup_line_exact}
+[L]{separator}
+[L]{table_header}
+[L]{separator}
+[L]{items}
+[L]{separator}
+[L]{total_line}
+[L]{due_line}
+[L]{paid_line}
+[L]{separator}
+[L]{order_id_line}
+[L]{order_time_line}
+[L]{separator}
+[L]加盟咨询热线：{service_phone}"""
+OFFICIAL_EXACT_KITCHEN_TEMPLATE = """[L][B][Y]取餐号:{kitchen_call_no}
+[L]{separator}
+[L][B][X]{kitchen_title_line}
+[L]{separator}
+[L][B][X]{item_name}
+[R][B][X]{weight}
+[L][B][X]  {flavor}
+[L]{separator}
+[L]操作人:   {operator}
+[L]下单时间: {created_at}"""
+
 
 class ReceiptPrinter:
     """小票打印器"""
@@ -139,7 +170,27 @@ class ReceiptPrinter:
 
     def _template_profile(self):
         profile = str(self.config.get("printer_template_profile", "legacy") or "legacy").strip().lower()
-        return profile if profile in ("legacy", "official_v2", "custom") else "legacy"
+        return profile if profile in ("legacy", "official_v2", "official_v3", "custom") else "legacy"
+
+    def _template_branding_values(self):
+        """Return phone/operator values owned by the active template family."""
+        profile = self._template_profile()
+        if profile in ("official_v2", "official_v3"):
+            return (
+                self.config.get("printer_official_service_phone", self.config.get("printer_service_phone", "400-6058-777"))
+                or "400-6058-777",
+                self.config.get("printer_official_operator", self.config.get("printer_operator", "")) or "收银员",
+            )
+        if profile == "custom":
+            return (
+                self.config.get("printer_custom_service_phone", self.config.get("printer_service_phone", "400-6058-777"))
+                or "400-6058-777",
+                self.config.get("printer_custom_operator", self.config.get("printer_operator", "")) or "收银员",
+            )
+        return (
+            self.config.get("printer_service_phone", "400-6058-777") or "400-6058-777",
+            self.config.get("printer_operator", "") or "收银员",
+        )
 
     @staticmethod
     def _fit_column(value, width, align="left"):
@@ -203,7 +254,18 @@ class ReceiptPrinter:
 
     def _template_context(self, sale, item=None, index=1):
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-        call_no = sale.get("call_no", "001")
+        raw_call_no = sale.get("call_no", "001")
+        # The captured official ticket always prints a four-digit pickup
+        # number (0013, 0016, ...).  Keep legacy/reference profiles byte
+        # compatible with their existing behavior, while the exact profile
+        # follows that official zero-padding convention.
+        if self._template_profile() == "official_v3":
+            try:
+                call_no = str(int(raw_call_no)).zfill(4)
+            except (TypeError, ValueError):
+                call_no = str(raw_call_no)
+        else:
+            call_no = raw_call_no
         total = float(sale.get("total_price", 0.0) or 0.0)
         payment = str(sale.get("payment_method", "") or "")
         payment_labels = {
@@ -256,6 +318,7 @@ class ReceiptPrinter:
                 "取餐号：" + str(call_no), "[POS点餐]",
                 max(8, self._line_width() // 2),
             ).rstrip("\n"),
+            "pickup_line_exact": "取餐号:" + str(call_no) + "    [POS点餐]",
             "table_header": self._customer_table_header(),
             "kitchen_title_line": fmt_lr_48(
                 "制作单", "POS#" + str(call_no),
@@ -271,11 +334,17 @@ class ReceiptPrinter:
             "total": "%.2f" % total,
             "total_line": fmt_lr_48("合计", "%.2f" % total, self._line_width()).rstrip("\n"),
             "due_line": fmt_lr_48("应付", "%.2f" % total, self._line_width()).rstrip("\n"),
-            "paid_line": fmt_lr_48("实付", "%.2f" % total, self._line_width()).rstrip("\n"),
+            "paid_line": fmt_lr_48(
+                (payment or "实付") if self._template_profile() == "official_v3" else "实付",
+                "%.2f" % total,
+                self._line_width(),
+            ).rstrip("\n"),
             "payment_method": payment or "实付",
             "order_id": sale.get("order_id") or sale.get("temp_order_no") or "",
-            "service_phone": self.config.get("printer_service_phone", "400-6058-777"),
-            "operator": self.config.get("printer_operator", "") or "收银员",
+            "order_id_line": "订单号:  " + str(sale.get("order_id") or sale.get("temp_order_no") or ""),
+            "order_time_line": "订单时间: " + str(created_at if item is None else sale.get("created_at", now_str)),
+            "service_phone": self._template_branding_values()[0],
+            "operator": self._template_branding_values()[1],
             "items": "\n".join(self._customer_item_lines(sale)),
             "separator": self._separator().rstrip("\n"),
         }
@@ -288,18 +357,33 @@ class ReceiptPrinter:
         so dark background pixels are ignored and the colored/bright artwork is
         thresholded into black dots.
         """
-        if not bool(self.config.get("printer_logo_enabled", True)):
+        profile = self._template_profile()
+        if profile in ("official_v2", "official_v3"):
+            logo_enabled = bool(self.config.get("printer_official_logo_enabled", self.config.get("printer_logo_enabled", True)))
+            path = ""
+        elif profile == "custom":
+            logo_enabled = bool(self.config.get("printer_custom_logo_enabled", self.config.get("printer_logo_enabled", True)))
+            path = str(
+                self.config.get("printer_custom_logo_path", self.config.get("printer_logo_path", "")) or ""
+            ).strip()
+        else:
+            logo_enabled = bool(self.config.get("printer_logo_enabled", True))
+            path = str(self.config.get("printer_logo_path", "") or "").strip()
+        if not logo_enabled:
             return b""
-        path = str(self.config.get("printer_logo_path", "") or "").strip()
         png_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo_source.png")
+        official_png_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo_official.png")
         svg_path = os.path.join(DATA_DIR, "assets", "yangguofu_logo.svg")
         if not path:
-            # SVG 是官方提供的透明矢量 Logo，优先使用；没有 QtSvg 或 SVG
-            # 文件时再回退到旧 PNG，避免把透明背景当成黑色整块打印。
-            # PNG 是与官方新版小票一致的黑底预览稿，包含完整的圆形图标
-            # 和白色“杨”字；优先使用它并在栅格化时反相，避免某些 QtSvg
-            # 版本对 SVG mask 的处理把白字也填成黑色。
-            path = png_path if os.path.isfile(png_path) else svg_path
+            if profile == "official_v3" and os.path.isfile(official_png_path):
+                path = official_png_path
+            else:
+                # SVG 是官方提供的透明矢量 Logo，优先使用；没有 QtSvg 或 SVG
+                # 文件时再回退到旧 PNG，避免把透明背景当成黑色整块打印。
+                # PNG 是与官方新版小票一致的黑底预览稿，包含完整的圆形图标
+                # 和白色“杨”字；优先使用它并在栅格化时反相，避免某些 QtSvg
+                # 版本对 SVG mask 的处理把白字也填成黑色。
+                path = png_path if os.path.isfile(png_path) else svg_path
         if not os.path.isfile(path):
             return b""
         try:
@@ -311,15 +395,23 @@ class ReceiptPrinter:
                 # 新版官方顾客单的 Logo 需要占据纸面头部的主要宽度。
                 # 384px 是旧版默认值；切到 official_v2 时自动提升到 512px，
                 # 旧版和自定义模板仍沿用原有宽度设置。
-                if self._template_profile() == "official_v2":
+                if self._template_profile() == "official_v3":
+                    configured_width = 240
+                elif self._template_profile() == "official_v2":
                     configured_width = max(configured_width, 512)
                 target_width = min(512, max(160, configured_width))
             except (TypeError, ValueError):
-                target_width = 512 if self._template_profile() == "official_v2" else 384
+                if self._template_profile() == "official_v3":
+                    target_width = 240
+                elif self._template_profile() == "official_v2":
+                    target_width = 512
+                else:
+                    target_width = 384
             is_svg = path.lower().endswith(".svg")
             bundled_svg = is_svg and os.path.abspath(path) == os.path.abspath(svg_path)
             bundled_png = (not is_svg) and os.path.abspath(path) == os.path.abspath(png_path)
-            bundled_logo = bundled_svg or bundled_png
+            official_png = (not is_svg) and os.path.abspath(path) == os.path.abspath(official_png_path)
+            bundled_logo = bundled_svg or bundled_png or official_png
             if is_svg:
                 from PyQt5.QtSvg import QSvgRenderer
 
@@ -373,7 +465,7 @@ class ReceiptPrinter:
                             logo_pixel = color.alpha() >= 32 and 45 <= luma < 200
                         else:
                             logo_pixel = color.alpha() >= 32
-                    elif x < icon_width and bundled_logo:
+                    elif x < icon_width and bundled_logo and not official_png:
                         # PNG 预览稿的深色背景与白色字都不能打印；只把
                         # 橙色圆底（中间亮度）转为黑点。
                         logo_pixel = 45 <= luma < 200
@@ -382,7 +474,11 @@ class ReceiptPrinter:
                     if logo_pixel:
                         row[x // 8] |= 0x80 >> (x % 8)
                 payload.extend(row)
-            header = b"\x1d\x76\x30\x00" + bytes((bytes_per_row & 0xFF, (bytes_per_row >> 8) & 0xFF, height & 0xFF, (height >> 8) & 0xFF))
+            # The captured official POS uses raster mode 3.  Keep that mode
+            # for the exact profile so the emitted logo command matches the
+            # original ticket; older profiles retain the legacy mode 0.
+            raster_mode = b"\x03" if self._template_profile() == "official_v3" else b"\x00"
+            header = b"\x1d\x76\x30" + raster_mode + bytes((bytes_per_row & 0xFF, (bytes_per_row >> 8) & 0xFF, height & 0xFF, (height >> 8) & 0xFF))
             return header + bytes(payload)
         except Exception:
             # A missing Qt image plugin or malformed optional asset must not
@@ -442,7 +538,7 @@ class ReceiptPrinter:
             data += self.ALIGN_CENTER + logo + b"\n"
             # The bundled artwork already contains the YANGGUOFU mark; avoid
             # printing the shop name a second time below it in official mode.
-            if template == OFFICIAL_CUSTOMER_TEMPLATE:
+            if template in (OFFICIAL_CUSTOMER_TEMPLATE, OFFICIAL_EXACT_CUSTOMER_TEMPLATE):
                 template = template.replace("[C][D]{shop_name}\n", "")
         return bytes(self._write_markup_template(
             data, template, self._template_context(sale), OFFICIAL_CUSTOMER_TEMPLATE
@@ -466,6 +562,8 @@ class ReceiptPrinter:
     def _build_customer_receipt(self, sale):
         """构建【顾客单】 ESC/POS 数据，列宽由打印设置统一控制。"""
         profile = self._template_profile()
+        if profile == "official_v3":
+            return self._build_template_customer_receipt(sale, OFFICIAL_EXACT_CUSTOMER_TEMPLATE)
         if profile == "official_v2":
             return self._build_template_customer_receipt(sale, OFFICIAL_CUSTOMER_TEMPLATE)
         if profile == "custom":
@@ -583,6 +681,8 @@ class ReceiptPrinter:
     def _build_kitchen_slip(self, sale, item, index):
         """构建【制作单】 ESC/POS 数据，支持窄纸宽度与门店模板。"""
         profile = self._template_profile()
+        if profile == "official_v3":
+            return self._build_template_kitchen_slip(sale, item, index, OFFICIAL_EXACT_KITCHEN_TEMPLATE)
         if profile == "official_v2":
             return self._build_template_kitchen_slip(sale, item, index, OFFICIAL_KITCHEN_TEMPLATE)
         if profile == "custom":
