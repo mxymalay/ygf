@@ -897,6 +897,18 @@ class PhysicalScaleTestResult:
     message: str = ""
 
 
+def _reset_serial_buffers(ser) -> None:
+    """Discard bytes left by the previous COM session before probing it."""
+    for method_name in ("reset_input_buffer", "reset_output_buffer"):
+        method = getattr(ser, method_name, None)
+        if callable(method):
+            try:
+                method()
+            except Exception:
+                # Older Win7 serial backends may expose only one method.
+                pass
+
+
 @dataclass
 class VirtualPairTestResult:
     ok: bool
@@ -946,6 +958,7 @@ def test_scale_channel(
         )
         ser.dtr = config.dtr_enable
         ser.rts = config.rts_enable
+        _reset_serial_buffers(ser)
         deadline = time.monotonic() + timeout_seconds
         next_query = 0.0
         while time.monotonic() < deadline:
@@ -1042,6 +1055,7 @@ def test_physical_scale(
         )
         ser.dtr = config.dtr_enable
         ser.rts = config.rts_enable
+        _reset_serial_buffers(ser)
         deadline = time.monotonic() + timeout_seconds
         next_query = 0.0
         while time.monotonic() < deadline:

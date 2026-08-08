@@ -14,7 +14,59 @@ class _ReportDb:
         return list(self.events)
 
 
+class _DummyLabel:
+    def __init__(self):
+        self.text = None
+        self.visible = None
+        self.tooltip = None
+        self.style = None
+
+    def setText(self, value):
+        self.text = value
+
+    def setVisible(self, value):
+        self.visible = value
+
+    def setToolTip(self, value):
+        self.tooltip = value
+
+    def setStyleSheet(self, value):
+        self.style = value
+
+
+class _DummyCard:
+    def __init__(self):
+        self._report_status = _DummyLabel()
+        self._report_amount = _DummyLabel()
+        self._report_count = _DummyLabel()
+        self._report_hint = _DummyLabel()
+        self._report_question = _DummyLabel()
+
+
 class ReportOfficialDataTests(unittest.TestCase):
+    def test_verified_official_or_mixed_card_uses_green_check(self):
+        card = _DummyCard()
+
+        ReportWidget._set_channel_card(
+            card, "数据状态：已验证", "¥ 73.50", "订单数量：2", "来源：官方 POS"
+        )
+
+        self.assertTrue(card._report_question.visible)
+        self.assertEqual(card._report_question.text, "✓")
+        self.assertIn("#16A34A", card._report_question.style)
+
+    def test_incomplete_card_keeps_question_mark(self):
+        card = _DummyCard()
+
+        ReportWidget._set_channel_card(
+            card, "数据状态：不完整风险", "¥ 73.50", "订单数量：2", "存在降级区间",
+            risk_text="兼容模式期间可能漏单",
+        )
+
+        self.assertTrue(card._report_question.visible)
+        self.assertEqual(card._report_question.text, "?")
+        self.assertIn("#EA580C", card._report_question.style)
+
     def test_existing_official_rows_remain_visible_in_compatibility_mode(self):
         widget = ReportWidget.__new__(ReportWidget)
         widget.db = _ReportDb()

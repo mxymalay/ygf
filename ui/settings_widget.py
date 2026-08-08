@@ -6072,7 +6072,7 @@ class SettingsWidget(QWidget):
         from ui.custom_dialog import show_info, show_error, show_warning
         import time
         import serial
-        from core.scale_reader import ScaleReader
+        from core.scale_reader import ScaleReader, clear_serial_buffers
 
         # 若后台已存在运行中的称重线程，先暂时挂起，完成后在 UI 线程恢复。
         parent_mw = self.window()
@@ -6102,6 +6102,7 @@ class SettingsWidget(QWidget):
                 )
                 ser.dtr = True
                 ser.rts = False
+                clear_serial_buffers(ser)
 
                 # 按官方 POS 已验证的 ACS-G315 协议测试：每 200ms 发送 '$'。
                 start_t = time.monotonic()

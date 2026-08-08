@@ -525,7 +525,7 @@ class AutoSwitchController(QObject):
         }
 
     @staticmethod
-    def _apply_switch_progress(floating_ball, is_private, snapshot):
+    def _apply_switch_progress(floating_ball, is_private, snapshot, decision_hint=None):
         if not floating_ball or not hasattr(floating_ball, "set_switch_progress"):
             return
         has_remaining = (
@@ -535,10 +535,11 @@ class AutoSwitchController(QObject):
         floating_ball.set_switch_progress(
             snapshot["progress"],
             bool(is_private),
-            next_is_private=(snapshot["next_channel"] == "私有 POS") if has_remaining else None,
+            next_is_private=(snapshot["next_channel"] in ("私有 POS", "私域 POS")) if has_remaining else None,
             remaining_kg=snapshot["remaining_kg"],
             next_channel=snapshot["next_channel"],
             remaining_amount=snapshot["remaining_amount"],
+            decision_hint=decision_hint,
         )
 
     def _fallback_to_private_after_official_failure(self, weight_kg):
@@ -803,12 +804,22 @@ class AutoSwitchController(QObject):
         if is_private_turn:
             bring_our_pos_to_front(self.main_window)
             private_reason = self._last_decision_reason or "智能算法选择: 本单走私域"
-            self._update_floating_ball_status(is_private=True, reason=private_reason, show_checkmark=True)
+            self._update_floating_ball_status(
+                is_private=True,
+                reason=private_reason,
+                show_checkmark=True,
+                decision_channel=True,
+            )
             msg = f"智能决策：重量 {weight_kg:.2f}kg -> 弹出【私域 POS】 ({private_reason}) ({self._quota_status_text()})"
             log_event(CAT_DECISION, "决策: 走私域 POS", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
         else:
             official_reason = self._last_decision_reason or "智能算法选择: 本单走官方"
-            self._update_floating_ball_status(is_private=False, reason=official_reason, show_checkmark=True)
+            self._update_floating_ball_status(
+                is_private=False,
+                reason=official_reason,
+                show_checkmark=True,
+                decision_channel=False,
+            )
             msg = f"智能决策：重量 {weight_kg:.2f}kg -> 保持【官方界面】 ({official_reason}) ({self._quota_status_text()})"
             log_event(CAT_DECISION, "决策: 走官方系统", f"重量 {weight_kg:.2f}kg | {self._quota_status_text()}")
         if hasattr(self.main_window, 'status'):
@@ -1135,7 +1146,13 @@ class AutoSwitchController(QObject):
             log_event(CAT_SWITCH, "官方 POS 消失，保持私有 POS", "出票后切回发生竞态")
             self._update_floating_ball_status(is_private=True, reason="官方 POS 已关闭，保持私有 POS")
 
-    def _update_floating_ball_status(self, is_private: bool, reason: str = "", show_checkmark: bool = False):
+    def _update_floating_ball_status(
+        self,
+        is_private: bool,
+        reason: str = "",
+        show_checkmark: bool = False,
+        decision_channel=None,
+    ):
         """更新触屏悬浮球的状态与提示"""
         if hasattr(self.main_window, 'floating_ball') and self.main_window.floating_ball:
             fb = self.main_window.floating_ball
@@ -1143,7 +1160,13 @@ class AutoSwitchController(QObject):
             weight_pct = self.get_actual_private_weight_ratio()
             count_pct = self.get_actual_private_ratio()
             snapshot = self._switch_progress_snapshot()
-            self._apply_switch_progress(fb, is_private, snapshot)
+            decision_hint = None
+            if decision_channel is not None and snapshot.get("next_channel") in ("私有 POS", "私域 POS"):
+                if bool(decision_channel):
+                    decision_hint = ("下次切换私域",)
+                else:
+                    decision_hint = ("本碗预计官方", "后续切私域")
+            self._apply_switch_progress(fb, is_private, snapshot, decision_hint=decision_hint)
             if not is_private and self._private_daily_limit_reached():
                 switch_text = "当日私域收款已封顶 | 保持官方 POS"
             elif snapshot["basis"] == "amount" and snapshot["remaining_amount"] is not None:

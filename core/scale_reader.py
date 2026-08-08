@@ -16,6 +16,17 @@ from core.official_pos import find_active_official_log
 from core.app_logger import log_event, CAT_SCALE
 
 
+def clear_serial_buffers(serial_handle) -> None:
+    """Discard stale input/output bytes before a serial session starts."""
+    for method_name in ("reset_input_buffer", "reset_output_buffer"):
+        method = getattr(serial_handle, method_name, None)
+        if callable(method):
+            try:
+                method()
+            except Exception:
+                pass
+
+
 def read_file_shared(filepath: str, max_bytes: int = None) -> str:
     """
     以 Windows 原生 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE 共享模式无锁读取文件。
@@ -276,6 +287,7 @@ class ScaleReader(QObject):
                 # 和官方 POS 一致：DTR 开、RTS 关。不要打开 RTS 或混发探测命令。
                 self._serial.dtr = True
                 self._serial.rts = False
+                clear_serial_buffers(self._serial)
 
                 self.status_changed.emit(True, "● 已连接串口秤 %s (波特率 %d)" % (port, baudrate))
                 log_event(CAT_SCALE, "称重串口已连接", "端口=%s | 波特率=%d" % (port, baudrate))

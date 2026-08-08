@@ -118,6 +118,16 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(discarded, 0)
         self.assertEqual(parse_dibal_weight(frames[0]), 0.402)
 
+    def test_weight_frame_accepts_protocol_status_byte_after_number(self):
+        frames, discarded = DibalFrameAssembler(32).feed(b"000.402\xb2\r")
+        self.assertEqual(discarded, 0)
+        self.assertEqual(frames, [b"000.402\xb2"])
+        self.assertEqual(parse_dibal_weight(frames[0]), 0.402)
+        self.assertEqual(parse_dibal_weight(b"000.00\xb2"), 0.0)
+
+    def test_weight_frame_rejects_printable_trailing_garbage(self):
+        self.assertIsNone(parse_dibal_weight(b"000.402oops"))
+
     def test_oversize_unterminated_data_is_dropped(self):
         assembler = DibalFrameAssembler(16)
         frames, discarded = assembler.feed(b"x" * 17)
@@ -910,6 +920,8 @@ class RuntimeTests(unittest.TestCase):
                 super(ScaleSerial, self).__init__(kwargs["port"])
                 self.chunks = [b"0", b"00.402\r"]
                 self.writes = []
+                self.input_resets = 0
+                self.output_resets = 0
 
             @property
             def in_waiting(self):
@@ -924,12 +936,20 @@ class RuntimeTests(unittest.TestCase):
             def flush(self):
                 pass
 
+            def reset_input_buffer(self):
+                self.input_resets += 1
+
+            def reset_output_buffer(self):
+                self.output_resets += 1
+
         serial_instance = ScaleSerial(port="COM5")
         cfg = ScaleBridgeConfig(physical_scale=ScaleDeviceIdentity(port="COM5"))
         result = test_physical_scale(cfg, serial_factory=lambda **_kwargs: serial_instance)
         self.assertTrue(result.ok)
         self.assertEqual(result.weight_kg, 0.402)
         self.assertEqual(serial_instance.writes[0], b"$")
+        self.assertEqual(serial_instance.input_resets, 1)
+        self.assertEqual(serial_instance.output_resets, 1)
 
     def test_physical_scale_missing_device_returns_without_opening_port(self):
         cfg = ScaleBridgeConfig(physical_scale=ScaleDeviceIdentity(port="COM99"))

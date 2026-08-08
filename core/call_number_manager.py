@@ -4,7 +4,7 @@
 1. 智能避重模式（上午 50-100 / 下午 100-200 / 晚上 200-300 随机不重复）
 2. 自定义范围模式（自定义 [Start, End] 顺序/随机不重复）
 3. 传统手动模式
-4. 官方错峰随机模式（当前官方号 +30~60；四小时前的低号池回收）
+4. 官方错峰随机模式（官方三小时前低号池 + 当前官方号 +30~120）
 """
 import random
 import re
@@ -26,6 +26,8 @@ class CallNumberManager:
     def __init__(self, config, official_db=None):
         self.config = config
         self.official_db = official_db
+        self._pool_date = str(self.config.get("call_pool_date") or "").strip()
+        today_key = self._today_key()
         self._used_numbers = set()
         for value in self.config.get("call_used_numbers", []) or []:
             try:
@@ -34,6 +36,16 @@ class CallNumberManager:
                 continue
             if number > 0:
                 self._used_numbers.add(number)
+        # The legacy pool had no date marker. Preserve it on the first run so
+        # an upgrade cannot erase today's already-issued numbers; subsequent
+        # restarts roll the shared pool only when the calendar day changes.
+        pool_was_reset = False
+        if not self._pool_date:
+            self._pool_date = today_key
+        elif self._pool_date != today_key:
+            self._used_numbers.clear()
+            self._pool_date = today_key
+            pool_was_reset = True
         self._last_time_slot = self.config.get("call_last_slot", self._get_current_time_slot())
         self._current_manual_no = self.config.get("call_manual_no", 1)
         self._current_seq_no = self.config.get("call_seq_no", None)
@@ -42,10 +54,45 @@ class CallNumberManager:
             self._last_issued_number = last_issued if last_issued > 0 else None
         except (TypeError, ValueError):
             self._last_issued_number = None
+        self._recent_issued_numbers = []
+        for value in self.config.get("call_recent_numbers", []) or []:
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                continue
+            if number > 0 and number not in self._recent_issued_numbers:
+                self._recent_issued_numbers.append(number)
+        # Older configurations only persisted the last number.  Seed the new
+        # five-order guard from it so an upgrade cannot immediately issue a
+        # nearby number on the first mode-4 order.
+        if not self._recent_issued_numbers and self._last_issued_number:
+            self._recent_issued_numbers.append(self._last_issued_number)
+        self._recent_issued_numbers = self._recent_issued_numbers[-5:]
+        if pool_was_reset:
+            self._last_issued_number = None
+            self._recent_issued_numbers = []
         self._cached_next_number = None
         self._official_pool_cache = None
         self._official_pool_cache_at = 0.0
         self._last_mode_sync_at = 0.0
+
+    @staticmethod
+    def _today_key():
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def ensure_current_day(self):
+        """Roll the shared number pool at midnight, never at mode boundaries."""
+        today_key = self._today_key()
+        if self._pool_date == today_key:
+            return False
+        self._pool_date = today_key
+        self._used_numbers.clear()
+        self._recent_issued_numbers = []
+        self._last_issued_number = None
+        self._current_seq_no = None
+        self._cached_next_number = None
+        self.config["call_pool_date"] = today_key
+        return True
 
     def synchronize_mode_with_relay(self, force=False):
         """Keep the call-number algorithm aligned with the live relay mode.
@@ -80,11 +127,14 @@ class CallNumberManager:
         self._official_pool_cache_at = 0.0
         
     def _save_state(self):
+        self.ensure_current_day()
         self.config["call_used_numbers"] = list(self._used_numbers)
         self.config["call_last_slot"] = self._last_time_slot
         self.config["call_manual_no"] = self._current_manual_no
         self.config["call_seq_no"] = self._current_seq_no
         self.config["call_last_issued_no"] = self._last_issued_number
+        self.config["call_recent_numbers"] = list(self._recent_issued_numbers[-5:])
+        self.config["call_pool_date"] = self._pool_date
         save_config(self.config)
 
     def _remember_issued_number(self, number):
@@ -94,19 +144,26 @@ class CallNumberManager:
             return
         if value > 0:
             self._last_issued_number = value
+            if value in self._recent_issued_numbers:
+                self._recent_issued_numbers.remove(value)
+            self._recent_issued_numbers.append(value)
+            del self._recent_issued_numbers[:-5]
 
-    def _official_offset_candidates(self, pool):
-        """Return unused mode-4 numbers at least 10 away from the last one."""
-        available = sorted(set(pool) - self._used_numbers)
-        previous = self._last_issued_number
-        if previous is None:
+    def _official_offset_candidates(self, pool, ignore_used=False):
+        """Return mode-4 candidates at least 10 away from recent numbers."""
+        available = sorted(set(pool) if ignore_used else set(pool) - self._used_numbers)
+        previous_numbers = self._recent_issued_numbers[-5:]
+        if not previous_numbers:
             return available
-        return [number for number in available if abs(number - previous) >= 10]
+        return [
+            number for number in available
+            if all(abs(number - previous) >= 10 for previous in previous_numbers)
+        ]
 
     def _get_current_time_slot(self) -> str:
-        """获取当前时间段：morning (5-12), afternoon (12-18), evening (18-5)"""
+        """获取当前时间段：morning (0-12), afternoon (12-18), evening (18-24)"""
         hour = datetime.now().hour
-        if 5 <= hour < 12:
+        if 0 <= hour < 12:
             return "morning"
         elif 12 <= hour < 18:
             return "afternoon"
@@ -114,13 +171,18 @@ class CallNumberManager:
             return "evening"
 
     def get_mode(self) -> str:
+        self.ensure_current_day()
         return self.synchronize_mode_with_relay()
 
     def set_mode(self, mode: str):
+        day_changed = self.ensure_current_day()
         self.config["call_mode"] = mode
         self._cached_next_number = None
         self._last_mode_sync_at = 0.0
-        save_config(self.config)
+        if day_changed:
+            self._save_state()
+        else:
+            save_config(self.config)
 
     @staticmethod
     def _numeric_call_no(value):
@@ -137,12 +199,11 @@ class CallNumberManager:
     def _official_number_context(self):
         """Return reusable old numbers and the current official high-water mark.
 
-        The database stores every official receipt observation.  Only the
-        latest four hours are considered "current"; older observations from
-        the same business day become eligible for recycling. A contiguous
-        1..old_max pool follows the store's numbering convention (for example,
-        old #10 permits 1..10), while numbers still seen in the current
-        four-hour window are removed to avoid a collision.
+        The database stores every official receipt observation.  The low pool
+        is the contiguous 1..N range where N is the official number observed
+        three hours ago; newer official numbers are removed from that pool.
+        The high pool starts at current official +30 and extends to +120, but
+        never beyond #200.
         """
         now = time.monotonic()
         if self._official_pool_cache is not None and now - self._official_pool_cache_at < 5.0:
@@ -150,9 +211,9 @@ class CallNumberManager:
         recent = set()
         all_numbers = set()
         today_numbers = set()
-        today_old = set()
-        cutoff = datetime.now() - timedelta(hours=4)
+        cutoff = datetime.now() - timedelta(hours=3)
         today = datetime.now().date()
+        low_reference = 0
         db = self.official_db
         if db is not None and hasattr(db, "get_official_receipts"):
             try:
@@ -181,23 +242,27 @@ class CallNumberManager:
                 if parsed_time is not None:
                     if parsed_time.date() == today:
                         today_numbers.add(number)
-                        if parsed_time < cutoff:
-                            today_old.add(number)
-                    if parsed_time >= cutoff:
+                        if parsed_time <= cutoff:
+                            low_reference = max(low_reference, number)
+                    if parsed_time > cutoff:
                         recent.add(number)
 
         # A new business day may restart the official sequence at #1. Reuse
         # low numbers only from the same business day; otherwise yesterday's
         # #10 could collide with today's upcoming #10. The high offset may use
         # the previous high-water mark because it remains safely ahead.
-        old_max = max(today_old) if today_old else 0
-        reusable = set(range(1, old_max + 1)) - recent
+        old_max = low_reference
+        reusable = set(range(1, low_reference + 1)) - recent
         current_max = max(today_numbers) if today_numbers else (max(all_numbers) if all_numbers else 0)
+        high_start = current_max + 30 if current_max else 0
+        high_end = min(current_max + 120, 200) if current_max else 0
         context = {
             "reusable": reusable,
-            "high": set(range(current_max + 30, current_max + 61)) if current_max else set(),
+            "high": set(range(high_start, high_end + 1)) if current_max and high_start <= high_end else set(),
             "current_max": current_max,
             "old_max": old_max,
+            "low_reference": low_reference,
+            "recent_cutoff_hours": 3,
         }
         self._official_pool_cache = context
         self._official_pool_cache_at = now
@@ -238,8 +303,10 @@ class CallNumberManager:
             # number and risk colliding with an official customer.
             if not pool:
                 return None
-            self._used_numbers.clear()
-            available = self._official_offset_candidates(pool)
+            # Keep the full daily pool intact when a mode-4 range is
+            # exhausted; reuse a history-safe number instead of clearing the
+            # numbers displayed for today.
+            available = self._official_offset_candidates(pool, ignore_used=True)
         if not available:
             return None
         chosen = random.choice(available)
@@ -251,10 +318,12 @@ class CallNumberManager:
 
     def reset_pool(self):
         """重置已使用号码池"""
+        self.ensure_current_day()
         self._used_numbers.clear()
         self._current_seq_no = None
         self._cached_next_number = None
         self._last_issued_number = None
+        self._recent_issued_numbers = []
         self._save_state()
 
     def get_next_number(self) -> int:
@@ -309,16 +378,14 @@ class CallNumberManager:
 
     def peek_next_number(self) -> int:
         """预览下一个叫号（随机从池中挑选候选，不消耗号码，保持预览与打票一致）"""
+        self.ensure_current_day()
         mode = self.get_mode()
         if mode == self.MODE_MANUAL:
             return self._current_manual_no
 
         if mode == self.MODE_SMART:
             curr_slot = self._get_current_time_slot()
-            if curr_slot != self._last_time_slot:
-                self._used_numbers.clear()
-                self._last_time_slot = curr_slot
-                self._cached_next_number = None
+            self._last_time_slot = curr_slot
 
             if self._cached_next_number is not None and self._cached_next_number not in self._used_numbers:
                 return self._cached_next_number
@@ -332,7 +399,6 @@ class CallNumberManager:
 
             pool = [n for n in range(low, high + 1) if n not in self._used_numbers]
             if not pool:
-                self._used_numbers.clear()
                 pool = list(range(low, high + 1))
 
             self._cached_next_number = random.choice(pool)
@@ -348,14 +414,19 @@ class CallNumberManager:
 
             if is_seq:
                 if self._current_seq_no is None or self._current_seq_no < low or self._current_seq_no > high:
-                    return low
+                    candidate = low
+                else:
+                    candidate = self._current_seq_no
+                for _ in range(max(1, high - low + 1)):
+                    if candidate not in self._used_numbers:
+                        return candidate
+                    candidate = low if candidate >= high else candidate + 1
                 return self._current_seq_no
             else:
                 if self._cached_next_number is not None and self._cached_next_number not in self._used_numbers:
                     return self._cached_next_number
                 pool = [n for n in range(low, high + 1) if n not in self._used_numbers]
                 if not pool:
-                    self._used_numbers.clear()
                     pool = list(range(low, high + 1))
                 self._cached_next_number = random.choice(pool)
                 return self._cached_next_number
@@ -366,8 +437,7 @@ class CallNumberManager:
             if not available:
                 if not pool:
                     return None
-                self._used_numbers.clear()
-                available = self._official_offset_candidates(pool)
+                available = self._official_offset_candidates(pool, ignore_used=True)
             if not available:
                 return None
             self._cached_next_number = random.choice(available)
@@ -382,12 +452,12 @@ class CallNumberManager:
 
     def _gen_smart_number(self) -> int:
         """智能避重模式生成"""
+        self.ensure_current_day()
         curr_slot = self._get_current_time_slot()
-        # 换时间段时自动清空历史防重池
-        if curr_slot != self._last_time_slot:
-            self._used_numbers.clear()
-            self._last_time_slot = curr_slot
-            self._cached_next_number = None
+        # Time slots only choose the personalized range.  They never clear
+        # the shared daily pool, so switching mode or crossing noon/evening
+        # cannot make an already-issued number disappear from today's list.
+        self._last_time_slot = curr_slot
 
         if curr_slot == "morning":
             low, high = 50, 100
@@ -398,8 +468,7 @@ class CallNumberManager:
 
         pool = [n for n in range(low, high + 1) if n not in self._used_numbers]
         if not pool:
-            # 若该时段用光则清空重用
-            self._used_numbers.clear()
+            # 本时段范围用光时允许范围内重用，但不清空今日总号码池。
             pool = list(range(low, high + 1))
 
         chosen = random.choice(pool)
@@ -422,16 +491,20 @@ class CallNumberManager:
             if self._current_seq_no is None or self._current_seq_no < low or self._current_seq_no > high:
                 self._current_seq_no = low
             chosen = self._current_seq_no
-            self._current_seq_no += 1
-            if self._current_seq_no > high:
-                self._current_seq_no = low
+            span = max(1, high - low + 1)
+            for _ in range(span):
+                candidate = self._current_seq_no
+                self._current_seq_no = low if candidate >= high else candidate + 1
+                if candidate not in self._used_numbers:
+                    chosen = candidate
+                    break
+            self._used_numbers.add(chosen)
             self._remember_issued_number(chosen)
             self._save_state()
             return chosen
         else:
             pool = [n for n in range(low, high + 1) if n not in self._used_numbers]
             if not pool:
-                self._used_numbers.clear()
                 pool = list(range(low, high + 1))
             chosen = random.choice(pool)
             self._used_numbers.add(chosen)

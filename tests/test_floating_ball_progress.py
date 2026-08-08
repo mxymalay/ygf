@@ -33,6 +33,10 @@ class FloatingBallProgressTests(unittest.TestCase):
 
     def test_zero_remaining_hint_names_the_next_channel(self):
         ball = SimpleNamespace(
+            _quota_progress=0.0,
+            _quota_previous_progress=0.0,
+            _quota_is_private=False,
+            _quota_previous_is_private=False,
             _switch_remaining_kg=0.0,
             _switch_next_channel="官方 POS",
             _next_switch_is_private=False,
@@ -51,6 +55,37 @@ class FloatingBallProgressTests(unittest.TestCase):
         self.assertEqual(
             FloatingBall._switch_hint_text(ball),
             "下次切私域 POS\n还需 0.000 kg",
+        )
+
+    def test_decision_hint_explains_current_official_bowl_before_private(self):
+        ball = SimpleNamespace(
+            _quota_progress=0.0,
+            _quota_previous_progress=0.0,
+            _quota_is_private=False,
+            _quota_previous_is_private=False,
+            _switch_remaining_kg=0.0,
+            _switch_remaining_amount=None,
+            _switch_next_channel="私有 POS",
+            _next_switch_is_private=True,
+            _switch_decision_hint=(),
+            is_our_pos_active=False,
+            update=lambda: None,
+        )
+        FloatingBall.set_switch_progress(
+            ball,
+            0.0,
+            False,
+            next_is_private=True,
+            remaining_kg=0.0,
+            next_channel="私有 POS",
+            decision_hint=("本碗预计官方", "后续切私域"),
+        )
+        ball._next_switch_hint = lambda: FloatingBall._next_switch_hint(ball)
+        ball._switch_hint_lines = lambda: FloatingBall._switch_hint_lines(ball)
+        ball._switch_hint_text = lambda: FloatingBall._switch_hint_text(ball)
+        self.assertEqual(
+            FloatingBall._switch_hint_text(ball),
+            "本碗预计官方\n后续切私域",
         )
 
     def test_timer_refreshes_routing_hint_when_relay_mode_changes(self):

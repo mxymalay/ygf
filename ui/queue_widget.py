@@ -289,9 +289,10 @@ class QueueWidget(QWidget):
 
         lbl_s_desc = QLabel(
             u"💡 机制说明：根据营业时段自动分段生成随机避重号牌\n"
-            u"  • 上午 (05:00 - 12:00)：50 - 100 之间随机叫号\n"
+            u"  • 上午 (00:00 - 12:00)：50 - 100 之间随机叫号\n"
             u"  • 下午 (12:00 - 18:00)：100 - 200 之间随机叫号\n"
-            u"  • 晚上 (18:00 - 05:00)：200 - 300 之间随机叫号"
+            u"  • 晚上 (18:00 - 24:00)：200 - 300 之间随机叫号\n"
+            u"  • 切换时段或模式不会清空今日号码池，只有跨自然日才重新开始。"
         )
         lbl_s_desc.setStyleSheet("color: #94A3B8; font-size: 13px; border: none; background: transparent; line-height: 1.6;")
         cs_layout.addWidget(lbl_s_desc)
@@ -369,9 +370,9 @@ class QueueWidget(QWidget):
         co_layout.setContentsMargins(12, 8, 12, 8)
         co_layout.setSpacing(8)
         lbl_o_desc = QLabel(
-            u"💡 机制说明：官方 POS 订单号从 1 开始递增，私域叫号优先从官方最近号的 +30～+60 号池随机抽取；\n"
-            u"  • 已经超过 4 小时的官方号可回收到 1～旧官方最大号的低号池（例如旧号 10，可随机使用 1～10）。\n"
-            u"  • 两个号池都会避开当前 4 小时内的官方号和本地已用号，且与上一张私域叫号至少相差 10；中继尚无官方数据时不会猜号，需先使用旧模式或完成一笔官方 POS 测试。"
+            u"💡 机制说明：官方 POS 订单号从 1 开始递增，私域叫号从两个区间随机抽取：官方三小时前的号码以前（1～N），以及当前官方号 +30～+120；\n"
+            u"  • 最高叫号不超过 200；两个号池都会避开最近 3 小时的官方号和本地已用号。\n"
+            u"  • 当前号码与前面 5 单私域叫号中的每一单都至少相差 10；中继尚无官方数据时不会猜号，需先完成一笔官方 POS 测试。"
         )
         lbl_o_desc.setWordWrap(True)
         lbl_o_desc.setStyleSheet("color: #94A3B8; font-size: 13px; border: none; background: transparent; line-height: 1.6;")
@@ -427,7 +428,7 @@ class QueueWidget(QWidget):
         self.lbl_pool_empty.setStyleSheet("font-size: 13px; color: #9CA3AF; border: none; background: transparent; padding: 6px 0;")
         pf_layout.addWidget(self.lbl_pool_empty)
 
-        lbl_note = QLabel(u"(注：叫号池已开启本地安全持久化，软件重启/故障关机均不会重复号；跨营业时段时会自动重置。)")
+        lbl_note = QLabel(u"(注：叫号池已开启本地安全持久化，软件重启/故障关机均不会重复号；切换模式和营业时段不会清空，跨自然日才自动重置。)")
         lbl_note.setStyleSheet("font-size: 12px; color: #64748B; border: none; background: transparent; margin-top: 6px;")
         pf_layout.addWidget(lbl_note)
 
@@ -442,6 +443,8 @@ class QueueWidget(QWidget):
         self.refresh_pool_display()
 
     def refresh_pool_display(self):
+        if hasattr(self.call_mgr, "ensure_current_day"):
+            self.call_mgr.ensure_current_day()
         self._refresh_official_pool_status()
         # 清空已有球球控件
         while self.pool_flow_layout.count() > 0:
@@ -473,11 +476,11 @@ class QueueWidget(QWidget):
             current_max = int(context.get("current_max") or 0)
             old_max = int(context.get("old_max") or 0)
             high = sorted(context.get("high") or [])
-            if current_max and high:
-                high_text = "%d～%d" % (high[0], high[-1])
+            if current_max and (high or old_max):
+                high_text = ("%d～%d" % (high[0], high[-1])) if high else u"暂无（已达200上限）"
                 old_text = ("1～%d" % old_max) if old_max else "暂无"
                 label.setText(
-                    u"当前已识别官方最大号：#%d；可回收旧号：%s；错峰号池：%s（随机、防重、相邻至少差10）"
+                    u"当前已识别官方最大号：#%d；三小时前低号池：%s；错峰号池：%s（随机、防重、前5单均至少差10）"
                     % (current_max, old_text, high_text)
                 )
             else:

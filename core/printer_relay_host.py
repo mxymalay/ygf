@@ -372,15 +372,38 @@ class PrinterRelayHost:
         if not name:
             name = "经典草本骨汤（KG）"
 
-        weight = 0.0
-        for line in lines[max(0, name_index + 1):]:
-            match = re.fullmatch(r"\s*(\d+(?:\.\d{1,3})?)\s*", line)
-            if match:
-                try:
-                    weight = float(match.group(1))
-                except (TypeError, ValueError):
-                    pass
-                break
+        # Official POS uses two kitchen-slip layouts.  Most soups put the
+        # weight on the line after the soup name, while the tomato soup
+        # layout puts it on the same line as the name, for example
+        # ``酸甜番茄汤（KG）  1.266``.  Keep ``None`` while parsing so an
+        # explicitly printed ``0.000`` is not confused with a missing value.
+        weight = None
+        if name_index >= 0:
+            name_line = lines[name_index]
+            name_match = re.search(
+                r"(?:（\s*KG\s*）|\(\s*KG\s*\))",
+                name_line,
+                re.IGNORECASE,
+            )
+            if name_match:
+                inline_tail = name_line[name_match.end():].strip()
+                inline_match = re.fullmatch(r"(\d+(?:\.\d{1,3})?)", inline_tail)
+                if inline_match:
+                    try:
+                        weight = float(inline_match.group(1))
+                    except (TypeError, ValueError):
+                        weight = None
+
+        if weight is None:
+            weight = 0.0
+            for line in lines[max(0, name_index + 1):]:
+                match = re.fullmatch(r"\s*(\d+(?:\.\d{1,3})?)\s*", line)
+                if match:
+                    try:
+                        weight = float(match.group(1))
+                    except (TypeError, ValueError):
+                        pass
+                    break
         flavor = ""
         if name_index >= 0:
             for line in lines[name_index + 1:]:

@@ -128,6 +128,36 @@ class TakeoutInterceptionTests(unittest.TestCase):
         self.assertEqual((index1, total1), (1, 2))
         self.assertEqual((index2, total2), (2, 2))
 
+    def test_official_kitchen_inline_weight_is_preserved(self):
+        """Tomato kitchen slips put the weight on the soup-name line."""
+        text = (
+            "取餐号:0026\n制作单          POS#0026\n"
+            "酸甜番茄汤（KG）  1.266\n"
+            "操作人: 门店店长\n"
+        )
+        item = PrinterRelayHost._official_kitchen_item({}, text)
+        self.assertEqual(item["name"], "酸甜番茄汤（KG）")
+        self.assertAlmostEqual(item["weight"], 1.266, places=3)
+
+    def test_official_kitchen_inline_zero_is_not_replaced_by_next_line(self):
+        """An explicit inline zero remains zero rather than being treated as missing."""
+        text = (
+            "取餐号:0027\n制作单          POS#0027\n"
+            "酸甜番茄汤（KG）  0.000\n"
+            "操作人: 门店店长\n"
+        )
+        item = PrinterRelayHost._official_kitchen_item({}, text)
+        self.assertEqual(item["weight"], 0.0)
+
+    def test_official_kitchen_separate_weight_layout_still_works(self):
+        text = (
+            "取餐号:0028\n制作单          POS#0028\n"
+            "经典草本骨汤（KG）\n                  0.438\n微辣\n"
+        )
+        item = PrinterRelayHost._official_kitchen_item({}, text)
+        self.assertAlmostEqual(item["weight"], 0.438, places=3)
+        self.assertEqual(item["tag"], "微辣")
+
     def test_official_settlement_ticket_implies_paid_for_this_pos_workflow(self):
         text = ("杨国福(肥西水晶城店)\n取餐号:0044 [POS点餐]\n"
                 "应付 10.60\n人民币 10.60\n"

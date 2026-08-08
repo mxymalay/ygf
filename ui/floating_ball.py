@@ -87,6 +87,7 @@ class FloatingBall(QWidget):
         self._switch_remaining_kg = None
         self._switch_remaining_amount = None
         self._switch_next_channel = ""
+        self._switch_decision_hint = ()
         self._progress_hint_pressed = False
         # The first layout pass may not have assigned the product button's
         # final global geometry yet; repeat once after the main window is
@@ -239,7 +240,7 @@ class FloatingBall(QWidget):
 
     def set_switch_progress(self, progress, is_private, next_is_private=None,
                             remaining_kg=None, next_channel=None,
-                            remaining_amount=None):
+                            remaining_amount=None, decision_hint=None):
         """设置距离下一次自动切换的进度。
 
         ``remaining_kg`` 保留给兼容模式；增强模式可传入
@@ -263,6 +264,13 @@ class FloatingBall(QWidget):
             )
         except (TypeError, ValueError):
             normalized_amount = None
+        if decision_hint:
+            if isinstance(decision_hint, (tuple, list)):
+                normalized_hint = tuple(str(item) for item in decision_hint if str(item))
+            else:
+                normalized_hint = (str(decision_hint),)
+        else:
+            normalized_hint = ()
         if (
             abs(progress - self._quota_progress) < 0.0001
             and mode == self._quota_is_private
@@ -270,6 +278,7 @@ class FloatingBall(QWidget):
             and normalized_remaining == getattr(self, "_switch_remaining_kg", None)
             and normalized_amount == getattr(self, "_switch_remaining_amount", None)
             and str(next_channel or "") == getattr(self, "_switch_next_channel", "")
+            and normalized_hint == getattr(self, "_switch_decision_hint", ())
         ):
             return
         self._quota_previous_progress = self._quota_progress
@@ -280,6 +289,7 @@ class FloatingBall(QWidget):
         self._switch_remaining_kg = normalized_remaining
         self._switch_remaining_amount = normalized_amount
         self._switch_next_channel = str(next_channel or "")
+        self._switch_decision_hint = normalized_hint
         self.update()
 
     def show_decision_checkmark(self):
@@ -308,6 +318,9 @@ class FloatingBall(QWidget):
 
     def _switch_hint_lines(self):
         """Return ``(next-channel, remaining)`` lines for the top badge."""
+        decision_hint = getattr(self, "_switch_decision_hint", ())
+        if decision_hint:
+            return tuple(decision_hint)
         remaining_amount = getattr(self, "_switch_remaining_amount", None)
         if self._switch_remaining_kg is None and remaining_amount is None:
             return ()

@@ -612,8 +612,12 @@ class ReportWidget(QWidget):
         risk = bool(str(risk_text or "").strip())
         question = getattr(card, "_report_question", None)
         if question is not None:
-            question.setVisible(risk)
-            question.setToolTip(str(risk_text or u"当前统计完整"))
+            # The icon is deliberately always present on official and mixed
+            # cards: a green check communicates verified completeness, while
+            # an orange question mark keeps the existing warning affordance.
+            question.setVisible(True)
+            question.setText(u"?" if risk else u"✓")
+            question.setToolTip(str(risk_text or u"可信度：已验证，当前统计完整"))
             question.setStyleSheet(
                 "color: #FFFFFF; background: %s; border: none; border-radius: 14px; "
                 "font-size: 18px; font-weight: 900;" % ("#EA580C" if risk else "#16A34A")

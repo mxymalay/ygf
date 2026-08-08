@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 
 # ─── 应用版本号 ───────────────────────────────────────
-APP_VERSION = "v1.3.0"
+APP_VERSION = "v2.0.0"
 CONFIG_SCHEMA_VERSION = 3
 
 # ─── 路径 ───────────────────────────────────────────
@@ -352,6 +352,8 @@ OPTIONAL_CONFIG_KEYS = {
     "call_manual_no",
     "call_seq_no",
     "call_last_issued_no",
+    "call_recent_numbers",
+    "call_pool_date",
     "call_mode",
     "custom_is_seq",
     "custom_start_no",

@@ -16,6 +16,17 @@ from .device_discovery import enumerate_serial_ports, has_saved_hardware_identit
 logger = logging.getLogger("ScaleBridge")
 
 
+def _reset_serial_buffers(ser) -> None:
+    """Drop stale bytes whenever a physical or virtual COM handle is reopened."""
+    for method_name in ("reset_input_buffer", "reset_output_buffer"):
+        method = getattr(ser, method_name, None)
+        if callable(method):
+            try:
+                method()
+            except Exception:
+                pass
+
+
 class QueueOverflow(RuntimeError):
     pass
 
@@ -349,6 +360,7 @@ class ScaleBridgeRuntime:
         )
         ser.dtr = self.config.dtr_enable
         ser.rts = self.config.rts_enable
+        _reset_serial_buffers(ser)
         return ser
 
     def _open_session(self) -> None:
