@@ -37,12 +37,20 @@ class FloatingBallProgressTests(unittest.TestCase):
             _next_switch_is_private=False,
             is_our_pos_active=True,
         )
+        ball._next_switch_hint = lambda: FloatingBall._next_switch_hint(ball)
+        ball._switch_hint_lines = lambda: FloatingBall._switch_hint_lines(ball)
         ball._switch_hint_text = lambda: FloatingBall._switch_hint_text(ball)
-        self.assertEqual(FloatingBall._switch_hint_text(ball), "下次切官方 POS")
+        self.assertEqual(
+            FloatingBall._switch_hint_text(ball),
+            "下次切官方 POS\n还需 0.000 kg",
+        )
         self.assertEqual(FloatingBall._switch_hint_width(ball), 86)
 
         ball._switch_next_channel = "私有 POS"
-        self.assertEqual(FloatingBall._switch_hint_text(ball), "下次切私域 POS")
+        self.assertEqual(
+            FloatingBall._switch_hint_text(ball),
+            "下次切私域 POS\n还需 0.000 kg",
+        )
 
     def test_timer_refreshes_routing_hint_when_relay_mode_changes(self):
         calls = []

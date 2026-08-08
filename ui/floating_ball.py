@@ -274,36 +274,38 @@ class FloatingBall(QWidget):
         self._show_checkmark = False
         self.update()
 
-    def _switch_hint_text(self):
-        """Return the compact text shown above the floating capsule."""
+    def _next_switch_hint(self):
+        """Return the next-channel label when the switch is due."""
+        next_channel = self._switch_next_channel.strip()
+        if not next_channel:
+            next_is_private = self._next_switch_is_private
+            if next_is_private is None:
+                next_is_private = not self.is_our_pos_active
+            next_channel = "私域 POS" if next_is_private else "官方 POS"
+        elif next_channel in ("私有 POS", "私有POS"):
+            # The controller's internal wording is “私有 POS”; the
+            # operator-facing floating hint uses the product term “私域”.
+            next_channel = "私域 POS"
+        return u"下次切%s" % next_channel
+
+    def _switch_hint_lines(self):
+        """Return ``(next-channel, remaining)`` lines for the top badge."""
         remaining_amount = getattr(self, "_switch_remaining_amount", None)
         if self._switch_remaining_kg is None and remaining_amount is None:
-            return ""
+            return ()
         if remaining_amount is not None:
             remaining = float(remaining_amount)
-            if remaining <= 0.005:
-                next_channel = self._switch_next_channel.strip()
-                if not next_channel:
-                    next_is_private = self._next_switch_is_private
-                    if next_is_private is None:
-                        next_is_private = not self.is_our_pos_active
-                    next_channel = "私域 POS" if next_is_private else "官方 POS"
-                return u"下次切%s" % next_channel
-            return u"还需 ¥%.2f" % remaining
+            remaining_text = u"还需 ¥%.2f" % remaining
+            next_text = self._next_switch_hint() if remaining <= 0.005 else ""
+            return tuple(item for item in (next_text, remaining_text) if item)
         remaining = float(self._switch_remaining_kg)
-        if remaining <= 0.0005:
-            next_channel = self._switch_next_channel.strip()
-            if not next_channel:
-                next_is_private = self._next_switch_is_private
-                if next_is_private is None:
-                    next_is_private = not self.is_our_pos_active
-                next_channel = "私域 POS" if next_is_private else "官方 POS"
-            elif next_channel in ("私有 POS", "私有POS"):
-                # The controller's internal wording is “私有 POS”; the
-                # operator-facing floating hint uses the product term “私域”.
-                next_channel = "私域 POS"
-            return u"下次切%s" % next_channel
-        return u"还需 %.3f kg" % remaining
+        remaining_text = u"还需 %.3f kg" % remaining
+        next_text = self._next_switch_hint() if remaining <= 0.0005 else ""
+        return tuple(item for item in (next_text, remaining_text) if item)
+
+    def _switch_hint_text(self):
+        """Return the compact text shown above the floating capsule."""
+        return "\n".join(self._switch_hint_lines())
 
     def _switch_hint_width(self):
         # Match the main capsule width so the hint is centered over it rather
@@ -445,18 +447,22 @@ class FloatingBall(QWidget):
 
         # 下一次切换剩余重量/金额：放在胶囊上方的黑底白字小标签中。
         # 这是“本轮还差多少”的提示，不与结账倒计时混在一起。
-        switch_hint = self._switch_hint_text()
-        if switch_hint:
+        switch_hint_lines = self._switch_hint_lines()
+        if switch_hint_lines:
             hint_width = self._switch_hint_width()
+            line_height = 8 if len(switch_hint_lines) > 1 else 14
+            hint_height = line_height * len(switch_hint_lines)
             painter.setBrush(QColor(0, 0, 0, 175))
             painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(1, 1, hint_width, 14, 7, 7)
+            painter.drawRoundedRect(1, 1, hint_width, hint_height, 7, 7)
             painter.setPen(QColor(255, 255, 255))
-            painter.setFont(QFont("Microsoft YaHei", 7, QFont.Bold))
-            painter.drawText(
-                QRect(2, 1, hint_width - 2, 14), Qt.AlignCenter,
-                switch_hint,
-            )
+            painter.setFont(QFont("Microsoft YaHei", 6 if len(switch_hint_lines) > 1 else 7, QFont.Bold))
+            for index, line in enumerate(switch_hint_lines):
+                painter.drawText(
+                    QRect(2, 1 + index * line_height, hint_width - 2, line_height),
+                    Qt.AlignCenter,
+                    line,
+                )
 
         # 出票后倒计时数字放在胶囊右侧，不占用顶部剩余重量和底部状态栏。
         if self._countdown_active and self._countdown_remaining_sec > 0:
